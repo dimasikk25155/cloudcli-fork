@@ -277,6 +277,7 @@ export default function Shell({
         isRestarting={isRestarting}
         hasSession={Boolean(selectedSession)}
         sessionDisplayNameShort={sessionDisplayNameShort}
+        sessionId={selectedSession?.id ?? null}
         onDisconnect={handleDisconnectShell}
         onRestart={handleRestartShell}
         statusNewSessionText={t('shell.status.newSession')}

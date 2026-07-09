@@ -1,7 +1,7 @@
 {
-  "name": "CloudCLI UI",
-  "short_name": "CloudCLI UI",
-  "description": "CloudCLI UI web application",
+  "name": "Claude CLI",
+  "short_name": "Claude CLI",
+  "description": "Claude CLI — мобильный пульт для Claude Code",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

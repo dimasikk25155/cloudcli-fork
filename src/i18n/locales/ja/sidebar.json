@@ -20,7 +20,7 @@
     "runClaudeCli": "プロジェクトディレクトリでClaude CLIを実行して始めましょう"
   },
   "app": {
-    "title": "CloudCLI",
+    "title": "Claude CLI",
     "subtitle": "AIコーディングアシスタント"
   },
   "sessions": {
@@ -65,10 +65,7 @@
     "cancel": "キャンセル",
     "save": "保存",
     "delete": "削除",
-    "rename": "名前の変更",
-    "joinCommunity": "コミュニティに参加",
-    "reportIssue": "問題を報告",
-    "starOnGithub": "GitHubでスター"
+    "rename": "名前の変更"
   },
   "branding": {
     "openSource": "オープンソース"
@@ -126,5 +123,14 @@
     "deleteAllData": "すべてのデータを完全に削除",
     "allConversationsDeleted": "プロジェクトはサイドバーから除去されます。ファイル、メモリ、セッションデータは保持されます。",
     "cannotUndo": "後からプロジェクトを再追加できます。"
+  },
+  "nightshift": {
+    "title": "Runs",
+    "scheduled": "Scheduled",
+    "history": "History",
+    "empty": "Nothing here yet",
+    "close": "Close",
+    "loading": "Loading…",
+    "error": "Failed to load runs data"
   }
 }

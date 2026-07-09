@@ -20,7 +20,7 @@
     "runClaudeCli": "Başlamak için bir proje dizininde Claude CLI çalıştır"
   },
   "app": {
-    "title": "CloudCLI",
+    "title": "Claude CLI",
     "subtitle": "AI kodlama asistanı arayüzü"
   },
   "sessions": {
@@ -66,10 +66,7 @@
     "cancel": "İptal",
     "save": "Kaydet",
     "delete": "Sil",
-    "rename": "Yeniden Adlandır",
-    "joinCommunity": "Topluluğa Katıl",
-    "reportIssue": "Sorun Bildir",
-    "starOnGithub": "GitHub'da Yıldızla"
+    "rename": "Yeniden Adlandır"
   },
   "branding": {
     "openSource": "Açık Kaynak"
@@ -120,8 +117,6 @@
   },
   "search": {
     "modeProjects": "Projeler",
-    "modeConversations": "Konuşmalar",
-    "conversationsPlaceholder": "Konuşmalarda ara...",
     "searching": "Aranıyor...",
     "noResults": "Sonuç bulunamadı",
     "tryDifferentQuery": "Farklı bir arama sorgusu dene",
@@ -140,5 +135,14 @@
     "deleteAllData": "Tüm veriyi kalıcı olarak sil",
     "allConversationsDeleted": "Proje kenar çubuğundan kaldırılacak. Dosyaların, bellek verilerin ve oturum verilerin korunacak.",
     "cannotUndo": "Projeyi sonra tekrar ekleyebilirsin."
+  },
+  "nightshift": {
+    "title": "Runs",
+    "scheduled": "Scheduled",
+    "history": "History",
+    "empty": "Nothing here yet",
+    "close": "Close",
+    "loading": "Loading…",
+    "error": "Failed to load runs data"
   }
 }

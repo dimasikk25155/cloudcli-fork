@@ -20,7 +20,7 @@
     "runClaudeCli": "Führ Claude CLI in einem Projektverzeichnis aus, um zu beginnen"
   },
   "app": {
-    "title": "CloudCLI",
+    "title": "Claude CLI",
     "subtitle": "KI-Programmierassistent-Oberfläche"
   },
   "sessions": {
@@ -66,10 +66,7 @@
     "cancel": "Abbrechen",
     "save": "Speichern",
     "delete": "Löschen",
-    "rename": "Umbenennen",
-    "joinCommunity": "Community beitreten",
-    "reportIssue": "Problem melden",
-    "starOnGithub": "Stern auf GitHub"
+    "rename": "Umbenennen"
   },
   "branding": {
     "openSource": "Open Source"
@@ -120,8 +117,6 @@
   },
   "search": {
     "modeProjects": "Projekte",
-    "modeConversations": "Unterhaltungen",
-    "conversationsPlaceholder": "In Unterhaltungen suchen...",
     "searching": "Sucht...",
     "noResults": "Keine Ergebnisse gefunden",
     "tryDifferentQuery": "Versuch eine andere Suchanfrage",
@@ -140,5 +135,14 @@
     "deleteAllData": "Alle Daten dauerhaft löschen",
     "allConversationsDeleted": "Das Projekt wird aus der Seitenleiste entfernt. Deine Dateien, Erinnerungen und Sitzungsdaten bleiben erhalten.",
     "cannotUndo": "Du kannst das Projekt später erneut hinzufügen."
+  },
+  "nightshift": {
+    "title": "Runs",
+    "scheduled": "Scheduled",
+    "history": "History",
+    "empty": "Nothing here yet",
+    "close": "Close",
+    "loading": "Loading…",
+    "error": "Failed to load runs data"
   }
 }

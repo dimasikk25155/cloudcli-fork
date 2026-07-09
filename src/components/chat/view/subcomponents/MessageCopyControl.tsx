@@ -64,10 +64,15 @@ const MessageCopyControl = ({
     const rect = triggerRef.current?.getBoundingClientRect();
     if (rect) {
       const ESTIMATED_MENU_HEIGHT = 84;
+      const MENU_WIDTH = 144; // matches min-w-36
       const openUp = rect.bottom + ESTIMATED_MENU_HEIGHT + 8 > window.innerHeight;
+      // Right-align to the trigger, but clamp so the menu never leaves the
+      // viewport when the trigger sits near the LEFT edge of the screen.
+      const desiredRight = Math.max(8, window.innerWidth - rect.right);
+      const clampedRight = Math.min(desiredRight, Math.max(8, window.innerWidth - MENU_WIDTH - 8));
       setMenuStyle({
         position: 'fixed',
-        right: Math.max(8, window.innerWidth - rect.right),
+        right: clampedRight,
         zIndex: 1000,
         ...(openUp
           ? { bottom: window.innerHeight - rect.top + 4 }

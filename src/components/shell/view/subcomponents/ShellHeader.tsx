@@ -6,6 +6,7 @@ type ShellHeaderProps = {
   isRestarting: boolean;
   hasSession: boolean;
   sessionDisplayNameShort: string | null;
+  sessionId?: string | null;
   onDisconnect: () => void;
   onRestart: () => void;
   statusNewSessionText: string;
@@ -24,6 +25,7 @@ export default function ShellHeader({
   isRestarting,
   hasSession,
   sessionDisplayNameShort,
+  sessionId = null,
   onDisconnect,
   onRestart,
   statusNewSessionText,
@@ -42,7 +44,17 @@ export default function ShellHeader({
           <div className={`h-2 w-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
 
           {hasSession && sessionDisplayNameShort && (
-            <span className="text-xs text-blue-300">({sessionDisplayNameShort}...)</span>
+            sessionId ? (
+              // Clicking the active session name jumps to that session's chat.
+              <a
+                href={`/session/${sessionId}`}
+                className="text-xs text-blue-300 underline-offset-2 hover:text-blue-200 hover:underline"
+              >
+                ({sessionDisplayNameShort}...)
+              </a>
+            ) : (
+              <span className="text-xs text-blue-300">({sessionDisplayNameShort}...)</span>
+            )
           )}
 
           {!hasSession && <span className="text-xs text-gray-400">{statusNewSessionText}</span>}

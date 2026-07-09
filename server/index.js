@@ -58,6 +58,7 @@ import settingsRoutes from './routes/settings.js';
 import agentRoutes from './routes/agent.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
+import nightshiftRoutes from './modules/nightshift/nightshift.routes.js';
 import userRoutes from './routes/user.js';
 import geminiRoutes from './routes/gemini.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -204,6 +205,8 @@ app.use('/api/commands', authenticateToken, commandsRoutes);
 app.use('/api/settings', authenticateToken, settingsRoutes);
 
 app.use('/api/notifications', authenticateToken, notificationRoutes);
+
+app.use('/api/nightshift', authenticateToken, nightshiftRoutes);
 
 // User API Routes (protected)
 app.use('/api/user', authenticateToken, userRoutes);
@@ -1096,9 +1099,13 @@ app.post('/api/projects/:projectId/upload-images', authenticateToken, async (req
             }
         });
 
+        const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+        const allowedImageExt = /\.(jpe?g|png|gif|webp|svg)$/i;
         const fileFilter = (req, file, cb) => {
-            const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-            if (allowedMimes.includes(file.mimetype)) {
+            // Android WebView gallery picks sometimes arrive with an empty or
+            // generic MIME type; fall back to the filename extension so real
+            // images aren't rejected before they reach the model.
+            if (allowedMimes.includes(file.mimetype) || allowedImageExt.test(file.originalname || '')) {
                 cb(null, true);
             } else {
                 cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
@@ -1126,12 +1133,22 @@ app.post('/api/projects/:projectId/upload-images', authenticateToken, async (req
 
             try {
                 // Process uploaded images
+                const extToMime = {
+                    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml'
+                };
                 const processedImages = await Promise.all(
                     req.files.map(async (file) => {
                         // Read file and convert to base64
                         const buffer = await fs.readFile(file.path);
                         const base64 = buffer.toString('base64');
-                        const mimeType = file.mimetype;
+                        // Prefer a recognized image MIME; otherwise infer it from the
+                        // extension so the data URL (and the temp file the provider
+                        // writes for the model) stays a real image type.
+                        const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+                        const mimeType = allowedMimes.includes(file.mimetype)
+                            ? file.mimetype
+                            : (extToMime[ext] || file.mimetype);
 
                         // Clean up temp file immediately
                         await fs.unlink(file.path);

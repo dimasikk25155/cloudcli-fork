@@ -1,9 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Background fills entire canvas -->
-  <rect x="0" y="0" width="64" height="64" fill="hsl(240 5.9% 10%)"/>
-  
-  <!-- MessageSquare icon - exact same as sidebar -->
-  <g transform="translate(32, 32) scale(1.333) translate(-12, -12)" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Claude CLI favicon: crab on warm ivory rounded tile -->
+  <rect width="64" height="64" rx="14" fill="#FAF9F5"/>
+  <g transform="translate(3.2 3.2) scale(0.9)">
+    <path d="M20 50 Q15 53 11 54" stroke="#C96442" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M23 53 Q20 57 17 59" stroke="#C96442" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M44 50 Q49 53 53 54" stroke="#C96442" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M41 53 Q44 57 47 59" stroke="#C96442" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M19 36 Q11 33 9 27" stroke="#C96442" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M45 36 Q53 33 55 27" stroke="#C96442" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M9.5 21.5 L15 17.6 A6.8 6.8 0 1 0 15 25.4 Z" fill="#D97757"/>
+    <path d="M54.5 21.5 L49 17.6 A6.8 6.8 0 1 1 49 25.4 Z" fill="#D97757"/>
+    <path d="M26.5 31 Q25.5 26 25 22.5" stroke="#C96442" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M37.5 31 Q38.5 26 39 22.5" stroke="#C96442" stroke-width="2.2" stroke-linecap="round"/>
+    <ellipse cx="32" cy="40" rx="15.5" ry="11.5" fill="#D97757"/>
+    <ellipse cx="32" cy="43.5" rx="10.5" ry="6.5" fill="#E08963" opacity="0.55"/>
+    <circle cx="25" cy="20.5" r="4.4" fill="#FFFCF5"/>
+    <circle cx="39" cy="20.5" r="4.4" fill="#FFFCF5"/>
+    <circle cx="25.6" cy="21" r="2" fill="#3D3929"/>
+    <circle cx="39.6" cy="21" r="2" fill="#3D3929"/>
+    <circle cx="24.6" cy="19.6" r="0.8" fill="#FFFFFF"/>
+    <circle cx="38.6" cy="19.6" r="0.8" fill="#FFFFFF"/>
+    <path d="M27.5 41.5 Q32 45.5 36.5 41.5" stroke="#3D3929" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <circle cx="22.5" cy="41" r="1.9" fill="#F0A583" opacity="0.8"/>
+    <circle cx="41.5" cy="41" r="1.9" fill="#F0A583" opacity="0.8"/>
   </g>
 </svg>

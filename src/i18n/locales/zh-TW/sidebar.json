@@ -20,7 +20,7 @@
     "runClaudeCli": "在專案目錄中執行 Claude CLI 以開始使用"
   },
   "app": {
-    "title": "CloudCLI",
+    "title": "Claude CLI",
     "subtitle": "AI 程式開發助手"
   },
   "sessions": {
@@ -65,10 +65,7 @@
     "cancel": "取消",
     "save": "儲存",
     "delete": "刪除",
-    "rename": "重新命名",
-    "joinCommunity": "加入社群",
-    "reportIssue": "回報問題",
-    "starOnGithub": "在 GitHub 上加星"
+    "rename": "重新命名"
   },
   "branding": {
     "openSource": "開源"
@@ -119,8 +116,6 @@
   },
   "search": {
     "modeProjects": "專案",
-    "modeConversations": "對話",
-    "conversationsPlaceholder": "搜尋對話內容...",
     "searching": "搜尋中...",
     "noResults": "找不到結果",
     "tryDifferentQuery": "嘗試不同的搜尋詞",
@@ -139,5 +134,14 @@
     "deleteAllData": "永久刪除所有資料",
     "allConversationsDeleted": "專案將從側邊欄中移除。您的檔案、記憶和工作階段資料將會保留。",
     "cannotUndo": "您可以稍後重新新增此專案。"
+  },
+  "nightshift": {
+    "title": "Runs",
+    "scheduled": "Scheduled",
+    "history": "History",
+    "empty": "Nothing here yet",
+    "close": "Close",
+    "loading": "Loading…",
+    "error": "Failed to load runs data"
   }
 }

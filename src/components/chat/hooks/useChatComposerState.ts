@@ -487,7 +487,11 @@ export function useChatComposerState({
           return false;
         }
 
-        if (!file.type || !file.type.startsWith('image/')) {
+        // Android WebView gallery picks often arrive with an empty or generic
+        // MIME type, so fall back to the filename extension before rejecting.
+        const isImageMime = typeof file.type === 'string' && file.type.startsWith('image/');
+        const hasImageExtension = /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name || '');
+        if (!isImageMime && !hasImageExtension) {
           return false;
         }
 

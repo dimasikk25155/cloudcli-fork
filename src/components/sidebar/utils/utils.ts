@@ -157,7 +157,23 @@ export const filterProjects = (projects: Project[], searchFilter: string): Proje
     // `project.path`/`fullPath` is the most useful search target now that the
     // folder-derived name is gone; fall back to displayName above.
     const searchPath = (project.path || project.fullPath || '').toLowerCase();
-    return displayName.includes(normalizedSearch) || searchPath.includes(normalizedSearch);
+    if (displayName.includes(normalizedSearch) || searchPath.includes(normalizedSearch)) {
+      return true;
+    }
+
+    // Also match by words inside the project's sessions (summary/name), mirroring
+    // archived-project search, so a query finds a project by its conversation
+    // content and not only by its folder name.
+    return getAllSessions(project).some((session) => {
+      const sessionSummary =
+        typeof session.summary === 'string' && session.summary.trim().length > 0
+          ? session.summary
+          : typeof session.name === 'string'
+            ? session.name
+            : '';
+
+      return sessionSummary.toLowerCase().includes(normalizedSearch);
+    });
   });
 };
 

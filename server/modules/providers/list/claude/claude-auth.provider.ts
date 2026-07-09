@@ -78,6 +78,39 @@ export class ClaudeProviderAuth implements IProviderAuth {
   }
 
   /**
+   * On macOS, Claude Code stores OAuth credentials in the login Keychain
+   * ("Claude Code-credentials") instead of ~/.claude/.credentials.json.
+   * Payload shape matches the credentials file. Returns null on any failure
+   * so callers fall through to the other credential sources.
+   */
+  private checkKeychainCredentials(): ClaudeCredentialsStatus | null {
+    try {
+      const result = spawn.sync(
+        'security',
+        ['find-generic-password', '-s', 'Claude Code-credentials', '-w'],
+        { encoding: 'utf8', timeout: 5000 },
+      );
+      if (result.status !== 0 || !result.stdout) {
+        return null;
+      }
+      const creds = readObjectRecord(JSON.parse(result.stdout)) ?? {};
+      const oauth = readObjectRecord(creds.claudeAiOauth);
+      const accessToken = readOptionalString(oauth?.accessToken);
+      if (!accessToken) {
+        return null;
+      }
+      const expiresAt = typeof oauth?.expiresAt === 'number' ? oauth.expiresAt : undefined;
+      if (expiresAt && Date.now() >= expiresAt) {
+        return null;
+      }
+      const email = readOptionalString(creds.email) ?? readOptionalString(creds.user) ?? null;
+      return { authenticated: true, email, method: 'keychain' };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Checks Claude credentials in the same priority order used by Claude Code.
    */
   private async checkCredentials(): Promise<ClaudeCredentialsStatus> {
@@ -98,6 +131,13 @@ export class ClaudeProviderAuth implements IProviderAuth {
 
     if (readOptionalString(settingsEnv.ANTHROPIC_AUTH_TOKEN)) {
       return { authenticated: true, email: 'Configured via settings.json', method: 'api_key' };
+    }
+
+    if (process.platform === 'darwin') {
+      const keychainStatus = this.checkKeychainCredentials();
+      if (keychainStatus) {
+        return keychainStatus;
+      }
     }
 
     try {

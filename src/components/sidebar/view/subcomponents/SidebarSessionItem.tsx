@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, Loader2, Trash2, X } from 'lucide-react';
+import { Check, Edit2, Loader2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Tooltip, buttonVariants } from '../../../../shared/view/ui';
@@ -23,12 +23,6 @@ type SidebarSessionItemProps = {
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
-  onDeleteSession: (
-    projectName: string,
-    sessionId: string,
-    sessionTitle: string,
-    provider: LLMProvider,
-  ) => void;
   t: TFunction;
 };
 
@@ -74,7 +68,6 @@ export default function SidebarSessionItem({
   onSaveEditingSession,
   onProjectSelect,
   onSessionSelect,
-  onDeleteSession,
   t,
 }: SidebarSessionItemProps) {
   const sessionView = createSessionViewModel(session, currentTime, t);
@@ -82,40 +75,49 @@ export default function SidebarSessionItem({
   const isEditing = editingSession === session.id;
   const compactSessionAge = formatCompactSessionAge(sessionView.sessionTime, currentTime);
   const editingContainerRef = useRef<HTMLDivElement>(null);
+  const mobileEditingContainerRef = useRef<HTMLDivElement>(null);
   const showRecentIndicator = !isProcessing && sessionView.isActive;
 
-  // The rename panel sits inside a group-hover opacity wrapper, so leaving the row
-  // would visually hide it. While editing, dismiss only when the user clicks outside
-  // the panel (matches Escape / cancel-button behaviour).
+  const saveEditedSession = () => {
+    onSaveEditingSession(project.projectId, session.id, editingSessionName, session.__provider);
+  };
+
+  // While editing, a tap/click outside the rename panel SAVES the typed name
+  // (or cancels when it is empty). Silently discarding the edit here was the
+  // "rename does not stick" trap: users typed a name and tapped away expecting
+  // it to persist. Explicit cancel stays available via Escape / the ✗ button.
   useEffect(() => {
     if (!isEditing) {
       return;
     }
 
-    const handlePointerDown = (event: MouseEvent) => {
-      const container = editingContainerRef.current;
-      if (container && !container.contains(event.target as Node)) {
+    const handlePointerDown = (event: Event) => {
+      const target = event.target as Node;
+      const desktop = editingContainerRef.current;
+      const mobile = mobileEditingContainerRef.current;
+      if ((desktop && desktop.contains(target)) || (mobile && mobile.contains(target))) {
+        return;
+      }
+      if (editingSessionName.trim()) {
+        saveEditedSession();
+      } else {
         onCancelEditingSession();
       }
     };
 
     document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [isEditing, onCancelEditingSession]);
+    document.addEventListener('touchstart', handlePointerDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+    };
+  });
 
   // Sessions are owned by a project identified by `projectId` (DB primary key)
   // after the projectName → projectId migration.
   const selectMobileSession = () => {
     onProjectSelect(project);
     onSessionSelect(session, project.projectId);
-  };
-
-  const saveEditedSession = () => {
-    onSaveEditingSession(project.projectId, session.id, editingSessionName, session.__provider);
-  };
-
-  const requestDeleteSession = () => {
-    onDeleteSession(project.projectId, session.id, sessionView.sessionName, session.__provider);
   };
 
   return (
@@ -155,40 +157,85 @@ export default function SidebarSessionItem({
               <SessionProviderLogo provider={session.__provider} className="h-3 w-3" />
             </div>
 
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>
-                {isProcessing ? (
-                  <span className="ml-auto flex-shrink-0">
-                    <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
-                      <span className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      </span>
-                    </Tooltip>
-                  </span>
-                ) : compactSessionAge && (
-                  <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">{compactSessionAge}</span>
-                )}
-              </div>
-              <div className="mt-0.5 flex items-center">
-                {sessionView.messageCount > 0 && (
-                  <Badge variant="secondary" className="px-1 py-0 text-xs">
-                    {sessionView.messageCount}
-                  </Badge>
-                )}
-              </div>
-            </div>
-
-            {!isProcessing && (
-              <button
-                className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-red-50 opacity-70 transition-transform active:scale-95 dark:bg-red-900/20"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  requestDeleteSession();
-                }}
+            {isEditing ? (
+              <div
+                ref={mobileEditingContainerRef}
+                className="flex min-w-0 flex-1 items-center gap-1"
+                onClick={(event) => event.stopPropagation()}
               >
-                <Trash2 className="h-2.5 w-2.5 text-red-600 dark:text-red-400" />
-              </button>
+                <input
+                  type="text"
+                  value={editingSessionName}
+                  onChange={(event) => onEditingSessionNameChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === 'Enter') {
+                      saveEditedSession();
+                    } else if (event.key === 'Escape') {
+                      onCancelEditingSession();
+                    }
+                  }}
+                  className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  autoFocus
+                />
+                <button
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-green-50 active:scale-95 dark:bg-green-900/20"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    saveEditedSession();
+                  }}
+                  title={t('tooltips.save')}
+                >
+                  <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                </button>
+                <button
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-gray-50 active:scale-95 dark:bg-gray-900/20"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCancelEditingSession();
+                  }}
+                  title={t('tooltips.cancel')}
+                >
+                  <X className="h-3.5 w-3.5 text-gray-600 dark:text-gray-400" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>
+                    {isProcessing ? (
+                      <span className="ml-auto flex-shrink-0">
+                        <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          </span>
+                        </Tooltip>
+                      </span>
+                    ) : compactSessionAge && (
+                      <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">{compactSessionAge}</span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex items-center">
+                    {sessionView.messageCount > 0 && (
+                      <Badge variant="secondary" className="px-1 py-0 text-xs">
+                        {sessionView.messageCount}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  className="ml-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-muted/50 opacity-70 transition-transform active:scale-95"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onStartEditingSession(session.id, sessionView.sessionName);
+                  }}
+                  title={t('tooltips.editSessionName')}
+                >
+                  <Edit2 className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -316,18 +363,6 @@ export default function SidebarSessionItem({
                 >
                   <Edit2 className="h-3 w-3 text-gray-600 dark:text-gray-400" />
                 </button>
-                {!isProcessing && (
-                  <button
-                    className="flex h-6 w-6 items-center justify-center rounded bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      requestDeleteSession();
-                    }}
-                    title={t('tooltips.deleteSessionOptions', 'Archive or permanently delete this session')}
-                  >
-                    <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
-                  </button>
-                )}
               </>
             )}
           </div>

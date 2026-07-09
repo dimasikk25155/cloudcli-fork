@@ -20,7 +20,7 @@
     "runClaudeCli": "Запустите Claude CLI в каталоге проекта для начала работы"
   },
   "app": {
-    "title": "CloudCLI",
+    "title": "Claude CLI",
     "subtitle": "Интерфейс AI помощника для программирования"
   },
   "sessions": {
@@ -66,10 +66,7 @@
     "cancel": "Отмена",
     "save": "Сохранить",
     "delete": "Удалить",
-    "rename": "Переименовать",
-    "joinCommunity": "Присоединиться к сообществу",
-    "reportIssue": "Сообщить о проблеме",
-    "starOnGithub": "Звезда на GitHub"
+    "rename": "Переименовать"
   },
   "branding": {
     "openSource": "Открытый исходный код"
@@ -120,8 +117,6 @@
   },
   "search": {
     "modeProjects": "Проекты",
-    "modeConversations": "Разговоры",
-    "conversationsPlaceholder": "Поиск в разговорах...",
     "searching": "Поиск...",
     "noResults": "Результаты не найдены",
     "tryDifferentQuery": "Попробуйте другой поисковый запрос",
@@ -146,5 +141,14 @@
     "deleteAllData": "Удалить все данные навсегда",
     "allConversationsDeleted": "Проект будет убран из боковой панели. Ваши файлы, воспоминания и данные сеансов сохранятся.",
     "cannotUndo": "Вы сможете добавить проект позже."
+  },
+  "nightshift": {
+    "title": "Запуски",
+    "scheduled": "Запланировано",
+    "history": "История",
+    "empty": "Пока пусто",
+    "close": "Закрыть",
+    "loading": "Загружаю…",
+    "error": "Не удалось загрузить данные о запусках"
   }
 }
