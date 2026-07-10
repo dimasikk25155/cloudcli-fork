@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from 'express';
 
+import { sessionsDb } from '@/modules/database/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
@@ -401,9 +402,14 @@ router.post(
     const provider = parseProvider(req.params.provider);
     const sessionId = parseSessionId(req.params.sessionId);
     const payload = parseChangeActiveModelPayload(req.body);
+    // The override is read back on resume keyed by the provider-native id
+    // (chat gateway passes provider_session_id to the runtime), while the
+    // client sends the app session id — translate before persisting.
+    const session = sessionsDb.getSessionById(sessionId)
+      ?? sessionsDb.getSessionByProviderSessionId(sessionId);
     const result = await providerModelsService.changeActiveModel(provider, {
       ...payload,
-      sessionId,
+      sessionId: session?.provider_session_id ?? sessionId,
     });
     res.json(createApiSuccessResponse(result));
   }),
