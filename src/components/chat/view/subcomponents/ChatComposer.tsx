@@ -63,6 +63,9 @@ interface ChatComposerProps {
   onAbortSession: () => void;
   permissionMode: PermissionMode | string;
   onModeSwitch: () => void;
+  model: string;
+  availableModelOptions: ProviderModelOption[];
+  onSelectModel: (model: string) => void;
   effort: string;
   availableEffortOptions: NonNullable<ProviderModelOption['effort']>['values'];
   onSelectEffort: (effort: string) => void;
@@ -118,6 +121,9 @@ export default function ChatComposer({
   onAbortSession,
   permissionMode,
   onModeSwitch,
+  model,
+  availableModelOptions,
+  onSelectModel,
   effort,
   availableEffortOptions,
   onSelectEffort,
@@ -205,6 +211,19 @@ export default function ChatComposer({
     top: number;
     maxHeight: number;
   } | null>(null);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
+  const modelDropdownMenuRef = useRef<HTMLDivElement | null>(null);
+  const modelDropdownButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [modelDropdownPosition, setModelDropdownPosition] = useState<{
+    left: number;
+    top: number;
+    maxHeight: number;
+  } | null>(null);
+  const selectedModelLabel = useMemo(
+    () => availableModelOptions.find((option) => option.value === model)?.label ?? model,
+    [availableModelOptions, model],
+  );
   const effortOptions = useMemo(
     () => [{ value: 'default' }, ...availableEffortOptions],
     [availableEffortOptions],
@@ -257,6 +276,54 @@ export default function ChatComposer({
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
   }, [isEffortDropdownOpen, updateEffortDropdownPosition]);
+
+  const updateModelDropdownPosition = useCallback(() => {
+    const rect = modelDropdownButtonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    setModelDropdownPosition({
+      left: rect.left,
+      top: rect.top - 8,
+      maxHeight: Math.max(96, rect.top - 16),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isModelDropdownOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        !modelDropdownRef.current?.contains(target)
+        && !modelDropdownMenuRef.current?.contains(target)
+      ) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsModelDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('resize', updateModelDropdownPosition);
+    window.addEventListener('scroll', updateModelDropdownPosition, true);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    updateModelDropdownPosition();
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('resize', updateModelDropdownPosition);
+      window.removeEventListener('scroll', updateModelDropdownPosition, true);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    };
+  }, [isModelDropdownOpen, updateModelDropdownPosition]);
 
   // Detect if the AskUserQuestion interactive panel is active
   const hasQuestionPanel = pendingPermissionRequests.some(
@@ -443,6 +510,69 @@ export default function ChatComposer({
                 </span>
               </div>
             </button>
+
+            {availableModelOptions.length > 0 && (
+              <div ref={modelDropdownRef} className="relative">
+                <button
+                  ref={modelDropdownButtonRef}
+                  type="button"
+                  onClick={() => {
+                    updateModelDropdownPosition();
+                    setIsModelDropdownOpen((current) => !current);
+                  }}
+                  className="flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
+                  aria-haspopup="menu"
+                  aria-expanded={isModelDropdownOpen}
+                  aria-label={t('input.selectModel')}
+                  title={t('input.selectModel')}
+                >
+                  <span className="hidden text-[11px] text-muted-foreground sm:inline">{t('input.modelLabel')}</span>
+                  <span className="max-w-20 truncate sm:max-w-28">{selectedModelLabel}</span>
+                  <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isModelDropdownOpen && modelDropdownPosition && createPortal(
+                  <div
+                    ref={modelDropdownMenuRef}
+                    className="fixed z-[100] min-w-44 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+                    style={{
+                      left: modelDropdownPosition.left,
+                      top: modelDropdownPosition.top,
+                      maxHeight: modelDropdownPosition.maxHeight,
+                      transform: 'translateY(-100%)',
+                    }}
+                    role="menu"
+                  >
+                    {availableModelOptions.map((option) => {
+                      const isSelected = option.value === model;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={isSelected}
+                          onClick={() => {
+                            onSelectModel(option.value);
+                            setIsModelDropdownOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
+                            isSelected
+                              ? 'bg-accent text-foreground'
+                              : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
+                          }`}
+                        >
+                          <span className="flex h-3 w-3 items-center justify-center">
+                            {isSelected && <Check className="h-3 w-3 text-primary" />}
+                          </span>
+                          <span>{option.label ?? option.value}</span>
+                        </button>
+                      );
+                    })}
+                  </div>,
+                  document.body,
+                )}
+              </div>
+            )}
 
             {availableEffortOptions.length > 0 && (
               <div ref={effortDropdownRef} className="relative">

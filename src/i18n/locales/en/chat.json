@@ -145,7 +145,9 @@
     "clickToChangeMode": "Click to change permission mode (or press Tab in input)",
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
-    "scrollToBottom": "Scroll to bottom"
+    "scrollToBottom": "Scroll to bottom",
+    "modelLabel": "Model",
+    "selectModel": "Select model"
   },
   "providerSelection": {
     "title": "Choose Your AI Assistant",

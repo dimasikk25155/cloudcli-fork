@@ -79,12 +79,14 @@ function ChatInterface({
     pendingPermissionRequests,
     setPendingPermissionRequests,
     cyclePermissionMode,
+    providerModels,
     providerModelCatalog,
     providerModelCacheCatalog,
     providerModelsLoading,
     providerModelsRefreshing,
     hardRefreshProviderModels,
     selectProviderModel,
+    setStoredProviderModel,
     setStoredProviderEffort,
     resolvePermissionModeForProvider,
   } = useChatProviderState({
@@ -388,6 +390,19 @@ function ChatInterface({
           onAbortSession={handleAbortSession}
           permissionMode={permissionMode}
           onModeSwitch={cyclePermissionMode}
+          model={providerModels[provider]}
+          availableModelOptions={providerModelCatalog[provider]?.OPTIONS ?? []}
+          onSelectModel={(nextModel) => {
+            // Local default keeps the label and the next chat.send in sync;
+            // the backend override makes the change stick for this session.
+            setStoredProviderModel(provider, nextModel);
+            const sessionIdForOverride = currentSessionId || selectedSession?.id || null;
+            if (sessionIdForOverride) {
+              selectProviderModel(provider, nextModel, sessionIdForOverride).catch((error) => {
+                console.error('Failed to persist the session model override:', error);
+              });
+            }
+          }}
           effort={currentProviderEffort}
           availableEffortOptions={currentProviderEffortOptions}
           onSelectEffort={(nextEffort) => setStoredProviderEffort(provider, nextEffort)}
