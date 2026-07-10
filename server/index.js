@@ -261,6 +261,14 @@ app.use(express.static(path.join(APP_ROOT, 'dist'), {
 
 // System update endpoint
 app.post('/api/system/update', authenticateToken, async (req, res) => {
+    // This checkout is a customized fork (branch dima/fork-customizations);
+    // the stock git update would check out main and pull upstream over it.
+    if (!IS_PLATFORM && installMode === 'git') {
+        return res.status(501).json({
+            success: false,
+            error: 'In-app updates are disabled on this fork. Update manually: merge origin/main into dima/fork-customizations, run npm run build, then launchctl kickstart -k gui/$(id -u)/com.dimasik.cloudcli. See FORK-NOTES.md.'
+        });
+    }
     try {
         // Get the project root directory (parent of server directory)
         const projectRoot = APP_ROOT;

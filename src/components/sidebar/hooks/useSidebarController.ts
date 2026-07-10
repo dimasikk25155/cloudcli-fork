@@ -90,7 +90,6 @@ export function useSidebarController({
   const [deletingProjects, setDeletingProjects] = useState<Set<string>>(new Set());
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteProjectConfirmation | null>(null);
   const [sessionDeleteConfirmation, setSessionDeleteConfirmation] = useState<SessionDeleteConfirmation | null>(null);
-  const [showVersionModal, setShowVersionModal] = useState(false);
   const [searchMode, setSearchMode] = useState<SidebarSearchMode>('projects');
   const [archivedProjects, setArchivedProjects] = useState<ArchivedProjectListItem[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<ArchivedSessionListItem[]>([]);
@@ -808,7 +807,6 @@ export function useSidebarController({
     loadingMoreProjects,
     deleteConfirmation,
     sessionDeleteConfirmation,
-    showVersionModal,
     filteredProjects,
     runningSessionsCount,
     archivedProjects: filteredArchivedProjects,
@@ -845,6 +843,5 @@ export function useSidebarController({
     setSearchFilter,
     setDeleteConfirmation,
     setSessionDeleteConfirmation,
-    setShowVersionModal,
   };
 }
