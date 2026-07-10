@@ -71,8 +71,6 @@ function ChatInterface({
     setCodexModel,
     currentProviderEffort,
     currentProviderEffortOptions,
-    geminiModel,
-    setGeminiModel,
     opencodeModel,
     setOpenCodeModel,
     permissionMode,
@@ -176,6 +174,9 @@ function ChatInterface({
     isDragActive,
     openImagePicker,
     handleSubmit,
+    queuedDraft,
+    editQueuedDraft,
+    deleteQueuedDraft,
     handleVoiceTranscript,
     handleInputChange,
     handleKeyDown,
@@ -203,7 +204,6 @@ function ChatInterface({
     claudeModel,
     codexModel,
     currentProviderEffort,
-    geminiModel,
     opencodeModel,
     isLoading: isProcessing,
     canAbortSession,
@@ -288,15 +288,18 @@ function ChatInterface({
     handlePermissionDecision,
   }), [pendingPermissionRequests, handlePermissionDecision]);
 
+  // Mirrors ChatComposer's own visibility check so the message pane can
+  // reserve enough bottom space to keep the floating status tab from
+  // overlapping the last message.
+  const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
+
   if (!selectedProject) {
     const selectedProviderLabel =
       provider === 'cursor'
         ? t('messageTypes.cursor')
         : provider === 'codex'
           ? t('messageTypes.codex')
-          : provider === 'gemini'
-            ? t('messageTypes.gemini')
-            : provider === 'opencode'
+          : provider === 'opencode'
               ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
             : t('messageTypes.claude');
 
@@ -323,6 +326,7 @@ function ChatInterface({
           onTouchMove={handleScroll}
           isLoadingSessionMessages={isLoadingSessionMessages}
           isProcessing={isProcessing}
+          hasActivityIndicator={hasActivityIndicator}
           chatMessages={chatMessages}
           selectedSession={selectedSession}
           currentSessionId={currentSessionId}
@@ -335,8 +339,6 @@ function ChatInterface({
           setCursorModel={setCursorModel}
           codexModel={codexModel}
           setCodexModel={setCodexModel}
-          geminiModel={geminiModel}
-          setGeminiModel={setGeminiModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
           providerModelCatalog={providerModelCatalog}
@@ -414,6 +416,9 @@ function ChatInterface({
           onClearInput={handleClearInput}
           onSubmit={handleSubmit}
           isDragActive={isDragActive}
+          queuedDraft={queuedDraft}
+          onEditQueuedDraft={editQueuedDraft}
+          onDeleteQueuedDraft={deleteQueuedDraft}
           attachedImages={attachedImages}
           onRemoveImage={(index) =>
             setAttachedImages((previous) =>
@@ -454,9 +459,7 @@ function ChatInterface({
                 ? t('messageTypes.cursor')
                 : provider === 'codex'
                   ? t('messageTypes.codex')
-                  : provider === 'gemini'
-                    ? t('messageTypes.gemini')
-                    : provider === 'opencode'
+                  : provider === 'opencode'
                       ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
                     : t('messageTypes.claude'),
           })}

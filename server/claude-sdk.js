@@ -19,6 +19,7 @@ import path from 'path';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
+import { buildClaudeUserContent, normalizeImageDescriptors } from './shared/image-attachments.js';
 import { CLAUDE_FALLBACK_MODELS } from './modules/providers/list/claude/claude-models.provider.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
@@ -236,16 +237,13 @@ function mapCliOptionsToSDK(options = {}) {
  * Adds a session to the active sessions map
  * @param {string} sessionId - Session identifier
  * @param {Object} queryInstance - SDK query instance
- * @param {Array<string>} tempImagePaths - Temp image file paths for cleanup
- * @param {string} tempDir - Temp directory for cleanup
+ * @param {Object} writer - WebSocket writer for reconnect support
  */
-function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null, writer = null) {
+function addSession(sessionId, queryInstance, writer = null) {
   activeSessions.set(sessionId, {
     instance: queryInstance,
     startTime: Date.now(),
     status: 'active',
-    tempImagePaths,
-    tempDir,
     writer
   });
 }
@@ -364,69 +362,35 @@ function extractTokenBudget(sdkMessage) {
 }
 
 /**
- * Cleans up temporary image files
- * @param {Array<string>} tempImagePaths - Array of temp file paths to delete
- * @param {string} tempDir - Temp directory to remove
+ * Builds the SDK `prompt` payload for one turn.
+ *
+ * Plain text turns pass the string through unchanged. Turns with image
+ * attachments use the SDK's streaming-input mode: a single SDKUserMessage
+ * whose content carries the prompt text plus one base64 `image` block per
+ * attachment (read from the global `~/.cloudcli/assets` folder).
+ *
+ * @param {string} command - User prompt
+ * @param {Array} images - Image descriptors ({ path, name?, mimeType? })
+ * @param {string} cwd - Project working directory image paths resolve against
+ * @returns {Promise<string|AsyncIterable>} SDK prompt payload
  */
-async function cleanupTempFiles(tempImagePaths, tempDir) {
-  if (!tempImagePaths || tempImagePaths.length === 0) {
-    return;
+async function buildPromptPayload(command, images, cwd) {
+  if (normalizeImageDescriptors(images).length === 0) {
+    return command;
   }
 
-  try {
-    // Delete individual temp files
-    for (const imagePath of tempImagePaths) {
-      await fs.unlink(imagePath).catch(err =>
-        console.error(`Failed to delete temp image ${imagePath}:`, err)
-      );
-    }
-
-    // Delete temp directory
-    if (tempDir) {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(err =>
-        console.error(`Failed to delete temp directory ${tempDir}:`, err)
-      );
-    }
-
-    // Temp files cleaned
-  } catch (error) {
-    console.error('Error during temp file cleanup:', error);
-  }
-}
-
-/**
- * Converts uploaded images (base64 data URLs from the upload endpoint) into
- * native Anthropic image content blocks, so they ride along inside the user
- * message instead of being written to temp files whose paths the model has to
- * choose to Read. Unsupported types and malformed data are skipped, not fatal.
- * @param {Array<{data?: string}>} images
- * @returns {Array<{type: 'image', source: {type: 'base64', media_type: string, data: string}}>}
- */
-function buildImageBlocks(images) {
-  if (!Array.isArray(images) || images.length === 0) {
-    return [];
-  }
-  const supported = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-  const blocks = [];
-  for (const image of images) {
-    const match = typeof image?.data === 'string'
-      ? image.data.match(/^data:([^;]+);base64,(.+)$/)
-      : null;
-    if (!match) {
-      console.error('Skipping image with invalid data format');
-      continue;
-    }
-    const [, mediaType, base64Data] = match;
-    if (!supported.has(mediaType)) {
-      console.error(`Skipping image with unsupported media type: ${mediaType}`);
-      continue;
-    }
-    blocks.push({
-      type: 'image',
-      source: { type: 'base64', media_type: mediaType, data: base64Data },
-    });
-  }
-  return blocks;
+  const content = await buildClaudeUserContent(command, images, cwd);
+  return (async function* () {
+    yield {
+      type: 'user',
+      message: {
+        role: 'user',
+        content
+      },
+      parent_tool_use_id: null,
+      timestamp: new Date().toISOString()
+    };
+  })();
 }
 
 /**
@@ -497,8 +461,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
   const { sessionId, sessionSummary } = options;
   let capturedSessionId = sessionId;
   let sessionCreatedSent = false;
-  let tempImagePaths = [];
-  let tempDir = null;
 
   const emitNotification = (event) => {
     notifyUserIfEnabled({
@@ -532,12 +494,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sdkOptions.mcpServers = mcpServers;
     }
 
-    // Images ride along as native content blocks (streaming input) so the model
-    // always sees them — even with an empty caption — instead of the old
-    // temp-file-path-in-prompt trick that dropped uncaptioned images and relied
-    // on the model choosing to Read the file. tempImagePaths/tempDir stay empty.
-    const imageBlocks = buildImageBlocks(options.images);
-    const finalCommand = command;
+    // Turns with image attachments switch to streaming input so the images
+    // ride along as real content blocks. Built per query attempt because an
+    // async generator cannot be replayed once consumed.
+    const createPrompt = () => buildPromptPayload(command, options.images, options.cwd);
 
     sdkOptions.hooks = {
       Notification: [{
@@ -641,27 +601,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
     const prevStreamTimeout = process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
     process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '300000';
 
-    // Text-only sends keep the plain string prompt (unchanged codepath for the
-    // resume-sensitive majority). Only image-bearing sends use streaming input.
-    // A factory, not a value: each query() call needs a fresh single-use generator.
-    const buildPrompt = () => {
-      if (imageBlocks.length === 0) {
-        return finalCommand;
-      }
-      const content = [];
-      if (finalCommand && finalCommand.trim()) {
-        content.push({ type: 'text', text: finalCommand });
-      }
-      content.push(...imageBlocks);
-      return (async function* () {
-        yield { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null };
-      })();
-    };
-
     let queryInstance;
     try {
       queryInstance = query({
-        prompt: buildPrompt(),
+        prompt: await createPrompt(),
         options: sdkOptions
       });
     } catch (hookError) {
@@ -670,7 +613,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
       delete sdkOptions.hooks;
       queryInstance = query({
-        prompt: buildPrompt(),
+        prompt: await createPrompt(),
         options: sdkOptions
       });
     }
@@ -684,7 +627,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Track the query instance for abort capability
     if (capturedSessionId) {
-      addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws);
+      addSession(capturedSessionId, queryInstance, ws);
     }
 
     // Process streaming messages
@@ -694,7 +637,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
-        addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws);
+        addSession(capturedSessionId, queryInstance, ws);
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -736,9 +679,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
       removeSession(capturedSessionId);
     }
 
-    // Clean up temporary image files
-    await cleanupTempFiles(tempImagePaths, tempDir);
-
     // Send the terminal completion event — skipped for aborted runs, whose
     // terminal `complete` (aborted: true) was already sent by abort-session.
     const wasAborted = capturedSessionId ? abortedSessionIds.delete(capturedSessionId) : false;
@@ -748,9 +688,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     notifyRunStopped({
       userId: ws?.userId || null,
       provider: 'claude',
-      // The push deep-links to /session/<id>, a route keyed by the app session
-      // id — not the provider-native id the runtime works with.
-      sessionId: options.appSessionId || capturedSessionId || sessionId || null,
+      sessionId: capturedSessionId || sessionId || null,
       sessionName: sessionSummary,
       stopReason: wasAborted ? 'aborted' : 'completed'
     });
@@ -763,9 +701,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
     if (capturedSessionId) {
       removeSession(capturedSessionId);
     }
-
-    // Clean up temporary image files on error
-    await cleanupTempFiles(tempImagePaths, tempDir);
 
     const wasAborted = capturedSessionId ? abortedSessionIds.delete(capturedSessionId) : false;
     if (wasAborted) {
@@ -818,9 +753,6 @@ async function abortClaudeSDKSession(sessionId) {
 
     // Update session status
     session.status = 'aborted';
-
-    // Clean up temporary image files
-    await cleanupTempFiles(session.tempImagePaths, session.tempDir);
 
     // Clean up session
     removeSession(sessionId);
