@@ -51,7 +51,8 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     switch (msg.kind) {
       case 'text': {
         const content = msg.content || '';
-        if (!content.trim()) continue;
+        // An attachment sent without a caption is a message with images and no text.
+        if (!content.trim() && !msg.images?.length) continue;
 
         if (msg.role === 'user') {
           // Parse task notifications
@@ -71,6 +72,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
               type: 'user',
               content: unescapeWithMathProtection(decodeHtmlEntities(content)),
               timestamp: msg.timestamp,
+              ...(msg.images?.length ? { images: msg.images } : {}),
               ...sharedMetadata,
             });
           }

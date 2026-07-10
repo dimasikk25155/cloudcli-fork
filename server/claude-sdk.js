@@ -748,7 +748,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
     notifyRunStopped({
       userId: ws?.userId || null,
       provider: 'claude',
-      sessionId: capturedSessionId || sessionId || null,
+      // The push deep-links to /session/<id>, a route keyed by the app session
+      // id — not the provider-native id the runtime works with.
+      sessionId: options.appSessionId || capturedSessionId || sessionId || null,
       sessionName: sessionSummary,
       stopReason: wasAborted ? 'aborted' : 'completed'
     });

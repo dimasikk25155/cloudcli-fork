@@ -473,6 +473,45 @@ app.post('/api/create-folder', authenticateToken, async (req, res) => {
     }
 });
 
+const BINARY_SNIFF_BYTES = 8192;
+
+/**
+ * Detects binary files so the text endpoints never touch them. Reading a binary
+ * as utf8 turns every invalid byte into U+FFFD, and writing that back destroys
+ * the file. A NUL byte catches nearly every binary format; an invalid utf8
+ * sequence catches the rest. Missing/unreadable files are treated as non-binary
+ * so the callers keep their existing ENOENT and create-new-file behaviour.
+ */
+async function isBinaryFile(resolved) {
+    let handle;
+    try {
+        handle = await fsPromises.open(resolved, 'r');
+        const { size } = await handle.stat();
+        if (size === 0) return false;
+
+        const length = Math.min(size, BINARY_SNIFF_BYTES);
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, 0);
+
+        if (buffer.includes(0)) return true;
+
+        // A truncated sniff can split a multi-byte character, so only trust the
+        // strict decoder when the whole file was read.
+        if (size <= BINARY_SNIFF_BYTES) {
+            try {
+                new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+            } catch {
+                return true;
+            }
+        }
+        return false;
+    } catch {
+        return false;
+    } finally {
+        await handle?.close();
+    }
+}
+
 // Read file content endpoint
 app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => {
     try {
@@ -499,6 +538,12 @@ app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
         const normalizedRoot = path.resolve(projectRoot) + path.sep;
         if (!resolved.startsWith(normalizedRoot)) {
             return res.status(403).json({ error: 'Path must be under project root' });
+        }
+
+        if (await isBinaryFile(resolved)) {
+            return res.status(415).json({
+                error: 'Binary file. Use the download endpoint (files/content) instead of the text editor.'
+            });
         }
 
         const content = await fsPromises.readFile(resolved, 'utf8');
@@ -602,6 +647,15 @@ app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
         const normalizedRoot = path.resolve(projectRoot) + path.sep;
         if (!resolved.startsWith(normalizedRoot)) {
             return res.status(403).json({ error: 'Path must be under project root' });
+        }
+
+        // Never let a utf8 write land on a binary file: every invalid byte was
+        // already replaced with U+FFFD on read, so saving would destroy it
+        // (a 1.1MB APK came back as 1.8MB of replacement characters).
+        if (await isBinaryFile(resolved)) {
+            return res.status(415).json({
+                error: 'Refusing to overwrite a binary file through the text editor.'
+            });
         }
 
         // Write the new content
