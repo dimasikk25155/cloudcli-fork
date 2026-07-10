@@ -364,62 +364,6 @@ function extractTokenBudget(sdkMessage) {
 }
 
 /**
- * Handles image processing for SDK queries
- * Saves base64 images to temporary files and returns modified prompt with file paths
- * @param {string} command - Original user prompt
- * @param {Array} images - Array of image objects with base64 data
- * @param {string} cwd - Working directory for temp file creation
- * @returns {Promise<Object>} {modifiedCommand, tempImagePaths, tempDir}
- */
-async function handleImages(command, images, cwd) {
-  const tempImagePaths = [];
-  let tempDir = null;
-
-  if (!images || images.length === 0) {
-    return { modifiedCommand: command, tempImagePaths, tempDir };
-  }
-
-  try {
-    // Create temp directory in the project directory
-    const workingDir = cwd || process.cwd();
-    tempDir = path.join(workingDir, '.tmp', 'images', Date.now().toString());
-    await fs.mkdir(tempDir, { recursive: true });
-
-    // Save each image to a temp file
-    for (const [index, image] of images.entries()) {
-      // Extract base64 data and mime type
-      const matches = image.data.match(/^data:([^;]+);base64,(.+)$/);
-      if (!matches) {
-        console.error('Invalid image data format');
-        continue;
-      }
-
-      const [, mimeType, base64Data] = matches;
-      const extension = mimeType.split('/')[1] || 'png';
-      const filename = `image_${index}.${extension}`;
-      const filepath = path.join(tempDir, filename);
-
-      // Write base64 data to file
-      await fs.writeFile(filepath, Buffer.from(base64Data, 'base64'));
-      tempImagePaths.push(filepath);
-    }
-
-    // Include the full image paths in the prompt
-    let modifiedCommand = command;
-    if (tempImagePaths.length > 0 && command && command.trim()) {
-      const imageNote = `\n\n[Images provided at the following paths:]\n${tempImagePaths.map((p, i) => `${i + 1}. ${p}`).join('\n')}`;
-      modifiedCommand = command + imageNote;
-    }
-
-    // Images processed
-    return { modifiedCommand, tempImagePaths, tempDir };
-  } catch (error) {
-    console.error('Error processing images for SDK:', error);
-    return { modifiedCommand: command, tempImagePaths, tempDir };
-  }
-}
-
-/**
  * Cleans up temporary image files
  * @param {Array<string>} tempImagePaths - Array of temp file paths to delete
  * @param {string} tempDir - Temp directory to remove
@@ -448,6 +392,41 @@ async function cleanupTempFiles(tempImagePaths, tempDir) {
   } catch (error) {
     console.error('Error during temp file cleanup:', error);
   }
+}
+
+/**
+ * Converts uploaded images (base64 data URLs from the upload endpoint) into
+ * native Anthropic image content blocks, so they ride along inside the user
+ * message instead of being written to temp files whose paths the model has to
+ * choose to Read. Unsupported types and malformed data are skipped, not fatal.
+ * @param {Array<{data?: string}>} images
+ * @returns {Array<{type: 'image', source: {type: 'base64', media_type: string, data: string}}>}
+ */
+function buildImageBlocks(images) {
+  if (!Array.isArray(images) || images.length === 0) {
+    return [];
+  }
+  const supported = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+  const blocks = [];
+  for (const image of images) {
+    const match = typeof image?.data === 'string'
+      ? image.data.match(/^data:([^;]+);base64,(.+)$/)
+      : null;
+    if (!match) {
+      console.error('Skipping image with invalid data format');
+      continue;
+    }
+    const [, mediaType, base64Data] = match;
+    if (!supported.has(mediaType)) {
+      console.error(`Skipping image with unsupported media type: ${mediaType}`);
+      continue;
+    }
+    blocks.push({
+      type: 'image',
+      source: { type: 'base64', media_type: mediaType, data: base64Data },
+    });
+  }
+  return blocks;
 }
 
 /**
@@ -553,10 +532,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sdkOptions.mcpServers = mcpServers;
     }
 
-    const imageResult = await handleImages(command, options.images, options.cwd);
-    const finalCommand = imageResult.modifiedCommand;
-    tempImagePaths = imageResult.tempImagePaths;
-    tempDir = imageResult.tempDir;
+    // Images ride along as native content blocks (streaming input) so the model
+    // always sees them — even with an empty caption — instead of the old
+    // temp-file-path-in-prompt trick that dropped uncaptioned images and relied
+    // on the model choosing to Read the file. tempImagePaths/tempDir stay empty.
+    const imageBlocks = buildImageBlocks(options.images);
+    const finalCommand = command;
 
     sdkOptions.hooks = {
       Notification: [{
@@ -660,10 +641,27 @@ async function queryClaudeSDK(command, options = {}, ws) {
     const prevStreamTimeout = process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
     process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '300000';
 
+    // Text-only sends keep the plain string prompt (unchanged codepath for the
+    // resume-sensitive majority). Only image-bearing sends use streaming input.
+    // A factory, not a value: each query() call needs a fresh single-use generator.
+    const buildPrompt = () => {
+      if (imageBlocks.length === 0) {
+        return finalCommand;
+      }
+      const content = [];
+      if (finalCommand && finalCommand.trim()) {
+        content.push({ type: 'text', text: finalCommand });
+      }
+      content.push(...imageBlocks);
+      return (async function* () {
+        yield { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null };
+      })();
+    };
+
     let queryInstance;
     try {
       queryInstance = query({
-        prompt: finalCommand,
+        prompt: buildPrompt(),
         options: sdkOptions
       });
     } catch (hookError) {
@@ -672,7 +670,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
       delete sdkOptions.hooks;
       queryInstance = query({
-        prompt: finalCommand,
+        prompt: buildPrompt(),
         options: sdkOptions
       });
     }
