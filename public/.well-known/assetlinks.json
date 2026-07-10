@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ru.tarariev.claudecli",
+      "sha256_cert_fingerprints": [
+        "5A:4C:67:51:11:3F:55:BB:61:5C:33:95:96:CF:1D:86:19:D8:C5:5F:74:B3:22:72:5A:D3:C5:4D:24:8D:9B:19"
+      ]
+    }
+  }
+]

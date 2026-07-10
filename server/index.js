@@ -231,6 +231,11 @@ app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
 
+// Digital Asset Links for the Android TWA (ru.tarariev.claudecli). express.static
+// ignores dotfiles by default, so .well-known must be mounted explicitly or
+// /.well-known/assetlinks.json would 404 and the TWA would fall back to a browser bar.
+app.use('/.well-known', express.static(path.join(APP_ROOT, 'public', '.well-known')));
+
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(APP_ROOT, 'public')));
 
