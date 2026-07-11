@@ -42,7 +42,10 @@ const pendingToolApprovals = new Map();
 // emit a second one when its generator winds down.
 const abortedSessionIds = new Set();
 
-const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
+// 5 minutes: the web client is often a phone that is not being watched the
+// moment a tool asks for permission — 55s meant requests silently expired
+// (denied) before the user ever saw the banner or the push notification.
+const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 300000;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
