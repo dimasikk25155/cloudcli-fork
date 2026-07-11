@@ -32,6 +32,7 @@ import {
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
+import { recordRunOutcome } from './shared/run-outcomes.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
@@ -692,6 +693,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sessionName: sessionSummary,
       stopReason: wasAborted ? 'aborted' : 'completed'
     });
+    // Persist how this run ended so history reload can show it even if the
+    // client was disconnected when the terminal event fired.
+    recordRunOutcome(capturedSessionId || sessionId || null, {
+      status: wasAborted ? 'aborted' : 'completed'
+    });
     // Complete
 
   } catch (error) {
@@ -706,6 +712,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     if (wasAborted) {
       // The abort already produced the terminal complete; a generator throw
       // caused by interrupt() is expected noise, not a user-facing error.
+      recordRunOutcome(capturedSessionId || sessionId || null, { status: 'aborted' });
       return;
     }
 
@@ -724,6 +731,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sessionId: capturedSessionId || sessionId || null,
       sessionName: sessionSummary,
       error
+    });
+    // Persist the failure reason so a reload of this session surfaces a durable
+    // "run interrupted" marker instead of a transcript that silently ends on a
+    // tool call (limit hit, API connection dropped, stream aborted mid-turn).
+    recordRunOutcome(capturedSessionId || sessionId || null, {
+      status: 'failed',
+      reason: errorContent
     });
   }
 }

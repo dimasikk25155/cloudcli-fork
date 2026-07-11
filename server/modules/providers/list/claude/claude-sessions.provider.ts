@@ -6,9 +6,33 @@ import readline from 'node:readline';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
+import { readRunOutcome } from '@/shared/run-outcomes.js';
 import { sessionsDb } from '@/modules/database/index.js';
 
 const PROVIDER = 'claude';
+
+/**
+ * Turns a raw SDK failure string into a short, human-readable notice shown in
+ * the chat when a run died mid-turn. Keeps the original reason as a fallback.
+ */
+function buildRunInterruptedNotice(reason: string | null): string {
+  const r = (reason || '').toLowerCase();
+  let cause: string;
+  if (r.includes('session limit')) {
+    cause = 'достигнут лимит подписки Claude — дождись сброса лимита.';
+  } else if (r.includes('connection closed') || r.includes('closed mid-response') || r.includes('connection error')) {
+    cause = 'оборвалась связь с API Anthropic посреди ответа.';
+  } else if (r.includes('ede_diagnostic') || r.includes('stop_reason=tool_use')) {
+    cause = 'поток оборвался на вызове инструмента (сеть/таймаут).';
+  } else if (r.includes('not installed')) {
+    cause = reason || 'Claude Code не установлен.';
+  } else if (reason) {
+    cause = reason;
+  } else {
+    cause = 'прогон завершился без финального ответа.';
+  }
+  return `⏹ Прогон прерван — финального ответа нет.\nПричина: ${cause}\nОтправь сообщение заново, чтобы продолжить.`;
+}
 
 type ClaudeToolResult = {
   content: unknown;
@@ -223,6 +247,24 @@ function isInternalContent(content: string): boolean {
 }
 
 /**
+ * The persisted JSONL transcript marks harness-synthesized user turns (stop
+ * hook feedback, Skill-tool continuations, etc.) with `isMeta: true`. The
+ * live SDK stream (the `query()` async generator) never sets that field —
+ * the same thing shows up there as `isSynthetic: true` and/or a non-`human`
+ * `origin` (see `SDKUserMessage`/`SDKMessageOrigin` in
+ * `@anthropic-ai/claude-agent-sdk`). Checking only `isMeta` hides these
+ * correctly on reload but lets them render as if the user typed them during
+ * a live turn — this checks every signal so both paths agree.
+ */
+function isNonHumanUserTurn(raw: AnyRecord): boolean {
+  if (raw.isMeta === true || raw.isSynthetic === true) {
+    return true;
+  }
+  const origin = readObjectRecord(raw.origin);
+  return typeof origin?.kind === 'string' && origin.kind !== 'human';
+}
+
+/**
  * Claude wraps local slash-command metadata in lightweight XML-like tags inside
  * a plain string payload. We intentionally parse only the small tag surface we
  * care about instead of introducing a generic XML parser for untrusted history.
@@ -311,7 +353,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
     const ts = raw.timestamp || new Date().toISOString();
     const baseId = raw.uuid || generateMessageId('claude');
 
-    if (raw.message?.role === 'user' && raw.message?.content && raw.isMeta !== true) {
+    if (raw.message?.role === 'user' && raw.message?.content && !isNonHumanUserTurn(raw)) {
       if (Array.isArray(raw.message.content)) {
         // Image attachments sent through the SDK are persisted as base64
         // `image` blocks next to the prompt text. Collect them so the UI can
@@ -638,6 +680,32 @@ export class ClaudeSessionsProvider implements IProviderSessions {
         };
         msg.subagentTools = toolResult.subagentTools;
       }
+    }
+
+    // If the last run for this session failed and the transcript never closed
+    // with an assistant answer (it ends on a tool call/thinking), append a
+    // durable "run interrupted" marker with the reason. This survives reloads
+    // and session switches, so the chat never silently ends on a Bash command.
+    try {
+      const outcome = await readRunOutcome(providerSessionId);
+      if (outcome?.status === 'failed') {
+        const last = normalized[normalized.length - 1];
+        const endedWithoutAnswer =
+          !last || last.kind === 'tool_use' || last.kind === 'tool_result' || last.kind === 'thinking';
+        if (endedWithoutAnswer) {
+          normalized.push(createNormalizedMessage({
+            id: `${providerSessionId}_run_interrupted_${outcome.at}`,
+            sessionId,
+            timestamp: outcome.at,
+            provider: PROVIDER,
+            kind: 'text',
+            role: 'assistant',
+            content: buildRunInterruptedNotice(outcome.reason),
+          }));
+        }
+      }
+    } catch {
+      // Never let outcome lookup break history loading.
     }
 
     let total = 0;
