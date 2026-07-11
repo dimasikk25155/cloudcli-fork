@@ -18,17 +18,44 @@ visible in Settings → About.
 ```bash
 cd cloudcli-fork
 git fetch origin
-git merge origin/main        # on dima/fork-customizations
+git switch -c dima/merge-upstream   # work on a throwaway branch; keep the
+                                     # deployed branch as a fallback until green
+git merge origin/main
 # resolve conflicts, then:
-npm install
+npm install --ignore-scripts        # see "npm install / ripgrep gotcha" below
+npm rebuild better-sqlite3          # native addon, skipped by --ignore-scripts
 npm run typecheck && npm run build
+# smoke on 3002 with a temp HOME so prod's ~/.cloudcli stays untouched:
+#   HOME=$(mktemp -d) HOST=127.0.0.1 PORT=3002 SERVER_PORT=3002 \
+#   WORKSPACES_ROOT=$HOME/projects node dist-server/server/index.js
+# then fast-forward the deployed branch and restart:
+git switch dima/fork-customizations && git merge --ff-only dima/merge-upstream
 launchctl kickstart -k gui/$(id -u)/com.dimasik.cloudcli
 git push backup dima/fork-customizations
 ```
 
-Known conflict hotspots vs our deltas: `server/index.js` (upload-images region),
-`src/components/chat/hooks/useChatComposerState.ts`, `SidebarSessionItem.tsx`,
-and `sidebar.json` across all 10 locales.
+### npm install / ripgrep gotcha (bites every merge)
+`npm install` runs `@vscode/ripgrep`'s postinstall, which downloads the `rg`
+binary from GitHub releases — this **403s on Dima's network** (DNS filtering) and
+aborts the whole install. Workaround: `npm install --ignore-scripts`, then
+restore the two things `--ignore-scripts` skipped:
+- `npm rebuild better-sqlite3` (native addon; without it the server crashes on boot).
+- ripgrep binary: `cp /opt/homebrew/bin/rg node_modules/@vscode/ripgrep/bin/rg`
+  (the search-across-sessions feature spawns `rgPath`; system rg 15.x is CLI-compatible).
+  Without it the server still boots but session search throws `spawn ENOENT` at use.
+
+Known conflict hotspots vs our deltas: `useChatComposerState.ts`, `MessageComponent.tsx`,
+`useChatMessages.ts`, `SidebarSessionItem.tsx`, `claude-sdk.js` /
+`claude-sessions.provider.ts` (image handling), and `chat.json` across all 10 locales.
+The old `/api/projects/:id/upload-images` endpoint is gone — chat image uploads
+moved upstream to `POST /api/assets/images` (`server/modules/assets`).
+
+### Merge history
+- **2026-07-11**: merged origin/main → **v1.36.1**. Brought upstream's queued-message
+  feature (type while a turn runs → message is stashed and auto-sent when it finishes,
+  instead of only offering Stop). Fork's temp-file image work was superseded by
+  upstream's native-image-block + `~/.cloudcli/assets` approach; the Android
+  MIME-by-extension fallback was ported into the new assets service.
 
 ## Intentional fork deltas
 
