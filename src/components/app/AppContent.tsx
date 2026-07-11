@@ -168,7 +168,13 @@ function AppContentInner() {
         return;
       }
 
-      navigate('/');
+      // No resolvable session id in the payload. Never yank the user off a
+      // session they're already viewing onto the empty New Session screen —
+      // that's the "idle redirect" bug. Only fall back to the root when we
+      // aren't already on a session route.
+      if (!window.location.pathname.startsWith('/session/')) {
+        navigate('/');
+      }
     };
 
     navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);

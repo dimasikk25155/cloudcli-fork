@@ -234,6 +234,11 @@ export function useChatComposerState({
   const handleSubmitRef = useRef<
     ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
   >(null);
+  // Re-entrancy guard: a brand-new conversation allocates its session id via an
+  // async POST inside handleSubmit. Two rapid taps (or Enter + click) both see
+  // no session id yet and would each create a session, spawning two parallel
+  // runs. This flag is set synchronously so only one submit is ever in flight.
+  const isSubmittingRef = useRef(false);
   const inputValueRef = useRef(input);
   const selectedProjectId = selectedProject?.projectId;
   // Prefer the stable backend-allocated id (selectedSession.id) but fall back
@@ -657,6 +662,13 @@ export function useChatComposerState({
         return;
       }
 
+      // Block overlapping submits (double-tap / Enter+click) — see isSubmittingRef.
+      if (isSubmittingRef.current) {
+        return;
+      }
+      isSubmittingRef.current = true;
+      try {
+
       // A turn is already in flight: stash this message instead of sending it.
       // It's auto-flushed (re-running this same function) once the turn ends,
       // so it still goes through slash-command interception, image upload, etc.
@@ -845,6 +857,9 @@ export function useChatComposerState({
       }
 
       safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+      } finally {
+        isSubmittingRef.current = false;
+      }
     },
     [
       selectedSession,
