@@ -33,6 +33,7 @@ import { sessionsService } from './modules/providers/services/sessions.service.j
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { recordRunOutcome } from './shared/run-outcomes.js';
+import { checkUsageGuard, buildUsageGuardNotice } from './shared/claude-usage.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
@@ -462,6 +463,23 @@ async function queryClaudeSDK(command, options = {}, ws) {
   const { sessionId, sessionSummary } = options;
   let capturedSessionId = sessionId;
   let sessionCreatedSent = false;
+
+  // Usage guard: hold new runs once the 5-hour subscription window crosses the
+  // threshold, keeping a reserve for the owner's interactive questions. The
+  // composer resends with usageGuardOverride after an explicit confirmation.
+  // Fails open — unknown usage never blocks a run.
+  if (options.usageGuardOverride !== true) {
+    try {
+      const guard = await checkUsageGuard();
+      if (guard.blocked) {
+        ws.send(createNormalizedMessage({ kind: 'error', content: buildUsageGuardNotice(guard), sessionId: sessionId || null, provider: 'claude' }));
+        ws.send(createCompleteMessage({ provider: 'claude', sessionId: sessionId || null, exitCode: 1 }));
+        return;
+      }
+    } catch (guardError) {
+      console.warn('[Claude SDK] Usage guard check failed, letting the run through:', guardError);
+    }
+  }
 
   const emitNotification = (event) => {
     notifyUserIfEnabled({

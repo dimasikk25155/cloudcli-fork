@@ -36,6 +36,7 @@ import ImageAttachment from './ImageAttachment';
 import VoiceInputButton from './VoiceInputButton';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
+import UsageLimitsBadge from './UsageLimitsBadge';
 import QueuedMessageCard from './QueuedMessageCard';
 
 interface MentionableFile {
@@ -665,6 +666,8 @@ export default function ChatComposer({
             )}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+
+            <UsageLimitsBadge />
 
             <PromptInputButton
               tooltip={{ content: t('input.showAllCommands') }}

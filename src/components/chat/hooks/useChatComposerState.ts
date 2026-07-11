@@ -12,6 +12,7 @@ import type {
 import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
+import { getUsageLimits } from '../../../utils/usageLimits';
 import type { MarkSessionProcessing } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import {
@@ -731,6 +732,24 @@ export function useChatComposerState({
 
       const messageContent = currentInput;
 
+      // Usage guard: past the threshold of the 5-hour subscription window the
+      // server holds new runs (the remainder is a reserve for interactive
+      // questions). Ask for explicit confirmation and, if given, send the
+      // override flag the server honors. Cancel keeps the composed input.
+      let usageGuardOverride = false;
+      const usageLimits = getUsageLimits();
+      if (usageLimits?.blocked) {
+        const pctInfo = usageLimits.fiveHourPct === null
+          ? ''
+          : ` (использовано ${Math.round(usageLimits.fiveHourPct)}%)`;
+        usageGuardOverride = window.confirm(
+          `⛔ 5-часовой лимит подписки почти исчерпан${pctInfo}. Остаток зарезервирован под личные вопросы.\n\nВсё равно запустить прогон?`,
+        );
+        if (!usageGuardOverride) {
+          return;
+        }
+      }
+
       let uploadedImages: unknown[] = [];
       if (attachedImages.length > 0) {
         const formData = new FormData();
@@ -841,6 +860,7 @@ export function useChatComposerState({
         options: {
           ...buildSendOptions(messageContent),
           images: uploadedImages,
+          ...(usageGuardOverride ? { usageGuardOverride: true } : {}),
         },
       });
 
