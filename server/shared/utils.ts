@@ -113,6 +113,23 @@ export class AppError extends Error {
 export const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || os.homedir();
 
 /**
+ * Expand a leading `~` to the workspace root so the UI can prefill just `~/`
+ * and let the user type only a project name. `~` alone -> the root itself;
+ * `~/name` -> `<WORKSPACES_ROOT>/name`. Any other input is returned as-is
+ * (absolute paths keep working). Mirrors the helper in server/index.js used by
+ * the create-folder route, so create-project accepts the same shorthand.
+ */
+export function expandWorkspacePath(inputPath: string): string {
+  if (!inputPath) return inputPath;
+  const trimmed = inputPath.trim();
+  if (trimmed === '~') return WORKSPACES_ROOT;
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return path.join(WORKSPACES_ROOT, trimmed.slice(2));
+  }
+  return inputPath;
+}
+
+/**
  * System-critical paths that must never be used as workspace roots.
  *
  * The validation helper blocks these values directly and also blocks paths

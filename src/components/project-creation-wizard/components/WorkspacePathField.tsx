@@ -86,7 +86,7 @@ export default function WorkspacePathField({
             type="text"
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            placeholder="/path/to/project/workspace"
+            placeholder="~/имя-проекта (например difinance)"
             className="w-full"
             disabled={disabled}
           />
@@ -118,6 +118,10 @@ export default function WorkspacePathField({
           <FolderOpen className="h-4 w-4" />
         </Button>
       </div>
+
+      <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <code>~/</code> — это папка Antigravity Project. Допишите имя проекта — папка создастся там.
+      </p>
 
       <FolderBrowserModal
         isOpen={showFolderBrowser}

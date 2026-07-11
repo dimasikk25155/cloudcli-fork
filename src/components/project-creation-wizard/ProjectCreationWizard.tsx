@@ -17,7 +17,8 @@ type ProjectCreationWizardProps = {
 };
 
 const initialFormState: WizardFormState = {
-  workspacePath: '',
+  // Prefill `~/` = workspace root (Antigravity Project); user types only a name.
+  workspacePath: '~/',
   githubUrl: '',
   tokenMode: 'stored',
   selectedGithubToken: '',
