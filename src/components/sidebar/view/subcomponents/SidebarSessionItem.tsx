@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, Loader2, X } from 'lucide-react';
+import { Check, Edit2, Loader2, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Tooltip, buttonVariants } from '../../../../shared/view/ui';
@@ -22,6 +22,7 @@ type SidebarSessionItemProps = {
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
+  onDeleteSession: (session: SessionWithProvider, sessionName: string) => void;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   t: TFunction;
@@ -68,6 +69,7 @@ export default function SidebarSessionItem({
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
+  onDeleteSession,
   onProjectSelect,
   onSessionSelect,
   t,
@@ -248,6 +250,17 @@ export default function SidebarSessionItem({
                 >
                   <Edit2 className="h-3 w-3 text-muted-foreground" />
                 </button>
+
+                <button
+                  className="ml-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-muted/50 opacity-70 transition-transform active:scale-95"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteSession(session, sessionView.sessionName);
+                  }}
+                  title={t('tooltips.deleteSession')}
+                >
+                  <Trash2 className="h-3 w-3 text-red-500 dark:text-red-400" />
+                </button>
               </>
             )}
           </div>
@@ -375,6 +388,16 @@ export default function SidebarSessionItem({
                   title={t('tooltips.editSessionName')}
                 >
                   <Edit2 className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                </button>
+                <button
+                  className="flex h-6 w-6 items-center justify-center rounded bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteSession(session, sessionView.sessionName);
+                  }}
+                  title={t('tooltips.deleteSession')}
+                >
+                  <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
                 </button>
               </>
             )}

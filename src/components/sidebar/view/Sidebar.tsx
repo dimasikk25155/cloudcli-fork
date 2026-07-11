@@ -184,6 +184,9 @@ function Sidebar({
     onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => {
       void updateSessionSummary(projectName, sessionId, summary, provider);
     },
+    onDeleteSession: (session, sessionName) => {
+      showDeleteSessionConfirmation(null, session.id, sessionName, session.__provider);
+    },
     t,
   };
 

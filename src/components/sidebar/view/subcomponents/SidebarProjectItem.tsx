@@ -44,6 +44,7 @@ type SidebarProjectItemProps = {
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
+  onDeleteSession: (session: SessionWithProvider, sessionName: string) => void;
   t: TFunction;
 };
 
@@ -85,6 +86,7 @@ export default function SidebarProjectItem({
   onStartEditingSession,
   onCancelEditingSession,
   onSaveEditingSession,
+  onDeleteSession,
   t,
 }: SidebarProjectItemProps) {
   // Project identity is tracked by the DB-assigned `projectId` everywhere
@@ -356,6 +358,7 @@ export default function SidebarProjectItem({
         onStartEditingSession={onStartEditingSession}
         onCancelEditingSession={onCancelEditingSession}
         onSaveEditingSession={onSaveEditingSession}
+        onDeleteSession={onDeleteSession}
         onProjectSelect={onProjectSelect}
         onSessionSelect={onSessionSelect}
         onLoadMoreSessions={onLoadMoreSessions}
