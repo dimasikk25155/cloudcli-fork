@@ -65,7 +65,8 @@ interface ChatComposerProps {
   isLoading: boolean;
   onAbortSession: () => void;
   permissionMode: PermissionMode | string;
-  onModeSwitch: () => void;
+  availablePermissionModes: PermissionMode[];
+  onSelectPermissionMode: (mode: PermissionMode) => void;
   model: string;
   availableModelOptions: ProviderModelOption[];
   onSelectModel: (model: string) => void;
@@ -115,8 +116,24 @@ interface ChatComposerProps {
   onInputFocusChange?: (focused: boolean) => void;
   placeholder: string;
   isTextareaExpanded: boolean;
-  sendByCtrlEnter?: boolean;
 }
+
+// Dot + button tints per permission mode, shared by the trigger button and
+// the dropdown items so the color legend stays consistent.
+const MODE_DOT_CLASS: Record<string, string> = {
+  default: 'bg-muted-foreground',
+  acceptEdits: 'bg-green-500',
+  auto: 'bg-blue-500',
+  bypassPermissions: 'bg-orange-500',
+};
+const MODE_BUTTON_CLASS: Record<string, string> = {
+  default: 'border-border/60 bg-muted/50 hover:bg-muted',
+  acceptEdits: 'border-green-300/60 bg-green-50 hover:bg-green-100 dark:border-green-600/40 dark:bg-green-900/15 dark:hover:bg-green-900/25',
+  auto: 'border-blue-300/60 bg-blue-50 hover:bg-blue-100 dark:border-blue-600/40 dark:bg-blue-900/15 dark:hover:bg-blue-900/25',
+  bypassPermissions: 'border-orange-300/60 bg-orange-50 hover:bg-orange-100 dark:border-orange-600/40 dark:bg-orange-900/15 dark:hover:bg-orange-900/25',
+};
+const modeDotClass = (mode: string) => MODE_DOT_CLASS[mode] ?? 'bg-primary';
+const modeButtonClass = (mode: string) => MODE_BUTTON_CLASS[mode] ?? 'border-primary/20 bg-primary/5 hover:bg-primary/10';
 
 export default function ChatComposer({
   pendingPermissionRequests,
@@ -126,7 +143,8 @@ export default function ChatComposer({
   isLoading,
   onAbortSession,
   permissionMode,
-  onModeSwitch,
+  availablePermissionModes,
+  onSelectPermissionMode,
   model,
   availableModelOptions,
   onSelectModel,
@@ -176,7 +194,6 @@ export default function ChatComposer({
   onInputFocusChange,
   placeholder,
   isTextareaExpanded,
-  sendByCtrlEnter,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const commandMenuPosition = useMemo(() => {
@@ -220,6 +237,15 @@ export default function ChatComposer({
     top: number;
     maxHeight: number;
   } | null>(null);
+  const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
+  const modeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const modeDropdownMenuRef = useRef<HTMLDivElement | null>(null);
+  const modeDropdownButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [modeDropdownPosition, setModeDropdownPosition] = useState<{
+    left: number;
+    top: number;
+    maxHeight: number;
+  } | null>(null);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
   const modelDropdownMenuRef = useRef<HTMLDivElement | null>(null);
@@ -229,15 +255,10 @@ export default function ChatComposer({
     top: number;
     maxHeight: number;
   } | null>(null);
-  const selectedModelLabel = useMemo(
-    () => availableModelOptions.find((option) => option.value === model)?.label ?? model,
-    [availableModelOptions, model],
-  );
   const effortOptions = useMemo(
     () => [{ value: 'default' }, ...availableEffortOptions],
     [availableEffortOptions],
   );
-  const selectedEffortLabel = effort === 'default' ? 'Default' : effort;
   const updateEffortDropdownPosition = useCallback(() => {
     const rect = effortDropdownButtonRef.current?.getBoundingClientRect();
     if (!rect) {
@@ -299,6 +320,54 @@ export default function ChatComposer({
     });
   }, []);
 
+  const updateModeDropdownPosition = useCallback(() => {
+    const rect = modeDropdownButtonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    setModeDropdownPosition({
+      left: rect.left,
+      top: rect.top - 8,
+      maxHeight: Math.max(96, rect.top - 16),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isModeDropdownOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        !modeDropdownRef.current?.contains(target)
+        && !modeDropdownMenuRef.current?.contains(target)
+      ) {
+        setIsModeDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsModeDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('resize', updateModeDropdownPosition);
+    window.addEventListener('scroll', updateModeDropdownPosition, true);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    updateModeDropdownPosition();
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('resize', updateModeDropdownPosition);
+      window.removeEventListener('scroll', updateModeDropdownPosition, true);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    };
+  }, [isModeDropdownOpen, updateModeDropdownPosition]);
+
   useEffect(() => {
     if (!isModelDropdownOpen) return;
 
@@ -345,13 +414,6 @@ export default function ChatComposer({
 
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim());
-  const submitHint = canQueueDraft
-    ? hasQueuedDraft
-      ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
-      : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
-    : sendByCtrlEnter
-      ? t('input.hintText.ctrlEnter')
-      : t('input.hintText.enter');
   const submitAriaLabel = canQueueDraft
     ? hasQueuedDraft
       ? t('input.queue.update', { defaultValue: 'Update queued message' })
@@ -506,37 +568,65 @@ export default function ChatComposer({
               <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
             )}
 
-            <button
-              type="button"
-              onClick={onModeSwitch}
-              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ${
-                permissionMode === 'default'
-                  ? 'border-border/60 bg-muted/50 hover:bg-muted'
-                  : permissionMode === 'acceptEdits'
-                    ? 'border-green-300/60 bg-green-50 hover:bg-green-100 dark:border-green-600/40 dark:bg-green-900/15 dark:hover:bg-green-900/25'
-                    : permissionMode === 'auto'
-                      ? 'border-blue-300/60 bg-blue-50 hover:bg-blue-100 dark:border-blue-600/40 dark:bg-blue-900/15 dark:hover:bg-blue-900/25'
-                      : permissionMode === 'bypassPermissions'
-                        ? 'border-orange-300/60 bg-orange-50 hover:bg-orange-100 dark:border-orange-600/40 dark:bg-orange-900/15 dark:hover:bg-orange-900/25'
-                        : 'border-primary/20 bg-primary/5 hover:bg-primary/10'
-              }`}
-              title={t('input.clickToChangeMode')}
-              aria-label={t('input.clickToChangeMode')}
-            >
-              <span
-                className={`h-2.5 w-2.5 rounded-full ${
-                  permissionMode === 'default'
-                    ? 'bg-muted-foreground'
-                    : permissionMode === 'acceptEdits'
-                      ? 'bg-green-500'
-                      : permissionMode === 'auto'
-                        ? 'bg-blue-500'
-                        : permissionMode === 'bypassPermissions'
-                          ? 'bg-orange-500'
-                          : 'bg-primary'
-                }`}
-              />
-            </button>
+            <div ref={modeDropdownRef} className="relative">
+              <button
+                ref={modeDropdownButtonRef}
+                type="button"
+                onClick={() => {
+                  updateModeDropdownPosition();
+                  setIsModeDropdownOpen((current) => !current);
+                }}
+                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ${modeButtonClass(permissionMode)}`}
+                aria-haspopup="menu"
+                aria-expanded={isModeDropdownOpen}
+                title={t('codex.permissionMode', { defaultValue: 'Permission mode' })}
+                aria-label={t('codex.permissionMode', { defaultValue: 'Permission mode' })}
+              >
+                <span className={`h-2.5 w-2.5 rounded-full ${modeDotClass(permissionMode)}`} />
+              </button>
+
+              {isModeDropdownOpen && modeDropdownPosition && createPortal(
+                <div
+                  ref={modeDropdownMenuRef}
+                  className="fixed z-[100] min-w-44 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+                  style={{
+                    left: modeDropdownPosition.left,
+                    top: modeDropdownPosition.top,
+                    maxHeight: modeDropdownPosition.maxHeight,
+                    transform: 'translateY(-100%)',
+                  }}
+                  role="menu"
+                >
+                  {availablePermissionModes.map((mode) => {
+                    const isSelected = mode === permissionMode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={isSelected}
+                        onClick={() => {
+                          onSelectPermissionMode(mode);
+                          setIsModeDropdownOpen(false);
+                        }}
+                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
+                          isSelected
+                            ? 'bg-accent text-foreground'
+                            : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
+                        }`}
+                      >
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${modeDotClass(mode)}`} />
+                        <span>{t(`codex.modes.${mode}`, { defaultValue: mode })}</span>
+                        <span className="ml-auto flex h-3 w-3 items-center justify-center">
+                          {isSelected && <Check className="h-3 w-3 text-primary" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>,
+                document.body,
+              )}
+            </div>
 
             {availableModelOptions.length > 0 && (
               <div ref={modelDropdownRef} className="relative">
@@ -553,8 +643,7 @@ export default function ChatComposer({
                   aria-label={t('input.selectModel')}
                   title={t('input.selectModel')}
                 >
-                  <span className="hidden text-[11px] text-muted-foreground sm:inline">{t('input.modelLabel')}</span>
-                  <span className="max-w-20 truncate sm:max-w-28">{selectedModelLabel}</span>
+                  <span>{t('input.modelLabel')}</span>
                   <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -616,8 +705,7 @@ export default function ChatComposer({
                   aria-label="Select reasoning effort"
                   title="Select reasoning effort"
                 >
-                  <span className="hidden text-[11px] text-muted-foreground sm:inline">Effort</span>
-                  <span className="max-w-16 truncate capitalize sm:max-w-20">{selectedEffortLabel}</span>
+                  <span>{t('input.effortLabel', { defaultValue: 'Effort' })}</span>
                   <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isEffortDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -697,13 +785,6 @@ export default function ChatComposer({
           </PromptInputTools>
 
           <div className="flex shrink-0 items-center gap-2 pl-2">
-            <div
-              className={`hidden text-xs text-muted-foreground/50 transition-opacity duration-200 lg:block ${
-                input.trim() && !canQueueDraft ? 'opacity-0' : 'opacity-100'
-              }`}
-            >
-              {submitHint}
-            </div>
             <PromptInputSubmit
               onClick={
                 canQueueDraft

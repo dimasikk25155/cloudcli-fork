@@ -78,6 +78,8 @@ function ChatInterface({
     pendingPermissionRequests,
     setPendingPermissionRequests,
     cyclePermissionMode,
+    selectPermissionMode,
+    availablePermissionModes,
     providerModels,
     providerModelCatalog,
     providerModelCacheCatalog,
@@ -402,7 +404,8 @@ function ChatInterface({
           isLoading={isProcessing}
           onAbortSession={handleAbortSession}
           permissionMode={permissionMode}
-          onModeSwitch={cyclePermissionMode}
+          availablePermissionModes={availablePermissionModes}
+          onSelectPermissionMode={selectPermissionMode}
           model={providerModels[provider]}
           availableModelOptions={providerModelCatalog[provider]?.OPTIONS ?? []}
           onSelectModel={(nextModel) => {
@@ -475,7 +478,6 @@ function ChatInterface({
                     : t('messageTypes.claude'),
           })}
           isTextareaExpanded={isTextareaExpanded}
-          sendByCtrlEnter={sendByCtrlEnter}
         />
         </div>
       </div>

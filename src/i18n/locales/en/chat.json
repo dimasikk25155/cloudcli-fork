@@ -130,6 +130,7 @@
     "clearInput": "Clear input",
     "scrollToBottom": "Scroll to bottom",
     "modelLabel": "Model",
+    "effortLabel": "Effort",
     "selectModel": "Select model",
     "queue": {
       "sendNext": "Queue next message",
