@@ -47,8 +47,14 @@ ORIGIN_BUNDLE=$(bundle_ref <<< "$ORIGIN_HTML")
 echo "    origin OK: $ORIGIN_BUNDLE"
 
 echo "==> Checking prod edge $PROD_URL (via VPS)..."
-EDGE_BUNDLE=$(ssh -i "$VPS_KEY" -o ConnectTimeout=10 "$VPS" \
-  "curl -s --max-time 15 '$PROD_URL'" | bundle_ref || true)
+# Retry: the VPS occasionally drops the first SSH connection (MaxStartups).
+EDGE_BUNDLE=""
+for _ in 1 2 3; do
+  EDGE_BUNDLE=$(ssh -i "$VPS_KEY" -o ConnectTimeout=10 "$VPS" \
+    "curl -s --max-time 15 '$PROD_URL'" | bundle_ref || true)
+  [ -n "$EDGE_BUNDLE" ] && break
+  sleep 10
+done
 [ -n "$EDGE_BUNDLE" ] || fail "prod edge returned no bundle reference (proxy down?)"
 [ "$EDGE_BUNDLE" = "$LOCAL_BUNDLE" ] || fail "prod edge serves $EDGE_BUNDLE, built $LOCAL_BUNDLE"
 echo "    edge OK: $EDGE_BUNDLE"
