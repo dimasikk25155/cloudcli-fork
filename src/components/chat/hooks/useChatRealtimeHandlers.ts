@@ -123,6 +123,17 @@ export function useChatRealtimeHandlers({
             onSessionIdle?.(sid, {
               ifStartedBefore: statusCheckSentAtRef.current.get(sid),
             });
+
+            // A run that finished while this client was disconnected leaves a
+            // gap: completed runs are never replayed over WS (history comes
+            // over REST), so when the server's seq is ahead of what we saw
+            // live — and we had been watching the stream — the tail exists
+            // only server-side. Re-fetch it.
+            const knownSeq = lastSeqRef.current.get(sid) ?? 0;
+            if (typeof msg.lastSeq === 'number' && knownSeq > 0 && msg.lastSeq > knownSeq) {
+              lastSeqRef.current.set(sid, msg.lastSeq);
+              void sessionStore.refreshFromServer(sid);
+            }
           }
 
           const isViewedSession = sid === activeViewSessionId;
