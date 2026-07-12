@@ -169,7 +169,10 @@ function mapCliOptionsToSDK(options = {}) {
 
   // Forward all host env vars (e.g. ANTHROPIC_BASE_URL) to the subprocess.
   // Since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
-  sdkOptions.env = { ...process.env };
+  // CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS makes the CLI emit
+  // `session_state_changed` messages; queryClaudeSDK relies on the `idle`
+  // one to release the held-open prompt stream so the CLI can exit.
+  sdkOptions.env = { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' };
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
@@ -369,22 +372,27 @@ function extractTokenBudget(sdkMessage) {
 /**
  * Builds the SDK `prompt` payload for one turn.
  *
- * Plain text turns pass the string through unchanged. Turns with image
- * attachments use the SDK's streaming-input mode: a single SDKUserMessage
- * whose content carries the prompt text plus one base64 `image` block per
- * attachment (read from the global `~/.cloudcli/assets` folder).
+ * Always uses the SDK's streaming-input mode: a single SDKUserMessage (text,
+ * plus one base64 `image` block per attachment from `~/.cloudcli/assets`),
+ * after which the generator stays pending on `holdInputOpen`. With a one-shot
+ * prompt the SDK closes the CLI's stdin at the first `result`, but background
+ * tasks can queue follow-up turns in the same process — interactive tools
+ * (AskUserQuestion, ExitPlanMode) called there then fail instantly with
+ * "Tool permission request failed: Error: Stream closed" because the control
+ * channel is gone. Holding the generator open keeps stdin alive for the whole
+ * run; the caller resolves `holdInputOpen` when the CLI reports
+ * `session_state_changed: idle` (or the run errors/aborts).
  *
  * @param {string} command - User prompt
  * @param {Array} images - Image descriptors ({ path, name?, mimeType? })
  * @param {string} cwd - Project working directory image paths resolve against
- * @returns {Promise<string|AsyncIterable>} SDK prompt payload
+ * @param {Promise<void>} holdInputOpen - Resolved by the caller after the run
+ * @returns {Promise<AsyncIterable>} SDK prompt payload
  */
-async function buildPromptPayload(command, images, cwd) {
-  if (normalizeImageDescriptors(images).length === 0) {
-    return command;
-  }
-
-  const content = await buildClaudeUserContent(command, images, cwd);
+async function buildPromptPayload(command, images, cwd, holdInputOpen) {
+  const content = normalizeImageDescriptors(images).length === 0
+    ? [{ type: 'text', text: command }]
+    : await buildClaudeUserContent(command, images, cwd);
   return (async function* () {
     yield {
       type: 'user',
@@ -395,6 +403,7 @@ async function buildPromptPayload(command, images, cwd) {
       parent_tool_use_id: null,
       timestamp: new Date().toISOString()
     };
+    await holdInputOpen;
   })();
 }
 
@@ -492,6 +501,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
     });
   };
 
+  // Resolved when the run ends (success, error or abort) so the streaming
+  // prompt generator holding the CLI's stdin open can finish and let the
+  // SDK shut the transport down cleanly.
+  let releaseInput = () => {};
+  const holdInputOpen = new Promise(resolve => { releaseInput = resolve; });
+
   try {
     const resolvedModel = await providerModelsService.resolveResumeModel(
       'claude',
@@ -516,10 +531,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sdkOptions.mcpServers = mcpServers;
     }
 
-    // Turns with image attachments switch to streaming input so the images
-    // ride along as real content blocks. Built per query attempt because an
-    // async generator cannot be replayed once consumed.
-    const createPrompt = () => buildPromptPayload(command, options.images, options.cwd);
+    // Streaming input keeps the SDK↔CLI control channel open for the whole
+    // run (see buildPromptPayload). Built per query attempt because an async
+    // generator cannot be replayed once consumed.
+    const createPrompt = () => buildPromptPayload(command, options.images, options.cwd, holdInputOpen);
 
     sdkOptions.hooks = {
       Notification: [{
@@ -619,10 +634,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
       return { behavior: 'deny', message: decision.message ?? 'User denied tool use' };
     };
 
-    // Query constructor reads this synchronously.
-    const prevStreamTimeout = process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
-    process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '300000';
-
     let queryInstance;
     try {
       queryInstance = query({
@@ -640,13 +651,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
       });
     }
 
-    // Restore immediately — Query constructor already captured the value
-    if (prevStreamTimeout !== undefined) {
-      process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = prevStreamTimeout;
-    } else {
-      delete process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
-    }
-
     // Track the query instance for abort capability
     if (capturedSessionId) {
       addSession(capturedSessionId, queryInstance, ws);
@@ -655,6 +659,16 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const message of queryInstance) {
+      // Authoritative turn-over signal: fires only after the result flushed
+      // AND background agents drained. Releasing here lets the prompt
+      // generator finish, so the SDK closes the CLI's stdin and the idle CLI
+      // exits, ending this loop. Releasing any earlier (e.g. on `result`)
+      // would kill the control channel while background-task turns can still
+      // follow — the original AskUserQuestion "Stream closed" bug.
+      if (message.type === 'system' && message.subtype === 'session_state_changed' && message.state === 'idle') {
+        releaseInput();
+      }
+
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
 
@@ -760,6 +774,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
       status: 'failed',
       reason: errorContent
     });
+  } finally {
+    releaseInput();
   }
 }
 

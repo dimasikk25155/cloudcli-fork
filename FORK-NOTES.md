@@ -69,3 +69,12 @@ moved upstream to `POST /api/assets/images` (`server/modules/assets`).
 - Nightshift module: `/api/nightshift` + "Запуски" modal (launchd runs history)
 - TWA: Digital Asset Links served for the Android app
 - Composer model switcher + per-session override keyed by provider-native id
+- Held-open prompt stream (`claude-sdk.js`): the SDK prompt is always a
+  streaming generator that stays pending until the CLI reports
+  `session_state_changed: idle` (enabled via `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1`
+  in the subprocess env). Upstream's one-shot prompt lets the SDK close the
+  CLI's stdin at the first `result`; background-task turns that follow then
+  lose the control channel, so AskUserQuestion/ExitPlanMode fail instantly
+  with "Tool permission request failed: Error: Stream closed". Requires a CLI
+  that emits session-state events (verified on 2.1.207); without the `idle`
+  event the run would never terminate, so don't ship this against older CLIs.
