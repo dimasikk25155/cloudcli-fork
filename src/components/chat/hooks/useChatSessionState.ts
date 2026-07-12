@@ -114,6 +114,11 @@ export function useChatSessionState({
   const [totalMessages, setTotalMessages] = useState(0);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
+  // Live pointer to the viewed session: the async token-usage writers below
+  // check it before setTokenBudget so a late response for a previous session
+  // can't clobber the current session's counter.
+  const tokenUsageSessionRef = useRef<string | null>(null);
+  tokenUsageSessionRef.current = selectedSession?.id ?? null;
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
   const [allMessagesLoaded, setAllMessagesLoaded] = useState(false);
   const [isLoadingAllMessages, setIsLoadingAllMessages] = useState(false);
@@ -563,7 +568,9 @@ export function useChatSessionState({
       if (slot) {
         setHasMoreMessages(slot.hasMore);
         setTotalMessages(slot.total);
-        if (slot.tokenUsage) setTokenBudget(slot.tokenUsage as Record<string, unknown>);
+        if (slot.tokenUsage && tokenUsageSessionRef.current === selectedSessionId) {
+          setTokenBudget(slot.tokenUsage as Record<string, unknown>);
+        }
       }
       setIsLoadingSessionMessages(false);
     }).catch(() => {
@@ -709,15 +716,20 @@ export function useChatSessionState({
       setTokenBudget(null);
       return;
     }
+    const requestedSessionId = selectedSession.id;
     const fetchInitialTokenUsage = async () => {
       try {
         // The backend resolves the provider from the indexed session row.
-        const url = `/api/projects/${selectedProject.projectId}/sessions/${selectedSession.id}/token-usage`;
+        const url = `/api/projects/${selectedProject.projectId}/sessions/${requestedSessionId}/token-usage`;
         const response = await authenticatedFetch(url);
+        // A non-ok response (e.g. 404 for a session with no transcript yet)
+        // must NOT clear the counter: another writer may already have set a
+        // good value, and session switches reset it explicitly anyway.
         if (response.ok) {
-          setTokenBudget(await response.json());
-        } else {
-          setTokenBudget(null);
+          const usage = await response.json();
+          if (tokenUsageSessionRef.current === requestedSessionId) {
+            setTokenBudget(usage);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch initial token usage:', error);

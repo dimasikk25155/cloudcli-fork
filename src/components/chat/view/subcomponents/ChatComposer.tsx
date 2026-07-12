@@ -11,7 +11,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { ImageIcon, MessageSquareIcon, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
+import { ImageIcon, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
 
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useVoiceAvailable } from '../../hooks/useVoiceAvailable';
@@ -75,8 +75,6 @@ interface ChatComposerProps {
   onSelectEffort: (effort: string) => void;
   tokenBudget: Record<string, unknown> | null;
   onShowTokenUsage: () => void;
-  slashCommandsCount: number;
-  onToggleCommandMenu: () => void;
   hasInput: boolean;
   onClearInput: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
@@ -153,8 +151,6 @@ export default function ChatComposer({
   onSelectEffort,
   tokenBudget,
   onShowTokenUsage,
-  slashCommandsCount,
-  onToggleCommandMenu,
   hasInput,
   onClearInput,
   onSubmit,
@@ -756,21 +752,6 @@ export default function ChatComposer({
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
 
             <UsageLimitsBadge />
-
-            <PromptInputButton
-              tooltip={{ content: t('input.showAllCommands') }}
-              onClick={onToggleCommandMenu}
-              className="relative"
-            >
-              <MessageSquareIcon />
-              {slashCommandsCount > 0 && (
-                <span
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground"
-                >
-                  {slashCommandsCount}
-                </span>
-              )}
-            </PromptInputButton>
 
             {hasInput && (
               <PromptInputButton

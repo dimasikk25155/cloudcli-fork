@@ -269,7 +269,13 @@ export function useChatRealtimeHandlers({
           // before the first send), so the only follow-up is syncing the
           // viewed conversation with the now-persisted transcript.
           if (sid && sid === activeViewSessionId) {
-            void sessionStore.refreshFromServer(sid);
+            void sessionStore.refreshFromServer(sid).then((slot) => {
+              // The final totals land in the transcript after `complete`; the
+              // last live budget event may predate them.
+              if (slot?.tokenUsage && sid === activeViewSessionIdRef.current) {
+                setTokenBudget(slot.tokenUsage as Record<string, unknown>);
+              }
+            });
           }
 
           break;
