@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Tooltip, PillBar, Pill } from '../../../../shared/view/ui';
 import type { AppTab } from '../../../../types/app';
 import { usePlugins } from '../../../../contexts/PluginsContext';
+import { useAuth } from '../../../auth/context/AuthContext';
 import PluginIcon from '../../../plugins/view/PluginIcon';
 
 type MainContentTabSwitcherProps = {
@@ -60,9 +61,10 @@ export default function MainContentTabSwitcher({
 }: MainContentTabSwitcherProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
+  const { terminalDisabled } = useAuth();
 
   const builtInTabs: BuiltInTab[] = [
-    ...BASE_TABS,
+    ...BASE_TABS.filter((tab) => !(terminalDisabled && tab.id === 'shell')),
     ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
     ...(shouldShowTasksTab ? [TASKS_TAB] : []),
   ];

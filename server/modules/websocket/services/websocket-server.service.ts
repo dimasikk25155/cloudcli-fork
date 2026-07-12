@@ -68,6 +68,13 @@ export function createWebSocketServer(
     const pathname = new URL(url, 'http://localhost').pathname;
 
     if (pathname === '/shell') {
+      // DISABLE_TERMINAL locks down the raw shell for restricted instances
+      // (e.g. a shared user's isolated instance). This is the real gate —
+      // hiding the UI tab is only cosmetic.
+      if (process.env.DISABLE_TERMINAL === '1') {
+        try { ws.close(1008, 'Terminal disabled'); } catch { /* already closing */ }
+        return;
+      }
       handleShellConnection(ws, dependencies.shell);
       return;
     }

@@ -11,9 +11,10 @@ const db = getConnection();
 router.get('/status', async (req, res) => {
   try {
     const hasUsers = await userDb.hasUsers();
-    res.json({ 
+    res.json({
       needsSetup: !hasUsers,
-      isAuthenticated: false // Will be overridden by frontend if token exists
+      isAuthenticated: false, // Will be overridden by frontend if token exists
+      terminalDisabled: process.env.DISABLE_TERMINAL === '1'
     });
   } catch (error) {
     console.error('Auth status error:', error);

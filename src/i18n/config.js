@@ -104,9 +104,9 @@ const getSavedLanguage = () => {
     if (saved && languages.some(lang => lang.value === saved)) {
       return saved;
     }
-    return 'en';
+    return 'ru';
   } catch {
-    return 'en';
+    return 'ru';
   }
 };
 
@@ -201,8 +201,10 @@ i18n
     // Default language
     lng: getSavedLanguage(),
 
-    // Fallback language when a translation is missing
-    fallbackLng: 'en',
+    // Russian is the default; missing ru keys fall back to English text.
+    // With the detector present, an empty localStorage resolves to the first
+    // fallback language — so a cookie reset lands on Russian, not English.
+    fallbackLng: ['ru', 'en'],
 
     // Enable debug mode in development (logs missing keys to console)
     debug: false,
