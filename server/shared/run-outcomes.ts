@@ -16,6 +16,36 @@ import path from 'node:path';
  * failed, or was cancelled — even after switching sessions or restarting the
  * server.
  */
+/**
+ * Turns a raw SDK failure string into a short, human-readable notice shown in
+ * the chat when a run died mid-turn. Single source of truth for BOTH the live
+ * error frame (claude-sdk.js) and the durable history marker
+ * (claude-sessions.provider.ts), so the user sees the same clear reason live
+ * and on reload — never a raw `[ede_diagnostic] ...` dump.
+ */
+export function buildRunInterruptedNotice(reason: string | null): string {
+  const r = (reason || '').toLowerCase();
+  let cause: string;
+  if (r.includes('session limit')) {
+    // Keep the reset time from the original message if present.
+    const resetMatch = (reason || '').match(/resets?\s+([^.\n]+)/i);
+    cause = resetMatch
+      ? `достигнут лимит подписки Claude — сброс в ${resetMatch[1].trim()}.`
+      : 'достигнут лимит подписки Claude — дождись сброса лимита.';
+  } else if (r.includes('connection closed') || r.includes('closed mid-response') || r.includes('connection error')) {
+    cause = 'оборвалась связь с API Anthropic посреди ответа — ответ неполный.';
+  } else if (r.includes('ede_diagnostic') || r.includes('stop_reason=tool_use')) {
+    cause = 'Claude Code оборвал ход на выполнении инструмента (внутренняя ошибка CLI).';
+  } else if (r.includes('not installed')) {
+    cause = reason || 'Claude Code не установлен.';
+  } else if (reason) {
+    cause = reason;
+  } else {
+    cause = 'прогон завершился без финального ответа.';
+  }
+  return `⏹ Прогон прерван — финального ответа нет.\nПричина: ${cause}\nОтправь сообщение заново, чтобы продолжить.`;
+}
+
 export type RunOutcomeStatus = 'completed' | 'failed' | 'aborted';
 
 export interface RunOutcome {

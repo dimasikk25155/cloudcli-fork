@@ -6,33 +6,10 @@ import readline from 'node:readline';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
-import { readRunOutcome } from '@/shared/run-outcomes.js';
+import { readRunOutcome, buildRunInterruptedNotice } from '@/shared/run-outcomes.js';
 import { sessionsDb } from '@/modules/database/index.js';
 
 const PROVIDER = 'claude';
-
-/**
- * Turns a raw SDK failure string into a short, human-readable notice shown in
- * the chat when a run died mid-turn. Keeps the original reason as a fallback.
- */
-function buildRunInterruptedNotice(reason: string | null): string {
-  const r = (reason || '').toLowerCase();
-  let cause: string;
-  if (r.includes('session limit')) {
-    cause = 'достигнут лимит подписки Claude — дождись сброса лимита.';
-  } else if (r.includes('connection closed') || r.includes('closed mid-response') || r.includes('connection error')) {
-    cause = 'оборвалась связь с API Anthropic посреди ответа.';
-  } else if (r.includes('ede_diagnostic') || r.includes('stop_reason=tool_use')) {
-    cause = 'поток оборвался на вызове инструмента (сеть/таймаут).';
-  } else if (r.includes('not installed')) {
-    cause = reason || 'Claude Code не установлен.';
-  } else if (reason) {
-    cause = reason;
-  } else {
-    cause = 'прогон завершился без финального ответа.';
-  }
-  return `⏹ Прогон прерван — финального ответа нет.\nПричина: ${cause}\nОтправь сообщение заново, чтобы продолжить.`;
-}
 
 type ClaudeToolResult = {
   content: unknown;

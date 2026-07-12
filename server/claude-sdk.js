@@ -32,7 +32,7 @@ import {
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
-import { recordRunOutcome } from './shared/run-outcomes.js';
+import { recordRunOutcome, buildRunInterruptedNotice } from './shared/run-outcomes.js';
 import { checkUsageGuard, buildUsageGuardNotice } from './shared/claude-usage.js';
 
 const activeSessions = new Map();
@@ -801,9 +801,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Check if Claude CLI is installed for a clearer error message
     const installed = await providerAuthService.isProviderInstalled('claude');
+    // The raw SDK message (e.g. "[ede_diagnostic] result_type=user
+    // stop_reason=tool_use") is meaningless to the user. Humanize it to the
+    // same clear notice the history reader shows, so a mid-turn interruption
+    // always ends with a readable reason instead of a silent stop.
     const errorContent = !installed
       ? 'Claude Code is not installed. Please install it first: https://docs.anthropic.com/en/docs/claude-code'
-      : error.message;
+      : buildRunInterruptedNotice(error?.message || String(error));
 
     // Send error to WebSocket, then the terminal complete
     ws.send(createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
@@ -815,12 +819,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sessionName: sessionSummary,
       error
     });
-    // Persist the failure reason so a reload of this session surfaces a durable
-    // "run interrupted" marker instead of a transcript that silently ends on a
-    // tool call (limit hit, API connection dropped, stream aborted mid-turn).
+    // Persist the RAW failure reason (the history reader humanizes it on
+    // reload via buildRunInterruptedNotice; storing the already-humanized text
+    // would double-wrap it).
     recordRunOutcome(capturedSessionId || sessionId || null, {
       status: 'failed',
-      reason: errorContent
+      reason: !installed ? errorContent : (error?.message || String(error))
     });
   } finally {
     if (idleFallbackTimer) {
