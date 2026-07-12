@@ -36,14 +36,27 @@ export function createWebSocketServer(
     // AWS ALB 60s, nginx 60s, etc.). Without app-level pings these connections
     // are silently torn down even when the UI is active, causing repeated
     // reconnect cycles. ws library heartbeat is opt-in.
+    //
+    // Pong tracking reaps half-open sockets (mobile sleep, network drop):
+    // browsers answer pings at the protocol level, so a socket that misses a
+    // whole ping cycle is dead even though readyState still says OPEN.
+    // Without terminate() the writer keeps sending into the void until TCP
+    // gives up, minutes later.
     const HEARTBEAT_INTERVAL_MS = 30_000;
+    let isAlive = true;
+    ws.on('pong', () => { isAlive = true; });
     const heartbeat = setInterval(() => {
-      if (ws.readyState === ws.OPEN) {
-        try {
-          ws.ping();
-        } catch {
-          // socket may have been closed concurrently — interval will be cleared below
-        }
+      if (ws.readyState !== ws.OPEN) return;
+      if (!isAlive) {
+        console.log('[WS] No pong within heartbeat interval — terminating dead socket');
+        ws.terminate();
+        return;
+      }
+      isAlive = false;
+      try {
+        ws.ping();
+      } catch {
+        // socket may have been closed concurrently — interval will be cleared below
       }
     }, HEARTBEAT_INTERVAL_MS);
     const stopHeartbeat = () => clearInterval(heartbeat);
