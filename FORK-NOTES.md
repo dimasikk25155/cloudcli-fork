@@ -76,5 +76,44 @@ moved upstream to `POST /api/assets/images` (`server/modules/assets`).
   CLI's stdin at the first `result`; background-task turns that follow then
   lose the control channel, so AskUserQuestion/ExitPlanMode fail instantly
   with "Tool permission request failed: Error: Stream closed". Requires a CLI
-  that emits session-state events (verified on 2.1.207); without the `idle`
-  event the run would never terminate, so don't ship this against older CLIs.
+  that emits session-state events (verified on 2.1.207).
+- Idle-fallback safety net for the held-open stream (`claude-sdk.js`): if
+  `idle` never arrives, sustained post-`result` silence releases the input so
+  the run terminates instead of hanging forever — 60s when the CLI has emitted
+  no session-state events at all (version drift: the event will never come),
+  30min otherwise (background agents may be quietly working). A pending
+  permission/question prompt counts as activity and resets the clock, so a
+  user taking hours to answer never trips it. Tunable via
+  `CLAUDE_IDLE_FALLBACK_NO_STATE_EVENTS_MS` / `CLAUDE_IDLE_FALLBACK_SILENCE_MS`.
+
+## Freeze-proofing (2026-07-12)
+
+The "chat freezes mid-run until you poke it" bug class. Root cause: a
+half-open websocket (mobile sleep, network blip) never fires `onclose` — the
+client keeps a stale view while the server finishes the run into the void.
+Layered fixes:
+
+- Client stall watchdog (`src/components/chat/hooks/useConnectionWatchdog.ts`,
+  wired in `ChatInterface`): while a run is processing, 30s without a single
+  WS frame forces a reconnect through the existing `websocket_reconnected`
+  catch-up path; `visibilitychange`/`online` re-sync immediately on tab wake.
+- Server pong reaping (`websocket-server.service.ts`): pings now track pongs;
+  a socket that misses one 30s cycle is `terminate()`d instead of being fed
+  events forever.
+- Completed-run tail refetch (`useChatRealtimeHandlers.ts`): the
+  `chat_subscribed` idle ack compares server `lastSeq` with the last seq seen
+  live; on a gap the client re-fetches history (completed runs are never
+  replayed over WS by design).
+- Idle-fallback safety net (see fork deltas above) — insurance against a run
+  hanging forever.
+
+## Deploy
+
+**Always via `./deploy.sh`.** It builds client+server, restarts launchd
+`com.dimasik.cloudcli`, and smoke-checks that all three layers serve the SAME
+bundle: `dist/index.html` == Mac origin (`http://<tailscale-ip>:3001`) ==
+prod edge (`https://claude.neo3.ru`, checked FROM the VPS — the domain is
+unreachable from this Mac's own network). Red smoke means the deploy did not
+happen. History: before this script, sessions kept rebuilding only the server
+or restarting without rebuilding the client, so prod served a stale `dist/`
+for days while git said everything shipped.
