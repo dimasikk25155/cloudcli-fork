@@ -26,6 +26,7 @@ interface ToolRendererProps {
   selectedProject?: Project | null;
   showRawParameters?: boolean;
   rawToolInput?: string;
+  isRunActive?: boolean;
   isSubagentContainer?: boolean;
   subagentState?: {
     childTools: SubagentChildTool[];
@@ -54,8 +55,11 @@ const CLAUDE_DENIAL_MESSAGES = [
   'permission request cancelled',
 ];
 
-function deriveToolStatus(toolResult: any): ToolStatus {
-  if (!toolResult) return 'running';
+function deriveToolStatus(toolResult: any, isRunActive: boolean): ToolStatus {
+  // No result: still "running" only while the run is live. Once the run has
+  // ended (error/abort/crash) a resultless tool is orphaned — show it as
+  // interrupted instead of a badge that spins forever and looks frozen.
+  if (!toolResult) return isRunActive ? 'running' : 'interrupted';
   if (toolResult.isError) {
     const content = String(toolResult.content || '').toLowerCase().trim();
     if (CLAUDE_DENIAL_MESSAGES.some((msg) => content.includes(msg))) {
@@ -81,6 +85,7 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
   selectedProject,
   showRawParameters = false,
   rawToolInput,
+  isRunActive = true,
   isSubagentContainer,
   subagentState
 }) => {
@@ -98,8 +103,8 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
 
   // Only derive and show status badge on input renders
   const toolStatus = useMemo(
-    () => mode === 'input' ? deriveToolStatus(toolResult) : undefined,
-    [mode, toolResult],
+    () => mode === 'input' ? deriveToolStatus(toolResult, isRunActive) : undefined,
+    [mode, toolResult, isRunActive],
   );
 
   const handleAction = useCallback(() => {

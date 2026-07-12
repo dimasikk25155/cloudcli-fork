@@ -1,11 +1,15 @@
 import { cn } from '../../../../lib/utils';
 
-export type ToolStatus = 'running' | 'completed' | 'error' | 'denied';
+export type ToolStatus = 'running' | 'completed' | 'error' | 'denied' | 'interrupted';
 
 const STATUS_CONFIG: Record<ToolStatus, { label: string; className: string }> = {
   running: {
     label: 'Running',
     className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  },
+  interrupted: {
+    label: 'Прервано',
+    className: 'bg-muted text-muted-foreground',
   },
   completed: {
     label: 'Completed',

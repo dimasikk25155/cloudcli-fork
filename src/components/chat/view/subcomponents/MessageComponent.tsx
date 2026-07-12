@@ -35,6 +35,7 @@ type MessageComponentProps = {
   showThinking?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
+  isRunActive?: boolean;
 };
 
 type InteractiveOption = {
@@ -45,7 +46,7 @@ type InteractiveOption = {
 
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, isRunActive = true }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -185,6 +186,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     selectedProject={selectedProject}
                     showRawParameters={showRawParameters}
                     rawToolInput={typeof message.toolInput === 'string' ? message.toolInput : undefined}
+                    isRunActive={isRunActive}
                     isSubagentContainer={message.isSubagentContainer}
                     subagentState={message.subagentState}
                   />

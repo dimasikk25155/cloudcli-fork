@@ -265,6 +265,7 @@ function ChatMessagesPane({
                     showThinking={showThinking}
                     selectedProject={selectedProject}
                     provider={provider}
+                    isRunActive={isProcessing}
                   />
                 );
               }
@@ -285,6 +286,7 @@ function ChatMessagesPane({
                   showThinking={showThinking}
                   selectedProject={selectedProject}
                   provider={provider}
+                  isRunActive={isProcessing}
                 />
               );
             });
