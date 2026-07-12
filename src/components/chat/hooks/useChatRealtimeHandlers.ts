@@ -310,7 +310,12 @@ export function useChatRealtimeHandlers({
 
         case 'status': {
           if (msg.text === 'token_budget' && msg.tokenBudget) {
-            setTokenBudget(msg.tokenBudget as Record<string, unknown>);
+            // Budget updates stream from every running session; only the one
+            // being viewed may drive the composer counter, otherwise numbers
+            // from background runs "jump" into the current chat.
+            if (sid === activeViewSessionId) {
+              setTokenBudget(msg.tokenBudget as Record<string, unknown>);
+            }
           } else if (msg.text && sid) {
             onSessionProcessing?.(sid, {
               statusText: msg.text as string,
