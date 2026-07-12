@@ -49,6 +49,18 @@ const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEO
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
+// Safety net for the held-open prompt stream (see buildPromptPayload): if the
+// CLI never emits `session_state_changed: idle` — version drift, or the event
+// simply not firing for a turn shape — the input stays open and the run hangs
+// forever with no terminal `complete`. After a completed turn, prolonged
+// total silence (with no permission prompt waiting on the user) means the
+// idle event is not coming. Short threshold when the CLI has emitted no
+// session-state events at all (it never will); long one otherwise, because
+// background agents may legitimately stay quiet before their turn flushes.
+const IDLE_FALLBACK_NO_STATE_EVENTS_MS = parseInt(process.env.CLAUDE_IDLE_FALLBACK_NO_STATE_EVENTS_MS, 10) || 60_000;
+const IDLE_FALLBACK_SILENCE_MS = parseInt(process.env.CLAUDE_IDLE_FALLBACK_SILENCE_MS, 10) || 30 * 60_000;
+const IDLE_FALLBACK_CHECK_INTERVAL_MS = 10_000;
+
 function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_FALLBACK_MODELS) {
   const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
   const allowedEfforts = selectedModel?.effort?.values
@@ -504,8 +516,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
   // Resolved when the run ends (success, error or abort) so the streaming
   // prompt generator holding the CLI's stdin open can finish and let the
   // SDK shut the transport down cleanly.
+  let inputReleased = false;
   let releaseInput = () => {};
-  const holdInputOpen = new Promise(resolve => { releaseInput = resolve; });
+  const holdInputOpen = new Promise(resolve => {
+    releaseInput = () => { inputReleased = true; resolve(); };
+  });
+  let idleFallbackTimer = null;
 
   try {
     const resolvedModel = await providerModelsService.resolveResumeModel(
@@ -656,17 +672,49 @@ async function queryClaudeSDK(command, options = {}, ws) {
       addSession(capturedSessionId, queryInstance, ws);
     }
 
+    // Safety net: if `session_state_changed: idle` never arrives, the
+    // held-open input would keep this loop (and the run) alive forever.
+    // After a completed turn, sustained silence with nothing waiting on the
+    // user forces the release, letting the CLI exit and the loop end with a
+    // normal `complete`. A pending permission prompt counts as activity —
+    // the user may take hours, and the CLI deserves a fresh window after
+    // they answer.
+    let lastStreamActivityAt = Date.now();
+    let turnResultSeen = false;
+    let sawSessionStateEvent = false;
+    idleFallbackTimer = setInterval(() => {
+      if (inputReleased || !turnResultSeen) return;
+      const sid = capturedSessionId || sessionId || null;
+      if (sid && getPendingApprovalsForSession(sid).length > 0) {
+        lastStreamActivityAt = Date.now();
+        return;
+      }
+      const silentForMs = Date.now() - lastStreamActivityAt;
+      const threshold = sawSessionStateEvent ? IDLE_FALLBACK_SILENCE_MS : IDLE_FALLBACK_NO_STATE_EVENTS_MS;
+      if (silentForMs < threshold) return;
+      console.warn(`[Claude SDK] No 'idle' event and no stream activity for ${Math.round(silentForMs / 1000)}s after the turn result — releasing held-open input (session: ${sid || 'NEW'})`);
+      releaseInput();
+    }, IDLE_FALLBACK_CHECK_INTERVAL_MS);
+
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const message of queryInstance) {
+      lastStreamActivityAt = Date.now();
+      if (message.type === 'result') {
+        turnResultSeen = true;
+      }
+
       // Authoritative turn-over signal: fires only after the result flushed
       // AND background agents drained. Releasing here lets the prompt
       // generator finish, so the SDK closes the CLI's stdin and the idle CLI
       // exits, ending this loop. Releasing any earlier (e.g. on `result`)
       // would kill the control channel while background-task turns can still
       // follow — the original AskUserQuestion "Stream closed" bug.
-      if (message.type === 'system' && message.subtype === 'session_state_changed' && message.state === 'idle') {
-        releaseInput();
+      if (message.type === 'system' && message.subtype === 'session_state_changed') {
+        sawSessionStateEvent = true;
+        if (message.state === 'idle') {
+          releaseInput();
+        }
       }
 
       // Capture session ID from first message
@@ -775,6 +823,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       reason: errorContent
     });
   } finally {
+    if (idleFallbackTimer) {
+      clearInterval(idleFallbackTimer);
+    }
     releaseInput();
   }
 }
