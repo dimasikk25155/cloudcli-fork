@@ -1,76 +1,28 @@
 // Service Worker for Claude CLI PWA
-// Cache only manifest (needed for PWA install). HTML and JS are never pre-cached
-// so a rebuild + refresh always picks up the latest assets.
-// v3: Claude CLI rebrand (crab icons) — bump purges the cached old manifest.
-const CACHE_NAME = 'claude-cli-v3';
-const urlsToCache = [
-  '/manifest.json'
-];
+// v4: NO app caching. Earlier versions cached HTML/JS ("cache-first" assets),
+// which kept serving stale bundles after a deploy — the source of endless
+// "why do I still see the old version" pain. This worker now NEVER intercepts
+// or caches app requests, so the browser always hits the network for the
+// latest build. It stays registered only for push notifications.
+const CACHE_NAME = 'claude-cli-v4-nocache';
 
-// Install event
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
-  );
+// Install: take over immediately, precache nothing.
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
-// Fetch event — network-first for everything except hashed assets
-self.addEventListener('fetch', event => {
-  const url = event.request.url;
-
-  // Never intercept API requests or WebSocket upgrades
-  if (url.includes('/api/') || url.includes('/ws')) {
-    return;
-  }
-
-  // Navigation requests (HTML) — always go to network, no caching
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request).catch(() => caches.match('/manifest.json').then(() =>
-        new Response('<h1>Offline</h1><p>Please check your connection.</p>', {
-          headers: { 'Content-Type': 'text/html' }
-        })
-      ))
-    );
-    return;
-  }
-
-  // Hashed assets (JS/CSS in /assets/) — cache-first since filenames change per build
-  if (url.includes('/assets/')) {
-    event.respondWith(
-      caches.match(event.request).then(cached => {
-        if (cached) return cached;
-        return fetch(event.request).then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          return response;
-        });
-      })
-    );
-    return;
-  }
-
-  // Everything else — network-first
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
-  );
-});
-
-// Activate event — purge old caches
+// Activate: purge every cache any previous version created, then claim clients
+// so this no-cache worker controls open tabs right away.
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(cacheNames =>
-      Promise.all(
-        cacheNames
-          .filter(name => name !== CACHE_NAME)
-          .map(name => caches.delete(name))
-      )
-    )
+    caches.keys()
+      .then(names => Promise.all(names.map(name => caches.delete(name))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
+
+// No 'fetch' handler on purpose: every request goes straight to the network,
+// so a fresh deploy is picked up on the next load with no cache to bust.
 
 // Push notification event
 self.addEventListener('push', event => {
