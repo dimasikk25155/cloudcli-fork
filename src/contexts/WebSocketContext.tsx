@@ -39,6 +39,20 @@ type WebSocketContextType = {
    */
   latestMessage: ServerEvent | null;
   isConnected: boolean;
+  /**
+   * Timestamp (ms) of the last frame received on the socket. Browsers answer
+   * server protocol pings invisibly to JS, so this is the only liveness
+   * signal the client has: during an active run, prolonged silence means the
+   * socket is half-open (mobile sleep, network blip) even though
+   * `isConnected` still reads true.
+   */
+  getLastFrameAt: () => number;
+  /**
+   * Tears down the current socket (or a pending reconnect timer) and lets the
+   * normal onclose → reconnect → `websocket_reconnected` path re-sync
+   * consumers. Used by the chat stall watchdog when the socket looks dead.
+   */
+  forceReconnect: () => void;
 };
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
@@ -71,6 +85,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   const [latestMessage, setLatestMessage] = useState<ServerEvent | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFrameAtRef = useRef(0);
   const { token } = useAuth();
 
   const dispatch = useCallback((event: ServerEvent) => {
@@ -111,10 +126,13 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       if (!wsUrl) return console.warn('No authentication token found for WebSocket connection');
 
       const websocket = new WebSocket(wsUrl);
+      // Track the socket from creation (not from onopen) so forceReconnect
+      // can also abort a socket that is stuck in CONNECTING.
+      wsRef.current = websocket;
 
       websocket.onopen = () => {
         setIsConnected(true);
-        wsRef.current = websocket;
+        lastFrameAtRef.current = Date.now();
         if (hasConnectedRef.current) {
           // This is a reconnect — signal so components can catch up on missed messages
           dispatch({ kind: 'websocket_reconnected', timestamp: Date.now() });
@@ -123,6 +141,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       };
 
       websocket.onmessage = (event) => {
+        lastFrameAtRef.current = Date.now();
         try {
           const data = JSON.parse(event.data) as ServerEvent;
           dispatch(data);
@@ -167,14 +186,35 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     };
   }, []);
 
+  const getLastFrameAt = useCallback(() => lastFrameAtRef.current, []);
+
+  const forceReconnect = useCallback(() => {
+    if (unmountedRef.current) return;
+    const socket = wsRef.current;
+    if (socket) {
+      // Closing hands recovery to the regular onclose → reconnect path.
+      socket.close();
+      return;
+    }
+    // No socket: a reconnect timer may be pending (and mobile browsers
+    // suspend timers in background tabs) — reconnect right now instead.
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    connect();
+  }, [connect]);
+
   const value: WebSocketContextType = useMemo(() =>
   ({
     ws: wsRef.current,
     sendMessage,
     subscribe,
     latestMessage,
-    isConnected
-  }), [sendMessage, subscribe, latestMessage, isConnected]);
+    isConnected,
+    getLastFrameAt,
+    forceReconnect
+  }), [sendMessage, subscribe, latestMessage, isConnected, getLastFrameAt, forceReconnect]);
 
   return value;
 };

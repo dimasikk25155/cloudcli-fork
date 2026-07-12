@@ -11,6 +11,7 @@ import { useChatProviderState } from '../hooks/useChatProviderState';
 import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
+import { useConnectionWatchdog } from '../hooks/useConnectionWatchdog';
 import { useSessionStore } from '../../../stores/useSessionStore';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
@@ -38,7 +39,7 @@ function ChatInterface({
   onShowAllTasks,
 }: ChatInterfaceProps) {
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
-  const { subscribe } = useWebSocket();
+  const { subscribe, isConnected, getLastFrameAt, forceReconnect } = useWebSocket();
   const { t } = useTranslation('chat');
 
   const sessionStore = useSessionStore();
@@ -238,6 +239,16 @@ function ChatInterface({
       }],
     });
   }, [selectedProject, selectedSession, sendMessage, sessionStore]);
+
+  // Detects half-open sockets (mobile sleep, network blips) that never fire
+  // `onclose` and would otherwise freeze the UI mid-run.
+  useConnectionWatchdog({
+    isProcessing,
+    isConnected,
+    getLastFrameAt,
+    forceReconnect,
+    onWake: handleWebSocketReconnect,
+  });
 
   useChatRealtimeHandlers({
     subscribe,
