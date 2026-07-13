@@ -873,6 +873,36 @@ async function abortClaudeSDKSession(sessionId) {
 }
 
 /**
+ * Gracefully interrupts every active SDK session before the process exits.
+ *
+ * Root cause of the recurring `[ede_diagnostic] ... stop_reason=tool_use`
+ * failures: a server restart (deploy, crash, watchdog) used to call
+ * `process.exit()` directly, killing every child CLI process mid-turn with no
+ * chance to run `interrupt()`. `interrupt()` is an RPC to the CLI
+ * (`subtype: 'interrupt'`) that lets it append a synthetic tool_result and
+ * close the turn cleanly; skipping it leaves the on-disk session transcript
+ * with a dangling `tool_use` and no matching `tool_result`. Every future
+ * resume of that exact session then fails instantly, because the CLI can't
+ * validate the broken transcript — hence the same error "repeating" across
+ * unrelated turns. Calling this from the shutdown handler, before
+ * `process.exit()`, fixes the transcript at the source instead of just
+ * humanizing the resulting error.
+ * @param {number} timeoutMs - Upper bound so a stuck CLI can't block shutdown
+ * @returns {Promise<void>}
+ */
+async function abortAllActiveClaudeSDKSessions(timeoutMs = 5000) {
+  const sessionIds = getAllSessions();
+  if (sessionIds.length === 0) {
+    return;
+  }
+  console.log(`[Claude SDK] Gracefully interrupting ${sessionIds.length} active session(s) before shutdown`);
+  await Promise.race([
+    Promise.allSettled(sessionIds.map((id) => abortClaudeSDKSession(id))),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs))
+  ]);
+}
+
+/**
  * Checks if an SDK session is currently active
  * @param {string} sessionId - Session identifier
  * @returns {boolean} True if session is active
@@ -931,6 +961,7 @@ function reconnectSessionWriter(sessionId, newRawWs) {
 export {
   queryClaudeSDK,
   abortClaudeSDKSession,
+  abortAllActiveClaudeSDKSessions,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
   resolveToolApproval,

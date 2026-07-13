@@ -24,6 +24,7 @@ import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
 import {
     queryClaudeSDK,
     abortClaudeSDKSession,
+    abortAllActiveClaudeSDKSessions,
     resolveToolApproval,
     getPendingApprovalsForSession,
 } from './claude-sdk.js';
@@ -1697,6 +1698,15 @@ async function startServer() {
         await closeSessionsWatcher();
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
+            try {
+                // Must run before anything else: a bare process.exit() kills
+                // in-flight CLI child processes without letting them close a
+                // tool_use turn cleanly, corrupting the session transcript on
+                // disk (see abortAllActiveClaudeSDKSessions for the full story).
+                await abortAllActiveClaudeSDKSessions();
+            } catch (err) {
+                console.error('[Claude SDK] Error interrupting active sessions during shutdown:', err?.message || err);
+            }
             try {
                 await browserUseService.stopAllSessions();
             } catch (err) {
