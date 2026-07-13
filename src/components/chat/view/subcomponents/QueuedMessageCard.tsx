@@ -1,14 +1,26 @@
 import { useTranslation } from 'react-i18next';
-import { PencilIcon, XIcon } from 'lucide-react';
+import { Loader2, PencilIcon, SendIcon, XIcon } from 'lucide-react';
 
 interface QueuedMessageCardProps {
   content: string;
   imageCount?: number;
   onEdit: () => void;
   onDelete: () => void;
+  /** Soft-stops the running turn and sends this draft immediately (resumes the same session) instead of waiting for the turn to finish on its own. */
+  onSendNow?: () => void;
+  canSendNow?: boolean;
+  isSendingNow?: boolean;
 }
 
-export default function QueuedMessageCard({ content, imageCount = 0, onEdit, onDelete }: QueuedMessageCardProps) {
+export default function QueuedMessageCard({
+  content,
+  imageCount = 0,
+  onEdit,
+  onDelete,
+  onSendNow,
+  canSendNow = false,
+  isSendingNow = false,
+}: QueuedMessageCardProps) {
   const { t } = useTranslation('chat');
 
   return (
@@ -20,7 +32,9 @@ export default function QueuedMessageCard({ content, imageCount = 0, onEdit, onD
           <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-primary/70">
             <span>{t('input.queue.label', { defaultValue: 'Queued' })}</span>
             <span className="normal-case text-muted-foreground/60">
-              · {t('input.queue.willSend', { defaultValue: 'Will send when this finishes' })}
+              · {isSendingNow
+                ? t('input.queue.sendingNow', { defaultValue: 'Stopping current turn…' })
+                : t('input.queue.willSend', { defaultValue: 'Will send when this finishes' })}
             </span>
           </div>
           <p className="mt-0.5 line-clamp-2 break-words text-sm text-foreground/90">{content}</p>
@@ -32,6 +46,22 @@ export default function QueuedMessageCard({ content, imageCount = 0, onEdit, onD
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
+          {onSendNow && (
+            <button
+              type="button"
+              onClick={onSendNow}
+              disabled={!canSendNow || isSendingNow}
+              aria-label={t('input.queue.sendNow', { defaultValue: 'Stop and send now' })}
+              title={t('input.queue.sendNow', { defaultValue: 'Stop and send now' })}
+              className="rounded-md p-1.5 text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isSendingNow ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <SendIcon className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
           <button
             type="button"
             onClick={onEdit}

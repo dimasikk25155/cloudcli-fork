@@ -64,6 +64,8 @@ interface ChatComposerProps {
   activity: SessionActivity | null;
   isLoading: boolean;
   onAbortSession: () => void;
+  onAppendNow: () => void;
+  isAppendPending: boolean;
   permissionMode: PermissionMode | string;
   availablePermissionModes: PermissionMode[];
   onSelectPermissionMode: (mode: PermissionMode) => void;
@@ -140,6 +142,8 @@ export default function ChatComposer({
   activity,
   isLoading,
   onAbortSession,
+  onAppendNow,
+  isAppendPending,
   permissionMode,
   availablePermissionModes,
   onSelectPermissionMode,
@@ -442,6 +446,9 @@ export default function ChatComposer({
           imageCount={queuedDraft.images.length}
           onEdit={onEditQueuedDraft}
           onDelete={onDeleteQueuedDraft}
+          onSendNow={onAppendNow}
+          canSendNow={isLoading}
+          isSendingNow={isAppendPending}
         />
       )}
 

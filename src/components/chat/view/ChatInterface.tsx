@@ -187,6 +187,8 @@ function ChatInterface({
     syncInputOverlayScroll,
     handleClearInput,
     handleAbortSession,
+    handleAppendNow,
+    isAppendPending,
     handlePermissionDecision,
     handleGrantToolPermission,
     handleInputFocusChange,
@@ -401,6 +403,8 @@ function ChatInterface({
           activity={sessionActivity}
           isLoading={isProcessing}
           onAbortSession={handleAbortSession}
+          onAppendNow={handleAppendNow}
+          isAppendPending={isAppendPending}
           permissionMode={permissionMode}
           availablePermissionModes={availablePermissionModes}
           onSelectPermissionMode={selectPermissionMode}

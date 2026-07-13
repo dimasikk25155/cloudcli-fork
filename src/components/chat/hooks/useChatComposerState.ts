@@ -653,6 +653,30 @@ export function useChatComposerState({
     selectedSession,
   ]);
 
+  const uploadAttachedImages = useCallback(async (images: File[]): Promise<unknown[]> => {
+    if (images.length === 0) {
+      return [];
+    }
+
+    const formData = new FormData();
+    images.forEach((file) => {
+      formData.append('images', file);
+    });
+
+    const response = await authenticatedFetch('/api/assets/images', {
+      method: 'POST',
+      headers: {},
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to upload images');
+    }
+
+    const result = await response.json();
+    return result.images;
+  }, []);
+
   const handleSubmit = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
@@ -752,24 +776,8 @@ export function useChatComposerState({
 
       let uploadedImages: unknown[] = [];
       if (attachedImages.length > 0) {
-        const formData = new FormData();
-        attachedImages.forEach((file) => {
-          formData.append('images', file);
-        });
-
         try {
-          const response = await authenticatedFetch('/api/assets/images', {
-            method: 'POST',
-            headers: {},
-            body: formData,
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to upload images');
-          }
-
-          const result = await response.json();
-          uploadedImages = result.images;
+          uploadedImages = await uploadAttachedImages(attachedImages);
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';
           console.error('Image upload failed:', error);
@@ -899,6 +907,7 @@ export function useChatComposerState({
       addMessage,
       setIsUserScrolledUp,
       slashCommands,
+      uploadAttachedImages,
     ],
   );
 
@@ -1160,6 +1169,140 @@ export function useChatComposerState({
     });
   }, [canAbortSession, currentSessionId, selectedSession?.id, sendMessage]);
 
+  // "Append now": soft-stops the running turn (interrupt() keeps context —
+  // same primitive as the Stop button) and re-sends the composed text as a
+  // new turn on the same session the instant the stop lands. Deliberately
+  // bypasses `queuedDraft` (which only auto-flushes once the CURRENT turn
+  // finishes on its own) — the whole point here is not waiting for that.
+  const [isAppendPending, setIsAppendPending] = useState(false);
+  const pendingAppendRef = useRef<{
+    sessionId: string;
+    content: string;
+    images: unknown[];
+    options: QueuedSendOptions;
+  } | null>(null);
+
+  const handleAppendNow = useCallback(async () => {
+    if (!canAbortSession || isAppendPending) {
+      return;
+    }
+
+    // Prefer an already-queued draft (the card's own "Send now" button) over
+    // whatever is currently typed, since queuing already snapshotted the
+    // content, images and send options at that point in time.
+    const source = queuedDraft
+      ? { content: queuedDraft.content, images: queuedDraft.images }
+      : { content: inputValueRef.current, images: attachedImages };
+    if (!source.content.trim()) {
+      return;
+    }
+
+    const targetSessionId = selectedSession?.id || currentSessionId || null;
+    if (!targetSessionId) {
+      console.warn('Append requested but no session ID is available.');
+      return;
+    }
+
+    let uploadedImages: unknown[] = [];
+    if (source.images.length > 0) {
+      try {
+        uploadedImages = await uploadAttachedImages(source.images);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Image upload failed:', error);
+        addMessage({
+          type: 'error',
+          content: `Failed to upload images: ${message}`,
+          timestamp: new Date(),
+        });
+        return;
+      }
+    }
+
+    // Shown immediately: the interrupt can take a moment (the CLI may be
+    // mid tool-call), and the user should see their addendum landed rather
+    // than wonder whether the click registered.
+    addMessage({
+      type: 'user',
+      content: source.content,
+      images: uploadedImages as any,
+      timestamp: new Date(),
+    });
+
+    pendingAppendRef.current = {
+      sessionId: targetSessionId,
+      content: source.content,
+      images: uploadedImages,
+      options: buildSendOptions(source.content),
+    };
+    setIsAppendPending(true);
+
+    setQueuedDraft(null);
+    if (sessionKey) {
+      clearQueuedMessage(sessionKey);
+    }
+    setInput('');
+    inputValueRef.current = '';
+    setAttachedImages([]);
+    setUploadingImages(new Map());
+    setImageErrors(new Map());
+    resetCommandMenuState();
+    setIsTextareaExpanded(false);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    if (selectedProject) {
+      safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+    }
+
+    sendMessage({ type: 'chat.abort', sessionId: targetSessionId });
+  }, [
+    addMessage,
+    attachedImages,
+    buildSendOptions,
+    canAbortSession,
+    currentSessionId,
+    isAppendPending,
+    queuedDraft,
+    resetCommandMenuState,
+    selectedProject,
+    selectedSession,
+    sendMessage,
+    sessionKey,
+    setInput,
+    uploadAttachedImages,
+  ]);
+
+  // Fires once the interrupted turn's terminal `complete` flips `isLoading`
+  // false — dispatches the addendum as a fresh `chat.send` (the backend
+  // resumes by session id, same as any other turn).
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    const pending = pendingAppendRef.current;
+    if (!pending) {
+      return;
+    }
+    pendingAppendRef.current = null;
+    setIsAppendPending(false);
+
+    onSessionProcessing?.(pending.sessionId, {
+      statusText: null,
+      canInterrupt: true,
+    });
+
+    sendMessage({
+      type: 'chat.send',
+      sessionId: pending.sessionId,
+      content: pending.content,
+      options: {
+        ...pending.options,
+        images: pending.images,
+      },
+    });
+  }, [isLoading, onSessionProcessing, sendMessage]);
+
   const handleGrantToolPermission = useCallback(
     (suggestion: { entry: string; toolName: string }) => {
       if (!suggestion || provider !== 'claude') {
@@ -1250,6 +1393,8 @@ export function useChatComposerState({
     syncInputOverlayScroll,
     handleClearInput,
     handleAbortSession,
+    handleAppendNow,
+    isAppendPending,
     handlePermissionDecision,
     handleGrantToolPermission,
     handleInputFocusChange,
