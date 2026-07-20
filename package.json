@@ -48,6 +48,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p server/tsconfig.json",
     "lint": "eslint src/ server/",
     "lint:fix": "eslint src/ server/ --fix",
+    "test": "tsx --tsconfig server/tsconfig.json --test --test-timeout=30000 \"server/**/*.test.ts\" \"server/**/*.test.js\" \"src/**/*.test.ts\" \"src/**/*.test.js\"",
     "start": "npm run build && npm run server",
     "release": "./release.sh",
     "prepublishOnly": "npm run build",

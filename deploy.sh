@@ -19,6 +19,13 @@ fail() { echo "❌ SMOKE FAILED: $1" >&2; exit 1; }
 
 cd "$FORK_DIR"
 
+# Gate: types + tests must pass BEFORE we build or restart prod. set -e aborts
+# the deploy here on any red, so prod is never touched with a broken tree.
+echo "==> Gate: typecheck + tests..."
+npm run typecheck
+npm test
+echo "    gate OK: types clean, tests green"
+
 echo "==> Building client + server..."
 npm run build
 
