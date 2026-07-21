@@ -1026,3 +1026,689 @@
     }
   }
 }
+
+/* =========================================================================
+   THEME: Liquid Glass (Apple visionOS-style — LIGHT)
+   Full LIGHT skin — bright frosted-white panels floating over soft pastel
+   light, clean Apple system-blue accent, SF typography. Unlayered on purpose
+   so it wins over the base @layer tokens/utilities. This theme is registered
+   in LIGHT_THEMES so the global `dark` class is removed while it is active.
+   ========================================================================= */
+[data-theme='liquidGlass'] {
+  --background: 216 33% 97%;
+  --foreground: 222 26% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 26% 15%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 26% 15%;
+  --primary: 211 100% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 216 24% 93%;
+  --secondary-foreground: 222 20% 25%;
+  --muted: 216 24% 93%;
+  --muted-foreground: 220 12% 46%;
+  --accent: 211 92% 94%;
+  --accent-foreground: 211 80% 32%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 20% 88%;
+  --input: 220 20% 88%;
+  --ring: 211 100% 50%;
+  --radius: 0.9rem;
+
+  /* Nav / glass tokens — bright frosted white */
+  --nav-glass-bg: 0 0% 100% / 0.6;
+  --nav-glass-blur: 30px;
+  --nav-glass-saturate: 1.8;
+  --nav-tab-glow: 211 100% 50% / 0.16;
+  --nav-tab-ring: 211 100% 50% / 0.2;
+  --nav-float-shadow: 220 40% 40% / 0.12;
+  --nav-float-ring: 220 24% 82% / 0.7;
+  --nav-divider-color: 220 20% 82% / 0.8;
+  --nav-input-bg: 216 24% 92% / 0.7;
+  --nav-input-focus-ring: 211 100% 50% / 0.28;
+}
+
+[data-theme='liquidGlass'] body {
+  font-family: -apple-system, 'SF Pro Display', 'SF Pro Text', 'Inter',
+    system-ui, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.005em;
+}
+
+/* Bright frosted-white panels; the soft pastel light shows through them. */
+[data-theme='liquidGlass'] .bg-card {
+  background-color: hsl(0 0% 100% / 0.62) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border-color: hsl(0 0% 100% / 0.7);
+  /* Glass rim: bright hairline on top, soft airy shadow below */
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.85),
+    0 18px 44px -22px hsl(220 40% 40% / 0.3);
+}
+
+[data-theme='liquidGlass'] .bg-background {
+  background-color: hsl(216 33% 98% / 0.55) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(1.5);
+  backdrop-filter: blur(26px) saturate(1.5);
+}
+
+/* ---- Soft pastel light behind the app (LIGHT Liquid Glass background) ---- */
+.lg-bg {
+  position: absolute;
+  inset: 0;
+  /* Bright, gently graded base — near white cooling into pale blue. */
+  background:
+    radial-gradient(130% 100% at 50% -10%, #ffffff 0%, #eef3fb 48%, #e4ecf7 100%);
+}
+
+.lg-aurora {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px) saturate(1.15);
+  opacity: 0.55;
+  mix-blend-mode: normal;
+  will-change: transform;
+}
+
+.lg-aurora--violet {
+  width: 55vw;
+  height: 55vw;
+  left: -10vw;
+  top: -14vh;
+  /* soft sky blue */
+  background: radial-gradient(circle, #bcdcff 0%, rgba(188, 220, 255, 0) 70%);
+  animation: lg-drift-a 24s ease-in-out infinite;
+}
+
+.lg-aurora--cyan {
+  width: 48vw;
+  height: 48vw;
+  right: -8vw;
+  top: 8vh;
+  /* soft mint */
+  background: radial-gradient(circle, #c6f3e8 0%, rgba(198, 243, 232, 0) 70%);
+  animation: lg-drift-b 30s ease-in-out infinite;
+}
+
+.lg-aurora--magenta {
+  width: 50vw;
+  height: 50vw;
+  left: 26vw;
+  bottom: -20vh;
+  /* soft peach-rose */
+  background: radial-gradient(circle, #ffdccf 0%, rgba(255, 220, 207, 0) 70%);
+  animation: lg-drift-c 27s ease-in-out infinite;
+}
+
+.lg-aurora--emerald {
+  width: 36vw;
+  height: 36vw;
+  right: 14vw;
+  bottom: -6vh;
+  opacity: 0.4;
+  /* soft periwinkle */
+  background: radial-gradient(circle, #d7e2ff 0%, rgba(215, 226, 255, 0) 68%);
+  animation: lg-drift-b 36s ease-in-out infinite reverse;
+}
+
+/* Gentle top sheen + soft bottom lift so frosted panels read as glass. */
+.lg-veil {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 55%),
+    linear-gradient(to bottom, transparent 65%, rgba(180, 196, 222, 0.18));
+}
+
+@keyframes lg-drift-a {
+  0%, 100% { transform: translate(-4%, -3%) scale(1); }
+  50% { transform: translate(12%, 16%) scale(1.24); }
+}
+
+@keyframes lg-drift-b {
+  0%, 100% { transform: translate(6%, 0) scale(1.12); }
+  50% { transform: translate(-14%, 14%) scale(0.9); }
+}
+
+@keyframes lg-drift-c {
+  0%, 100% { transform: translate(0, 8%) scale(1); }
+  50% { transform: translate(-12%, -14%) scale(1.2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lg-aurora { animation: none !important; }
+}
+
+/* Apple system-blue accent: primary buttons/avatars glow like lit glass. */
+[data-theme='liquidGlass'] .bg-primary {
+  background-image: linear-gradient(135deg, #2b9dff 0%, #0a84ff 60%, #0a84ff 100%) !important;
+  box-shadow: 0 6px 18px -6px hsl(211 100% 45% / 0.55),
+    inset 0 1px 0 hsl(0 0% 100% / 0.4);
+}
+
+/* Active session / tab pills become bright blue-tinted glass chips. */
+[data-theme='liquidGlass'] .nav-tab-active {
+  box-shadow: 0 2px 14px hsl(211 100% 50% / 0.22),
+    inset 0 1px 0 hsl(0 0% 100% / 0.9),
+    0 0 0 1px hsl(211 100% 55% / 0.28) !important;
+}
+
+/* Frosted surfaces lift a touch on hover for a tactile, springy feel. */
+[data-theme='liquidGlass'] .bg-card {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* =========================================================================
+   THEME: Neon City (cyberpunk — DARK)
+   Blade-Runner cyan + magenta over a near-black blue, neon perspective grid,
+   volumetric fog, glassy dark panels with neon edges.
+   ========================================================================= */
+[data-theme='neonCity'] {
+  --background: 230 45% 5%;
+  --foreground: 190 55% 92%;
+  --card: 226 42% 10%;
+  --card-foreground: 190 45% 92%;
+  --popover: 226 44% 9%;
+  --popover-foreground: 190 45% 92%;
+  --primary: 187 90% 55%;
+  --primary-foreground: 230 45% 6%;
+  --secondary: 226 36% 15%;
+  --secondary-foreground: 190 40% 90%;
+  --muted: 226 30% 16%;
+  --muted-foreground: 200 22% 66%;
+  --accent: 320 70% 26%;
+  --accent-foreground: 320 90% 92%;
+  --destructive: 350 85% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 195 60% 24%;
+  --input: 220 40% 18%;
+  --ring: 187 90% 55%;
+  --radius: 0.55rem;
+
+  --nav-glass-bg: 226 45% 9% / 0.5;
+  --nav-glass-blur: 22px;
+  --nav-glass-saturate: 1.7;
+  --nav-tab-glow: 187 90% 55% / 0.45;
+  --nav-tab-ring: 187 90% 60% / 0.4;
+  --nav-float-shadow: 230 80% 2% / 0.6;
+  --nav-float-ring: 187 80% 55% / 0.25;
+  --nav-divider-color: 187 70% 55% / 0.25;
+  --nav-input-bg: 220 40% 14% / 0.6;
+  --nav-input-focus-ring: 187 90% 55% / 0.4;
+}
+
+[data-theme='neonCity'] body {
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, 'Menlo', monospace;
+}
+[data-theme='neonCity'] .bg-card {
+  background-color: hsl(226 44% 11% / 0.72) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  backdrop-filter: blur(14px) saturate(1.6);
+  border-color: hsl(187 90% 55% / 0.22);
+  box-shadow: inset 0 1px 0 hsl(187 90% 70% / 0.14),
+    0 0 22px -6px hsl(187 90% 50% / 0.25);
+}
+[data-theme='neonCity'] .bg-primary {
+  background-image: linear-gradient(135deg, #22d3ee 0%, #0ea5e9 55%, #d946ef 140%) !important;
+  box-shadow: 0 0 20px -4px hsl(187 90% 55% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.25);
+}
+[data-theme='neonCity'] .nav-tab-active {
+  box-shadow: 0 0 16px hsl(187 90% 55% / 0.5),
+    inset 0 1px 0 hsl(187 90% 80% / 0.25),
+    0 0 0 1px hsl(187 90% 60% / 0.5) !important;
+}
+
+/* =========================================================================
+   THEME: Synthwave Drive (retro-future — DARK)
+   80s sunset gradient (indigo→magenta→orange), big gradient sun with scan
+   slots, endless neon grid road driving to the horizon.
+   ========================================================================= */
+[data-theme='synthwaveDrive'] {
+  --background: 258 60% 7%;
+  --foreground: 320 60% 94%;
+  --card: 260 50% 12%;
+  --card-foreground: 320 55% 94%;
+  --popover: 260 52% 11%;
+  --popover-foreground: 320 55% 94%;
+  --primary: 328 100% 62%;
+  --primary-foreground: 260 60% 8%;
+  --secondary: 260 40% 18%;
+  --secondary-foreground: 320 50% 92%;
+  --muted: 260 34% 18%;
+  --muted-foreground: 290 30% 74%;
+  --accent: 190 90% 30%;
+  --accent-foreground: 190 90% 92%;
+  --destructive: 350 90% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 315 60% 34%;
+  --input: 260 40% 20%;
+  --ring: 328 100% 62%;
+  --radius: 0.5rem;
+
+  --nav-glass-bg: 260 52% 11% / 0.5;
+  --nav-glass-blur: 20px;
+  --nav-glass-saturate: 1.8;
+  --nav-tab-glow: 328 100% 62% / 0.45;
+  --nav-tab-ring: 190 90% 55% / 0.4;
+  --nav-float-shadow: 270 80% 3% / 0.6;
+  --nav-float-ring: 328 90% 60% / 0.3;
+  --nav-divider-color: 320 70% 60% / 0.28;
+  --nav-input-bg: 260 40% 16% / 0.6;
+  --nav-input-focus-ring: 328 100% 62% / 0.4;
+}
+
+[data-theme='synthwaveDrive'] .bg-card {
+  background-color: hsl(260 50% 13% / 0.66) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.7);
+  backdrop-filter: blur(16px) saturate(1.7);
+  border-color: hsl(328 90% 65% / 0.28);
+  box-shadow: inset 0 1px 0 hsl(328 100% 80% / 0.18),
+    0 0 26px -8px hsl(328 100% 55% / 0.35);
+}
+[data-theme='synthwaveDrive'] .bg-primary {
+  background-image: linear-gradient(135deg, #ff5cc8 0%, #ff2e97 50%, #ff8a3d 130%) !important;
+  box-shadow: 0 0 22px -4px hsl(328 100% 60% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.3);
+}
+[data-theme='synthwaveDrive'] .nav-tab-active {
+  box-shadow: 0 0 18px hsl(328 100% 60% / 0.5),
+    inset 0 1px 0 hsl(328 100% 85% / 0.25),
+    0 0 0 1px hsl(190 90% 60% / 0.45) !important;
+}
+
+/* =========================================================================
+   Shared photographic background layer, used by every "cinematic photo"
+   theme (see PHOTO_THEMES in ThemeBackground.tsx). A single real generated
+   still image per theme, full-bleed with a slow Ken Burns drift and a dark
+   scrim so foreground text stays readable — replaces hand-drawn CSS shapes,
+   which read as cheap approximations of scenes like a nebula or a cockpit.
+   ========================================================================= */
+.theme-photo-bg {
+  position: absolute;
+  inset: -3%;
+  background-size: cover;
+  background-position: center;
+  filter: saturate(1.08);
+  animation: theme-photo-drift 46s ease-in-out infinite alternate;
+}
+.theme-photo-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 0%, transparent 40%, rgba(0, 0, 0, 0.35) 100%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.15) 30%, rgba(0, 0, 0, 0.55) 100%);
+}
+@keyframes theme-photo-drift {
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.06) translate(-1%, -1%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-photo-bg { animation: none !important; }
+}
+
+/* =========================================================================
+   THEME: Command Deck (cinematic amber cockpit — DARK)
+   ========================================================================= */
+[data-theme='commandDeck'] {
+  --background: 20 30% 6%;
+  --foreground: 30 30% 94%;
+  --card: 20 20% 11%;
+  --card-foreground: 30 30% 94%;
+  --popover: 20 22% 10%;
+  --popover-foreground: 30 30% 94%;
+  --primary: 27 100% 55%;
+  --primary-foreground: 20 30% 8%;
+  --secondary: 20 16% 18%;
+  --secondary-foreground: 30 25% 92%;
+  --muted: 20 14% 18%;
+  --muted-foreground: 30 12% 68%;
+  --accent: 27 60% 22%;
+  --accent-foreground: 30 90% 92%;
+  --destructive: 6 80% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 27 50% 30%;
+  --input: 20 20% 20%;
+  --ring: 27 100% 55%;
+  --radius: 0.6rem;
+
+  --nav-glass-bg: 20 22% 10% / 0.48;
+  --nav-glass-blur: 22px;
+  --nav-glass-saturate: 1.6;
+  --nav-tab-glow: 27 100% 55% / 0.4;
+  --nav-tab-ring: 27 100% 60% / 0.35;
+  --nav-float-shadow: 20 60% 2% / 0.55;
+  --nav-float-ring: 27 80% 55% / 0.22;
+  --nav-divider-color: 27 60% 55% / 0.22;
+  --nav-input-bg: 20 20% 15% / 0.6;
+  --nav-input-focus-ring: 27 100% 55% / 0.35;
+}
+[data-theme='commandDeck'] .bg-card {
+  background-color: hsl(20 20% 12% / 0.66) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  border-color: hsl(27 90% 60% / 0.22);
+  box-shadow: inset 0 1px 0 hsl(30 90% 80% / 0.14), 0 0 24px -8px hsl(27 100% 50% / 0.3);
+}
+[data-theme='commandDeck'] .bg-primary {
+  background-image: linear-gradient(135deg, #ffb15c 0%, #ff7a1a 55%, #ff5c1a 130%) !important;
+  box-shadow: 0 0 18px -4px hsl(27 100% 55% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.3);
+}
+[data-theme='commandDeck'] .nav-tab-active {
+  box-shadow: 0 0 14px hsl(27 100% 55% / 0.45),
+    inset 0 1px 0 hsl(30 90% 85% / 0.25), 0 0 0 1px hsl(27 100% 60% / 0.4) !important;
+}
+
+/* =========================================================================
+   THEME: Nebula Flow (calm cosmic — DARK)
+   ========================================================================= */
+[data-theme='nebulaFlow'] {
+  --background: 250 45% 7%;
+  --foreground: 265 40% 95%;
+  --card: 252 38% 13%;
+  --card-foreground: 265 35% 95%;
+  --popover: 252 40% 11%;
+  --popover-foreground: 265 35% 95%;
+  --primary: 176 80% 55%;
+  --primary-foreground: 250 45% 8%;
+  --secondary: 255 30% 19%;
+  --secondary-foreground: 265 30% 93%;
+  --muted: 255 26% 18%;
+  --muted-foreground: 260 18% 72%;
+  --accent: 280 45% 26%;
+  --accent-foreground: 280 70% 94%;
+  --destructive: 350 80% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 260 40% 32%;
+  --input: 255 30% 20%;
+  --ring: 176 80% 55%;
+  --radius: 1rem;
+
+  --nav-glass-bg: 252 40% 12% / 0.4;
+  --nav-glass-blur: 30px;
+  --nav-glass-saturate: 1.8;
+  --nav-tab-glow: 176 80% 55% / 0.35;
+  --nav-tab-ring: 280 60% 70% / 0.3;
+  --nav-float-shadow: 255 70% 3% / 0.55;
+  --nav-float-ring: 260 50% 65% / 0.25;
+  --nav-divider-color: 260 50% 70% / 0.22;
+  --nav-input-bg: 255 30% 16% / 0.5;
+  --nav-input-focus-ring: 176 80% 55% / 0.35;
+}
+[data-theme='nebulaFlow'] .bg-card {
+  background-color: hsl(252 36% 15% / 0.5) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border-color: hsl(265 60% 82% / 0.16);
+  box-shadow: inset 0 1px 0 hsl(265 85% 92% / 0.14), 0 20px 50px -22px hsl(255 60% 3% / 0.6);
+}
+[data-theme='nebulaFlow'] .bg-primary {
+  background-image: linear-gradient(135deg, #7ffbe6 0%, #34d9c4 55%, #8b6bff 140%) !important;
+  box-shadow: 0 0 20px -4px hsl(176 80% 55% / 0.6), inset 0 1px 0 hsl(0 0% 100% / 0.3);
+}
+[data-theme='nebulaFlow'] .nav-tab-active {
+  box-shadow: 0 0 14px hsl(176 80% 55% / 0.35),
+    inset 0 1px 0 hsl(265 85% 90% / 0.2), 0 0 0 1px hsl(280 70% 75% / 0.3) !important;
+}
+
+/* =========================================================================
+   THEME: Mission Control (sci-fi cockpit HUD — DARK)
+   ========================================================================= */
+[data-theme='missionControl'] {
+  --background: 214 55% 6%;
+  --foreground: 195 35% 94%;
+  --card: 214 42% 11%;
+  --card-foreground: 195 30% 94%;
+  --popover: 214 44% 10%;
+  --popover-foreground: 195 30% 94%;
+  --primary: 190 90% 52%;
+  --primary-foreground: 214 55% 7%;
+  --secondary: 214 30% 17%;
+  --secondary-foreground: 195 25% 92%;
+  --muted: 214 26% 17%;
+  --muted-foreground: 200 16% 68%;
+  --accent: 27 70% 25%;
+  --accent-foreground: 30 80% 92%;
+  --destructive: 350 80% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 195 45% 28%;
+  --input: 214 30% 19%;
+  --ring: 190 90% 52%;
+  --radius: 0.5rem;
+
+  --nav-glass-bg: 214 44% 10% / 0.45;
+  --nav-glass-blur: 24px;
+  --nav-glass-saturate: 1.7;
+  --nav-tab-glow: 190 90% 52% / 0.4;
+  --nav-tab-ring: 190 90% 58% / 0.35;
+  --nav-float-shadow: 214 70% 2% / 0.55;
+  --nav-float-ring: 190 80% 55% / 0.22;
+  --nav-divider-color: 190 70% 55% / 0.22;
+  --nav-input-bg: 214 30% 15% / 0.55;
+  --nav-input-focus-ring: 190 90% 52% / 0.35;
+}
+[data-theme='missionControl'] .bg-card {
+  background-color: hsl(214 42% 12% / 0.6) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  border-color: hsl(190 80% 60% / 0.2);
+  box-shadow: inset 0 1px 0 hsl(195 85% 85% / 0.14), 0 0 24px -8px hsl(190 90% 50% / 0.25);
+}
+[data-theme='missionControl'] .bg-primary {
+  background-image: linear-gradient(135deg, #5fe3ff 0%, #16a5c9 55%, #ff9d4d 150%) !important;
+  box-shadow: 0 0 18px -4px hsl(190 90% 52% / 0.6), inset 0 1px 0 hsl(0 0% 100% / 0.3);
+}
+[data-theme='missionControl'] .nav-tab-active {
+  box-shadow: 0 0 14px hsl(190 90% 52% / 0.4),
+    inset 0 1px 0 hsl(195 85% 85% / 0.2), 0 0 0 1px hsl(190 90% 58% / 0.35) !important;
+}
+
+/* =========================================================================
+   THEME: Bento 3D (playful pastel tiles — DARK)
+   ========================================================================= */
+[data-theme='bento3d'] {
+  --background: 220 12% 8%;
+  --foreground: 220 15% 95%;
+  --card: 220 12% 14%;
+  --card-foreground: 220 15% 95%;
+  --popover: 220 12% 13%;
+  --popover-foreground: 220 15% 95%;
+  --primary: 165 65% 62%;
+  --primary-foreground: 220 12% 9%;
+  --secondary: 220 10% 20%;
+  --secondary-foreground: 220 15% 92%;
+  --muted: 220 10% 19%;
+  --muted-foreground: 220 8% 68%;
+  --accent: 20 70% 30%;
+  --accent-foreground: 20 80% 92%;
+  --destructive: 350 75% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 10% 26%;
+  --input: 220 10% 22%;
+  --ring: 165 65% 62%;
+  --radius: 1.15rem;
+
+  --nav-glass-bg: 220 12% 13% / 0.5;
+  --nav-glass-blur: 20px;
+  --nav-glass-saturate: 1.5;
+  --nav-tab-glow: 165 65% 62% / 0.3;
+  --nav-tab-ring: 20 80% 62% / 0.25;
+  --nav-float-shadow: 220 40% 2% / 0.4;
+  --nav-float-ring: 220 15% 40% / 0.25;
+  --nav-divider-color: 220 12% 40% / 0.3;
+  --nav-input-bg: 220 10% 18% / 0.6;
+  --nav-input-focus-ring: 165 65% 62% / 0.3;
+}
+[data-theme='bento3d'] .bg-card {
+  background-color: hsl(220 12% 15% / 0.72) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border-color: hsl(220 15% 60% / 0.14);
+  box-shadow: inset 0 1px 0 hsl(220 20% 90% / 0.1), 0 16px 36px -18px hsl(220 40% 2% / 0.5);
+}
+[data-theme='bento3d'] .bg-primary {
+  background-image: linear-gradient(135deg, #a6f2d8 0%, #5fd6b0 55%, #ffb27a 140%) !important;
+  box-shadow: 0 0 16px -4px hsl(165 65% 62% / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.3);
+}
+[data-theme='bento3d'] .nav-tab-active {
+  box-shadow: 0 0 12px hsl(165 65% 62% / 0.3),
+    inset 0 1px 0 hsl(220 20% 90% / 0.2), 0 0 0 1px hsl(20 70% 62% / 0.25) !important;
+}
+
+/* =========================================================================
+   THEME: Kinetic Type (brutalist mono + acid lime — DARK)
+   ========================================================================= */
+[data-theme='kineticType'] {
+  --background: 0 0% 5%;
+  --foreground: 0 0% 96%;
+  --card: 0 0% 10%;
+  --card-foreground: 0 0% 96%;
+  --popover: 0 0% 9%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 78 100% 55%;
+  --primary-foreground: 0 0% 6%;
+  --secondary: 0 0% 16%;
+  --secondary-foreground: 0 0% 92%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 62%;
+  --accent: 78 40% 18%;
+  --accent-foreground: 78 90% 90%;
+  --destructive: 0 80% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 26%;
+  --input: 0 0% 18%;
+  --ring: 78 100% 55%;
+  --radius: 0.15rem;
+
+  --nav-glass-bg: 0 0% 8% / 0.55;
+  --nav-glass-blur: 14px;
+  --nav-glass-saturate: 1.2;
+  --nav-tab-glow: 78 100% 55% / 0.35;
+  --nav-tab-ring: 78 100% 60% / 0.3;
+  --nav-float-shadow: 0 0% 0% / 0.6;
+  --nav-float-ring: 0 0% 40% / 0.2;
+  --nav-divider-color: 0 0% 40% / 0.3;
+  --nav-input-bg: 0 0% 14% / 0.6;
+  --nav-input-focus-ring: 78 100% 55% / 0.3;
+}
+[data-theme='kineticType'] body {
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: -0.01em;
+}
+[data-theme='kineticType'] .bg-card {
+  background-color: hsl(0 0% 11% / 0.7) !important;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-color: hsl(0 0% 40% / 0.3);
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08), 0 14px 30px -16px hsl(0 0% 0% / 0.7);
+}
+[data-theme='kineticType'] .bg-primary {
+  background-image: linear-gradient(135deg, #d4ff5c 0%, #b8e600 60%, #8fb800 140%) !important;
+  box-shadow: 0 0 16px -4px hsl(78 100% 55% / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.25);
+}
+[data-theme='kineticType'] .nav-tab-active {
+  box-shadow: 0 0 0 1px hsl(78 100% 55% / 0.5) !important;
+}
+
+/* =========================================================================
+   THEME: Liquid Chrome (dark premium metal — DARK)
+   ========================================================================= */
+[data-theme='liquidChrome'] {
+  --background: 220 20% 6%;
+  --foreground: 220 15% 95%;
+  --card: 220 16% 12%;
+  --card-foreground: 220 15% 95%;
+  --popover: 220 18% 11%;
+  --popover-foreground: 220 15% 95%;
+  --primary: 225 60% 68%;
+  --primary-foreground: 220 20% 8%;
+  --secondary: 220 14% 18%;
+  --secondary-foreground: 220 15% 92%;
+  --muted: 220 12% 18%;
+  --muted-foreground: 220 8% 68%;
+  --accent: 260 30% 24%;
+  --accent-foreground: 260 60% 92%;
+  --destructive: 350 75% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 20% 32%;
+  --input: 220 14% 20%;
+  --ring: 225 60% 68%;
+  --radius: 0.75rem;
+
+  --nav-glass-bg: 220 18% 11% / 0.5;
+  --nav-glass-blur: 26px;
+  --nav-glass-saturate: 1.5;
+  --nav-tab-glow: 225 60% 68% / 0.35;
+  --nav-tab-ring: 225 60% 72% / 0.3;
+  --nav-float-shadow: 220 60% 2% / 0.55;
+  --nav-float-ring: 225 40% 60% / 0.22;
+  --nav-divider-color: 225 30% 60% / 0.22;
+  --nav-input-bg: 220 14% 16% / 0.6;
+  --nav-input-focus-ring: 225 60% 68% / 0.3;
+}
+[data-theme='liquidChrome'] .bg-card {
+  background-color: hsl(220 16% 13% / 0.62) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  border-color: hsl(220 30% 75% / 0.18);
+  box-shadow: inset 0 1px 0 hsl(220 40% 90% / 0.16), 0 18px 40px -20px hsl(220 60% 2% / 0.6);
+}
+[data-theme='liquidChrome'] .bg-primary {
+  background-image: linear-gradient(135deg, #e6ecff 0%, #9fb3ff 55%, #6d7fce 140%) !important;
+  box-shadow: 0 0 16px -4px hsl(225 60% 68% / 0.5), inset 0 1px 0 hsl(0 0% 100% / 0.35);
+}
+[data-theme='liquidChrome'] .nav-tab-active {
+  box-shadow: 0 0 14px hsl(225 60% 68% / 0.3),
+    inset 0 1px 0 hsl(220 40% 90% / 0.2), 0 0 0 1px hsl(225 60% 72% / 0.25) !important;
+}
+
+/* =========================================================================
+   THEME: Zen Particles (calm minimal depth — DARK)
+   ========================================================================= */
+[data-theme='zenParticles'] {
+  --background: 30 8% 7%;
+  --foreground: 40 15% 92%;
+  --card: 30 8% 12%;
+  --card-foreground: 40 15% 92%;
+  --popover: 30 8% 11%;
+  --popover-foreground: 40 15% 92%;
+  --primary: 32 70% 58%;
+  --primary-foreground: 30 8% 8%;
+  --secondary: 30 6% 18%;
+  --secondary-foreground: 40 12% 90%;
+  --muted: 30 6% 17%;
+  --muted-foreground: 35 6% 64%;
+  --accent: 32 40% 20%;
+  --accent-foreground: 32 70% 90%;
+  --destructive: 0 60% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 30 8% 24%;
+  --input: 30 6% 18%;
+  --ring: 32 70% 58%;
+  --radius: 1.2rem;
+
+  --nav-glass-bg: 30 8% 11% / 0.4;
+  --nav-glass-blur: 28px;
+  --nav-glass-saturate: 1.3;
+  --nav-tab-glow: 32 70% 58% / 0.25;
+  --nav-tab-ring: 32 70% 60% / 0.2;
+  --nav-float-shadow: 30 20% 2% / 0.5;
+  --nav-float-ring: 30 10% 40% / 0.2;
+  --nav-divider-color: 30 10% 45% / 0.22;
+  --nav-input-bg: 30 6% 15% / 0.5;
+  --nav-input-focus-ring: 32 70% 58% / 0.25;
+}
+[data-theme='zenParticles'] .bg-card {
+  background-color: hsl(30 8% 13% / 0.55) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  backdrop-filter: blur(22px) saturate(1.3);
+  border-color: hsl(35 15% 60% / 0.12);
+  box-shadow: inset 0 1px 0 hsl(40 20% 85% / 0.08), 0 16px 36px -18px hsl(30 30% 2% / 0.5);
+}
+[data-theme='zenParticles'] .bg-primary {
+  background-image: linear-gradient(135deg, #ffd2a3 0%, #e8a35c 60%, #c47f3d 140%) !important;
+  box-shadow: 0 0 14px -4px hsl(32 70% 58% / 0.45), inset 0 1px 0 hsl(0 0% 100% / 0.25);
+}
+[data-theme='zenParticles'] .nav-tab-active {
+  box-shadow: 0 0 10px hsl(32 70% 58% / 0.2),
+    inset 0 1px 0 hsl(40 20% 85% / 0.15), 0 0 0 1px hsl(32 60% 60% / 0.2) !important;
+}

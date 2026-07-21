@@ -12,6 +12,8 @@ import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
 import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
 import { api } from '../../utils/api';
+import { useTheme } from '../../contexts/ThemeContext';
+import ThemeBackground from '../branding/ThemeBackground';
 
 type RunningSessionApiItem = {
   sessionId?: unknown;
@@ -53,6 +55,7 @@ function AppContentInner() {
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { ws, sendMessage, subscribe } = useWebSocket();
+  const { shaderEnabled, theme } = useTheme();
 
   const {
     processingSessions,
@@ -210,8 +213,9 @@ function AppContentInner() {
 
   return (
     <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
+      {shaderEnabled && <ThemeBackground theme={theme} />}
       {!isMobile ? (
-        <div className="h-full flex-shrink-0 border-r border-border/50">
+        <div className="relative z-10 h-full flex-shrink-0 border-r border-border/50 bg-background">
           <Sidebar {...sidebarSharedProps} />
         </div>
       ) : (
@@ -243,7 +247,7 @@ function AppContentInner() {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         <MainContent
           selectedProject={selectedProject}
           selectedSession={selectedSession}

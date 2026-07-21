@@ -10,80 +10,102 @@ export const useTheme = () => {
   return context;
 };
 
+// Full app themes ("skins"): each one restyles the whole UI — colours, fonts,
+// panels and background — via a `data-theme` attribute on <html>. Added one at
+// a time as each is built out; `default` is the original warm-orange look.
+export const THEMES = [
+  'default',
+  'light',
+  'liquidGlass',
+  'neonCity',
+  'synthwaveDrive',
+  'commandDeck',
+  'nebulaFlow',
+  'missionControl',
+  'bento3d',
+  'kineticType',
+  'liquidChrome',
+  'zenParticles',
+];
+
+// Human-readable labels for the theme picker in Settings → Appearance.
+export const THEME_LABELS = {
+  default: 'Тёмная',
+  light: 'Светлая',
+  liquidGlass: 'Liquid Glass',
+  neonCity: 'Neon City',
+  synthwaveDrive: 'Synthwave',
+  commandDeck: 'Command Deck',
+  nebulaFlow: 'Nebula Flow',
+  missionControl: 'Mission Control',
+  bento3d: 'Bento 3D',
+  kineticType: 'Kinetic Type',
+  liquidChrome: 'Liquid Chrome',
+  zenParticles: 'Zen Particles',
+};
+
+// Themes that are light (bright) rather than dark. Each theme decides whether
+// the global `dark` class is applied — there is no separate user dark/light
+// toggle. `default` and anything not listed here is treated as dark.
+export const LIGHT_THEMES = ['light', 'liquidGlass'];
+
+// Backwards-compatible aliases (older code referred to these as shader variants).
+export const SHADER_VARIANTS = THEMES;
+export const SHADER_VARIANT_LABELS = THEME_LABELS;
+
 export const ThemeProvider = ({ children }) => {
-  // Check for saved theme preference or default to system preference
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    // Check localStorage first
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-      return savedTheme === 'dark';
-    }
-    
-    // Check system preference
-    if (window.matchMedia) {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    
-    return false;
+  // Animated WebGL background (opt-out).
+  const [shaderEnabled, setShaderEnabled] = useState(() => {
+    const saved = localStorage.getItem('shaderBg');
+    return saved === null ? true : saved === 'on';
+  });
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem('appTheme') || localStorage.getItem('shaderVariant');
+    return THEMES.includes(saved) ? saved : 'default';
   });
 
-  // Update document class and localStorage when theme changes
+  // The active theme decides whether the app is dark or light.
+  const isDarkMode = !LIGHT_THEMES.includes(theme);
+
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-      
-      // Update iOS status bar style and theme color for dark mode
-      const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-      if (statusBarMeta) {
-        statusBarMeta.setAttribute('content', 'black-translucent');
-      }
-      
-      const themeColorMeta = document.querySelector('meta[name="theme-color"]');
-      if (themeColorMeta) {
-        themeColorMeta.setAttribute('content', '#141414'); // Dark background color (hsl(0 0% 8%))
-      }
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-      
-      // Update iOS status bar style and theme color for light mode
-      const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-      if (statusBarMeta) {
-        statusBarMeta.setAttribute('content', 'default');
-      }
-      
-      const themeColorMeta = document.querySelector('meta[name="theme-color"]');
-      if (themeColorMeta) {
-        themeColorMeta.setAttribute('content', '#f6f4ef'); // Light background color (warm cream)
-      }
+    localStorage.setItem('shaderBg', shaderEnabled ? 'on' : 'off');
+  }, [shaderEnabled]);
+
+  // The active theme drives both its `data-theme` attribute and the global
+  // `dark` class + browser chrome, so light themes flip everything at once.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute('data-theme', theme);
+    localStorage.setItem('appTheme', theme);
+
+    const dark = !LIGHT_THEMES.includes(theme);
+    root.classList.toggle('dark', dark);
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+
+    const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (statusBarMeta) {
+      statusBarMeta.setAttribute('content', dark ? 'black-translucent' : 'default');
     }
-  }, [isDarkMode]);
 
-  // Listen for system theme changes
-  useEffect(() => {
-    if (!window.matchMedia) return;
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e) => {
-      // Only update if user hasn't manually set a preference
-      const savedTheme = localStorage.getItem('theme');
-      if (!savedTheme) {
-        setIsDarkMode(e.matches);
-      }
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-
-  const toggleDarkMode = () => {
-    setIsDarkMode(prev => !prev);
-  };
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeColorMeta) {
+      themeColorMeta.setAttribute('content', dark ? '#141414' : '#eef2f9');
+    }
+  }, [theme]);
 
   const value = {
     isDarkMode,
-    toggleDarkMode,
+    // No-op kept for backward compatibility with any lingering callers.
+    toggleDarkMode: () => {},
+    shaderEnabled,
+    setShaderEnabled,
+    toggleShader: () => setShaderEnabled((prev) => !prev),
+    // Full app theme.
+    theme,
+    setTheme,
+    // Backwards-compatible aliases.
+    shaderVariant: theme,
+    setShaderVariant: setTheme,
   };
 
   return (

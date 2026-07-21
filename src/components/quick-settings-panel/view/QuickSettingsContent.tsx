@@ -1,7 +1,7 @@
-import { Moon, Sun } from 'lucide-react';
+import { Sparkles, Palette } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { DarkModeToggle } from '../../../shared/view/ui';
+import { useTheme, THEMES, THEME_LABELS } from '../../../contexts/ThemeContext';
 import LanguageSelector from '../../../shared/view/ui/LanguageSelector';
 import {
   INPUT_SETTING_TOGGLES,
@@ -29,6 +29,7 @@ export default function QuickSettingsContent({
   onPreferenceChange,
 }: QuickSettingsContentProps) {
   const { t } = useTranslation('settings');
+  const { shaderEnabled, setShaderEnabled, theme, setTheme } = useTheme();
   const inputSettingToggles = preferences.voiceEnabled
     ? INPUT_SETTING_TOGGLES
     : INPUT_SETTING_TOGGLES.filter(({ key }) => key !== 'voiceEnabled');
@@ -50,15 +51,27 @@ export default function QuickSettingsContent({
       <QuickSettingsSection title={t('quickSettings.sections.appearance')}>
         <div className={SETTING_ROW_CLASS}>
           <span className="flex items-center gap-2 text-sm text-foreground">
-            {isDarkMode ? (
-              <Moon className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <Sun className="h-4 w-4 text-muted-foreground" />
-            )}
-            {t('quickSettings.darkMode')}
+            <Palette className="h-4 w-4 text-muted-foreground" />
+            {t('quickSettings.theme', 'Тема')}
           </span>
-          <DarkModeToggle />
+          <select
+            value={theme}
+            onChange={(event) => setTheme(event.target.value)}
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {THEMES.map((themeKey) => (
+              <option key={themeKey} value={themeKey}>
+                {(THEME_LABELS as Record<string, string>)[themeKey] || themeKey}
+              </option>
+            ))}
+          </select>
         </div>
+        <QuickSettingsToggleRow
+          label={t('quickSettings.animatedBackground', 'Живой фон')}
+          icon={Sparkles}
+          checked={shaderEnabled}
+          onCheckedChange={setShaderEnabled}
+        />
         <LanguageSelector compact />
       </QuickSettingsSection>
 

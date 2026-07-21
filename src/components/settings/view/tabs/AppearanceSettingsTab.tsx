@@ -1,7 +1,11 @@
 import { useTranslation } from 'react-i18next';
-import { DarkModeToggle } from '../../../../shared/view/ui';
 import type { CodeEditorSettingsState, ProjectSortOrder } from '../../types/types';
 import LanguageSelector from '../../../../shared/view/ui/LanguageSelector';
+import {
+  useTheme,
+  THEMES,
+  THEME_LABELS,
+} from '../../../../contexts/ThemeContext';
 import SettingsCard from '../SettingsCard';
 import SettingsRow from '../SettingsRow';
 import SettingsSection from '../SettingsSection';
@@ -27,16 +31,44 @@ export default function AppearanceSettingsTab({
   onCodeEditorFontSizeChange,
 }: AppearanceSettingsTabProps) {
   const { t } = useTranslation('settings');
+  const { shaderEnabled, setShaderEnabled, theme, setTheme } = useTheme();
 
   return (
     <div className="space-y-8">
-      <SettingsSection title={t('appearanceSettings.darkMode.label')}>
-        <SettingsCard>
+      <SettingsSection title={t('appearanceSettings.theme.title', 'Тема оформления')}>
+        <SettingsCard divided>
           <SettingsRow
-            label={t('appearanceSettings.darkMode.label')}
-            description={t('appearanceSettings.darkMode.description')}
+            label={t('appearanceSettings.theme.label', 'Тема')}
+            description={t(
+              'appearanceSettings.theme.description',
+              'Полностью меняет вид приложения: цвета, шрифты и фон.',
+            )}
           >
-            <DarkModeToggle ariaLabel={t('appearanceSettings.darkMode.label')} />
+            <select
+              value={theme}
+              onChange={(event) => setTheme(event.target.value)}
+              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44"
+            >
+              {THEMES.map((themeKey) => (
+                <option key={themeKey} value={themeKey}>
+                  {(THEME_LABELS as Record<string, string>)[themeKey] || themeKey}
+                </option>
+              ))}
+            </select>
+          </SettingsRow>
+
+          <SettingsRow
+            label={t('appearanceSettings.animatedBackground.enable.label', 'Живой фон')}
+            description={t(
+              'appearanceSettings.animatedBackground.enable.description',
+              'Анимированный фон за интерфейсом',
+            )}
+          >
+            <SettingsToggle
+              checked={shaderEnabled}
+              onChange={setShaderEnabled}
+              ariaLabel={t('appearanceSettings.animatedBackground.enable.label', 'Живой фон')}
+            />
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
