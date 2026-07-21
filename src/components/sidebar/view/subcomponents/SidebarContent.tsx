@@ -1,4 +1,4 @@
-import { Activity, Archive, Folder, RotateCcw, Trash2 } from 'lucide-react';
+import { Activity, Archive, Folder, History, RotateCcw, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
@@ -91,6 +91,7 @@ type SidebarContentProps = {
   isLoading: boolean;
   projects: Project[];
   runningSessionsCount: number;
+  recentSessionsCount: number;
   archivedProjects: ArchivedProjectListItem[];
   archivedSessions: ArchivedSessionListItem[];
   archivedSessionsCount: number;
@@ -121,6 +122,7 @@ export default function SidebarContent({
   isLoading,
   projects,
   runningSessionsCount,
+  recentSessionsCount,
   archivedProjects,
   archivedSessions,
   archivedSessionsCount,
@@ -157,6 +159,7 @@ export default function SidebarContent({
         isLoading={isLoading}
         projectsCount={projects.length}
         runningSessionsCount={runningSessionsCount}
+        recentSessionsCount={recentSessionsCount}
         archivedSessionsCount={archivedSessionsCount}
         isArchivedSessionsLoading={isArchivedSessionsLoading}
         searchFilter={searchFilter}
@@ -200,6 +203,39 @@ export default function SidebarContent({
                 </div>
                 <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-normal text-emerald-700 dark:text-emerald-300">
                   {runningSessionsCount}
+                </span>
+              </div>
+              <SidebarProjectList {...projectListProps} />
+            </div>
+          )
+        ) : searchMode === 'recent' ? (
+          projectListProps.filteredProjects.length === 0 ? (
+            <div className="px-4 py-12 text-center md:py-8">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-border/70 bg-muted/50 md:mb-3">
+                <History className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <h3 className="mb-2 text-base font-medium text-foreground md:mb-1">
+                {t('recent.emptyTitle', 'Journal is empty')}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {recentSessionsCount > 0
+                  ? t('recent.noMatchingSessions', 'No recent sessions match this search.')
+                  : t('recent.emptyDescription', 'Sessions you work in show up here and stay until you hide them with ✕.')}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="mx-2 flex items-center justify-between rounded-lg border border-border/60 bg-card/50 px-3 py-2 shadow-sm">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                    <History className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="truncate text-xs font-normal text-foreground">
+                    {t('recent.title', 'Recent')}
+                  </span>
+                </div>
+                <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-normal text-sky-700 dark:text-sky-300">
+                  {recentSessionsCount}
                 </span>
               </div>
               <SidebarProjectList {...projectListProps} />

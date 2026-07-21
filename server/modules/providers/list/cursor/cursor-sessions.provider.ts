@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
-import { parseImagesInputTag } from '@/shared/image-attachments.js';
+import { parseAttachedFilesTag, parseImagesInputTag } from '@/shared/image-attachments.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import {
@@ -91,9 +91,11 @@ function extractUserTextAndImages(
     return { text: unwrapped };
   }
 
-  const { text, attachments } = parseImagesInputTag(unwrapped);
+  const imagesParsed = parseImagesInputTag(unwrapped);
+  const filesParsed = parseAttachedFilesTag(imagesParsed.text);
+  const attachments = [...imagesParsed.attachments, ...filesParsed.files];
   return {
-    text,
+    text: filesParsed.text,
     images: attachments.length > 0 ? attachments : undefined,
   };
 }
@@ -474,9 +476,11 @@ export class CursorSessionsProvider implements IProviderSessions {
             const { text: cleanText, images } = role === 'user'
               ? (() => {
                 const parsed = parseImagesInputTag(text);
+                const filesParsed = parseAttachedFilesTag(parsed.text);
+                const attachments = [...parsed.attachments, ...filesParsed.files];
                 return {
-                  text: parsed.text,
-                  images: parsed.attachments.length > 0 ? parsed.attachments : undefined,
+                  text: filesParsed.text,
+                  images: attachments.length > 0 ? attachments : undefined,
                 };
               })()
               : { text, images: undefined };

@@ -17,9 +17,24 @@ import {
 export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
-      value: 'default',
-      label: 'Default (recommended)',
-      description: 'Use the Claude Code default model (currently Sonnet 4.6)',
+      value: 'opus[1m]',
+      label: 'Opus 4.8 (1M context)',
+      description: 'Opus 4.8 with 1M context · Most capable for complex work · $5/$25 per Mtok',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
+      value: 'sonnet[1m]',
+      label: 'Sonnet (1M context)',
+      description: 'Sonnet 4.6 for long sessions · $3/$15 per Mtok',
       effort: {
         default: 'high',
         values: [
@@ -46,70 +61,17 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
       },
     },
     {
-      value: "sonnet",
-      label: "Sonnet",
-      description: "Sonnet 4.6 · Best for everyday tasks · $3/$15 per Mtok",
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'max' },
-        ],
-      },
-    },
-    {
-      value: 'sonnet[1m]',
-      label: 'Sonnet (1M context)',
-      description: 'Sonnet 4.6 for long sessions · $3/$15 per Mtok',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'max' },
-        ],
-      },
-    },
-    {
-      value: 'opus',
-      label: 'Opus',
-      description: 'Opus 4.8 · Best for everyday, complex tasks · ~2× usage vs Sonnet',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'xhigh' },
-          { value: 'max' },
-        ],
-      },
-    },
-    {
-      value: 'opus[1m]',
-      label: 'Opus 4.8 (1M context)',
-      description: 'Opus 4.8 with 1M context · Most capable for complex work · $5/$25 per Mtok',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'xhigh' },
-          { value: 'max' },
-        ],
-      },
-    },
-    {
-      value: 'haiku',
-      label: 'Haiku',
-      description: 'Haiku 4.5 · Fastest for quick answers · $1/$5 per Mtok',
+      // Kimi K3 runs the same Claude Code engine pointed at Kimi's
+      // Anthropic-compatible endpoint (separate Kimi subscription — does NOT
+      // consume the Claude Max limit). The `kimi-` prefix is detected in
+      // claude-sdk.js, which injects Kimi's base URL + key and maps the model
+      // to its native id (`k3`). Needs KIMI_CODE_KEY in ~/Antigravity Project/.secrets.env.
+      value: 'kimi-k3',
+      label: 'Kimi K3',
+      description: 'Отдельная подписка Kimi · не тратит лимит Claude · нужен ключ Kimi Code в .secrets.env',
     },
   ],
-  DEFAULT: 'default',
+  DEFAULT: 'opus[1m]',
 };
 
 export const findClaudeModelOption = (model: string | undefined | null): ProviderModelOption | null => {

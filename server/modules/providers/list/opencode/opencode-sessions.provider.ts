@@ -2,7 +2,7 @@ import fsSync from 'node:fs';
 
 import Database from 'better-sqlite3';
 
-import { parseImagesInputTag } from '@/shared/image-attachments.js';
+import { parseAttachedFilesTag, parseImagesInputTag } from '@/shared/image-attachments.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import {
@@ -405,7 +405,11 @@ export class OpenCodeSessionsProvider implements IProviderSessions {
         // User prompts sent with attachments carry an <images_input> path
         // list; strip it for display and surface the paths as images.
         const { text: content, attachments } = messageRole === 'user'
-          ? parseImagesInputTag(rawContent)
+          ? (() => {
+              const parsed = parseImagesInputTag(rawContent);
+              const filesParsed = parseAttachedFilesTag(parsed.text);
+              return { text: filesParsed.text, attachments: [...parsed.attachments, ...filesParsed.files] };
+            })()
           : { text: rawContent, attachments: [] };
         if (content.trim() || attachments.length > 0) {
           normalized.push(createNormalizedMessage({

@@ -11,7 +11,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { ImageIcon, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
+import { Paperclip, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
 
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useVoiceAvailable } from '../../hooks/useVoiceAvailable';
@@ -510,7 +510,7 @@ export default function ChatComposer({
                     d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                   />
                 </svg>
-                <p className="text-sm font-medium">Drop images here</p>
+                <p className="text-sm font-medium">Drop files here</p>
               </div>
             </div>
           )}
@@ -561,10 +561,10 @@ export default function ChatComposer({
         <PromptInputFooter>
           <PromptInputTools className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
             <PromptInputButton
-              tooltip={{ content: t('input.attachImages') }}
+              tooltip={{ content: t('input.attachFiles', { defaultValue: 'Attach files' }) }}
               onClick={openImagePicker}
             >
-              <ImageIcon />
+              <Paperclip />
             </PromptInputButton>
 
             {onVoiceTranscript && voiceAvailable && (

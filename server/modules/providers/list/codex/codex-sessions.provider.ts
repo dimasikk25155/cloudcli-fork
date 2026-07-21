@@ -2,7 +2,7 @@ import fsSync from 'node:fs';
 import readline from 'node:readline';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import { toImageAttachments } from '@/shared/image-attachments.js';
+import { parseAttachedFilesTag, toImageAttachments } from '@/shared/image-attachments.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
@@ -139,7 +139,7 @@ async function getCodexSessionMessages(
             timestamp: entry.timestamp,
             message: {
               role: 'user',
-              content: entry.payload.message,
+              content: parseAttachedFilesTag(String(entry.payload.message ?? '')).text,
             },
             images: extractCodexUserImages(entry.payload as AnyRecord),
           });
@@ -334,8 +334,9 @@ export class CodexSessionsProvider implements IProviderSessions {
               .filter(Boolean)
               .join('\n')
           : String(raw.message.content || '');
+      const cleanContent = parseAttachedFilesTag(content).text;
       const rawImages = Array.isArray(raw.images) && raw.images.length > 0 ? raw.images : undefined;
-      if (!content.trim() && !rawImages) {
+      if (!cleanContent.trim() && !rawImages) {
         return [];
       }
       return [createNormalizedMessage({
@@ -345,7 +346,7 @@ export class CodexSessionsProvider implements IProviderSessions {
         provider: PROVIDER,
         kind: 'text',
         role: 'user',
-        content,
+        content: cleanContent,
         images: rawImages,
       })];
     }

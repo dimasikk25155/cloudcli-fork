@@ -15,6 +15,7 @@ type SidebarSessionItemProps = {
   selectedSession: ProjectSession | null;
   isProcessing: boolean;
   needsAttention: boolean;
+  isRecentView?: boolean;
   currentTime: Date;
   editingSession: string | null;
   editingSessionName: string;
@@ -62,6 +63,7 @@ export default function SidebarSessionItem({
   selectedSession,
   isProcessing,
   needsAttention,
+  isRecentView = false,
   currentTime,
   editingSession,
   editingSessionName,
@@ -257,9 +259,13 @@ export default function SidebarSessionItem({
                     event.stopPropagation();
                     onDeleteSession(session, sessionView.sessionName);
                   }}
-                  title={t('tooltips.deleteSession')}
+                  title={isRecentView ? t('tooltips.hideFromRecent', 'Remove from journal') : t('tooltips.deleteSession')}
                 >
-                  <Trash2 className="h-3 w-3 text-red-500 dark:text-red-400" />
+                  {isRecentView ? (
+                    <X className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <Trash2 className="h-3 w-3 text-red-500 dark:text-red-400" />
+                  )}
                 </button>
               </>
             )}
@@ -390,14 +396,23 @@ export default function SidebarSessionItem({
                   <Edit2 className="h-3 w-3 text-gray-600 dark:text-gray-400" />
                 </button>
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40"
+                  className={cn(
+                    'flex h-6 w-6 items-center justify-center rounded',
+                    isRecentView
+                      ? 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40'
+                      : 'bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40',
+                  )}
                   onClick={(event) => {
                     event.stopPropagation();
                     onDeleteSession(session, sessionView.sessionName);
                   }}
-                  title={t('tooltips.deleteSession')}
+                  title={isRecentView ? t('tooltips.hideFromRecent', 'Remove from journal') : t('tooltips.deleteSession')}
                 >
-                  <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
+                  {isRecentView ? (
+                    <X className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                  ) : (
+                    <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
+                  )}
                 </button>
               </>
             )}

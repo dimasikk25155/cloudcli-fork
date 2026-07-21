@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
@@ -270,25 +270,67 @@ function ChatInterface({
     sessionStore,
   });
 
+  // Stopping the model takes two Escape presses in quick succession. A single
+  // Escape only "arms" the stop and, crucially, does NOT preventDefault — so
+  // that same press can still close an open image preview / popover without
+  // killing the running turn. This kills the "Esc to close the image → oops,
+  // the model stopped" trap.
+  const escapeArmedAtRef = useRef<number | null>(null);
+  const escapeHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showStopHint, setShowStopHint] = useState(false);
+
+  const clearEscapeArm = useCallback(() => {
+    escapeArmedAtRef.current = null;
+    if (escapeHintTimeoutRef.current) {
+      clearTimeout(escapeHintTimeoutRef.current);
+      escapeHintTimeoutRef.current = null;
+    }
+    setShowStopHint(false);
+  }, []);
+
   useEffect(() => {
     if (!canAbortSession) {
+      // Turn ended (or cannot be aborted): drop any half-armed stop + hint.
+      clearEscapeArm();
       return;
     }
+
+    const DOUBLE_ESCAPE_WINDOW_MS = 2000;
 
     const handleGlobalEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.repeat || event.defaultPrevented) {
         return;
       }
 
-      event.preventDefault();
-      handleAbortSession();
+      const now = Date.now();
+      const armedAt = escapeArmedAtRef.current;
+
+      if (armedAt !== null && now - armedAt <= DOUBLE_ESCAPE_WINDOW_MS) {
+        // Second Escape within the window → actually stop the model.
+        event.preventDefault();
+        clearEscapeArm();
+        handleAbortSession();
+        return;
+      }
+
+      // First Escape: arm the stop and show a hint. No preventDefault here.
+      escapeArmedAtRef.current = now;
+      setShowStopHint(true);
+      if (escapeHintTimeoutRef.current) {
+        clearTimeout(escapeHintTimeoutRef.current);
+      }
+      escapeHintTimeoutRef.current = setTimeout(() => {
+        escapeArmedAtRef.current = null;
+        escapeHintTimeoutRef.current = null;
+        setShowStopHint(false);
+      }, DOUBLE_ESCAPE_WINDOW_MS);
     };
 
     document.addEventListener('keydown', handleGlobalEscape, { capture: true });
     return () => {
       document.removeEventListener('keydown', handleGlobalEscape, { capture: true });
     };
-  }, [canAbortSession, handleAbortSession]);
+  }, [canAbortSession, handleAbortSession, clearEscapeArm]);
 
   useEffect(() => {
     return () => {
@@ -382,6 +424,13 @@ function ChatInterface({
         />
 
         <div className="relative flex-shrink-0">
+          {showStopHint && (
+            <div className="pointer-events-none absolute -top-11 left-0 right-0 z-30 flex justify-center">
+              <div className="rounded-full border border-border/50 bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
+                {t('input.pressEscAgainToStop', { defaultValue: 'Press Esc again to stop' })}
+              </div>
+            </div>
+          )}
           {isUserScrolledUp && chatMessages.length > 0 && (
             <div className="pointer-events-none absolute -top-11 left-0 right-0 z-20 flex justify-center">
               <button

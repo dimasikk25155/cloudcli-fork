@@ -8,8 +8,17 @@ import {
   buildStoredImageRecords,
   ensureImageAssetsDir,
   resolveImageAssetFile,
-  resolveUploadedImageMimeType,
 } from '@/modules/assets/services/image-assets.service.js';
+
+// Content types safe to render inline in the chat UI. Everything else is served
+// as a download (Content-Disposition: attachment) to avoid stored-XSS from,
+// e.g., SVG or HTML uploads rendered as documents.
+const INLINE_SAFE_CONTENT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+]);
 
 const router = express.Router();
 
@@ -30,18 +39,11 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  fileFilter: (req, file, cb) => {
-    // Accept when the reported type is an image OR the filename extension maps
-    // to one — Android WebView gallery picks often arrive with an empty/generic
-    // mime type and would otherwise be rejected before reaching the model.
-    if (resolveUploadedImageMimeType(file.mimetype, file.originalname)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
-    }
-  },
+  // Any file type is accepted: images become vision blocks, everything else is
+  // referenced by path so the agent reads it with its own tools. Size is the
+  // only gate here (per-file cap below).
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB
+    fileSize: 25 * 1024 * 1024, // 25MB
     files: 5,
   },
 });
@@ -59,7 +61,7 @@ router.post('/images', (req, res) => {
 
     const files = Array.isArray(req.files) ? req.files : [];
     if (files.length === 0) {
-      return res.status(400).json({ error: 'No image files provided' });
+      return res.status(400).json({ error: 'No files provided' });
     }
 
     res.json({ images: buildStoredImageRecords(files) });
@@ -85,12 +87,12 @@ router.get('/images/:filename', async (req, res) => {
   const contentType = mime.lookup(resolved) || 'application/octet-stream';
   res.setHeader('Content-Type', contentType);
   // Stored-XSS hardening: never let the browser sniff a different type, and
-  // force SVGs (which can carry scripts when rendered as a document) to
-  // download instead of rendering inline. The chat UI is unaffected — it
-  // fetches assets as blobs and shows them through <img>, where SVG scripts
-  // never execute.
+  // serve anything that isn't a plain raster image (SVG, PDF, HTML, archives,
+  // ...) as a download instead of rendering it inline. The chat UI is
+  // unaffected — it fetches assets as blobs and shows images through <img>,
+  // while non-image files render as download chips.
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  if (contentType === 'image/svg+xml') {
+  if (!INLINE_SAFE_CONTENT_TYPES.has(contentType)) {
     res.setHeader('Content-Disposition', 'attachment');
   }
   const fileStream = fsSync.createReadStream(resolved);

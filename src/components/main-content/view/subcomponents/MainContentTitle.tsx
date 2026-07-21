@@ -9,6 +9,8 @@ type MainContentTitleProps = {
   selectedProject: Project;
   selectedSession: ProjectSession | null;
   shouldShowTasksTab: boolean;
+  /** Large centered treatment for the desktop header. */
+  centered?: boolean;
 };
 
 function getTabTitle(activeTab: AppTab, shouldShowTasksTab: boolean, t: (key: string) => string, pluginDisplayName?: string) {
@@ -48,6 +50,7 @@ export default function MainContentTitle({
   selectedProject,
   selectedSession,
   shouldShowTasksTab,
+  centered = false,
 }: MainContentTitleProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
@@ -57,8 +60,38 @@ export default function MainContentTitle({
     : undefined;
 
   const showSessionIcon = activeTab === 'chat' && Boolean(selectedSession);
-  const showChatNewSession = activeTab === 'chat' && !selectedSession;
 
+  const title =
+    activeTab === 'chat' && selectedSession
+      ? getSessionTitle(selectedSession)
+      : activeTab === 'chat' && !selectedSession
+        ? t('mainContent.newSession')
+        : getTabTitle(activeTab, shouldShowTasksTab, t, pluginDisplayName);
+  const subtitle = selectedProject.displayName;
+
+  if (centered) {
+    // Big, unmistakable "you are here" header for desktop.
+    return (
+      <div className="flex items-center justify-center gap-2">
+        {showSessionIcon && (
+          <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center">
+            <SessionProviderLogo provider={selectedSession?.__provider} className="h-5 w-5" />
+          </div>
+        )}
+        <div className="min-w-0 text-center">
+          <h2
+            title={title}
+            className="truncate text-lg font-bold leading-tight tracking-tight text-foreground sm:text-xl"
+          >
+            {title}
+          </h2>
+          <div className="truncate text-xs leading-tight text-muted-foreground">{subtitle}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Compact left-aligned treatment (mobile / fallback).
   return (
     <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
       {showSessionIcon && (
@@ -68,26 +101,10 @@ export default function MainContentTitle({
       )}
 
       <div className="min-w-0 flex-1">
-        {activeTab === 'chat' && selectedSession ? (
-          <div className="min-w-0">
-            <h2 title={getSessionTitle(selectedSession)} className="truncate text-sm font-semibold leading-tight text-foreground">
-              {getSessionTitle(selectedSession)}
-            </h2>
-            <div className="truncate text-[11px] leading-tight text-muted-foreground">{selectedProject.displayName}</div>
-          </div>
-        ) : showChatNewSession ? (
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold leading-tight text-foreground">{t('mainContent.newSession')}</h2>
-            <div className="truncate text-xs leading-tight text-muted-foreground">{selectedProject.displayName}</div>
-          </div>
-        ) : (
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold leading-tight text-foreground">
-              {getTabTitle(activeTab, shouldShowTasksTab, t, pluginDisplayName)}
-            </h2>
-            <div className="truncate text-[11px] leading-tight text-muted-foreground">{selectedProject.displayName}</div>
-          </div>
-        )}
+        <h2 title={title} className="truncate text-sm font-semibold leading-tight text-foreground">
+          {title}
+        </h2>
+        <div className="truncate text-[11px] leading-tight text-muted-foreground">{subtitle}</div>
       </div>
     </div>
   );

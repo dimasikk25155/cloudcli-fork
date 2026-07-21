@@ -36,17 +36,32 @@ export default function MainContentHeader({
 
   return (
     <div className="pwa-header-safe flex-shrink-0 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
-      <div className="flex items-center justify-between gap-3">
+      <div className="relative flex items-center gap-3">
+        {/* LEFT: mobile menu + compact title (mobile only) */}
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {isMobile && <MobileMenuButton onMenuClick={onMenuClick} />}
+          <div className="min-w-0 md:hidden">
+            <MainContentTitle
+              activeTab={activeTab}
+              selectedProject={selectedProject}
+              selectedSession={selectedSession}
+              shouldShowTasksTab={shouldShowTasksTab}
+            />
+          </div>
+        </div>
+
+        {/* CENTER: big session title (desktop) — absolutely centered so it never shifts */}
+        <div className="pointer-events-none absolute left-1/2 top-1/2 hidden max-w-[40%] -translate-x-1/2 -translate-y-1/2 md:block">
           <MainContentTitle
             activeTab={activeTab}
             selectedProject={selectedProject}
             selectedSession={selectedSession}
             shouldShowTasksTab={shouldShowTasksTab}
+            centered
           />
         </div>
 
+        {/* RIGHT: tabs, pinned to the corner */}
         <div className="relative min-w-0 flex-shrink overflow-hidden sm:flex-shrink-0">
           {canScrollLeft && (
             <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background to-transparent" />

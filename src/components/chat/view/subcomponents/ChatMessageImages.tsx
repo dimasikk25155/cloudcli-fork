@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { Download, FileIcon } from 'lucide-react';
 
 import { authenticatedFetch } from '../../../../utils/api';
 import type { ChatImage } from '../../types/types';
+import ImageLightbox from './ImageLightbox';
+
+/** Whether an attachment entry is a viewable image vs a generic file chip. */
+function isImageEntry(image: ChatImage): boolean {
+  if (image.data) return true;
+  if (image.mimeType) return image.mimeType.startsWith('image/');
+  return /\.(png|jpe?g|gif|webp|svg)$/i.test(image.name || image.path || '');
+}
 
 type ChatMessageImagesProps = {
   images: ChatImage[];
@@ -81,49 +88,6 @@ function useChatImageSrc(image: ChatImage, projectId?: string | null): { src: st
   return { src, failed };
 }
 
-/**
- * Fullscreen image overlay in the claude.ai style: dark backdrop, centered
- * image, closes on backdrop click, close button, or Escape.
- */
-function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
-  useEffect(() => {
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown, true);
-    return () => document.removeEventListener('keydown', handleKeyDown, true);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={alt}
-    >
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close image preview"
-        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
-      >
-        <X className="h-5 w-5" />
-      </button>
-      <img
-        src={src}
-        alt={alt}
-        onClick={(event) => event.stopPropagation()}
-        className="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
-      />
-    </div>,
-    document.body,
-  );
-}
-
 function ChatMessageImage({ image, projectId }: { image: ChatImage; projectId?: string | null }) {
   const { src, failed } = useChatImageSrc(image, projectId);
   const [expanded, setExpanded] = useState(false);
@@ -160,10 +124,53 @@ function ChatMessageImage({ image, projectId }: { image: ChatImage; projectId?: 
   );
 }
 
+/** Compact download chip for a non-image file attachment on a user turn. */
+function ChatMessageFile({ file }: { file: ChatImage }) {
+  const [downloading, setDownloading] = useState(false);
+  const name = file.name || file.path?.split(/[\\/]/).pop() || 'file';
+
+  const handleDownload = async () => {
+    if (!file.path || downloading) return;
+    const filename = file.path.split(/[\\/]/).pop() || '';
+    setDownloading(true);
+    try {
+      const response = await authenticatedFetch(`/api/assets/images/${encodeURIComponent(filename)}`);
+      if (!response.ok) return;
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // A failed download just leaves the chip untouched — no user-facing error.
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={!file.path || downloading}
+      title={name}
+      className="flex max-w-64 items-center gap-2 rounded-xl border border-border/50 bg-muted/40 px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted disabled:cursor-default disabled:hover:bg-muted/40"
+    >
+      <FileIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
+      <span className="truncate text-xs font-medium text-foreground">{name}</span>
+      {file.path && <Download className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+    </button>
+  );
+}
+
 /**
- * Image attachments for a user turn, rendered claude.ai-style: standalone
- * rounded square cards shown above the message bubble. Each thumbnail
- * expands to a fullscreen lightbox on click.
+ * Attachments for a user turn, rendered claude.ai-style above the message
+ * bubble: images as thumbnail cards (expand to a lightbox), other files as
+ * compact download chips.
  */
 export default function ChatMessageImages({ images, projectId }: ChatMessageImagesProps) {
   if (!images || images.length === 0) {
@@ -172,9 +179,13 @@ export default function ChatMessageImages({ images, projectId }: ChatMessageImag
 
   return (
     <div className="flex flex-wrap justify-end gap-2">
-      {images.map((image, index) => (
-        <ChatMessageImage key={image.path || image.name || index} image={image} projectId={projectId} />
-      ))}
+      {images.map((image, index) =>
+        isImageEntry(image) ? (
+          <ChatMessageImage key={image.path || image.name || index} image={image} projectId={projectId} />
+        ) : (
+          <ChatMessageFile key={image.path || image.name || index} file={image} />
+        ),
+      )}
     </div>
   );
 }

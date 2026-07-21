@@ -111,6 +111,14 @@ export const api = {
     authenticatedFetch('/api/providers/sessions/archived'),
   runningSessions: () =>
     authenticatedFetch('/api/providers/sessions/running'),
+  // Recent-journal hidden list (synced across devices via server app_config).
+  getRecentHidden: () =>
+    authenticatedFetch('/api/providers/recent-hidden'),
+  setRecentHidden: (hidden) =>
+    authenticatedFetch('/api/providers/recent-hidden', {
+      method: 'PUT',
+      body: JSON.stringify({ hidden }),
+    }),
   restoreSession: (sessionId) =>
     authenticatedFetch(`/api/providers/sessions/${sessionId}/restore`, {
       method: 'POST',

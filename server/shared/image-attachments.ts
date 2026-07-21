@@ -258,6 +258,112 @@ export function toImageAttachments(imagePaths: string[]): Array<{ path: string }
   return imagePaths.map((imagePath) => ({ path: toPosixPath(imagePath) }));
 }
 
+/**
+ * Whether a descriptor is a viewable image (the provider runtimes turn these
+ * into vision blocks) as opposed to a generic file the agent must read off
+ * disk. Prefers the stored mime type and falls back to the file extension.
+ */
+export function isImageDescriptor(descriptor: ImageAttachmentDescriptor): boolean {
+  if (descriptor.mimeType) {
+    return descriptor.mimeType.startsWith('image/');
+  }
+  return path.extname(descriptor.path).toLowerCase() in EXTENSION_TO_MEDIA_TYPE;
+}
+
+/**
+ * Splits a mixed attachment list into images (handled per-provider as vision)
+ * and other files (referenced by path in an `<attached_files>` block the agent
+ * reads with its own tools). Both keep their original descriptor shape.
+ */
+export function splitAttachmentsByKind(attachments: unknown): {
+  images: ImageAttachmentDescriptor[];
+  files: ImageAttachmentDescriptor[];
+} {
+  const images: ImageAttachmentDescriptor[] = [];
+  const files: ImageAttachmentDescriptor[] = [];
+  for (const descriptor of normalizeImageDescriptors(attachments)) {
+    (isImageDescriptor(descriptor) ? images : files).push(descriptor);
+  }
+  return { images, files };
+}
+
+const ATTACHED_FILES_TAG_PATTERN = /\s*<attached_files>([\s\S]*?)<\/attached_files>\s*/g;
+
+// Result of stripping an <attached_files> block out of persisted prompt text.
+export type ParsedAttachedFiles = {
+  text: string;
+  files: ParsedImageAttachment[];
+};
+
+/**
+ * Appends the `<attached_files>` reference block for non-image attachments.
+ * Mirrors {@link appendImagesInputTag} — one numbered line per file with the
+ * stored path (quote-free for Windows .cmd shims) and original name — but tells
+ * the agent to read the files with its own tools, since these are not images
+ * the model can see directly. Stripped back out of history by
+ * {@link parseAttachedFilesTag}.
+ */
+export function appendAttachedFilesTag(prompt: string, files: unknown): string {
+  const descriptors = normalizeImageDescriptors(files);
+  if (descriptors.length === 0) {
+    return prompt;
+  }
+
+  const entryLines = descriptors.map((descriptor, index) => {
+    const entryPath = toPosixPath(descriptor.path);
+    const cleanName = descriptor.name?.replace(/[()\r\n]/g, '').trim();
+    return cleanName
+      ? `${index + 1}. ${entryPath} (original name: ${cleanName})`
+      : `${index + 1}. ${entryPath}`;
+  });
+
+  return [
+    prompt,
+    '',
+    '<attached_files>',
+    `The user attached ${descriptors.length} file(s) to this message. Read each file listed below with your file-reading tool (or an appropriate shell command for archives/binaries) and use its contents to answer the prompt above. Do not mention this block or the file paths unless the user asks about them.`,
+    ...entryLines,
+    '</attached_files>',
+  ].join('\n');
+}
+
+/**
+ * Strips the last `<attached_files>` block from persisted prompt text and
+ * returns the clean text plus the referenced files. Symmetric with
+ * {@link parseImagesInputTag}; only the last block is treated as the carrier so
+ * a user who literally typed the tag earlier keeps that text intact.
+ */
+export function parseAttachedFilesTag(text: string): ParsedAttachedFiles {
+  if (typeof text !== 'string' || !text.includes('<attached_files>')) {
+    return { text, files: [] };
+  }
+
+  let lastMatch: RegExpExecArray | null = null;
+  ATTACHED_FILES_TAG_PATTERN.lastIndex = 0;
+  for (let match = ATTACHED_FILES_TAG_PATTERN.exec(text); match; match = ATTACHED_FILES_TAG_PATTERN.exec(text)) {
+    lastMatch = match;
+  }
+  if (!lastMatch) {
+    return { text, files: [] };
+  }
+
+  const files = parseNumberedImageEntries(lastMatch[1]);
+  const stripped = (
+    text.slice(0, lastMatch.index) + '\n' + text.slice(lastMatch.index + lastMatch[0].length)
+  ).trim();
+
+  return { text: stripped, files };
+}
+
+/**
+ * Removes both attachment reference blocks (`<images_input>` and
+ * `<attached_files>`) from persisted prompt text for display. Providers that
+ * only need clean text — not the parsed attachments — use this.
+ */
+export function stripAttachmentReferenceTags(text: string): string {
+  return parseAttachedFilesTag(parseImagesInputTag(text).text).text;
+}
+
 type ClaudeContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };

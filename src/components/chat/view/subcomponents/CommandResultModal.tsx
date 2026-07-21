@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
+  ArrowLeft,
   BadgeCheck,
   CircleHelp,
   Coins,
   Cpu,
   Gauge,
+  History,
+  Loader2,
   Package,
   Search,
   Server,
@@ -17,6 +20,12 @@ import {
 } from 'lucide-react';
 
 import { Badge, Button, Dialog, DialogContent, DialogTitle, Input } from '../../../../shared/view/ui';
+import {
+  fetchUsageHistory,
+  formatDayLabel,
+  formatTokensShort,
+  type UsageHistoryDay,
+} from '../../../../utils/usageHistory';
 import type { LLMProvider, ProviderModelsCacheInfo, ProviderModelsDefinition } from '../../../../types/app';
 import type {
   CommandModalPayload,
@@ -283,7 +292,7 @@ function ModelsContent({
       const result = await onSelectProviderModel(currentProvider, model, currentSessionId);
       if (result.scope === 'session') {
         setPendingSessionModel(result.model);
-        setSelectionNotice(`Next response will resume with ${result.model}.`);
+        setSelectionNotice(`Next response resumes with ${result.model} — also set as the default for every new chat.`);
         return;
       }
 
@@ -393,16 +402,135 @@ function ModelsContent({
         {selectionNotice ? (
           <span className="text-foreground">{selectionNotice}</span>
         ) : hasConcreteSessionId ? (
-          'Your choice applies to this session on the next response.'
+          'Applies to this session on the next response, and becomes the default for every new chat.'
         ) : (
-          'Your choice becomes the default model for new turns.'
+          'Your choice becomes the default model for new chats.'
         )}
       </p>
     </div>
   );
 }
 
+/**
+ * Full-screen day → session token history. Numbers here are the full API
+ * throughput per session (input + output + cache), so they run larger than the
+ * single-turn snapshot above — this is the "how heavy was each session" view.
+ */
+function CostHistoryView({ onBack }: { onBack: () => void }) {
+  const [days, setDays] = useState<UsageHistoryDay[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    setDays(null);
+    fetchUsageHistory()
+      .then((result) => {
+        if (!cancelled) {
+          setDays(result);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Не удалось загрузить историю.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const grandTotal = useMemo(
+    () => (days ?? []).reduce((sum, day) => sum + day.tokens, 0),
+    [days],
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="flex shrink-0 items-center justify-between gap-3">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onBack}
+          className="gap-1.5 rounded-xl text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Назад
+        </Button>
+        {days && days.length > 0 && (
+          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Всего за {days.length} дн. · {formatTokensShort(grandTotal)} токенов
+          </span>
+        )}
+      </div>
+
+      {error ? (
+        <div className="rounded-2xl border border-dashed border-destructive/40 bg-destructive/5 px-4 py-10 text-center text-sm text-destructive">
+          {error}
+        </div>
+      ) : !days ? (
+        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Считаю токены по сессиям…
+        </div>
+      ) : days.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
+          Пока нет сессий за последние 30 дней.
+        </div>
+      ) : (
+        <div className="scrollbar-thin -mr-1 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          {days.map((day) => (
+            <div key={day.day}>
+              <div className="mb-1.5 flex items-baseline justify-between gap-3 px-1">
+                <span className="text-sm font-semibold capitalize text-foreground">{formatDayLabel(day.day)}</span>
+                <span className="font-mono text-xs font-semibold text-muted-foreground">
+                  {formatTokensShort(day.tokens)}
+                </span>
+              </div>
+              <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/75">
+                {day.sessions.map((session) => (
+                  <div
+                    key={session.sessionId}
+                    className="flex items-center justify-between gap-4 border-b border-border/60 px-4 py-3 last:border-b-0"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                        <Coins className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {session.title || session.project}
+                        </p>
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          {session.title ? `${session.project} · ` : ''}
+                          {session.model || '—'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-mono text-sm font-semibold text-foreground">
+                        {formatTokensShort(session.tokens)}
+                      </p>
+                      <p className="font-mono text-[11px] text-muted-foreground">{formatNumber(session.tokens)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="px-1 pb-1 text-[11px] leading-4 text-muted-foreground">
+            Токены здесь — полный расход сессии (вход + output + кеш), поэтому цифры крупнее снимка
+            текущего окна выше. Так видно, какая сессия реально нагрузила модель.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CostContent({ data }: { data: CostCommandData }) {
+  const [showHistory, setShowHistory] = useState(false);
   const used = Number(data.tokenUsage?.used ?? 0);
   const total = Number(data.tokenUsage?.total ?? 0);
   const model = data.model || 'Unknown';
@@ -411,31 +539,35 @@ function CostContent({ data }: { data: CostCommandData }) {
     typeof data.tokenBreakdown?.input === 'number' ||
     typeof data.tokenBreakdown?.output === 'number';
   const usageRows = [
-    { label: 'Total tokens used', value: formatNumber(used), icon: Activity },
+    { label: 'Всего токенов', value: formatNumber(used), icon: Activity },
     ...(hasBreakdown
       ? [
           {
-            label: 'Input tokens',
+            label: 'Вход',
             value: formatNumber(Number(data.tokenBreakdown?.input ?? 0)),
             icon: TerminalSquare,
           },
           {
-            label: 'Output tokens',
+            label: 'Output',
             value: formatNumber(Number(data.tokenBreakdown?.output ?? 0)),
             icon: Coins,
           },
         ]
       : [
           {
-            label: 'Breakdown',
-            value: 'Unavailable',
+            label: 'Разбивка',
+            value: 'Недоступно',
             icon: TerminalSquare,
           },
         ]),
     ...(total > 0
-      ? [{ label: 'Context window', value: formatNumber(total), icon: Gauge }]
+      ? [{ label: 'Окно контекста', value: formatNumber(total), icon: Gauge }]
       : []),
   ];
+
+  if (showHistory) {
+    return <CostHistoryView onBack={() => setShowHistory(false)} />;
+  }
 
   return (
     <div className="space-y-4">
@@ -460,14 +592,31 @@ function CostContent({ data }: { data: CostCommandData }) {
         })}
       </div>
 
+      <button
+        type="button"
+        onClick={() => setShowHistory(true)}
+        className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/75 px-4 py-3 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+            <History className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-foreground">История по дням</p>
+            <p className="truncate text-xs text-muted-foreground">Сколько токенов сожгла каждая сессия</p>
+          </div>
+        </div>
+        <ArrowLeft className="h-4 w-4 shrink-0 rotate-180 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+      </button>
+
       <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Provider</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Провайдер</p>
             <p className="mt-1 text-sm font-semibold text-foreground">{provider}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Модель</p>
             <p className="mt-1 break-all font-mono text-sm text-foreground">{model}</p>
           </div>
         </div>
@@ -541,9 +690,9 @@ export default function CommandResultModal({
       icon: Cpu,
     },
     cost: {
-      eyebrow: 'Session telemetry',
-      title: 'Token Usage',
-      subtitle: 'Input, output, and total token counts for this session.',
+      eyebrow: 'Телеметрия сессии',
+      title: 'Расход токенов',
+      subtitle: 'Вход, output и суммарный расход токенов по этой сессии.',
       icon: Coins,
     },
     status: {
@@ -619,10 +768,10 @@ export default function CommandResultModal({
         <div className="flex shrink-0 flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-2">
             <Gauge className="h-3.5 w-3.5" />
-            <span>Esc closes the modal.</span>
+            <span>Esc закрывает окно.</span>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={onClose} className="rounded-xl">
-            Close
+            Закрыть
           </Button>
         </div>
       </DialogContent>

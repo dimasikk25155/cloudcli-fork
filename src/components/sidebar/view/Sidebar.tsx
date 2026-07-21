@@ -69,6 +69,8 @@ function Sidebar({
     searchMode,
     setSearchMode,
     runningSessionsCount,
+    recentSessionsCount,
+    hideSessionFromRecent,
     deletingProjects,
     deleteConfirmation,
     sessionDeleteConfirmation,
@@ -158,7 +160,8 @@ function Sidebar({
     loadingMoreProjects,
     activeSessions,
     attentionSessionIds,
-    forceExpanded: searchMode === 'running',
+    forceExpanded: searchMode === 'running' || searchMode === 'recent',
+    isRecentView: searchMode === 'recent',
     isProjectStarred,
     onEditingNameChange: setEditingName,
     onToggleProject: toggleProject,
@@ -185,6 +188,12 @@ function Sidebar({
       void updateSessionSummary(projectName, sessionId, summary, provider);
     },
     onDeleteSession: (session, sessionName) => {
+      if (searchMode === 'recent') {
+        // In the Recent journal the ✕ only hides the card from the list — the
+        // session and its history are never touched.
+        hideSessionFromRecent(session);
+        return;
+      }
       showDeleteSessionConfirmation(null, session.id, sessionName, session.__provider);
     },
     t,
@@ -224,6 +233,7 @@ function Sidebar({
             isLoading={isLoading}
             projects={projects}
             runningSessionsCount={runningSessionsCount}
+            recentSessionsCount={recentSessionsCount}
             archivedProjects={archivedProjects}
             archivedSessions={archivedSessions}
             archivedSessionsCount={archivedSessionsCount}

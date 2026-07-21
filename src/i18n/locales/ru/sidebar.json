@@ -35,6 +35,7 @@
     "showMore": "Показать больше сеансов"
   },
   "tooltips": {
+    "hideFromRecent": "Убрать из журнала",
     "viewEnvironments": "Просмотр окружений",
     "hideSidebar": "Скрыть боковую панель",
     "createProject": "Создать новый проект",
@@ -116,7 +117,16 @@
     "updateAvailable": "Доступно обновление",
     "restartRequired": "Обновление установлено — перезапустите сервер для применения"
   },
+  "recent": {
+    "title": "Недавние",
+    "emptyTitle": "Журнал пуст",
+    "emptyDescription": "Сессии, в которых работаешь, появляются здесь и остаются, пока не спрячешь их крестиком ✕.",
+    "noMatchingSessions": "Среди недавних ничего не найдено."
+  },
   "search": {
+    "modeRecent": "Недавние",
+    "recentTooltip": "Недавние сессии",
+    "recentPlaceholder": "Поиск недавних сессий...",
     "modeProjects": "Проекты",
     "searching": "Поиск...",
     "noResults": "Результаты не найдены",

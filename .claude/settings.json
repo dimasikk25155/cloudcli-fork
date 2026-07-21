@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_comment": "Shared allowlist — SHIPS in git so anyone who clones the fork gets sane permissions with no per-command prompts. Policy: safe routine auto-runs; anything not listed here PROMPTS (scary → ask); a few irreversible ops are hard-denied. Personal overrides go in .claude/settings.local.json (gitignored).",
+  "permissions": {
+    "allow": [
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm install:*)",
+      "Bash(npm ls:*)",
+      "Bash(node:*)",
+      "Bash(npx tsc:*)",
+      "Bash(./deploy.sh)",
+      "Bash(bash deploy.sh)",
+      "Bash(./mcp-health.sh)",
+      "Bash(bash mcp-health.sh)",
+      "Bash(claude mcp list)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(git restore:*)",
+      "Bash(curl:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(jq:*)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(launchctl kickstart:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(launchctl unload:*)",
+      "Bash(launchctl remove:*)"
+    ]
+  }
+}

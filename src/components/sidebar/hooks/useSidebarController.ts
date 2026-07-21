@@ -18,10 +18,16 @@ import {
   clearLegacyStarredProjectIds,
   filterProjects,
   getAllSessions,
+  getSessionDate,
+  getSessionTime,
   readLegacyStarredProjectIds,
   readProjectSortOrder,
   sortProjects,
 } from '../utils/utils';
+
+// How many most-recent sessions (across every project) the Recent journal keeps
+// visible. Currently-running sessions are always shown on top of this budget.
+const RECENT_JOURNAL_LIMIT = 20;
 
 type ArchivedSessionsApiPayload = {
   success?: boolean;
@@ -94,6 +100,10 @@ export function useSidebarController({
   const [archivedProjects, setArchivedProjects] = useState<ArchivedProjectListItem[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<ArchivedSessionListItem[]>([]);
   const [isArchivedSessionsLoading, setIsArchivedSessionsLoading] = useState(false);
+  // Map of sessionId -> ISO activity marker at the moment the user hid it from
+  // the Recent journal. Synced to the server so the choice applies on every
+  // device. A session re-appears once its activity is newer than its marker.
+  const [hiddenRecentSessions, setHiddenRecentSessions] = useState<Record<string, string>>({});
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, boolean>>(new Map());
   const [loadingMoreProjects, setLoadingMoreProjects] = useState<Set<string>>(new Set());
@@ -213,6 +223,62 @@ export function useSidebarController({
     }
   }, []);
 
+  const fetchHiddenRecentSessions = useCallback(async () => {
+    try {
+      const response = await api.getRecentHidden();
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { data?: { hidden?: Record<string, string> } };
+      const hidden = payload.data?.hidden;
+      if (hidden && typeof hidden === 'object') {
+        setHiddenRecentSessions(hidden);
+      }
+    } catch (error) {
+      console.error('[Sidebar] Failed to load recent-journal hidden list:', error);
+    }
+  }, []);
+
+  const persistHiddenRecentSessions = useCallback(async (nextMap: Record<string, string>) => {
+    try {
+      await api.setRecentHidden(nextMap);
+    } catch (error) {
+      console.error('[Sidebar] Failed to persist recent-journal hidden list:', error);
+    }
+  }, []);
+
+  // A session counts as hidden from the Recent journal while its latest activity
+  // is not newer than the marker stored when it was hidden. Any fresh activity
+  // (a new message, a resumed run) makes it re-surface automatically.
+  const isSessionHiddenFromRecent = useCallback(
+    (session: SessionWithProvider): boolean => {
+      const marker = hiddenRecentSessions[String(session.id)];
+      if (!marker) {
+        return false;
+      }
+      const markerMs = new Date(marker).getTime();
+      if (Number.isNaN(markerMs)) {
+        return false;
+      }
+      return getSessionDate(session).getTime() <= markerMs;
+    },
+    [hiddenRecentSessions],
+  );
+
+  const hideSessionFromRecent = useCallback(
+    (session: SessionWithProvider) => {
+      const sessionId = String(session.id);
+      const marker = getSessionTime(session) || new Date().toISOString();
+
+      setHiddenRecentSessions((previous) => {
+        const next = { ...previous, [sessionId]: marker };
+        void persistHiddenRecentSessions(next);
+        return next;
+      });
+    },
+    [persistHiddenRecentSessions],
+  );
+
   useEffect(() => {
     if (migrationStartedRef.current) {
       return;
@@ -252,6 +318,20 @@ export function useSidebarController({
     // and background synchronizer updates are reflected without a full reload.
     void fetchArchivedSessions();
   }, [fetchArchivedSessions, searchMode]);
+
+  useEffect(() => {
+    void fetchHiddenRecentSessions();
+  }, [fetchHiddenRecentSessions]);
+
+  useEffect(() => {
+    if (searchMode !== 'recent') {
+      return;
+    }
+
+    // Re-sync the hidden list when the Recent tab opens so a card hidden on
+    // another device (phone/desktop) is reflected here too.
+    void fetchHiddenRecentSessions();
+  }, [fetchHiddenRecentSessions, searchMode]);
 
   useEffect(() => {
     setOptimisticStarByProjectId((previous) => {
@@ -477,10 +557,69 @@ export function useSidebarController({
     }, []);
   }, [activeSessionIds, sortedProjects]);
 
-  const filteredProjects = useMemo(
-    () => filterProjects(searchMode === 'running' ? runningProjects : sortedProjects, debouncedSearchQuery),
-    [debouncedSearchQuery, runningProjects, searchMode, sortedProjects],
+  // The Recent journal: the most-recently-active sessions across every project,
+  // minus the ones the user hid, re-grouped back under their projects so the
+  // view reads like the Running tab but persists after a run finishes.
+  const recentProjects = useMemo(() => {
+    const flattened = sortedProjects.flatMap((project) =>
+      getAllSessions(project).map((session) => ({ project, session })),
+    );
+
+    flattened.sort(
+      (a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime(),
+    );
+
+    const visible = flattened.filter(({ session }) => {
+      // A running session always belongs in the journal, even if it was hidden.
+      if (activeSessionIds.has(String(session.id))) {
+        return true;
+      }
+      return !isSessionHiddenFromRecent(session);
+    });
+
+    const top = visible.slice(0, RECENT_JOURNAL_LIMIT);
+
+    const byProjectId = new Map<string, Project>();
+    for (const { project, session } of top) {
+      const existing = byProjectId.get(project.projectId);
+      if (existing) {
+        existing.sessions = [...(existing.sessions ?? []), session];
+        continue;
+      }
+      byProjectId.set(project.projectId, {
+        ...project,
+        sessions: [session],
+        sessionMeta: {
+          ...project.sessionMeta,
+          hasMore: false,
+        },
+      });
+    }
+
+    return [...byProjectId.values()].map((project) => ({
+      ...project,
+      sessionMeta: {
+        ...project.sessionMeta,
+        total: project.sessions?.length ?? 0,
+        hasMore: false,
+      },
+    }));
+  }, [sortedProjects, activeSessionIds, isSessionHiddenFromRecent]);
+
+  const recentSessionsCount = useMemo(
+    () => recentProjects.reduce((count, project) => count + (project.sessions?.length ?? 0), 0),
+    [recentProjects],
   );
+
+  const filteredProjects = useMemo(() => {
+    const baseProjects =
+      searchMode === 'running'
+        ? runningProjects
+        : searchMode === 'recent'
+          ? recentProjects
+          : sortedProjects;
+    return filterProjects(baseProjects, debouncedSearchQuery);
+  }, [debouncedSearchQuery, recentProjects, runningProjects, searchMode, sortedProjects]);
 
   const filteredArchivedSessions = useMemo(() => {
     const normalizedSearch = debouncedSearchQuery.trim().toLowerCase();
@@ -809,6 +948,8 @@ export function useSidebarController({
     sessionDeleteConfirmation,
     filteredProjects,
     runningSessionsCount,
+    recentSessionsCount,
+    hideSessionFromRecent,
     archivedProjects: filteredArchivedProjects,
     archivedSessions: filteredArchivedSessions,
     archivedSessionsCount: archivedProjects.length + archivedSessions.length,

@@ -1,17 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Activity,
   BarChart3,
   BookOpen,
-  Calculator,
-  Clock,
   Download,
   ExternalLink,
-  Github,
   GitBranch,
   Loader2,
-  ListTodo,
   RefreshCw,
   ServerCrash,
   ShieldAlert,
@@ -27,13 +22,6 @@ import PluginIcon from './PluginIcon';
 
 const STARTER_PLUGIN_URL = 'https://github.com/cloudcli-ai/cloudcli-plugin-starter';
 const TERMINAL_PLUGIN_URL = 'https://github.com/cloudcli-ai/cloudcli-plugin-terminal';
-const SCHEDULED_PROMPT_PLUGIN_URL = 'https://github.com/grostim/cloudcli-cron';
-const CLAUDE_WATCH_PLUGIN_URL = 'https://github.com/satsuki19980613/cloudcli-claude-watch';
-const PRISM_CLOUDCLI_PLUGIN_URL = 'https://github.com/jakeefr/cloudcli-plugin-prism';
-const SESSION_MANAGER_PLUGIN_URL = 'https://github.com/strykereye2/cloudcli-plugin-session-manager';
-const TOKEN_COST_CALCULATOR_PLUGIN_URL = 'https://github.com/NightmareAway/cloudcli-plugin-token-cost-calculator';
-const TASK_QUEUE_PLUGIN_URL = 'https://github.com/TadMSTR/cloudcli-plugin-task-queue';
-const GITHUB_ISSUES_BOARD_PLUGIN_URL = 'https://github.com/szmidtpiotr/claude-github-issue';
 
 type PluginRecommendation = {
   id: string;
@@ -63,64 +51,7 @@ const OFFICIAL_PLUGIN_RECOMMENDATIONS: PluginRecommendation[] = [
   },
 ];
 
-const UNOFFICIAL_PLUGIN_RECOMMENDATIONS: PluginRecommendation[] = [
-  {
-    id: 'cloudcli-claude-watch',
-    translationKey: 'claudeWatchPlugin',
-    repoUrl: CLAUDE_WATCH_PLUGIN_URL,
-    installedNames: ['cloudcli-claude-watch'],
-    icon: Activity,
-    source: 'unofficial',
-  },
-  {
-    id: 'workspace-scheduled-prompts',
-    translationKey: 'scheduledPromptPlugin',
-    repoUrl: SCHEDULED_PROMPT_PLUGIN_URL,
-    installedNames: ['workspace-scheduled-prompts'],
-    icon: Clock,
-    source: 'unofficial',
-  },
-  {
-    id: 'prism',
-    translationKey: 'prismCloudCLI',
-    repoUrl: PRISM_CLOUDCLI_PLUGIN_URL,
-    installedNames: ['prism'],
-    icon: Activity,
-    source: 'unofficial',
-  },
-  {
-    id: 'session-manager',
-    translationKey: 'sessionManagerPlugin',
-    repoUrl: SESSION_MANAGER_PLUGIN_URL,
-    installedNames: ['session-manager'],
-    icon: Activity,
-    source: 'unofficial',
-  },
-  {
-    id: 'token-cost-calculator',
-    translationKey: 'tokenCostCalculatorPlugin',
-    repoUrl: TOKEN_COST_CALCULATOR_PLUGIN_URL,
-    installedNames: ['token-cost-calculator'],
-    icon: Calculator,
-    source: 'unofficial',
-  },
-  {
-    id: 'task-queue',
-    translationKey: 'taskQueuePlugin',
-    repoUrl: TASK_QUEUE_PLUGIN_URL,
-    installedNames: ['task-queue'],
-    icon: ListTodo,
-    source: 'unofficial',
-  },
-  {
-    id: 'claude-github-issue',
-    translationKey: 'githubIssuesBoardPlugin',
-    repoUrl: GITHUB_ISSUES_BOARD_PLUGIN_URL,
-    installedNames: ['claude-github-issue'],
-    icon: Github,
-    source: 'unofficial',
-  },
-];
+const UNOFFICIAL_PLUGIN_RECOMMENDATIONS: PluginRecommendation[] = [];
 
 function repoSlug(repoUrl: string) {
   return repoUrl.replace(/^https?:\/\/(www\.)?github\.com\//, '');

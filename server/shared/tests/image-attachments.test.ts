@@ -5,13 +5,18 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  appendAttachedFilesTag,
   appendImagesInputTag,
   buildClaudeUserContent,
   buildCodexInputItems,
   isAllowedImageSourcePath,
+  isImageDescriptor,
   normalizeImageDescriptors,
+  parseAttachedFilesTag,
   parseImagesInputTag,
   resolveImageMediaType,
+  splitAttachmentsByKind,
+  stripAttachmentReferenceTags,
   toImageAttachments,
 } from '@/shared/image-attachments.js';
 
@@ -295,4 +300,60 @@ test('provider builders refuse descriptors outside the allowed roots', async () 
     cwd,
   );
   assert.deepEqual(claudeContent, [{ type: 'text', text: 'prompt' }]);
+});
+
+test('isImageDescriptor uses mime type then extension', () => {
+  assert.equal(isImageDescriptor({ path: 'a.bin', mimeType: 'image/png' }), true);
+  assert.equal(isImageDescriptor({ path: 'a.png', mimeType: 'application/pdf' }), false);
+  assert.equal(isImageDescriptor({ path: 'photo.JPG' }), true);
+  assert.equal(isImageDescriptor({ path: 'report.pdf' }), false);
+  assert.equal(isImageDescriptor({ path: 'notes' }), false);
+});
+
+test('splitAttachmentsByKind separates images from other files', () => {
+  const { images, files } = splitAttachmentsByKind([
+    { path: '.cloudcli/assets/1-a.png', mimeType: 'image/png' },
+    { path: '.cloudcli/assets/2-report.pdf', mimeType: 'application/pdf' },
+    { path: '.cloudcli/assets/3-b.jpg' },
+    { path: '.cloudcli/assets/4-data.csv' },
+  ]);
+
+  assert.deepEqual(images.map((d) => d.path), [
+    '.cloudcli/assets/1-a.png',
+    '.cloudcli/assets/3-b.jpg',
+  ]);
+  assert.deepEqual(files.map((d) => d.path), [
+    '.cloudcli/assets/2-report.pdf',
+    '.cloudcli/assets/4-data.csv',
+  ]);
+});
+
+test('appendAttachedFilesTag and parseAttachedFilesTag round-trip', () => {
+  const prompt = 'Summarize the attached report.';
+  const tagged = appendAttachedFilesTag(prompt, [
+    { path: '.cloudcli/assets/1-report.pdf', name: 'report (final).pdf' },
+    { path: '.cloudcli\\assets\\2-data.csv' },
+  ]);
+
+  assert.ok(tagged.startsWith(prompt));
+  assert.ok(tagged.includes('<attached_files>'));
+  assert.ok(tagged.includes('The user attached 2 file(s)'));
+
+  const parsed = parseAttachedFilesTag(tagged);
+  assert.equal(parsed.text, prompt);
+  assert.deepEqual(parsed.files, [
+    { path: '.cloudcli/assets/1-report.pdf', name: 'report final.pdf' },
+    { path: '.cloudcli/assets/2-data.csv' },
+  ]);
+});
+
+test('appendAttachedFilesTag returns the prompt unchanged with no files', () => {
+  assert.equal(appendAttachedFilesTag('just text', []), 'just text');
+});
+
+test('stripAttachmentReferenceTags removes both attachment blocks', () => {
+  const withImages = appendImagesInputTag('base prompt', [{ path: '.cloudcli/assets/a.png' }]);
+  const withBoth = appendAttachedFilesTag(withImages, [{ path: '.cloudcli/assets/b.pdf' }]);
+
+  assert.equal(stripAttachmentReferenceTags(withBoth), 'base prompt');
 });

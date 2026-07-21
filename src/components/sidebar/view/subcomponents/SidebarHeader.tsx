@@ -1,4 +1,4 @@
-import { Activity, Archive, Folder, FolderPlus, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+import { Activity, Archive, Folder, FolderPlus, History, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button, Input, Tooltip } from '../../../../shared/view/ui';
@@ -18,6 +18,7 @@ type SidebarHeaderProps = {
   isLoading: boolean;
   projectsCount: number;
   runningSessionsCount: number;
+  recentSessionsCount: number;
   archivedSessionsCount: number;
   isArchivedSessionsLoading: boolean;
   searchFilter: string;
@@ -38,6 +39,7 @@ export default function SidebarHeader({
   isLoading,
   projectsCount,
   runningSessionsCount,
+  recentSessionsCount,
   archivedSessionsCount,
   isArchivedSessionsLoading,
   searchFilter,
@@ -51,13 +53,16 @@ export default function SidebarHeader({
   onCollapseSidebar,
   t,
 }: SidebarHeaderProps) {
-  const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
+  const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0 || recentSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
   const searchPlaceholder = searchMode === 'archived'
     ? t('search.archivedPlaceholder', 'Search archived sessions...')
     : searchMode === 'running'
       ? t('search.runningPlaceholder', 'Search running sessions...')
-      : t('projects.searchPlaceholder');
+      : searchMode === 'recent'
+        ? t('search.recentPlaceholder', 'Search recent sessions...')
+        : t('projects.searchPlaceholder');
   const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
+  const recentBadgeText = recentSessionsCount > 99 ? '99+' : String(recentSessionsCount);
 
   const LogoBlock = () => (
     <div className="flex min-w-0 items-center gap-2.5">
@@ -145,6 +150,24 @@ export default function SidebarHeader({
                 <Folder className="h-3 w-3" />
                 {t('search.modeProjects')}
               </button>
+              <button
+                onClick={() => onSearchModeChange('recent')}
+                aria-pressed={searchMode === 'recent'}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-normal transition-all",
+                  searchMode === 'recent'
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <History className="h-3 w-3" />
+                {t('search.modeRecent', 'Recent')}
+                {recentSessionsCount > 0 && (
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-500/15 px-1 text-[10px] font-semibold leading-none text-sky-600 dark:text-sky-400">
+                    {recentBadgeText}
+                  </span>
+                )}
+              </button>
               <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
                 <button
                   onClick={() => onSearchModeChange('running')}
@@ -166,22 +189,6 @@ export default function SidebarHeader({
                       </span>
                     )}
                   </span>
-                </button>
-              </Tooltip>
-              <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
-                <button
-                  onClick={() => onSearchModeChange('archived')}
-                  aria-pressed={searchMode === 'archived'}
-                  aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
-                  title={t('search.archiveOnlyTooltip', 'Archive only')}
-                  className={cn(
-                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all",
-                    searchMode === 'archived'
-                      ? "bg-background shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Archive className="h-3 w-3" />
                 </button>
               </Tooltip>
             </div>
@@ -272,6 +279,24 @@ export default function SidebarHeader({
                 <Folder className="h-3 w-3" />
                 {t('search.modeProjects')}
               </button>
+              <button
+                onClick={() => onSearchModeChange('recent')}
+                aria-pressed={searchMode === 'recent'}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-normal transition-all",
+                  searchMode === 'recent'
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <History className="h-3 w-3" />
+                {t('search.modeRecent', 'Recent')}
+                {recentSessionsCount > 0 && (
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-500/15 px-1 text-[10px] font-semibold leading-none text-sky-600 dark:text-sky-400">
+                    {recentBadgeText}
+                  </span>
+                )}
+              </button>
               <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
                 <button
                   onClick={() => onSearchModeChange('running')}
@@ -294,22 +319,6 @@ export default function SidebarHeader({
                     )}
                   </span>
                   <span className="sr-only">{t('search.modeRunning', 'Running')}</span>
-                </button>
-              </Tooltip>
-              <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
-                <button
-                  onClick={() => onSearchModeChange('archived')}
-                  aria-pressed={searchMode === 'archived'}
-                  aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
-                  title={t('search.archiveOnlyTooltip', 'Archive only')}
-                  className={cn(
-                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all",
-                    searchMode === 'archived'
-                      ? "bg-background shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Archive className="h-3 w-3" />
                 </button>
               </Tooltip>
             </div>

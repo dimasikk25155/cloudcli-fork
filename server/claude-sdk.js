@@ -35,6 +35,19 @@ import { createCompleteMessage, createNormalizedMessage } from './shared/utils.j
 import { recordRunOutcome, buildRunInterruptedNotice } from './shared/run-outcomes.js';
 import { checkUsageGuard, buildUsageGuardNotice } from './shared/claude-usage.js';
 
+// The CLI binary self-updates by swapping a versions/X.Y.Z file and
+// repointing the ~/.local/bin/claude symlink (see resolveClaudeCodeExecutablePath).
+// If a run spawns in the split second the swap is in flight, the SDK's
+// existsSync() check passes but the actual execve() fails, surfacing as
+// "Claude Code native binary at <path> exists but failed to launch." This is
+// a transient TOCTOU race, not a real install problem, so retry once before
+// giving up — but only when nothing has streamed yet (safe to redo from
+// scratch without risking duplicated output).
+const CLI_SPAWN_RACE_PATTERN = /exists but failed to launch/i;
+const CLI_SPAWN_RACE_RETRY_DELAY_MS = 800;
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
 // Sessions cancelled via abort-session. The abort handler already sent the
@@ -237,6 +250,27 @@ function mapCliOptionsToSDK(options = {}) {
   );
   if (resolvedEffort) {
     sdkOptions.effort = resolvedEffort;
+  }
+
+  // Kimi K3: the UI model id is `kimi-<native>` (e.g. `kimi-k3`). Kimi is the
+  // same Claude Code CLI pointed at Kimi's Anthropic-compatible endpoint using a
+  // separate Kimi subscription — it does NOT touch the Claude Max limit. Strip
+  // the prefix for the real model and inject Kimi's base URL + key into THIS
+  // subprocess env only. Non-Kimi models fall through untouched (Claude Max).
+  if (typeof sdkOptions.model === 'string' && sdkOptions.model.startsWith('kimi-')) {
+    const kimiModel = sdkOptions.model.slice('kimi-'.length) || 'k3';
+    const kimiKey = (process.env.KIMI_CODE_KEY || '').trim();
+    sdkOptions.model = kimiModel;
+    sdkOptions.env = {
+      ...sdkOptions.env,
+      ANTHROPIC_BASE_URL: 'https://api.kimi.com/coding/',
+      ANTHROPIC_API_KEY: kimiKey,
+      ANTHROPIC_AUTH_TOKEN: kimiKey,
+      ANTHROPIC_MODEL: kimiModel,
+      ANTHROPIC_SMALL_FAST_MODEL: 'kimi-for-coding',
+    };
+    // Kimi's gateway does not use Claude effort levels.
+    delete sdkOptions.effort;
   }
 
   sdkOptions.systemPrompt = {
@@ -615,7 +649,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
       }));
 
       const decision = await waitForToolApproval(requestId, {
-        timeoutMs: requiresInteraction ? 0 : undefined,
+        // Wait indefinitely for every permission prompt, not just interactive
+        // tools. The idle-fallback loop below already treats a pending approval
+        // as activity ("the user may take hours"), so a 5-min auto-deny here
+        // silently rejected commands the user never got to see. 0 = wait forever.
+        timeoutMs: 0,
         signal: context?.signal,
         metadata: {
           _sessionId: capturedSessionId || sessionId || null,
@@ -651,110 +689,131 @@ async function queryClaudeSDK(command, options = {}, ws) {
     };
 
     let queryInstance;
-    try {
-      queryInstance = query({
-        prompt: await createPrompt(),
-        options: sdkOptions
-      });
-    } catch (hookError) {
-      // Older/newer SDK versions may not accept hook shapes yet.
-      // Keep notification behavior operational via runtime events even if hook registration fails.
-      console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
-      delete sdkOptions.hooks;
-      queryInstance = query({
-        prompt: await createPrompt(),
-        options: sdkOptions
-      });
-    }
+    let anyMessageReceived = false;
+    let spawnRaceAttempt = 0;
 
-    // Track the query instance for abort capability
-    if (capturedSessionId) {
-      addSession(capturedSessionId, queryInstance, ws);
-    }
+    while (true) {
+      try {
+        try {
+          queryInstance = query({
+            prompt: await createPrompt(),
+            options: sdkOptions
+          });
+        } catch (hookError) {
+          // Older/newer SDK versions may not accept hook shapes yet.
+          // Keep notification behavior operational via runtime events even if hook registration fails.
+          console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
+          delete sdkOptions.hooks;
+          queryInstance = query({
+            prompt: await createPrompt(),
+            options: sdkOptions
+          });
+        }
 
-    // Safety net: if `session_state_changed: idle` never arrives, the
-    // held-open input would keep this loop (and the run) alive forever.
-    // After a completed turn, sustained silence with nothing waiting on the
-    // user forces the release, letting the CLI exit and the loop end with a
-    // normal `complete`. A pending permission prompt counts as activity —
-    // the user may take hours, and the CLI deserves a fresh window after
-    // they answer.
-    let lastStreamActivityAt = Date.now();
-    let turnResultSeen = false;
-    let sawSessionStateEvent = false;
-    idleFallbackTimer = setInterval(() => {
-      if (inputReleased || !turnResultSeen) return;
-      const sid = capturedSessionId || sessionId || null;
-      if (sid && getPendingApprovalsForSession(sid).length > 0) {
-        lastStreamActivityAt = Date.now();
-        return;
-      }
-      const silentForMs = Date.now() - lastStreamActivityAt;
-      const threshold = sawSessionStateEvent ? IDLE_FALLBACK_SILENCE_MS : IDLE_FALLBACK_NO_STATE_EVENTS_MS;
-      if (silentForMs < threshold) return;
-      console.warn(`[Claude SDK] No 'idle' event and no stream activity for ${Math.round(silentForMs / 1000)}s after the turn result — releasing held-open input (session: ${sid || 'NEW'})`);
-      releaseInput();
-    }, IDLE_FALLBACK_CHECK_INTERVAL_MS);
+        // Track the query instance for abort capability
+        if (capturedSessionId) {
+          addSession(capturedSessionId, queryInstance, ws);
+        }
 
-    // Process streaming messages
-    console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
-    for await (const message of queryInstance) {
-      lastStreamActivityAt = Date.now();
-      if (message.type === 'result') {
-        turnResultSeen = true;
-      }
-
-      // Authoritative turn-over signal: fires only after the result flushed
-      // AND background agents drained. Releasing here lets the prompt
-      // generator finish, so the SDK closes the CLI's stdin and the idle CLI
-      // exits, ending this loop. Releasing any earlier (e.g. on `result`)
-      // would kill the control channel while background-task turns can still
-      // follow — the original AskUserQuestion "Stream closed" bug.
-      if (message.type === 'system' && message.subtype === 'session_state_changed') {
-        sawSessionStateEvent = true;
-        if (message.state === 'idle') {
+        // Safety net: if `session_state_changed: idle` never arrives, the
+        // held-open input would keep this loop (and the run) alive forever.
+        // After a completed turn, sustained silence with nothing waiting on the
+        // user forces the release, letting the CLI exit and the loop end with a
+        // normal `complete`. A pending permission prompt counts as activity —
+        // the user may take hours, and the CLI deserves a fresh window after
+        // they answer.
+        let lastStreamActivityAt = Date.now();
+        let turnResultSeen = false;
+        let sawSessionStateEvent = false;
+        idleFallbackTimer = setInterval(() => {
+          if (inputReleased || !turnResultSeen) return;
+          const sid = capturedSessionId || sessionId || null;
+          if (sid && getPendingApprovalsForSession(sid).length > 0) {
+            lastStreamActivityAt = Date.now();
+            return;
+          }
+          const silentForMs = Date.now() - lastStreamActivityAt;
+          const threshold = sawSessionStateEvent ? IDLE_FALLBACK_SILENCE_MS : IDLE_FALLBACK_NO_STATE_EVENTS_MS;
+          if (silentForMs < threshold) return;
+          console.warn(`[Claude SDK] No 'idle' event and no stream activity for ${Math.round(silentForMs / 1000)}s after the turn result — releasing held-open input (session: ${sid || 'NEW'})`);
           releaseInput();
+        }, IDLE_FALLBACK_CHECK_INTERVAL_MS);
+
+        // Process streaming messages
+        console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
+        for await (const message of queryInstance) {
+          anyMessageReceived = true;
+          lastStreamActivityAt = Date.now();
+          if (message.type === 'result') {
+            turnResultSeen = true;
+          }
+
+          // Authoritative turn-over signal: fires only after the result flushed
+          // AND background agents drained. Releasing here lets the prompt
+          // generator finish, so the SDK closes the CLI's stdin and the idle CLI
+          // exits, ending this loop. Releasing any earlier (e.g. on `result`)
+          // would kill the control channel while background-task turns can still
+          // follow — the original AskUserQuestion "Stream closed" bug.
+          if (message.type === 'system' && message.subtype === 'session_state_changed') {
+            sawSessionStateEvent = true;
+            if (message.state === 'idle') {
+              releaseInput();
+            }
+          }
+
+          // Capture session ID from first message
+          if (message.session_id && !capturedSessionId) {
+
+            capturedSessionId = message.session_id;
+            addSession(capturedSessionId, queryInstance, ws);
+
+            // Set session ID on writer
+            if (ws.setSessionId && typeof ws.setSessionId === 'function') {
+              ws.setSessionId(capturedSessionId);
+            }
+
+            // Send session-created event only once for new sessions
+            if (!sessionId && !sessionCreatedSent) {
+              sessionCreatedSent = true;
+              ws.send(createNormalizedMessage({ kind: 'session_created', newSessionId: capturedSessionId, sessionId: capturedSessionId, provider: 'claude' }));
+            }
+          } else {
+            // session_id already captured
+          }
+
+          // Transform and normalize message via adapter
+          const transformedMessage = transformMessage(message);
+          const sid = capturedSessionId || sessionId || null;
+
+          // Use adapter to normalize SDK events into NormalizedMessage[]
+          const normalized = sessionsService.normalizeMessage('claude', transformedMessage, sid);
+          for (const msg of normalized) {
+            // Preserve parentToolUseId from SDK wrapper for subagent tool grouping
+            if (transformedMessage.parentToolUseId && !msg.parentToolUseId) {
+              msg.parentToolUseId = transformedMessage.parentToolUseId;
+            }
+            ws.send(msg);
+          }
+
+          // Extract and send token budget updates from assistant/result usage payloads
+          const tokenBudgetData = extractTokenBudget(message);
+          if (tokenBudgetData) {
+            ws.send(createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget: tokenBudgetData, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
+          }
         }
-      }
-
-      // Capture session ID from first message
-      if (message.session_id && !capturedSessionId) {
-
-        capturedSessionId = message.session_id;
-        addSession(capturedSessionId, queryInstance, ws);
-
-        // Set session ID on writer
-        if (ws.setSessionId && typeof ws.setSessionId === 'function') {
-          ws.setSessionId(capturedSessionId);
+        break;
+      } catch (spawnError) {
+        const isSpawnRace = CLI_SPAWN_RACE_PATTERN.test(spawnError?.message || '');
+        if (idleFallbackTimer) {
+          clearInterval(idleFallbackTimer);
+          idleFallbackTimer = null;
         }
-
-        // Send session-created event only once for new sessions
-        if (!sessionId && !sessionCreatedSent) {
-          sessionCreatedSent = true;
-          ws.send(createNormalizedMessage({ kind: 'session_created', newSessionId: capturedSessionId, sessionId: capturedSessionId, provider: 'claude' }));
+        if (!isSpawnRace || anyMessageReceived || spawnRaceAttempt >= 1) {
+          throw spawnError;
         }
-      } else {
-        // session_id already captured
-      }
-
-      // Transform and normalize message via adapter
-      const transformedMessage = transformMessage(message);
-      const sid = capturedSessionId || sessionId || null;
-
-      // Use adapter to normalize SDK events into NormalizedMessage[]
-      const normalized = sessionsService.normalizeMessage('claude', transformedMessage, sid);
-      for (const msg of normalized) {
-        // Preserve parentToolUseId from SDK wrapper for subagent tool grouping
-        if (transformedMessage.parentToolUseId && !msg.parentToolUseId) {
-          msg.parentToolUseId = transformedMessage.parentToolUseId;
-        }
-        ws.send(msg);
-      }
-
-      // Extract and send token budget updates from assistant/result usage payloads
-      const tokenBudgetData = extractTokenBudget(message);
-      if (tokenBudgetData) {
-        ws.send(createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget: tokenBudgetData, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
+        spawnRaceAttempt += 1;
+        console.warn(`[Claude SDK] CLI binary mid-update, retrying spawn in ${CLI_SPAWN_RACE_RETRY_DELAY_MS}ms:`, spawnError.message);
+        await sleep(CLI_SPAWN_RACE_RETRY_DELAY_MS);
       }
     }
 

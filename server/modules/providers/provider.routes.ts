@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from 'express';
 
-import { sessionsDb } from '@/modules/database/index.js';
+import { appConfigDb, sessionsDb } from '@/modules/database/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
@@ -559,6 +559,66 @@ router.get(
   asyncHandler(async (_req: Request, res: Response) => {
     const sessions = sessionsService.listArchivedSessions();
     res.json(createApiSuccessResponse({ sessions }));
+  }),
+);
+
+// Recent-journal "hidden" list. Stored as a single JSON blob in app_config so
+// the choice of which sessions to hide from the Recent tab syncs across every
+// device (phone + desktop). The map is { sessionId -> ISO activity marker at the
+// moment it was hidden }; the frontend re-surfaces a session once it sees newer
+// activity than that marker.
+const RECENT_HIDDEN_CONFIG_KEY = 'recent_hidden_sessions';
+
+const readRecentHiddenMap = (): Record<string, string> => {
+  const raw = appConfigDb.get(RECENT_HIDDEN_CONFIG_KEY);
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof key === 'string' && typeof value === 'string') {
+        result[key] = value;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+};
+
+router.get(
+  '/recent-hidden',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json(createApiSuccessResponse({ hidden: readRecentHiddenMap() }));
+  }),
+);
+
+router.put(
+  '/recent-hidden',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { hidden?: unknown };
+    const hidden = body.hidden;
+    if (!hidden || typeof hidden !== 'object' || Array.isArray(hidden)) {
+      throw new AppError('hidden must be an object map of sessionId -> ISO timestamp.', {
+        code: 'INVALID_BODY',
+        statusCode: 400,
+      });
+    }
+
+    const sanitized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(hidden as Record<string, unknown>)) {
+      if (typeof key === 'string' && typeof value === 'string') {
+        sanitized[key] = value;
+      }
+    }
+
+    appConfigDb.set(RECENT_HIDDEN_CONFIG_KEY, JSON.stringify(sanitized));
+    res.json(createApiSuccessResponse({ hidden: sanitized }));
   }),
 );
 

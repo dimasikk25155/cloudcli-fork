@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, ClipboardCheck, MonitorPlay, type LucideIcon } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -36,7 +36,6 @@ const BASE_TABS: BuiltInTab[] = [
   { kind: 'builtin', id: 'chat',  labelKey: 'tabs.chat',  icon: MessageSquare },
   { kind: 'builtin', id: 'shell', labelKey: 'tabs.shell', icon: Terminal },
   { kind: 'builtin', id: 'files', labelKey: 'tabs.files', icon: Folder },
-  { kind: 'builtin', id: 'git',   labelKey: 'tabs.git',   icon: GitBranch },
 ];
 
 const BROWSER_TAB: BuiltInTab = {
@@ -63,10 +62,14 @@ export default function MainContentTabSwitcher({
   const { plugins } = usePlugins();
   const { terminalDisabled } = useAuth();
 
+  // Git, Browser и Tasks табы скрыты по просьбе — оставлены только Chat/Shell/Files.
+  void shouldShowBrowserTab;
+  void shouldShowTasksTab;
+  void BROWSER_TAB;
+  void TASKS_TAB;
+
   const builtInTabs: BuiltInTab[] = [
     ...BASE_TABS.filter((tab) => !(terminalDisabled && tab.id === 'shell')),
-    ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
-    ...(shouldShowTasksTab ? [TASKS_TAB] : []),
   ];
 
   const pluginTabs: PluginTab[] = plugins

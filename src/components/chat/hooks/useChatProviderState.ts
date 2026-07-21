@@ -132,27 +132,81 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
 
   const providerModelsRequestIdRef = useRef(0);
 
+  // Fire-and-forget: push the new default to the account so every other
+  // device (phone, another Mac session) picks it up on its next load. Local
+  // state/localStorage above already made the change feel instant on this
+  // device; a failed sync just means other devices stay on the old value
+  // until it succeeds again, never blocks or reverts this one.
+  const syncProviderModelToServer = useCallback((targetProvider: LLMProvider, model: string) => {
+    authenticatedFetch('/api/settings/provider-preferences/model', {
+      method: 'PUT',
+      body: JSON.stringify({ provider: targetProvider, model }),
+    }).catch((error) => {
+      console.warn('Failed to sync default model to account:', error);
+    });
+  }, []);
+
+  const syncProviderEffortToServer = useCallback((targetProvider: LLMProvider, effort: string) => {
+    authenticatedFetch('/api/settings/provider-preferences/effort', {
+      method: 'PUT',
+      body: JSON.stringify({ provider: targetProvider, effort }),
+    }).catch((error) => {
+      console.warn('Failed to sync default effort to account:', error);
+    });
+  }, []);
+
   const setStoredProviderModel = useCallback((targetProvider: LLMProvider, model: string) => {
     if (targetProvider === 'claude') {
       setClaudeModel(model);
       localStorage.setItem('claude-model', model);
-      return;
-    }
-
-    if (targetProvider === 'cursor') {
+    } else if (targetProvider === 'cursor') {
       setCursorModel(model);
       localStorage.setItem('cursor-model', model);
-      return;
-    }
-
-    if (targetProvider === 'codex') {
+    } else if (targetProvider === 'codex') {
       setCodexModel(model);
       localStorage.setItem('codex-model', model);
-      return;
+    } else {
+      setOpenCodeModel(model);
+      localStorage.setItem('opencode-model', model);
     }
+    syncProviderModelToServer(targetProvider, model);
+  }, [syncProviderModelToServer]);
 
-    setOpenCodeModel(model);
-    localStorage.setItem('opencode-model', model);
+  // Account-wide model/effort defaults, loaded once on mount and applied on
+  // top of whatever localStorage had (server is the cross-device source of
+  // truth; localStorage is just this browser's instant-paint cache).
+  useEffect(() => {
+    let cancelled = false;
+    authenticatedFetch('/api/settings/provider-preferences')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { models?: Record<string, string>; efforts?: Record<string, string> } | null) => {
+        if (cancelled || !data) {
+          return;
+        }
+        for (const targetProvider of PROVIDERS) {
+          const model = data.models?.[targetProvider];
+          if (model) {
+            if (targetProvider === 'claude') setClaudeModel(model);
+            else if (targetProvider === 'cursor') setCursorModel(model);
+            else if (targetProvider === 'codex') setCodexModel(model);
+            else setOpenCodeModel(model);
+            localStorage.setItem(`${targetProvider}-model`, model);
+          }
+          const effort = data.efforts?.[targetProvider];
+          if (effort) {
+            localStorage.setItem(`${targetProvider}-effort`, effort);
+          }
+        }
+        if (data.efforts) {
+          setProviderEfforts((previous) => ({ ...previous, ...data.efforts }));
+        }
+      })
+      .catch((error) => {
+        console.warn('Failed to load account provider preferences:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const setStoredProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
@@ -162,7 +216,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         : { ...previous, [targetProvider]: effort }
     ));
     localStorage.setItem(`${targetProvider}-effort`, effort);
-  }, []);
+    syncProviderEffortToServer(targetProvider, effort);
+  }, [syncProviderEffortToServer]);
 
   const loadProviderModels = useCallback(async (options: { bypassCache?: boolean } = {}) => {
     const requestId = providerModelsRequestIdRef.current + 1;
@@ -543,10 +598,17 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       throw new Error('Unable to change the active model for this session.');
     }
 
+    const resolvedModel = body.data.model || model;
+    // A model pick made from inside a live session used to be scoped to just
+    // that session, leaving every other chat on the old default. Dima wants
+    // one global switch: persist it as the default too, so every new session
+    // (and every session started after this one) picks it up automatically.
+    setStoredProviderModel(targetProvider, resolvedModel);
+
     return {
       scope: 'session' as const,
       changed: body.data.changed === true,
-      model: body.data.model || model,
+      model: resolvedModel,
     };
   }, [setStoredProviderModel]);
 

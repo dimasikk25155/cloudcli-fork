@@ -73,9 +73,13 @@ export function buildStoredImageRecords(files: UploadedImageFile[]): StoredImage
     name: file.originalname,
     path: toPosixPath(path.join(assetsDir, file.filename)),
     size: file.size,
-    // Store a normalized image type so downstream providers get a valid
-    // media_type even when the upload arrived with an empty/generic one.
-    mimeType: resolveUploadedImageMimeType(file.mimetype, file.originalname) ?? file.mimetype,
+    // Normalize the type so the attachment split and provider vision path get a
+    // valid media_type even when the upload arrived with an empty/generic one:
+    // prefer an accepted image type, else infer from the extension, else keep
+    // whatever was reported (or a generic binary type for non-image files).
+    mimeType:
+      resolveUploadedImageMimeType(file.mimetype, file.originalname) ||
+      (mime.lookup(file.originalname || '') || file.mimetype || 'application/octet-stream'),
   }));
 }
 

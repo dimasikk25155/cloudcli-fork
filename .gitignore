@@ -100,7 +100,9 @@ temp/
 .netlify
 
 # AI specific
-.claude/
+.claude/*
+# ...but ship the shared allowlist so cloners get sane permissions out of the box
+!.claude/settings.json
 .cursor/
 .roo/
 .taskmaster/

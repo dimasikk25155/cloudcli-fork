@@ -4,6 +4,7 @@ import {
   apiKeysDb,
   credentialsDb,
   notificationPreferencesDb,
+  providerPreferencesDb,
   pushSubscriptionsDb,
 } from '../modules/database/index.js';
 import { getPublicKey } from '../services/vapid-keys.js';
@@ -276,6 +277,51 @@ router.post('/push/unsubscribe', async (req, res) => {
   } catch (error) {
     console.error('Error removing push subscription:', error);
     res.status(500).json({ error: 'Failed to remove push subscription' });
+  }
+});
+
+// ===============================
+// Provider preferences (cross-device model/effort defaults)
+// ===============================
+
+// Default model/thinking-effort per provider for the authenticated user,
+// so switching on one device (e.g. Mac) shows up on every other device
+// (e.g. phone) instead of being stuck in that browser's localStorage.
+router.get('/provider-preferences', async (req, res) => {
+  try {
+    const preferences = providerPreferencesDb.getProviderPreferences(req.user.id);
+    res.json({ success: true, ...preferences });
+  } catch (error) {
+    console.error('Error fetching provider preferences:', error);
+    res.status(500).json({ error: 'Failed to fetch provider preferences' });
+  }
+});
+
+router.put('/provider-preferences/model', async (req, res) => {
+  try {
+    const { provider, model } = req.body;
+    if (!provider || typeof provider !== 'string' || !model || typeof model !== 'string') {
+      return res.status(400).json({ error: 'provider and model are required' });
+    }
+    const preferences = providerPreferencesDb.setProviderModel(req.user.id, provider, model);
+    res.json({ success: true, ...preferences });
+  } catch (error) {
+    console.error('Error saving provider model preference:', error);
+    res.status(500).json({ error: 'Failed to save provider model preference' });
+  }
+});
+
+router.put('/provider-preferences/effort', async (req, res) => {
+  try {
+    const { provider, effort } = req.body;
+    if (!provider || typeof provider !== 'string' || !effort || typeof effort !== 'string') {
+      return res.status(400).json({ error: 'provider and effort are required' });
+    }
+    const preferences = providerPreferencesDb.setProviderEffort(req.user.id, provider, effort);
+    res.json({ success: true, ...preferences });
+  } catch (error) {
+    console.error('Error saving provider effort preference:', error);
+    res.status(500).json({ error: 'Failed to save provider effort preference' });
   }
 });
 

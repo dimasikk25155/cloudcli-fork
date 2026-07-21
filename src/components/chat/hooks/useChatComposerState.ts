@@ -34,6 +34,9 @@ import { escapeRegExp } from '../utils/chatFormatting';
 import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 
+/** Per-file upload cap (must match the server multer limit in assets.routes.ts). */
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
 interface UseChatComposerStateArgs {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
@@ -527,19 +530,13 @@ export function useChatComposerState({
           return false;
         }
 
-        // Android WebView gallery picks often arrive with an empty or generic
-        // MIME type, so fall back to the filename extension before rejecting.
-        const isImageMime = typeof file.type === 'string' && file.type.startsWith('image/');
-        const hasImageExtension = /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name || '');
-        if (!isImageMime && !hasImageExtension) {
-          return false;
-        }
-
-        if (!file.size || file.size > 5 * 1024 * 1024) {
+        // Any file type is accepted — images become vision blocks, everything
+        // else is read off disk by the agent. Size is the only client gate.
+        if (!file.size || file.size > MAX_ATTACHMENT_BYTES) {
           const fileName = file.name || 'Unknown file';
           setImageErrors((previous) => {
             const next = new Map(previous);
-            next.set(fileName, 'File too large (max 5MB)');
+            next.set(fileName, 'File too large (max 25MB)');
             return next;
           });
           return false;
@@ -583,10 +580,9 @@ export function useChatComposerState({
   );
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
-    accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'],
-    },
-    maxSize: 5 * 1024 * 1024,
+    // No `accept` filter: any file type may be attached (images become vision
+    // blocks, other files are read off disk by the agent).
+    maxSize: MAX_ATTACHMENT_BYTES,
     maxFiles: 5,
     onDrop: handleImageFiles,
     noClick: true,

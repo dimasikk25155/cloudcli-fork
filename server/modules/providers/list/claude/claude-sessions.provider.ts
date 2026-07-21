@@ -6,6 +6,7 @@ import readline from 'node:readline';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
+import { parseAttachedFilesTag } from '@/shared/image-attachments.js';
 import { readRunOutcome, buildRunInterruptedNotice } from '@/shared/run-outcomes.js';
 import { sessionsDb } from '@/modules/database/index.js';
 
@@ -335,11 +336,17 @@ export class ClaudeSessionsProvider implements IProviderSessions {
         // Image attachments sent through the SDK are persisted as base64
         // `image` blocks next to the prompt text. Collect them so the UI can
         // render them on the user bubble.
-        const imageAttachments: Array<{ data: string }> = [];
+        const imageAttachments: Array<{ data?: string; path?: string; name?: string }> = [];
         for (const part of raw.message.content) {
           if (part?.type === 'image' && part.source?.type === 'base64' && typeof part.source.data === 'string') {
             const mediaType = typeof part.source.media_type === 'string' ? part.source.media_type : 'image/png';
             imageAttachments.push({ data: `data:${mediaType};base64,${part.source.data}` });
+          } else if (part?.type === 'text' && typeof part.text === 'string' && part.text.includes('<attached_files>')) {
+            // Non-image attachments are referenced by path in an <attached_files>
+            // block; surface them as download chips on the user bubble.
+            for (const file of parseAttachedFilesTag(part.text).files) {
+              imageAttachments.push({ path: file.path, name: file.name });
+            }
           }
         }
         let imagesAttached = false;
@@ -360,7 +367,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
               toolUseResult: raw.toolUseResult,
             }));
           } else if (part.type === 'text') {
-            const text = part.text || '';
+            const text = parseAttachedFilesTag(part.text || '').text;
             if (text && !isInternalContent(text)) {
               messages.push(createNormalizedMessage({
                 id: `${baseId}_text_${partIndex}`,
@@ -380,7 +387,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
         if (messages.length === 0) {
           const textParts = raw.message.content
             .filter((part: AnyRecord) => part.type === 'text')
-            .map((part: AnyRecord) => part.text)
+            .map((part: AnyRecord) => parseAttachedFilesTag(part.text || '').text)
             .filter(Boolean)
             .join('\n');
           if (textParts && !isInternalContent(textParts)) {

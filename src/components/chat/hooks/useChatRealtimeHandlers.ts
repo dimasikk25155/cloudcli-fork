@@ -249,8 +249,16 @@ export function useChatRealtimeHandlers({
           // hides it immediately and atomically.
           onSessionIdle?.(sid);
           if (sid === activeViewSessionId) {
-            pendingPermissionRequestsRef.current = [];
-            setPendingPermissionRequests([]);
+            // Never wipe an unanswered permission prompt just because a turn-level
+            // `complete` arrived — that would hide the only way to respond and
+            // silently skip the action. An actionable request is removed ONLY by an
+            // explicit `permission_cancelled` (server abort/resolve) or by the user
+            // answering it. Drop just the non-actionable leftovers (e.g. ExitPlanMode).
+            const nextPending = pendingPermissionRequestsRef.current.filter(
+              (request) => isActionablePermissionRequest(request),
+            );
+            pendingPermissionRequestsRef.current = nextPending;
+            setPendingPermissionRequests(nextPending);
           }
 
           if (msg.aborted) {

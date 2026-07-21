@@ -134,6 +134,20 @@ CREATE TABLE IF NOT EXISTS app_config (
 );
 `;
 
+// Cross-device sync for the "which model / thinking effort should new
+// messages use" choice: one row per user, JSON-encoded per-provider maps, so
+// picking a model on the Mac shows up on the phone (and vice versa) instead
+// of being stuck in that one browser's localStorage.
+export const USER_PROVIDER_PREFERENCES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS user_provider_preferences (
+    user_id INTEGER PRIMARY KEY,
+    models_json TEXT NOT NULL DEFAULT '{}',
+    efforts_json TEXT NOT NULL DEFAULT '{}',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -173,6 +187,9 @@ ${SESSIONS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);
 -- NOTE: This index is created in migrations after sessions is rebuilt to include project_path.
 -- Creating it here can fail on upgraded installs where the legacy sessions table has no project_path.
+
+${USER_PROVIDER_PREFERENCES_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_user_provider_preferences_user_id ON user_provider_preferences(user_id);
 
 ${LAST_SCANNED_AT_SQL}
 

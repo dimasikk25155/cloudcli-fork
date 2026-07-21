@@ -5,7 +5,12 @@ import type { WebSocket } from 'ws';
 import { sessionsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
-import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
+import {
+  appendAttachedFilesTag,
+  getGlobalImageAssetsDir,
+  normalizeImageDescriptors,
+  splitAttachmentsByKind,
+} from '@/shared/image-attachments.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
@@ -187,7 +192,15 @@ async function handleChatSend(
   }
 
   const clientOptions = (data.options ?? {}) as AnyRecord;
-  const command = typeof data.content === 'string' ? data.content : '';
+  const rawContent = typeof data.content === 'string' ? data.content : '';
+
+  // Client attachments are re-validated to the upload store, then split: images
+  // ride along as vision blocks (per provider), while other files are referenced
+  // by path in an <attached_files> block the agent reads with its own tools.
+  const { images: imageAttachments, files: fileAttachments } = splitAttachmentsByKind(
+    filterImagesToUploadStore(clientOptions.images)
+  );
+  const command = appendAttachedFilesTag(rawContent, fileAttachments);
 
   // The provider runtimes receive the provider-native session id (that is the
   // id their CLI/SDK understands for resume). Brand-new sessions have no
@@ -195,9 +208,9 @@ async function handleChatSend(
   // gateway writer captures and maps back to the app session id.
   const runtimeOptions: AnyRecord = {
     ...clientOptions,
-    // Image attachments are re-validated server-side: only files inside the
-    // global upload store may reach the provider runtimes' file reads.
-    images: filterImagesToUploadStore(clientOptions.images),
+    // Only image attachments reach the provider runtimes' vision path; non-image
+    // files were folded into `command` above as an <attached_files> block.
+    images: imageAttachments,
     sessionId: session.provider_session_id ?? undefined,
     // Push notifications deep-link to /session/<app id>, which is what the UI
     // routes on — the provider-native id above would not resolve there.

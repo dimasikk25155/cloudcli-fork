@@ -103,6 +103,7 @@
     "technicalDetails": "Технические детали"
   },
   "input": {
+    "pressEscAgainToStop": "Нажмите Esc ещё раз, чтобы остановить",
     "placeholder": "Введите / для команд, @ для файлов, или спросите {{provider}} что угодно...",
     "placeholderDefault": "Введите ваше сообщение...",
     "disabled": "Ввод отключен",
