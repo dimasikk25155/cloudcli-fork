@@ -15,7 +15,6 @@ export const useTheme = () => {
 // a time as each is built out; `default` is the original warm-orange look.
 export const THEMES = [
   'default',
-  'light',
   'liquidGlass',
   'neonCity',
   'synthwaveDrive',
@@ -29,10 +28,11 @@ export const THEMES = [
 ];
 
 // Human-readable labels for the theme picker in Settings → Appearance.
+// Internal key stays `liquidGlass` (matches CSS/asset filenames); label is
+// what the user actually sees in the dropdown.
 export const THEME_LABELS = {
   default: 'Тёмная',
-  light: 'Светлая',
-  liquidGlass: 'Liquid Glass',
+  liquidGlass: 'Apple',
   neonCity: 'Neon City',
   synthwaveDrive: 'Synthwave',
   commandDeck: 'Command Deck',
@@ -47,7 +47,7 @@ export const THEME_LABELS = {
 // Themes that are light (bright) rather than dark. Each theme decides whether
 // the global `dark` class is applied — there is no separate user dark/light
 // toggle. `default` and anything not listed here is treated as dark.
-export const LIGHT_THEMES = ['light', 'liquidGlass'];
+export const LIGHT_THEMES = ['liquidGlass'];
 
 // Backwards-compatible aliases (older code referred to these as shader variants).
 export const SHADER_VARIANTS = THEMES;

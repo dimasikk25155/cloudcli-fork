@@ -51,11 +51,6 @@ export default function ThemeBackground({ theme = 'default' }: { theme?: string 
     );
   }
 
-  // Plain light theme: clean, no animated background.
-  if (theme === 'light') {
-    return null;
-  }
-
   // Default theme: original animated WebGL background.
   return <ShaderBackground variant="default" />;
 }
