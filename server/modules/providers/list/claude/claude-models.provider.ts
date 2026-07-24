@@ -60,16 +60,6 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
         ],
       },
     },
-    {
-      // Kimi K3 runs the same Claude Code engine pointed at Kimi's
-      // Anthropic-compatible endpoint (separate Kimi subscription — does NOT
-      // consume the Claude Max limit). The `kimi-` prefix is detected in
-      // claude-sdk.js, which injects Kimi's base URL + key and maps the model
-      // to its native id (`k3`). Needs KIMI_CODE_KEY in ~/Antigravity Project/.secrets.env.
-      value: 'kimi-k3',
-      label: 'Kimi K3',
-      description: 'Отдельная подписка Kimi · не тратит лимит Claude · нужен ключ Kimi Code в .secrets.env',
-    },
   ],
   DEFAULT: 'opus[1m]',
 };
