@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neo3 Agent System — свой ИИ-агент для бизнеса на вашем сервере</title>
+<meta name="description" content="ИИ-агент на вашем собственном сервере: работает с файлами бизнеса, доступен с телефона без VPN. Установка за часы, обучение, поддержка. Дальше ставите задачи сами, своими словами — без очереди к исполнителю.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="neo3">
+<meta property="og:title" content="Neo3 Agent System — свой ИИ-агент для бизнеса на вашем сервере">
+<meta property="og:description" content="Не чат-бот, а агент, который делает: свой сервер, свои данные, своя подписка. Инструмент + настройка + обучение — дальше бизнес работает с ИИ сам.">
+<meta property="og:url" content="https://cli.neo3.ru/">
+<meta property="og:image" content="https://cli.neo3.ru/og-neo3.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://cli.neo3.ru/og-neo3.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23070504'/%3E%3Ctext x='32' y='47' font-family='Arial Black,Arial,sans-serif' font-size='42' font-weight='900' fill='%23f7931a' text-anchor='middle'%3E3%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Jura:wght@400;600;700&family=Inter:wght@400;500;700&family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#070504; --fg:#fff4ea; --muted:#a4937f;
+    --card:rgba(255,255,255,.04); --line:rgba(255,255,255,.08);
+    --a:#f7931a; --a2:#ffb866; --gold:#ffd9a0; --glow:rgba(247,147,26,.55); --glow-soft:rgba(247,147,26,.22);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  section[id]{scroll-margin-top:76px}
+  a:focus-visible,.btn:focus-visible,summary:focus-visible{outline:2px solid var(--a);outline-offset:3px;border-radius:6px}
+  body{background:var(--bg);color:var(--fg);font-family:Inter,-apple-system,system-ui,sans-serif;overflow-x:hidden;line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 22px}
+  a{color:inherit;text-decoration:none}
+
+  header{position:fixed;top:0;left:0;right:0;z-index:50;background:rgba(7,5,4,0);transition:background .3s,backdrop-filter .3s,border-color .3s;border-bottom:1px solid transparent}
+  header.solid{background:rgba(7,5,4,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+  nav{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{font-family:'Russo One',sans-serif;letter-spacing:1.5px;font-size:20px}
+  .logo b{color:var(--a);text-shadow:0 0 18px var(--glow)}
+  .nav-links{display:flex;gap:28px;font-family:'Jura',sans-serif;font-weight:600;font-size:14px;color:var(--muted)}
+  .nav-links a{transition:color .2s}
+  .nav-links a:hover{color:var(--fg)}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-family:'Jura',sans-serif;font-weight:700;letter-spacing:.4px;background:var(--a);color:#1a0e00;padding:12px 24px;border-radius:12px;border:0;cursor:pointer;font-size:15px;transition:transform .15s,box-shadow .3s}
+  .btn:hover{transform:translateY(-2px)}
+  .btn.pulse{animation:pulseGlow 2.6s ease-in-out infinite}
+  @keyframes pulseGlow{0%,100%{box-shadow:0 6px 20px -2px var(--glow-soft)}50%{box-shadow:0 8px 34px 2px var(--glow)}}
+  .btn.shine{position:relative;overflow:hidden}
+  .btn.shine::after{content:'';position:absolute;top:0;left:-160%;width:55%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.6),transparent);transform:skewX(-20deg);animation:shine 3.4s ease-in-out infinite}
+  @keyframes shine{0%{left:-160%}55%,100%{left:170%}}
+
+  .hero{position:relative;min-height:100vh;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:120px 22px 70px;overflow:hidden}
+  #road{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+  section,footer{position:relative;z-index:1}
+  .hero-content{position:relative;z-index:2;max-width:860px}
+  .eyebrow-hero{font-family:'Jura',sans-serif;font-weight:700;letter-spacing:3px;color:var(--a);font-size:13px;text-transform:uppercase;margin-bottom:18px}
+  .stats{display:flex;gap:38px;justify-content:center;flex-wrap:wrap;margin-bottom:30px;font-family:'Jura',sans-serif;letter-spacing:1px}
+  .stats .n{font-size:26px;font-weight:700;color:var(--a);text-shadow:0 0 16px var(--glow)}
+  .stats .l{font-size:11px;color:var(--muted);letter-spacing:2px}
+  h1{font-family:'Roboto Flex',sans-serif;font-weight:700;font-variation-settings:'wght' 720,'wdth' 112;font-size:clamp(42px,10vw,110px);line-height:.92;letter-spacing:-2px;
+     background:linear-gradient(100deg,#ffd9a0 0%,#ffffff 22%,var(--a) 50%,#ffffff 78%,#ffd9a0 100%);background-size:200% 100%;
+     -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;
+     transform:perspective(820px);transition:transform .25s ease;will-change:transform;
+     animation:flow 7s linear infinite, breathe 3.4s ease-in-out infinite}
+  @keyframes flow{to{background-position:-200% 0}}
+  @keyframes breathe{0%,100%{filter:drop-shadow(0 0 20px rgba(247,147,26,.22))}50%{filter:drop-shadow(0 0 44px rgba(247,147,26,.6))}}
+  .tagline{font-family:'Jura',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:1px;font-size:clamp(19px,3.4vw,36px);line-height:1.08;margin-top:14px}
+  .tagline .hl{color:var(--a);text-shadow:0 0 26px var(--glow)}
+  .hero-sub{color:var(--muted);font-size:clamp(15px,2.2vw,18px);max-width:620px;margin:20px auto 0}
+  .cta-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:34px}
+  .hint{margin-top:26px;font-family:'Jura',sans-serif;font-weight:600;letter-spacing:3px;font-size:12px;color:var(--a);opacity:.85;display:inline-flex;align-items:center;gap:9px;user-select:none}
+  .hint .dot{width:8px;height:8px;border-radius:50%;background:var(--a);box-shadow:0 0 12px var(--glow);animation:blink 1.8s infinite}
+  @keyframes blink{50%{opacity:.25}}
+
+  /* только вертикальные отступы — боковые остаются от .wrap (иначе шорткат padding их обнуляет) */
+  section.block{padding-top:96px;padding-bottom:96px;position:relative}
+  .eyebrow{font-family:'Jura',sans-serif;font-weight:700;letter-spacing:4px;color:var(--a);font-size:13px;text-transform:uppercase}
+  h2{font-family:'Jura',sans-serif;font-weight:700;font-size:clamp(28px,5vw,46px);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 30px;line-height:1.04}
+  .sub{color:var(--muted);font-size:clamp(15px,2.2vw,18px);max-width:620px}
+  .focus .w{display:inline-block}
+  html.js .focus .w{filter:blur(12px);opacity:.25;transform:translateY(6px);transition:filter .7s cubic-bezier(.2,.7,.2,1),opacity .7s,transform .7s;transition-delay:calc(var(--i) * 90ms)}
+  html.js .focus.seen .w{filter:blur(0);opacity:1;transform:none}
+  @keyframes rise{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+
+  /* ---------- before / after (рынок vs Neo3 Agent System) ---------- */
+  .ba{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:18px;margin-top:26px}
+  .ba .panel{border:1px solid var(--line);border-radius:20px;background:var(--card);padding:26px 24px;animation:rise .6s both}
+  .ba .cap{font-family:'Jura',sans-serif;font-weight:700;letter-spacing:1px;font-size:12px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .ba .before .cap{color:var(--muted)}
+  .ba .after .cap{color:var(--a);text-shadow:0 0 16px var(--glow)}
+  .ba .txt{font-size:15.5px;line-height:1.6;color:var(--fg)}
+  .ba .before .txt{color:var(--muted)}
+  .ba .arrow{font-size:26px;color:var(--a);filter:drop-shadow(0 0 12px var(--glow))}
+  @media(max-width:760px){.ba{grid-template-columns:1fr;gap:12px}.ba .arrow{transform:rotate(90deg);margin:0 auto}}
+
+  /* ---------- feature + step cards ---------- */
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;text-align:left}
+  .card3{position:relative;padding:28px 24px;border:1px solid var(--line);border-radius:22px;background:var(--card);animation:rise .6s both;transition:transform .22s,border-color .22s,box-shadow .3s}
+  .card3:hover{transform:translateY(-4px);border-color:rgba(247,147,26,.5);box-shadow:0 22px 54px -26px var(--glow)}
+  .card3 .ic{width:44px;height:44px;display:block;margin-bottom:14px;filter:drop-shadow(0 0 14px var(--glow-soft))}
+  .card3 h3{font-family:'Jura',sans-serif;font-weight:600;font-size:18px;margin-bottom:6px}
+  .card3 p{color:var(--muted);font-size:14px}
+  .steps{counter-reset:s}
+  .steps .card3::before{counter-increment:s;content:counter(s);font-family:'Russo One',sans-serif;font-size:38px;color:var(--a);opacity:.55;display:block;margin-bottom:8px;text-shadow:0 0 22px var(--glow)}
+
+  .note{max-width:680px;margin:26px auto 0;font-size:13px;color:var(--muted);text-align:center}
+  .note b{color:var(--a2)}
+
+  /* ---------- словарик (проект / сеанс / задача) ---------- */
+  .defs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:26px}
+  .def{border:1px solid var(--line);border-radius:16px;background:var(--card);padding:20px 22px}
+  .def dt{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--a2);margin-bottom:8px}
+  .def dd{color:var(--muted);font-size:14px}
+
+  /* ---------- примеры формулировок задач ---------- */
+  .ex-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:26px}
+  .ex{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:16px;background:var(--card);padding:18px 20px;font-family:'JetBrains Mono',monospace;font-size:13.5px;line-height:1.6;transition:transform .2s,border-color .2s,box-shadow .3s}
+  .ex:hover{transform:translateY(-2px);border-color:rgba(247,147,26,.5);box-shadow:0 16px 40px -22px var(--glow)}
+  .ex .pr{color:var(--a);font-weight:600;user-select:none;text-shadow:0 0 10px var(--glow)}
+
+  /* ---------- FAQ ---------- */
+  .faq{max-width:780px;margin:6px auto 0;display:flex;flex-direction:column;gap:12px}
+  .faq details{border:1px solid var(--line);border-radius:16px;background:var(--card);transition:border-color .25s}
+  .faq details[open]{border-color:rgba(247,147,26,.45)}
+  .faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:18px 22px;font-family:'Jura',sans-serif;font-weight:700;font-size:15.5px;letter-spacing:.3px}
+  .faq summary::-webkit-details-marker{display:none}
+  .faq summary::after{content:'+';color:var(--a);font-size:22px;line-height:1;flex:none;transition:transform .25s;text-shadow:0 0 12px var(--glow)}
+  .faq details[open] summary::after{transform:rotate(45deg)}
+  .faq .a{padding:0 22px 20px;color:var(--muted);font-size:14.5px;line-height:1.65}
+
+  /* ---------- «скоро» баннер ---------- */
+  .banner{margin-top:8px;border:1px dashed rgba(247,147,26,.4);border-radius:22px;background:rgba(247,147,26,.05);padding:26px 28px}
+  .banner .pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .pill{font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.5px;color:var(--a2);border:1px solid rgba(247,147,26,.35);border-radius:999px;padding:6px 14px}
+
+  .final{position:relative;text-align:center;padding:110px 22px;overflow:hidden;border-top:1px solid var(--line)}
+  #pixels{position:absolute;inset:0;width:100%;height:100%;z-index:0;opacity:.6}
+  .final-inner{position:relative;z-index:2;max-width:640px;margin:0 auto}
+  .final .sub{margin:0 auto 30px}
+
+  footer{border-top:1px solid var(--line);padding:30px 0}
+  .foot{display:flex;justify-content:space-between;align-items:center;width:100%;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:13px}
+  .foot .logo{font-size:16px}
+
+  @media(max-width:760px){
+    .nav-links{display:none}
+    .grid3,.ex-grid,.defs{grid-template-columns:1fr}
+    .stats{gap:24px}
+  }
+  @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs><linearGradient id="gI" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd9a0"/><stop offset="1" stop-color="#f7931a"/></linearGradient></defs>
+  <symbol id="i-shield" viewBox="0 0 48 48"><path d="M24 4l16 6v12c0 10-6.5 16.5-16 20-9.5-3.5-16-10-16-20V10l16-6z" fill="url(#gI)"/><path d="M16.5 24.5l5.2 5.2L32 18.5" fill="none" stroke="#070504" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 48 48"><rect x="12" y="5" width="20" height="38" rx="5" fill="url(#gI)"/><rect x="19" y="9" width="6" height="2.6" rx="1.3" fill="#070504" opacity=".55"/><circle cx="22" cy="37" r="2.3" fill="#070504" opacity=".55"/><circle cx="37" cy="11" r="8" fill="#070504"/><circle cx="37" cy="11" r="5.2" fill="url(#gI)"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 48 48"><circle cx="24" cy="24" r="17.5" fill="none" stroke="url(#gI)" stroke-width="3.2"/><ellipse cx="24" cy="24" rx="8" ry="17.5" fill="none" stroke="url(#gI)" stroke-width="2.2"/><path d="M7.5 18.5h33M7.5 29.5h33" stroke="url(#gI)" stroke-width="2.2" fill="none"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 48 48"><path d="M8 14h32M8 24h32M8 34h32" stroke="url(#gI)" stroke-width="3.2" stroke-linecap="round"/><circle cx="19" cy="14" r="4.6" fill="#070504" stroke="url(#gI)" stroke-width="3"/><circle cx="31" cy="24" r="4.6" fill="#070504" stroke="url(#gI)" stroke-width="3"/><circle cx="14" cy="34" r="4.6" fill="#070504" stroke="url(#gI)" stroke-width="3"/></symbol>
+  <symbol id="i-team" viewBox="0 0 48 48"><circle cx="17" cy="16" r="7" fill="url(#gI)"/><path d="M5 40c0-7.5 5.4-12 12-12s12 4.5 12 12z" fill="url(#gI)"/><circle cx="35" cy="15" r="5.4" fill="url(#gI)" opacity=".7"/><path d="M31.5 40c.3-5.4 2.6-9.3 6.5-10.6 4.3 1.3 6.8 5 7 10.6z" fill="url(#gI)" opacity=".7"/></symbol>
+  <symbol id="i-server" viewBox="0 0 48 48"><rect x="5" y="7" width="30" height="13" rx="4" fill="url(#gI)"/><rect x="5" y="24" width="30" height="13" rx="4" fill="url(#gI)" opacity=".82"/><circle cx="12" cy="13.5" r="2.2" fill="#070504"/><circle cx="12" cy="30.5" r="2.2" fill="#070504"/><rect x="27" y="23" width="18" height="18" rx="5" fill="#070504"/><path d="M33 31v-3.6a3.9 3.9 0 0 1 7.8 0V31" stroke="url(#gI)" stroke-width="2.8" fill="none" stroke-linecap="round"/><rect x="30.5" y="31" width="13" height="8.6" rx="2.6" fill="url(#gI)"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 48 48"><circle cx="27" cy="24" r="15.5" fill="none" stroke="url(#gI)" stroke-width="3.2"/><path d="M27 15.5v8.5l6.4 4" stroke="url(#gI)" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17.5h7M2.5 24h7M4 30.5h7" stroke="url(#gI)" stroke-width="2.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 48 48"><path d="M5 13a4 4 0 0 1 4-4h9l4 5h17a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V13z" fill="url(#gI)"/><path d="M12 24h20M12 30h13" stroke="#070504" stroke-width="2.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 48 48"><rect x="18" y="5" width="12" height="21" rx="6" fill="url(#gI)"/><path d="M11 22a13 13 0 0 0 26 0" fill="none" stroke="url(#gI)" stroke-width="3.2" stroke-linecap="round"/><path d="M24 35.5V43" stroke="url(#gI)" stroke-width="3.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-key" viewBox="0 0 48 48"><circle cx="15" cy="24" r="9" fill="none" stroke="url(#gI)" stroke-width="3.6"/><path d="M24 24h20M35 24v7.5M42 24v5.5" stroke="url(#gI)" stroke-width="3.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-git" viewBox="0 0 48 48"><circle cx="14" cy="11" r="5" fill="url(#gI)"/><circle cx="14" cy="37" r="5" fill="url(#gI)"/><circle cx="35" cy="24" r="5" fill="url(#gI)"/><path d="M14 16v16M18.2 13.5l12.6 8M18.2 34.5l12.6-8" stroke="url(#gI)" stroke-width="2.8" fill="none"/></symbol>
+</svg>
+
+<header id="hdr"><div class="wrap"><nav aria-label="Основная навигация">
+  <div class="logo">NEO3 <b>AGENT</b></div>
+  <div class="nav-links">
+    <a href="#what">Что это</a>
+    <a href="#included">Что входит</a>
+    <a href="#examples">Примеры</a>
+    <a href="#features">Возможности</a>
+    <a href="#data">Данные</a>
+    <a href="#faq">Вопросы</a>
+  </div>
+  <a class="btn pulse" href="#contact">Обсудить</a>
+</nav></div></header>
+
+<!-- ================= HERO ================= -->
+<main>
+<section class="hero">
+  <canvas id="road" aria-hidden="true"></canvas>
+  <div class="hero-content">
+    <div class="eyebrow-hero">Инструмент + настройка + обучение</div>
+    <div class="stats">
+      <div><div class="n">1</div><div class="l">СЕРВЕР — ТОЛЬКО ВАШ</div></div>
+      <div><div class="n">0</div><div class="l">ОЧЕРЕДЕЙ К ИСПОЛНИТЕЛЮ</div></div>
+      <div><div class="n">24/7</div><div class="l">АГЕНТ НА ЗАДАЧАХ</div></div>
+    </div>
+    <h1 id="hero-title" data-text="Neo3 Agent System">Neo3 Agent System</h1>
+    <p class="tagline">Свой ИИ-агент <span class="hl">для бизнеса</span></p>
+    <p class="hero-sub">Ставлю на ваш сервер агента на том же движке, что стоит за Claude Code (Anthropic). Открывается как сайт и как приложение на телефоне, без VPN. Дальше вы сами, своими словами, ставите задачи: отчёты из выгрузок, разбор процессов, черновики документов — без нового исполнителя под каждую задачу.</p>
+    <div class="cta-row">
+      <a class="btn pulse shine" href="#contact" style="font-size:17px;padding:17px 40px">Обсудить внедрение</a>
+    </div>
+    <div class="hint"><span class="dot"></span> УСТАНОВКА · ОБУЧЕНИЕ · ПОДДЕРЖКА</div>
+  </div>
+</section>
+
+<!-- ================= ЧТО ЭТО ================= -->
+<section class="block wrap" id="what">
+  <div class="eyebrow" style="text-align:center">Что это</div>
+  <h2 class="focus" style="text-align:center">Агент, который делает, а не советует</h2>
+  <p class="sub" style="margin:0 auto;text-align:center">Обычная подписка на ИИ — это окно чата: он отвечает, а работать руками всё равно вам. Здесь другое: агент живёт на вашем сервере, рядом с файлами бизнеса, и выполняет задачу сам.</p>
+  <div class="ba">
+    <div class="panel before">
+      <div class="cap">Просто подписка на чат-бот</div>
+      <div class="txt">Отвечает в окне браузера. Файлов вашего бизнеса не видит. Каждый ответ — скопировать, доделать, собрать руками. Задача закрыта, когда вы сами её доделали.</div>
+    </div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="panel after">
+      <div class="cap">Neo3 Agent System</div>
+      <div class="txt">Сам читает документы и таблицы проекта, сам вносит правки в файлы, объясняет, что делает, и задаёт вопросы, если что-то неясно. Поставили задачу — можно заблокировать телефон: придёт уведомление, когда готово.</div>
+    </div>
+  </div>
+  <dl class="defs">
+    <div class="def"><dt>Проект</dt><dd>Папка с файлами вашего бизнеса — документы, таблицы, код, — с которой работает агент.</dd></div>
+    <div class="def"><dt>Сеанс</dt><dd>Отдельный диалог внутри проекта. Можно вести несколько параллельно — по разным задачам.</dd></div>
+    <div class="def"><dt>Задача</dt><dd>Обычное сообщение своими словами. Никаких «промптов» и специальных команд.</dd></div>
+  </dl>
+</section>
+
+<!-- ================= УТП / ОТЛИЧИЕ ОТ РЫНКА ================= -->
+<section class="block wrap" id="vs" style="padding-top:0">
+  <div class="eyebrow" style="text-align:center">Чем это отличается от рынка</div>
+  <h2 class="focus" style="text-align:center">Не разовая услуга, а рабочий инструмент</h2>
+  <p class="sub" style="margin:0 auto;text-align:center">На рынке продают конкретную настройку: «сделаю бота», «настрою воронку», «подключу CRM». Каждая новая задача — новый заказ, новый исполнитель, новое ожидание.</p>
+  <div class="ba">
+    <div class="panel before">
+      <div class="cap">Обычный автоматизатор</div>
+      <div class="txt">Новая задача → новый заказ → поиск исполнителя → ожидание → снова оплата за настройку под одну конкретную задачу.</div>
+    </div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="panel after">
+      <div class="cap">Neo3 Agent System</div>
+      <div class="txt">Один раз — сервер, установка, обучение. Дальше любые будущие задачи вы решаете сами, в диалоге с агентом — без повторной оплаты за настройку и без очереди.</div>
+    </div>
+  </div>
+  <p class="note">Я даю инструмент и учу им пользоваться — а не становлюсь узким горлышком между вами и результатом.</p>
+</section>
+
+<!-- ================= ЧТО ВХОДИТ ================= -->
+<section class="block wrap" id="included">
+  <div class="eyebrow">Что входит в услугу</div>
+  <h2 class="focus">Под ключ: от сервера до первых задач</h2>
+  <div class="grid3 steps">
+    <div class="card3"><h3>Сервер</h3><p>Арендую и настраиваю отдельный VPS (арендованный сервер в дата-центре) под ваш бизнес — можно и в России. Это ваша машина, а не место на общей.</p></div>
+    <div class="card3"><h3>Установка</h3><p>Разворачиваю проверенный Neo3 Agent System и подключаю вашу подписку. С оплатой помогаю: прямой аккаунт Anthropic требует не-российскую карту, для РФ есть вариант проще через реселлера — объясняю оба на месте.</p></div>
+    <div class="card3"><h3>Обучение</h3><p>Понятный письменный гайд по каждому экрану — плюс вживую разбираем первые задачи именно вашего бизнеса.</p></div>
+    <div class="card3"><h3>Поддержка</h3><p>Остаюсь на связи. Если что-то пошло не так — разбираюсь и чиню, а не «попробуйте перезагрузить».</p></div>
+  </div>
+  <p class="note"><b>По срокам:</b> от согласия до рабочей ссылки с логином и паролем — часы, а не недели. Процесс отработан по чек-листу, ничего не импровизируется на ходу.</p>
+</section>
+
+<!-- ================= ПРИМЕРЫ ЗАДАЧ ================= -->
+<section class="block wrap" id="examples">
+  <div class="eyebrow">Формат работы</div>
+  <h2 class="focus">Задачи ставятся обычными словами</h2>
+  <p class="sub">Пишете агенту как сотруднику — в обычное поле чата. Вот как выглядят формулировки. Это иллюстрация формата, а не кейсы клиентов:</p>
+  <div class="ex-grid">
+    <div class="ex"><span class="pr" aria-hidden="true">&gt;</span><span>Собери отчёт по продажам за июнь из выгрузки — файл лежит в проекте</span></div>
+    <div class="ex"><span class="pr" aria-hidden="true">&gt;</span><span>Разбери, почему падает скрипт, и объясни простыми словами, что чинить</span></div>
+    <div class="ex"><span class="pr" aria-hidden="true">&gt;</span><span>Сделай черновик договора по нашему шаблону под нового подрядчика</span></div>
+    <div class="ex"><span class="pr" aria-hidden="true">&gt;</span><span>Сведи прайсы трёх поставщиков в одну таблицу и подсвети расхождения</span></div>
+    <div class="ex"><span class="pr" aria-hidden="true">&gt;</span><span>Напиши черновик рассылки на основе прошлых писем из папки проекта</span></div>
+    <div class="ex"><span class="pr" aria-hidden="true">&gt;</span><span>Наведи порядок в папке с документами: разложи по темам и переименуй</span></div>
+  </div>
+  <p class="note">Агент сам читает и меняет файлы проекта, по ходу объясняет, что делает, а если формулировка неполная — задаёт уточняющие вопросы, как живой исполнитель.</p>
+</section>
+
+<!-- ================= ВОЗМОЖНОСТИ ================= -->
+<section class="block wrap" id="features">
+  <div class="eyebrow">Проверено на своём боевом сервере, не с чужих слов</div>
+  <h2 class="focus">Что реально умеет Neo3 Agent System</h2>
+  <div class="grid3">
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><h3>Надёжность</h3><p>Полгода боевых доработок на живом сервере: чат не виснет, если свернуть браузер или телефон уснул посреди задачи, а после перезапуска сервис поднимается сам — без потери прогресса.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-phone"/></svg><h3>Приложение на телефоне</h3><p>Ставится на домашний экран без магазинов приложений. Push-уведомление, когда задача готова — не нужно держать вкладку открытой и ждать.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg><h3>Доступ без VPN</h3><p>Сервер физически ближе — открывается как обычный сайт, никаких обходных путей для входа.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg><h3>Управление прямо в чате</h3><p>Модель под задачу — побыстрее или поумнее, «глубина размышления» и счётчик расхода токенов в реальном времени. Переключается на лету, не выходя из диалога.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-team"/></svg><h3>Команде — по кабинету</h3><p>Каждому сотруднику — отдельный изолированный вход, привязанный к нужному ему проекту. Работа не пересекается, файлы синхронизируются через git. Уже работает на нескольких серверах, не эксперимент.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg><h3>Полная изоляция</h3><p>Отдельный сервер под каждый бизнес, свой репозиторий, своя подписка Claude. Ваши данные не соседствуют с чужими — это архитектура, а не обещание на словах.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg><h3>Часы, а не недели</h3><p>От согласия до рабочей ссылки с паролем — часы: сервер, установка, первый вход. Не многодневный проект с этапами и ожиданием.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><h3>Файлы и история под рукой</h3><p>Файлы проекта видно прямо в браузере, задачи — со статусами, недавние сеансы и избранные проекты — в один клик. История работы не теряется.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg><h3>Голос и внешний вид</h3><p>Голосовой ввод вместо печати и 13 визуальных тем. Не критично для дела, но инструмент не выглядит «сырой консолью для айтишников».</p></div>
+  </div>
+  <p class="note">Примеры живых проектов — в <a href="https://portfolio.neo3.ru" style="color:var(--a)">портфолио neo3</a></p>
+</section>
+
+<!-- ================= СВОЙ СЕРВЕР И ДАННЫЕ ================= -->
+<section class="block wrap" id="data">
+  <div class="eyebrow" style="text-align:center">Свой сервер против общего сервиса</div>
+  <h2 class="focus" style="text-align:center">Данные остаются у вас</h2>
+  <p class="sub" style="margin:0 auto;text-align:center">Общий облачный сервис — это чужой сервер, общий аккаунт и чужие правила. Здесь всё наоборот — по каждому пункту.</p>
+  <div class="grid3" style="margin-top:30px">
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg><h3>Свой сервер</h3><p>Файлы, история диалогов и вход в Claude хранятся только на вашем VPS. Ни с одним другим клиентом ничего не пересекается — у каждого своя машина.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg><h3>Своя подписка</h3><p>Вы платите Anthropic напрямую, со своего аккаунта. Я не перепродаю доступ через общий — значит, нет риска, что из-за чужих действий «общий» аккаунт забанят и работа встанет у всех разом.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-git"/></svg><h3>Свой репозиторий</h3><p>Рабочая папка агента — ваш приватный git-репозиторий (хранилище файлов с историей изменений) на вашем сервере. Это обычные файлы, не запертый формат: захотите — заберёте всё целиком.</p></div>
+  </div>
+  <p class="note"><b>Кому и за что платите:</b> мне — за установку, хостинг, настройку, обучение и поддержку; Anthropic — напрямую за подписку на сам ИИ.</p>
+</section>
+
+<!-- ================= ГАЙД (вынесен на отдельную страницу) ================= -->
+<section class="block wrap" id="howto">
+  <div class="eyebrow" style="text-align:center">Не абстракция — реальный интерфейс</div>
+  <h2 class="focus" style="text-align:center">Первый день: от пароля до первой задачи</h2>
+  <p class="sub" style="margin:0 auto 26px;text-align:center">Вход и пароль, подключение своей подписки, три колонки экрана, постановка задачи словами, приложение на телефоне. Написано для человека без технического опыта — каждый экран простыми словами, без сокращений.</p>
+  <div style="text-align:center">
+    <a class="btn" href="/guide" style="font-size:16px;padding:15px 34px">Открыть гайд по интерфейсу →</a>
+  </div>
+  <p class="note">Тот же гайд передаётся при настройке в письменном виде, плюс живой разбор первых задач.</p>
+</section>
+
+<!-- ================= СКОРО ================= -->
+<section class="block wrap" id="soon">
+  <div class="eyebrow">Честно</div>
+  <h2 class="focus">Что «скоро», а не «уже сегодня»</h2>
+  <div class="banner">
+    <p style="color:var(--muted);font-size:15px">Эти вещи либо уже видны в интерфейсе, либо стоят в плане — но пока не обкатаны в бою так, как Claude. Когда будут готовы, вы получите их бесплатным обновлением. Как доступное сегодня — не обещаю.</p>
+    <div class="pills">
+      <span class="pill">Codex</span><span class="pill">Cursor</span><span class="pill">OpenCode</span><span class="pill">Kimi K2</span><span class="pill">личные логины на общем сервере</span><span class="pill">отдельная база знаний под документы</span><span class="pill">веб-панель самообслуживания</span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section class="block wrap" id="faq" style="padding-top:0">
+  <div class="eyebrow" style="text-align:center">Вопросы</div>
+  <h2 class="focus" style="text-align:center">Что спрашивают перед стартом</h2>
+  <div class="faq">
+    <details><summary>Я не программист — справлюсь?</summary><div class="a">Да. Интерфейс — это обычный чат: задачи ставите своими словами, а если формулировка неполная, агент сам задаёт уточняющие вопросы. Терминал и технические разделы при настройке можно вообще скрыть. Плюс письменный гайд по каждому экрану и живое обучение на первых задачах вашего бизнеса.</div></details>
+    <details><summary>Где хранятся мои данные и кто их видит?</summary><div class="a">На вашем отдельном сервере: файлы проекта, история диалогов и вход в ваш аккаунт Claude живут только на нём. С другими клиентами не пересекается ничего — у каждого свой VPS, свой репозиторий, своя подписка.</div></details>
+    <details><summary>Кому и за что я плачу?</summary><div class="a">Две части. Мне — за установку, хостинг, настройку, обучение и поддержку. Anthropic (создателю Claude) — напрямую за подписку на сам ИИ, со своего аккаунта. С оформлением помогаю: прямой аккаунт Anthropic требует не-российскую карту, для РФ есть вариант проще через реселлера — разберём оба на месте.</div></details>
+    <details><summary>Что будет, если что-то сломается?</summary><div class="a">Сервис настроен подниматься сам после сбоя, и прогресс диалога при этом не теряется. Перед передачей я прогоняю обязательную проверку: реальная задача, сворачивание браузера посреди работы, перезапуск сервера. Если что-то всё же пойдёт не так — я на связи и чиню.</div></details>
+    <details><summary>Если захочу уйти — что останется моим?</summary><div class="a">Всё главное — ваше: сервер с файлами, приватный git-репозиторий, аккаунт и подписка Anthropic. Это обычные файлы и ваш собственный аккаунт, а не данные, запертые внутри чужого сервиса.</div></details>
+    <details><summary>Можно подключить сотрудников?</summary><div class="a">Да. Каждому — отдельный изолированный кабинет со своим входом и своим репозиторием: работа не мешает друг другу, файлы синхронизируются через git — как в любой нормальной команде. Кабинеты сегодня создаю вручную, это быстро. Веб-панель, где вы сами жмёте «добавить сотрудника», — в планах; как готовое не обещаю.</div></details>
+  </div>
+</section>
+
+<!-- ================= FINAL ================= -->
+<section class="final" id="contact">
+  <canvas id="pixels" aria-hidden="true"></canvas>
+  <div class="final-inner">
+    <div class="eyebrow">Связаться</div>
+    <h2 class="focus" style="margin-bottom:18px">Посмотрим на вашем примере</h2>
+    <p class="sub">Напишите в Telegram: расскажу, что войдёт именно в ваш случай, отвечу на вопросы и покажу, как это выглядит вживую.</p>
+    <a class="btn pulse shine" href="https://t.me/bitcoin_tothe_moon" target="_blank" rel="noopener" style="font-size:17px;padding:16px 38px">Написать в Telegram</a>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap"><div class="foot">
+  <div class="logo">NEO<b>3</b> · <span style="font-family:'Jura',sans-serif;font-weight:600;font-size:12px;letter-spacing:2px;color:var(--muted)">AGENT SYSTEM</span></div>
+  <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:'Jura',sans-serif;font-weight:600;font-size:13px">
+    <a href="/guide" style="color:var(--muted)">Гайд по интерфейсу</a>
+    <a href="https://neo3.ru" style="color:var(--muted)">neo3.ru · хаб</a>
+    <a href="https://vpn.neo3.ru" style="color:var(--muted)">Neo3 VPN</a>
+    <a href="https://whisper.neo3.ru" style="color:var(--muted)">NeoWhisper</a>
+    <a href="https://portfolio.neo3.ru" style="color:var(--muted)">Портфолио</a>
+  </div>
+  <div>© 2026 neo3 · Свой ИИ-агент для бизнеса</div>
+</div></div></footer>
+
+<script>
+(function(){
+  const reduce = window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  const fine   = window.matchMedia('(pointer:fine)').matches;
+
+  /* blur-in заголовков — только как JS-улучшение и не при reduced-motion */
+  if(!reduce)document.documentElement.classList.add('js');
+
+  const hdr=document.getElementById('hdr');
+  const onScroll=()=>hdr.classList.toggle('solid',window.scrollY>40);
+  onScroll();window.addEventListener('scroll',onScroll,{passive:true});
+
+  const title=document.getElementById('hero-title');
+  title.textContent=title.dataset.text;
+  if(fine && !reduce){
+    const heroEl=document.querySelector('.hero');
+    heroEl.addEventListener('pointermove',e=>{
+      const r=title.getBoundingClientRect();
+      const dx=Math.max(-1,Math.min(1,(e.clientX-(r.left+r.width/2))/(r.width/2)));
+      const dy=Math.max(-1,Math.min(1,(e.clientY-(r.top+r.height/2))/(r.height/1.2)));
+      title.style.transform="perspective(820px) rotateX("+(dy*-6).toFixed(2)+"deg) rotateY("+(dx*8).toFixed(2)+"deg)";
+    });
+    heroEl.addEventListener('pointerleave',()=>{title.style.transform="perspective(820px) rotateX(0deg) rotateY(0deg)";});
+  }
+
+  document.querySelectorAll('.focus').forEach(el=>{
+    const words=el.textContent.trim().split(/\s+/);
+    el.textContent='';
+    words.forEach((w,i)=>{
+      const s=document.createElement('span');s.className='w';s.style.setProperty('--i',i);
+      s.textContent=w;el.appendChild(s);
+      if(i<words.length-1)el.appendChild(document.createTextNode(' '));
+    });
+  });
+
+  const io=new IntersectionObserver((es)=>{
+    es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('seen');io.unobserve(e.target);}});
+  },{threshold:.18});
+  document.querySelectorAll('.card3,.focus').forEach((el,i)=>{
+    if(el.classList.contains('card3'))el.style.transitionDelay=(i%3*80)+'ms';
+    io.observe(el);
+  });
+
+  /* ---------- WARP «макс-кино» на весь сайт (единый движок экосистемы neo3) ---------- */
+  (function(){
+    const cv=document.getElementById('road'),x=cv.getContext('2d');
+    const DPR=Math.min(window.devicePixelRatio||1,2);
+    const coarse=matchMedia('(pointer:coarse)').matches;
+    const mob=window.innerWidth<760;
+    const sy=0.62,O='247,147,26',Sc='255,214,150';
+    const f=mob?0.6:1;
+    const cfg={layers:[
+      {count:Math.round(60*f),spMin:0.35,spMax:1.0,wMin:0.4,wMax:1.1},
+      {count:Math.round(118*f),spMin:0.9,spMax:2.1,wMin:0.8,wMax:2.2},
+      {count:Math.round(78*f),spMin:1.6,spMax:2.9,wMin:1.1,wMax:2.4},
+      {count:Math.round(46*f),spMin:2.4,spMax:3.6,wMin:1.6,wMax:3.4,chroma:true}
+    ],nebMin:0.09,nebMax:0.18,trail:0.24,base:1.1,comet:[2.4,4.6]};
+    let W,H,maxD,vpx,vpy,vtx,vty,parts=[],comets=[],speed=3.2,t=0,nextComet=0,raf=0,last=0,running=false;
+    const rnd=(a,b)=>a+Math.random()*(b-a);
+    function resize(){W=cv.width=Math.max(1,Math.round(cv.offsetWidth*DPR));H=cv.height=Math.max(1,Math.round(cv.offsetHeight*DPR));maxD=Math.max(W,H);vpx=vtx=W/2;vpy=vty=H/2;}
+    function mkP(L,seed){return{a:Math.random()*6.283,r:seed?Math.random()*maxD:rnd(2,10),sp:rnd(L.spMin,L.spMax),w:rnd(L.wMin,L.wMax),star:Math.random()<0.33,ch:!!L.chroma,L};}
+    function build(){parts=[];cfg.layers.forEach(L=>{for(let i=0;i<L.count;i++)parts.push(mkP(L,true));});}
+    resize();build();
+    nextComet=rnd(cfg.comet[0],cfg.comet[1]);
+
+    function nebula(neb){
+      const g=x.createRadialGradient(vpx,vpy,0,vpx,vpy,maxD*0.55);
+      g.addColorStop(0,'rgba('+O+','+neb.toFixed(3)+')');
+      g.addColorStop(0.4,'rgba('+O+','+(neb*0.35).toFixed(3)+')');
+      g.addColorStop(1,'rgba('+O+',0)');
+      x.globalCompositeOperation='lighter';x.fillStyle=g;x.fillRect(0,0,W,H);
+    }
+
+    if(reduce){
+      x.fillStyle='#070504';x.fillRect(0,0,W,H);nebula(0.08);x.globalCompositeOperation='source-over';
+      window.addEventListener('resize',()=>{resize();x.fillStyle='#070504';x.fillRect(0,0,W,H);nebula(0.08);x.globalCompositeOperation='source-over';});
+      return;
+    }
+
+    function frame(now){
+      if(!running)return;
+      raf=requestAnimationFrame(frame);
+      const dt=last?Math.min(0.05,(now-last)/1000):0.016;last=now;t+=dt;
+      vpx+=(vtx-vpx)*0.09;vpy+=(vty-vpy)*0.09;
+
+      const warpK=Math.min(1,(speed-1)/2.2);
+      x.globalCompositeOperation='source-over';
+      x.fillStyle='rgba(7,5,4,'+(cfg.trail*(1-0.45*warpK)).toFixed(3)+')';x.fillRect(0,0,W,H);
+      nebula(0.08);
+      x.globalCompositeOperation='lighter';
+
+      for(const p of parts){
+        const c=Math.cos(p.a),s=Math.sin(p.a);
+        const delta=p.sp*speed*cfg.base*(1+p.r/(maxD*0.42));
+        const stretch=delta*(1+(speed-1)*0.9);
+        let rTail=p.r-(stretch-delta);if(rTail<0)rTail=0;
+        const rHead=p.r+delta;
+        const xH=vpx+c*rHead,yH=vpy+s*rHead*sy;
+        const xT=vpx+c*rTail,yT=vpy+s*rTail*sy;
+        p.r=rHead;
+        const k=Math.min(1,p.r/(maxD*0.55));
+        const al=Math.min(0.92,0.14+k*0.85);
+        const lw=Math.max(0.5,p.w*k*DPR*1.5);
+        if(p.ch&&k>0.45){
+          const off=1.1*DPR,ox=-s*off,oy=c*off*sy;
+          x.globalAlpha=al*0.55;x.lineWidth=lw;
+          x.strokeStyle='rgba('+O+',1)';
+          x.beginPath();x.moveTo(xT+ox,yT+oy);x.lineTo(xH+ox,yH+oy);x.stroke();
+          x.strokeStyle='rgba('+Sc+',1)';
+          x.beginPath();x.moveTo(xT-ox,yT-oy);x.lineTo(xH-ox,yH-oy);x.stroke();
+          x.globalAlpha=al;x.lineWidth=lw*0.7;x.strokeStyle='rgba('+Sc+',1)';
+          x.beginPath();x.moveTo(xT,yT);x.lineTo(xH,yH);x.stroke();
+        }else{
+          x.globalAlpha=al;x.lineWidth=lw;
+          x.strokeStyle=p.star?'rgba('+Sc+',1)':'rgba('+O+',1)';
+          x.beginPath();x.moveTo(xT,yT);x.lineTo(xH,yH);x.stroke();
+        }
+        if(p.r>maxD*1.05)Object.assign(p,mkP(p.L,false));
+      }
+
+      nextComet-=dt;
+      if(nextComet<=0){comets.push({a:Math.random()*6.283,r:rnd(6,26),sp:rnd(12,18),w:rnd(2.6,4),ph:Math.random()*6.283,av:Math.random()<0.45?rnd(-0.55,0.55):0});nextComet=rnd(cfg.comet[0],cfg.comet[1]);}
+      for(let i=comets.length-1;i>=0;i--){
+        const cm=comets[i];
+        cm.a+=cm.av*dt;
+        const c=Math.cos(cm.a),s=Math.sin(cm.a);
+        cm.r+=cm.sp*speed*cfg.base*(1+cm.r/(maxD*0.5));
+        const hx=vpx+c*cm.r,hy=vpy+s*cm.r*sy;
+        const L=(170*DPR)*(1+(speed-1)*0.5);
+        const dx=-c*L,dy=-s*sy*L;
+        const px=-s,py=c*sy;
+        const SEG=10;
+        let lx=hx,ly=hy;
+        for(let j=1;j<=SEG;j++){
+          const q=j/SEG,qp=(j-1)/SEG;
+          const sway=Math.sin(t*7+cm.ph+q*5)*cm.w*DPR*1.4*q;
+          const nx=hx+dx*q+px*sway,ny=hy+dy*q+py*sway;
+          x.globalAlpha=0.85*Math.pow(1-qp,1.6);
+          x.lineWidth=Math.max(0.6,cm.w*DPR*(1-qp)*1.5);
+          x.strokeStyle=qp<0.18?'rgba('+Sc+',1)':'rgba('+O+',1)';
+          x.beginPath();x.moveTo(lx,ly);x.lineTo(nx,ny);x.stroke();
+          lx=nx;ly=ny;
+        }
+        for(let j=0;j<3;j++){
+          const q=rnd(0.12,0.6),sw=Math.sin(t*9+cm.ph+j*2.1)*cm.w*DPR*3;
+          x.globalAlpha=rnd(0.25,0.6)*(1-q);
+          x.fillStyle='rgba('+Sc+',1)';
+          x.beginPath();x.arc(hx+dx*q+px*sw,hy+dy*q+py*sw,rnd(0.6,1.4)*DPR,0,6.283);x.fill();
+        }
+        const hg=x.createRadialGradient(hx,hy,0,hx,hy,cm.w*4*DPR);
+        hg.addColorStop(0,'rgba(255,244,228,0.95)');
+        hg.addColorStop(0.35,'rgba('+Sc+',0.55)');
+        hg.addColorStop(1,'rgba('+O+',0)');
+        x.globalAlpha=1;x.fillStyle=hg;
+        x.beginPath();x.arc(hx,hy,cm.w*4*DPR,0,6.283);x.fill();
+        x.fillStyle='rgba(255,250,240,1)';
+        x.beginPath();x.arc(hx,hy,cm.w*0.9*DPR,0,6.283);x.fill();
+        if(cm.r>maxD*1.12)comets.splice(i,1);
+      }
+      x.globalAlpha=1;x.globalCompositeOperation='source-over';
+    }
+    function start(){if(running)return;running=true;last=0;raf=requestAnimationFrame(frame);}
+    function stop(){running=false;cancelAnimationFrame(raf);}
+    if(!coarse){
+      window.addEventListener('pointermove',e=>{
+        vtx=W*Math.max(0,Math.min(1,e.clientX/window.innerWidth));
+        vty=H*Math.max(0,Math.min(1,e.clientY/window.innerHeight));
+      });
+    }
+    window.addEventListener('resize',resize);
+    const fade=()=>{cv.style.opacity=Math.max(0.35,1-0.65*Math.min(1,window.scrollY/window.innerHeight)).toFixed(3);};
+    window.addEventListener('scroll',fade,{passive:true});fade();
+    document.addEventListener('visibilitychange',()=>{document.hidden?stop():start();});
+    start();
+  })();
+
+  /* ---------- FINAL CTA: pixel grid (как на whisper.neo3.ru) ---------- */
+  (function(){
+    const c=document.getElementById('pixels');if(!c)return;const x=c.getContext('2d');
+    const DPR=Math.min(window.devicePixelRatio||1,2);let W,H,t=0;
+    const gap=26*DPR,dot=2*DPR;
+    function resize(){W=c.width=c.offsetWidth*DPR;H=c.height=c.offsetHeight*DPR;}
+    resize();
+    function tick(){
+      requestAnimationFrame(tick);
+      t+=0.02;x.clearRect(0,0,W,H);
+      for(let gy=0;gy<H;gy+=gap)for(let gx=0;gx<W;gx+=gap){
+        const a=0.10+0.5*Math.pow(Math.max(0,Math.sin(gx*0.012+gy*0.012+t)),6);
+        x.fillStyle='rgba(247,147,26,'+a.toFixed(3)+')';
+        x.beginPath();x.arc(gx,gy,dot,0,6.283);x.fill();
+      }
+    }
+    if(!reduce)tick();
+    window.addEventListener('resize',resize);
+  })();
+})();
+</script>
+</body>
+</html>
