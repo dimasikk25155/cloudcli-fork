@@ -106,13 +106,17 @@ for tool in curl tar jq sha256sum systemctl; do
 done
 
 # Port the app listens on, so the smoke test hits the right place.
-PORT="$(grep -sE '^SERVER_PORT=' "$APP_DIR/.env" | tail -1 | cut -d= -f2 | tr -d '[:space:]')"
+# `|| true` is required, not decorative: grep exits 1 when the key is absent, and
+# under `set -e -o pipefail` that status propagates out of the assignment and kills
+# the script. A stock install has no DATABASE_PATH line at all, so without this the
+# updater died on every client before printing a single word.
+PORT="$(grep -sE '^SERVER_PORT=' "$APP_DIR/.env" | tail -1 | cut -d= -f2 | tr -d '[:space:]' || true)"
 PORT="${PORT:-3001}"
 
 # Database location: server/load-env.js defaults it to ~/.cloudcli/auth.db, i.e.
 # OUTSIDE the install directory — which is why swapping the code is safe. A
 # customised .env can move it, so honour that.
-DB_PATH="$(grep -sE '^DATABASE_PATH=' "$APP_DIR/.env" | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
+DB_PATH="$(grep -sE '^DATABASE_PATH=' "$APP_DIR/.env" | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)"
 DB_PATH="${DB_PATH:-$APP_HOME/.cloudcli/auth.db}"
 
 # Load release-host credentials from the config file when not in the environment.
