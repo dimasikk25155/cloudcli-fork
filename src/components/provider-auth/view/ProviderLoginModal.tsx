@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+
 import StandaloneShell from '../../standalone-shell/view/StandaloneShell';
 import { DEFAULT_PROJECT_FOR_EMPTY_SHELL, IS_PLATFORM } from '../../../constants/config';
 import type { LLMProvider } from '../../../types/app';
@@ -41,6 +42,21 @@ const getProviderCommand = ({
     return 'opencode auth login';
   }
 
+  if (provider === 'gemini') {
+    // Gemini CLI has no `login` subcommand: the auth-method picker is part of
+    // the interactive TUI's first run. Launching it bare is what shows the
+    // "Login with Google" option (the subscription/OAuth path) — picking a
+    // GEMINI_API_KEY here would bill per token instead.
+    return 'gemini';
+  }
+
+  if (provider === 'kimi') {
+    // Kimi Code's interactive TUI owns the OAuth device login via /login.
+    // Absolute path: the official installer puts the binary there, and this
+    // sidesteps any user shell alias/function named `kimi` shadowing it.
+    return '"$HOME/.kimi-code/bin/kimi" /login';
+  }
+
   return 'claude --dangerously-skip-permissions /login';
 };
 
@@ -49,6 +65,8 @@ const getProviderTitle = (provider: LLMProvider) => {
   if (provider === 'cursor') return 'Cursor CLI Login';
   if (provider === 'codex') return 'Codex CLI Login';
   if (provider === 'opencode') return 'OpenCode CLI Login';
+  if (provider === 'kimi') return 'Kimi Code CLI Login';
+  if (provider === 'gemini') return 'Gemini CLI Login';
   return 'Claude CLI Login';
 };
 

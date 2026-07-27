@@ -170,12 +170,10 @@
 <header id="hdr"><div class="wrap"><nav aria-label="Основная навигация">
   <div class="logo">NEO3 <b>AGENT</b></div>
   <div class="nav-links">
-    <a href="#what">Что это</a>
-    <a href="#included">Что входит</a>
-    <a href="#examples">Примеры</a>
-    <a href="#features">Возможности</a>
-    <a href="#data">Данные</a>
-    <a href="#faq">Вопросы</a>
+    <a href="#what">О продукте</a>
+    <a href="/business">Чем полезно</a>
+    <a href="/guide">Гайд</a>
+    <a href="/kp">Предложение</a>
   </div>
   <a class="btn pulse" href="#contact">Обсудить</a>
 </nav></div></header>
@@ -193,9 +191,10 @@
     </div>
     <h1 id="hero-title" data-text="Neo3 Agent System">Neo3 Agent System</h1>
     <p class="tagline">Свой ИИ-агент <span class="hl">для бизнеса</span></p>
-    <p class="hero-sub">Ставлю на ваш сервер агента на том же движке, что стоит за Claude Code (Anthropic). Открывается как сайт и как приложение на телефоне, без VPN. Дальше вы сами, своими словами, ставите задачи: отчёты из выгрузок, разбор процессов, черновики документов — без нового исполнителя под каждую задачу.</p>
+    <p class="hero-sub">Ставлю на ваш сервер агента на движке Claude Code (Anthropic) — открывается как сайт и приложение на телефоне, без VPN. Дальше вы своими словами ставите задачи: свой сайт, своя CRM, разбор данных, коммерческие, рассылки. Не арендуете чужой софт помесячно — создаёте свои инструменты, и они остаются с вами.</p>
     <div class="cta-row">
       <a class="btn pulse shine" href="#contact" style="font-size:17px;padding:17px 40px">Обсудить внедрение</a>
+      <a class="btn" href="/business" style="font-size:17px;padding:17px 32px;background:transparent;color:var(--fg);border:1px solid var(--line)">Чем это полезно бизнесу →</a>
     </div>
     <div class="hint"><span class="dot"></span> УСТАНОВКА · ОБУЧЕНИЕ · ПОДДЕРЖКА</div>
   </div>
@@ -237,7 +236,7 @@
     <div class="arrow" aria-hidden="true">→</div>
     <div class="panel after">
       <div class="cap">Neo3 Agent System</div>
-      <div class="txt">Один раз — сервер, установка, обучение. Дальше любые будущие задачи вы решаете сами, в диалоге с агентом — без повторной оплаты за настройку и без очереди.</div>
+      <div class="txt">Один раз — сервер, установка, обучение. Дальше любые задачи решаете сами, в диалоге: агент пишет вам инструменты, и они становятся вашими — вы владеете, а не арендуете. Без повторной оплаты за настройку и без очереди.</div>
     </div>
   </div>
   <p class="note">Я даю инструмент и учу им пользоваться — а не становлюсь узким горлышком между вами и результатом.</p>
@@ -253,7 +252,7 @@
     <div class="card3"><h3>Обучение</h3><p>Понятный письменный гайд по каждому экрану — плюс вживую разбираем первые задачи именно вашего бизнеса.</p></div>
     <div class="card3"><h3>Поддержка</h3><p>Остаюсь на связи. Если что-то пошло не так — разбираюсь и чиню, а не «попробуйте перезагрузить».</p></div>
   </div>
-  <p class="note"><b>По срокам:</b> от согласия до рабочей ссылки с логином и паролем — часы, а не недели. Процесс отработан по чек-листу, ничего не импровизируется на ходу.</p>
+  <p class="note"><b>По срокам:</b> от согласия до рабочей ссылки — часы, а не недели, всё по чек-листу. <b>Или разверните сами</b> — есть <a href="/install" style="color:var(--a)">пошаговая инструкция</a>.</p>
 </section>
 
 <!-- ================= ПРИМЕРЫ ЗАДАЧ ================= -->
@@ -287,7 +286,7 @@
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><h3>Файлы и история под рукой</h3><p>Файлы проекта видно прямо в браузере, задачи — со статусами, недавние сеансы и избранные проекты — в один клик. История работы не теряется.</p></div>
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg><h3>Голос и внешний вид</h3><p>Голосовой ввод вместо печати и 13 визуальных тем. Не критично для дела, но инструмент не выглядит «сырой консолью для айтишников».</p></div>
   </div>
-  <p class="note">Примеры живых проектов — в <a href="https://portfolio.neo3.ru" style="color:var(--a)">портфолио neo3</a></p>
+  <p class="note">Что из этого выходит для бизнеса — <a href="/business" style="color:var(--a)">Чем полезно</a> · живые проекты — в <a href="https://portfolio.neo3.ru" style="color:var(--a)">портфолио</a></p>
 </section>
 
 <!-- ================= СВОЙ СЕРВЕР И ДАННЫЕ ================= -->
@@ -420,7 +419,7 @@
       {count:Math.round(118*f),spMin:0.9,spMax:2.1,wMin:0.8,wMax:2.2},
       {count:Math.round(78*f),spMin:1.6,spMax:2.9,wMin:1.1,wMax:2.4},
       {count:Math.round(46*f),spMin:2.4,spMax:3.6,wMin:1.6,wMax:3.4,chroma:true}
-    ],nebMin:0.09,nebMax:0.18,trail:0.24,base:1.1,comet:[2.4,4.6]};
+    ],nebMin:0.09,nebMax:0.18,trail:0.24,base:0.55,comet:[4.8,9.2]};  /* base×0.5 + comet-интервал×2 — варп замедлен в 2 раза (2026-07-25) */
     let W,H,maxD,vpx,vpy,vtx,vty,parts=[],comets=[],speed=3.2,t=0,nextComet=0,raf=0,last=0,running=false;
     const rnd=(a,b)=>a+Math.random()*(b-a);
     function resize(){W=cv.width=Math.max(1,Math.round(cv.offsetWidth*DPR));H=cv.height=Math.max(1,Math.round(cv.offsetHeight*DPR));maxD=Math.max(W,H);vpx=vtx=W/2;vpy=vty=H/2;}

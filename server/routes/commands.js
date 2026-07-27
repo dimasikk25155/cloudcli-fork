@@ -5,7 +5,9 @@ import path from "path";
 import express from "express";
 
 import { providerModelsService } from "../modules/providers/services/provider-models.service.js";
+import { findClaudeModelOption } from "../modules/providers/list/claude/claude-models.provider.js";
 import { parseFrontMatter } from "../shared/frontmatter.js";
+import { getSessionCostSnapshot } from "../shared/session-usage.js";
 import { findAppRoot, getModuleDir } from "../utils/runtime-paths.js";
 
 const __dirname = getModuleDir(import.meta.url);
@@ -15,13 +17,40 @@ const APP_ROOT = findAppRoot(__dirname);
 
 const router = express.Router();
 
-const MODEL_PROVIDERS = ["claude", "cursor", "codex", "opencode"];
+const MODEL_PROVIDERS = ["claude", "cursor", "codex", "opencode", "kimi", "gemini"];
 
 const MODEL_PROVIDER_LABELS = {
   claude: "Claude",
   cursor: "Cursor",
   codex: "Codex",
   opencode: "OpenCode",
+  kimi: "Kimi",
+  gemini: "Gemini",
+};
+
+// Raw transcript model ids → human labels. Catalog values (`opus[1m]`,
+// `kimi-k3`, …) are labeled via findClaudeModelOption instead.
+const RAW_MODEL_LABELS = {
+  "claude-opus-4-8": "Opus 4.8",
+  "claude-sonnet-5": "Sonnet 5",
+  "claude-sonnet-4-6": "Sonnet 4.6",
+  "claude-fable-5": "Fable 5",
+  k3: "Kimi K3",
+  "kimi-for-coding": "Kimi K2.7 Coding",
+  "kimi-for-coding-highspeed": "Kimi K2.7 Coding Highspeed",
+};
+
+const friendlyModelLabel = (modelId) => {
+  if (!modelId || typeof modelId !== "string") {
+    return "Unknown";
+  }
+  // Strip routing prefixes (`kimi-code/kimi-for-coding`).
+  const bare = modelId.includes("/") ? modelId.split("/").pop() : modelId;
+  return (
+    RAW_MODEL_LABELS[bare] ||
+    findClaudeModelOption(bare)?.label ||
+    bare
+  );
 };
 
 const readModelProvider = (value) => {
@@ -254,14 +283,22 @@ Custom commands can be created in:
   "/cost": async (args, context) => {
     const tokenUsage = context?.tokenUsage || {};
     const provider = readModelProvider(context?.provider);
-    const catalog = (await providerModelsService.getProviderModels(provider)).models;
-    const model = await resolveCommandModel(provider, catalog, context?.sessionId);
 
-    const reportedUsed =
+    // Disk truth first: the transcript knows the full-session burn and the
+    // model that actually generated the answers. The in-memory `tokenUsage`
+    // only holds the last streamed event of a running session, so it goes to
+    // zero the moment the user reopens an old chat.
+    const snapshot = context?.sessionId
+      ? await getSessionCostSnapshot(context.sessionId, {
+          projectPath: context?.projectPath,
+        }).catch(() => null)
+      : null;
+
+    const liveUsed =
       Number(
         tokenUsage.used ?? tokenUsage.totalUsed ?? tokenUsage.total_tokens ?? 0,
       ) || 0;
-    const total =
+    const liveTotal =
       Number(
         tokenUsage.total ??
           tokenUsage.contextWindow ??
@@ -293,10 +330,10 @@ Custom commands can be created in:
           tokenUsage.cacheCreationInputTokens ??
           0,
       ) || 0;
-    const inputTokens = normalizedInputValue == null
+    const liveInputTokens = normalizedInputValue == null
       ? directInputTokens + cacheReadTokens + cacheCreationTokens
       : directInputTokens;
-    const outputTokens =
+    const liveOutputTokens =
       Number(
         tokenUsage.outputTokens ??
           tokenUsage.output ??
@@ -306,9 +343,33 @@ Custom commands can be created in:
           tokenUsage.completionTokens ??
           0,
       ) || 0;
-    const computedUsed = inputTokens + outputTokens;
-    const hasTokenBreakdown = computedUsed > 0;
-    const used = Math.max(reportedUsed, computedUsed);
+
+    const inputTokens = snapshot ? snapshot.inputTokens : liveInputTokens;
+    const outputTokens = snapshot ? snapshot.outputTokens : liveOutputTokens;
+    const used = snapshot
+      ? snapshot.totalTokens
+      : Math.max(liveUsed, liveInputTokens + liveOutputTokens);
+    const hasTokenBreakdown = inputTokens + outputTokens > 0;
+
+    // Current context-window fill: freshest live event wins, otherwise the
+    // last usage row in the transcript.
+    const contextUsed =
+      (liveUsed > 0 ? liveUsed : 0) || snapshot?.contextTokens || null;
+    const contextUsage = contextUsed
+      ? { used: contextUsed, ...(liveTotal > 0 ? { total: liveTotal } : {}) }
+      : null;
+
+    // Model: what the transcript recorded (truth) → what the UI has selected
+    // → the catalog default as the last resort (labeled, never raw).
+    let modelId = snapshot?.model || context?.model || null;
+    if (!modelId) {
+      try {
+        const catalog = (await providerModelsService.getProviderModels(provider)).models;
+        modelId = await resolveCommandModel(provider, catalog, context?.sessionId);
+      } catch {
+        modelId = null;
+      }
+    }
 
     return {
       type: "builtin",
@@ -316,7 +377,7 @@ Custom commands can be created in:
       data: {
         tokenUsage: {
           used,
-          total,
+          total: liveTotal,
         },
         ...(hasTokenBreakdown
           ? {
@@ -326,8 +387,16 @@ Custom commands can be created in:
               },
             }
           : {}),
+        contextUsage,
         provider,
-        model,
+        providerLabel: MODEL_PROVIDER_LABELS[provider] || provider,
+        model: friendlyModelLabel(modelId),
+        modelId: modelId || null,
+        source: snapshot
+          ? "transcript"
+          : hasTokenBreakdown || contextUsage
+            ? "live"
+            : "none",
       },
     };
   },

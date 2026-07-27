@@ -63,7 +63,25 @@
     "ttsModel": "Text-to-speech model",
     "voice": "Voice",
     "format": "Audio format",
-    "note": "A custom base URL is called directly by your browser and must allow browser CORS requests. Leave it blank to use the server-configured backend."
+    "note": "A custom base URL is called directly by your browser and must allow browser CORS requests. Leave it blank to use the server-configured backend.",
+    "keyTitle": "Speech recognition key",
+    "keyDescription": "Voice runs on Groq. The key is free and takes a couple of minutes to get.",
+    "step1": "Open",
+    "step2": "Sign in with Google or email (registration is free).",
+    "step3": "Click \"Create API Key\", copy it and paste it in the field above.",
+    "keyOptionalNote": "If your administrator already configured a key during setup, leave this empty — voice will still work.",
+    "advanced": "Advanced settings",
+    "advancedNote": "Only needed if you point at your own speech backend instead of Groq, or enable read-aloud. Empty fields fall back to the server configuration.",
+    "cleanupTitle": "Text cleanup",
+    "cleanupDescription": "Tidy the transcript before it lands in the input box. Runs on the server-configured backend (leave Base URL blank).",
+    "correction": "Clean up dictation",
+    "correctionDescription": "Add punctuation and capitals, fix glossary terms via a second AI pass.",
+    "fillerCleanup": "Remove filler words",
+    "fillerCleanupDescription": "Drop \"uh\", \"um\", \"like\" and accidental word repeats.",
+    "correctionModel": "Correction model",
+    "language": "Speech language",
+    "dictionary": "Glossary",
+    "dictionaryHint": "One term per line: \"Canon: variant1, variant2\". Biases recognition and fixes misspellings. A line with no colon is a canonical spelling with no known variants."
   },
   "quickSettings": {
     "title": "Quick Settings",
@@ -112,6 +130,7 @@
     "browser": "Browser",
     "notifications": "Notifications",
     "plugins": "Plugins",
+    "admin": "Admin",
     "about": "About"
   },
   "notifications": {
@@ -349,6 +368,12 @@
       "codex": {
         "description": "OpenAI Codex AI assistant"
       },
+      "kimi": {
+        "description": "Moonshot Kimi AI assistant"
+      },
+      "gemini": {
+        "description": "Google Gemini AI assistant"
+      },
       "opencode": {
         "description": "OpenCode CLI assistant"
       }
@@ -446,6 +471,8 @@
       "claude": "Model Context Protocol servers provide additional tools and data sources to Claude",
       "cursor": "Model Context Protocol servers provide additional tools and data sources to Cursor",
       "codex": "Model Context Protocol servers provide additional tools and data sources to Codex",
+      "kimi": "Model Context Protocol servers provide additional tools and data sources to Kimi",
+      "gemini": "Model Context Protocol servers provide additional tools and data sources to Gemini",
       "opencode": "Model Context Protocol servers provide additional tools and data sources to OpenCode"
     },
     "addButton": "Add MCP Server",
@@ -568,5 +595,43 @@
     "installAriaLabel": "Plugin git repository URL",
     "tab": "tab",
     "runningStatus": "running"
+  },
+  "admin": {
+    "loading": "Loading admin panel...",
+    "users": {
+      "title": "Team members",
+      "empty": "No employees yet.",
+      "roleAdmin": "Admin",
+      "roleUser": "Employee",
+      "inactive": "Inactive",
+      "makeAdmin": "Make admin",
+      "makeUser": "Make employee",
+      "manageAccess": "Manage project access",
+      "resetPassword": "Reset password",
+      "deactivate": "Deactivate",
+      "activate": "Activate",
+      "newPasswordPlaceholder": "New temporary password",
+      "confirmReset": "Save new password",
+      "cancel": "Cancel"
+    },
+    "createUser": {
+      "title": "Add employee",
+      "newButton": "New employee",
+      "usernamePlaceholder": "Username",
+      "passwordPlaceholder": "Temporary password",
+      "passwordHint": "Tell the employee this password directly — there is no email invite.",
+      "makeAdmin": "Give this account admin access",
+      "projectAccessLabel": "Projects this employee can see",
+      "createButton": "Create employee",
+      "cancelButton": "Cancel"
+    },
+    "accessModal": {
+      "title": "Manage project access",
+      "noProjects": "No projects available yet.",
+      "selectAll": "Select all",
+      "clearAll": "Clear all",
+      "cancelButton": "Cancel",
+      "saveButton": "Save access"
+    }
   }
 }

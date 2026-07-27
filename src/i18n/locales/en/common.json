@@ -85,8 +85,18 @@
     "copyPath": "Copy Path",
     "openInEditor": "Open in Editor"
   },
+  "shellMode": {
+    "agent": "Agent",
+    "plain": "Shell"
+  },
+  "plugins": {
+    "names": {
+      "projectStats": "Project Stats",
+      "terminal": "Terminal"
+    }
+  },
   "mainContent": {
-    "loading": "Loading Claude CLI",
+    "loading": "Loading Neo3 Agent System",
     "settingUpWorkspace": "Setting up your workspace...",
     "chooseProject": "Choose Your Project",
     "selectProjectDescription": "Select a project from the sidebar to start coding with Claude. Each project contains your chat sessions and file history.",

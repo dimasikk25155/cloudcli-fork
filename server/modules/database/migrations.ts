@@ -8,6 +8,7 @@ import {
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
+  USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL,
   VAPID_KEYS_TABLE_SCHEMA_SQL,
 } from '@/modules/database/schema.js';
 
@@ -258,6 +259,8 @@ const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
 
   if (!shouldRebuild) {
     addColumnToTableIfNotExists(db, 'sessions', columnNames, 'jsonl_path', 'TEXT');
+    addColumnToTableIfNotExists(db, 'sessions', columnNames, 'model', 'TEXT');
+    addColumnToTableIfNotExists(db, 'sessions', columnNames, 'effort', 'TEXT');
     addColumnToTableIfNotExists(db, 'sessions', columnNames, 'isArchived', 'BOOLEAN DEFAULT 0');
     addColumnToTableIfNotExists(db, 'sessions', columnNames, 'created_at', 'DATETIME');
     addColumnToTableIfNotExists(db, 'sessions', columnNames, 'updated_at', 'DATETIME');
@@ -310,6 +313,8 @@ const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
         custom_name TEXT,
         project_path TEXT,
         jsonl_path TEXT,
+        model TEXT,
+        effort TEXT,
         isArchived BOOLEAN DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -356,6 +361,8 @@ const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
         custom_name,
         project_path,
         jsonl_path,
+        model,
+        effort,
         isArchived,
         created_at,
         updated_at
@@ -366,6 +373,8 @@ const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
         custom_name,
         project_path,
         jsonl_path,
+        NULL,
+        NULL,
         isArchived,
         created_at,
         updated_at
@@ -402,6 +411,21 @@ const addProviderSessionIdMapping = (db: Database): void => {
   `);
 };
 
+/**
+ * Adds the `role` column ('admin' | 'user'). This app was single-user until
+ * now, so whichever user has the smallest id (the original owner, if any)
+ * becomes admin — that keeps existing installs' access unchanged. New
+ * installs mint their first admin explicitly via createUserWithRole in the
+ * register route, not through this backfill.
+ */
+const addUserRoleColumn = (db: Database): void => {
+  const usersTableInfo = getTableInfo(db, 'users');
+  const columnNames = usersTableInfo.map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'users', columnNames, 'role', "TEXT NOT NULL DEFAULT 'user'");
+  db.exec(`UPDATE users SET role = 'admin' WHERE id = (SELECT MIN(id) FROM users)`);
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -435,6 +459,7 @@ export const runMigrations = (db: Database) => {
       'has_completed_onboarding',
       'BOOLEAN DEFAULT 0'
     );
+    addUserRoleColumn(db);
 
     db.exec(APP_CONFIG_TABLE_SCHEMA_SQL);
     db.exec(USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL);
@@ -447,6 +472,10 @@ export const runMigrations = (db: Database) => {
 
     db.exec(PROJECTS_TABLE_SCHEMA_SQL);
     rebuildProjectsTableWithPrimaryKeySchema(db);
+
+    db.exec(USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_user_project_access_user_id ON user_project_access(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_user_project_access_project_id ON user_project_access(project_id)');
 
     migrateLegacyWorkspaceTableIntoProjects(db);
     rebuildSessionsTableWithProjectSchema(db);

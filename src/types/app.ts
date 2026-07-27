@@ -1,4 +1,4 @@
-export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode';
+export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini';
 
 export type ProviderModelOption = {
   value: string;
@@ -38,6 +38,12 @@ export interface ProjectSession {
   messageCount?: number;
   provider?: LLMProvider;
   __provider?: LLMProvider;
+  // This session's own remembered model/thinking-effort choice (`null` until
+  // the user picks one while this session is open). Falls back to the
+  // account-wide default when absent — see useChatProviderState's hydration
+  // effect.
+  model?: string | null;
+  effort?: string | null;
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.
   __projectId?: string;

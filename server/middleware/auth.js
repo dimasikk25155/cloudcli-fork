@@ -95,7 +95,7 @@ const authenticateWebSocket = (token) => {
     try {
       const user = userDb.getFirstUser();
       if (user) {
-        return { id: user.id, userId: user.id, username: user.username };
+        return { id: user.id, userId: user.id, username: user.username, role: user.role };
       }
       return null;
     } catch (error) {
@@ -116,11 +116,19 @@ const authenticateWebSocket = (token) => {
     if (!user) {
       return null;
     }
-    return { userId: user.id, username: user.username };
+    return { userId: user.id, username: user.username, role: user.role };
   } catch (error) {
     console.error('WebSocket token verification error:', error);
     return null;
   }
+};
+
+// Requires authenticateToken to have already run and populated req.user (with `role`).
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
 };
 
 export {
@@ -128,5 +136,6 @@ export {
   authenticateToken,
   generateToken,
   authenticateWebSocket,
+  requireAdmin,
   JWT_SECRET
 };

@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from 'express';
 
-import { appConfigDb, sessionsDb } from '@/modules/database/index.js';
+import { appConfigDb } from '@/modules/database/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
@@ -287,6 +287,7 @@ const parseProvider = (value: unknown): LLMProvider => {
     || normalized === 'codex'
     || normalized === 'cursor'
     || normalized === 'opencode'
+    || normalized === 'kimi'
   ) {
     return normalized;
   }
@@ -376,6 +377,29 @@ const parseChangeActiveModelPayload = (payload: unknown): ProviderChangeActiveMo
   };
 };
 
+const parseChangeActiveEffortPayload = (payload: unknown): ProviderChangeActiveModelInput => {
+  if (!payload || typeof payload !== 'object') {
+    throw new AppError('Request body must be an object.', {
+      code: 'INVALID_REQUEST_BODY',
+      statusCode: 400,
+    });
+  }
+
+  const body = payload as Record<string, unknown>;
+  const effort = readOptionalQueryString(body.effort);
+  if (!effort) {
+    throw new AppError('effort is required.', {
+      code: 'EFFORT_REQUIRED',
+      statusCode: 400,
+    });
+  }
+
+  return {
+    sessionId: '',
+    effort,
+  };
+};
+
 router.get(
   '/:provider/auth/status',
   asyncHandler(async (req: Request, res: Response) => {
@@ -401,14 +425,26 @@ router.post(
     const provider = parseProvider(req.params.provider);
     const sessionId = parseSessionId(req.params.sessionId);
     const payload = parseChangeActiveModelPayload(req.body);
-    // The override is read back on resume keyed by the provider-native id
-    // (chat gateway passes provider_session_id to the runtime), while the
-    // client sends the app session id — translate before persisting.
-    const session = sessionsDb.getSessionById(sessionId)
-      ?? sessionsDb.getSessionByProviderSessionId(sessionId);
+    // Persisted directly on the sessions row by its stable app id, so this
+    // works from the session's very first message (no provider-native id
+    // translation needed, unlike the old file-cache override).
     const result = await providerModelsService.changeActiveModel(provider, {
       ...payload,
-      sessionId: session?.provider_session_id ?? sessionId,
+      sessionId,
+    });
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+router.post(
+  '/:provider/sessions/:sessionId/active-effort',
+  asyncHandler(async (req: Request, res: Response) => {
+    const provider = parseProvider(req.params.provider);
+    const sessionId = parseSessionId(req.params.sessionId);
+    const payload = parseChangeActiveEffortPayload(req.body);
+    const result = await providerModelsService.changeActiveModel(provider, {
+      ...payload,
+      sessionId,
     });
     res.json(createApiSuccessResponse(result));
   }),

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { authenticatedFetch } from '../../../utils/api';
 import { readVoiceConfig, VOICE_CONFIG_SYNC_EVENT } from '../../../hooks/useVoiceConfig';
+import { UI_PREFERENCE_DEFAULTS } from '../../../hooks/useUiPreferences';
 
 // Voice UI is gated on the `voiceEnabled` UI preference (toggled in Quick Settings /
 // the Settings modal) and a configured voice backend.
@@ -25,13 +26,16 @@ function checkVoiceHealth(): Promise<boolean> {
 }
 
 function readVoiceEnabled(): boolean {
+  // No stored preference yet (fresh browser) -> use the shared default, so the
+  // mic shows out of the box. An explicit stored value always wins.
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return false;
+    if (!raw) return UI_PREFERENCE_DEFAULTS.voiceEnabled;
     const parsed = JSON.parse(raw);
-    return parsed?.voiceEnabled === true || parsed?.voiceEnabled === 'true';
+    if (parsed?.voiceEnabled === undefined) return UI_PREFERENCE_DEFAULTS.voiceEnabled;
+    return parsed.voiceEnabled === true || parsed.voiceEnabled === 'true';
   } catch {
-    return false;
+    return UI_PREFERENCE_DEFAULTS.voiceEnabled;
   }
 }
 

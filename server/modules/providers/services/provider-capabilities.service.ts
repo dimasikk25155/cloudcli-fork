@@ -75,6 +75,36 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsTokenUsage: true,
     supportsEffort: true,
   },
+  kimi: {
+    provider: 'kimi',
+    // Headless `kimi -p` always auto-approves tool calls and rejects every
+    // permission flag ("Cannot combine --prompt with --yolo/--auto/--plan"),
+    // so only the default mode exists. Token usage is not exposed on the
+    // stream-json stdout, and effort is a TUI-only control (K3 low/high/max)
+    // with no headless flag. See resolveKimiPermissionOptions in kimi-cli.js.
+    permissionModes: ['default'],
+    defaultPermissionMode: 'default',
+    supportsImages: false,
+    supportsAbort: true,
+    supportsPermissionRequests: false,
+    supportsTokenUsage: false,
+    supportsEffort: false,
+  },
+  gemini: {
+    provider: 'gemini',
+    // Gemini takes `--approval-mode` even in headless mode, but its own
+    // `default` mode prompts for approval — with no TTY that would stall the
+    // run — so it is mapped onto `auto_edit` and the interactive-only value is
+    // not offered. `plan` (read-only) and `yolo` (bypassPermissions) map
+    // straight across. See resolveGeminiApprovalMode in gemini-cli.js.
+    permissionModes: ['default', 'bypassPermissions', 'plan'],
+    defaultPermissionMode: 'default',
+    supportsImages: false,
+    supportsAbort: true,
+    supportsPermissionRequests: false,
+    supportsTokenUsage: false,
+    supportsEffort: false,
+  },
 };
 
 /**

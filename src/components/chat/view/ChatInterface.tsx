@@ -74,6 +74,10 @@ function ChatInterface({
     currentProviderEffortOptions,
     opencodeModel,
     setOpenCodeModel,
+    kimiModel,
+    setKimiModel,
+    geminiModel,
+    setGeminiModel,
     permissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
@@ -87,9 +91,11 @@ function ChatInterface({
     providerModelsRefreshing,
     hardRefreshProviderModels,
     selectProviderModel,
+    selectProviderEffort,
     setStoredProviderModel,
     setStoredProviderEffort,
     resolvePermissionModeForProvider,
+    commitPermissionModeToSession,
   } = useChatProviderState({
     selectedSession,
     selectedProject,
@@ -144,9 +150,14 @@ function ChatInterface({
   // in the URL — this id never changes again, so there is no later handoff.
   const handleSessionEstablished = useCallback<NonNullable<ChatInterfaceProps['onSessionEstablished']>>((sessionId, context) => {
     setCurrentSessionId(sessionId);
+    // Whatever permission mode was picked while composing (no session id
+    // yet) becomes this chat's own permanent record right now — see
+    // commitPermissionModeToSession for why this must happen at this exact
+    // moment rather than through any shared/global fallback.
+    commitPermissionModeToSession(sessionId);
     onSessionEstablished?.(sessionId, context);
     onNavigateToSession?.(sessionId);
-  }, [setCurrentSessionId, onSessionEstablished, onNavigateToSession]);
+  }, [setCurrentSessionId, commitPermissionModeToSession, onSessionEstablished, onNavigateToSession]);
 
   const {
     input,
@@ -208,6 +219,8 @@ function ChatInterface({
     codexModel,
     currentProviderEffort,
     opencodeModel,
+    kimiModel,
+    geminiModel,
     isLoading: isProcessing,
     canAbortSession,
     tokenBudget,
@@ -356,7 +369,9 @@ function ChatInterface({
           ? t('messageTypes.codex')
           : provider === 'opencode'
               ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-            : t('messageTypes.claude');
+            : provider === 'kimi'
+              ? t('messageTypes.kimi', { defaultValue: 'Kimi' })
+              : t('messageTypes.claude');
 
     return (
       <div className="flex h-full items-center justify-center">
@@ -396,6 +411,10 @@ function ChatInterface({
           setCodexModel={setCodexModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
+          kimiModel={kimiModel}
+          setKimiModel={setKimiModel}
+          geminiModel={geminiModel}
+          setGeminiModel={setGeminiModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={tasksEnabled}
@@ -472,7 +491,18 @@ function ChatInterface({
           }}
           effort={currentProviderEffort}
           availableEffortOptions={currentProviderEffortOptions}
-          onSelectEffort={(nextEffort) => setStoredProviderEffort(provider, nextEffort)}
+          onSelectEffort={(nextEffort) => {
+            // Local default keeps the label and the next chat.send in sync;
+            // the backend override makes the change stick for this session
+            // (mirrors onSelectModel above).
+            setStoredProviderEffort(provider, nextEffort);
+            const sessionIdForOverride = currentSessionId || selectedSession?.id || null;
+            if (sessionIdForOverride) {
+              selectProviderEffort(provider, nextEffort, sessionIdForOverride).catch((error) => {
+                console.error('Failed to persist the session effort override:', error);
+              });
+            }
+          }}
           tokenBudget={tokenBudget}
           onShowTokenUsage={showCostModal}
           hasInput={Boolean(input.trim())}
@@ -524,7 +554,9 @@ function ChatInterface({
                   ? t('messageTypes.codex')
                   : provider === 'opencode'
                       ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-                    : t('messageTypes.claude'),
+                    : provider === 'kimi'
+                      ? t('messageTypes.kimi', { defaultValue: 'Kimi' })
+                      : t('messageTypes.claude'),
           })}
           isTextareaExpanded={isTextareaExpanded}
         />

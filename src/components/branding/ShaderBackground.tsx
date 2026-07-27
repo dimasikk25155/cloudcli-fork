@@ -7,6 +7,12 @@ import { useEffect, useRef } from 'react';
  *  - Sits at z-0 with pointer-events disabled; UI panels live at z-10 above it,
  *    so the shader only shows through transparent areas (mainly the chat area).
  *  - Mouse-reactive glow, kept intentionally dark so foreground text stays readable.
+ *    Touch input is ignored (see onMove/onDown's pointerType guard) — on mobile
+ *    every tap on ordinary UI (buttons, list rows) is a pointerdown on window,
+ *    which used to snap the palette to a new hue and flash a pulse on every
+ *    scroll/tap, reading as jittery flicker rather than reactive ambience.
+ *  - Ambient palette drift always runs so the background keeps slowly cycling
+ *    colour on its own instead of sitting static until a (mouse) click.
  *  - Cheap: capped device-pixel-ratio, pauses when the tab is hidden, and honours
  *    prefers-reduced-motion by freezing on a single frame.
  */
@@ -123,10 +129,12 @@ export default function ShaderBackground({ variant = 'default' }: { variant?: st
     let palette = 0;
     let paletteTarget = 0;
     const onMove = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return;
       tx = e.clientX * dpr;
       ty = (window.innerHeight - e.clientY) * dpr;
     };
     const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return;
       tx = e.clientX * dpr;
       ty = (window.innerHeight - e.clientY) * dpr;
       pulse = 1.0;
@@ -145,6 +153,9 @@ export default function ShaderBackground({ variant = 'default' }: { variant?: st
       mx += (tx - mx) * 0.07;
       my += (ty - my) * 0.07;
       pulse *= 0.93;
+      // Ambient auto-drift: the palette always keeps sweeping slowly on its
+      // own (full hue cycle in ~22s), on top of whatever a mouse click adds.
+      if (!reduce) paletteTarget += 0.0048;
       palette += (paletteTarget - palette) * 0.05;
       gl.uniform2f(uRes, canvas.width, canvas.height);
       gl.uniform1f(uTime, reduce ? 0 : (now - start) / 1000);

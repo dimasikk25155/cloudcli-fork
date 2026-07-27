@@ -248,3 +248,188 @@ export async function getSessionUsageHistory(): Promise<UsageHistoryDay[]> {
   cached = { at: Date.now(), days };
   return days;
 }
+
+// ---------------------------------------------------------------------------
+// Per-session cost snapshot (powers the `/cost` modal)
+// ---------------------------------------------------------------------------
+
+/**
+ * Honest per-session token numbers read straight from the session transcript
+ * on disk. The composer chip only sees the LAST streamed `token_budget` event
+ * (and only while the session is actively running), so reopening an old chat
+ * used to show `0 / Недоступно` and the catalog-default model. This snapshot
+ * covers the engines whose transcripts live on this host:
+ *   - claude engine (also Kimi models spawned through it) → ~/.claude/projects/<enc>/<sid>.jsonl
+ *   - kimi CLI                                          → ~/.kimi-code/sessions/<wd>/session_<sid>/agents/main/wire.jsonl
+ */
+export type SessionCostSnapshot = {
+  /** Raw model id from the transcript (`claude-opus-4-8`, `k3`, `kimi-for-coding`). */
+  model: string | null;
+  /** Full-session burn: direct input + cache read + cache creation. */
+  inputTokens: number;
+  /** Full-session burn: generated output. */
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  /** inputTokens + outputTokens — matches the "burn" metric of the history view. */
+  totalTokens: number;
+  /** in+out of the LAST usage row — how full the context window is right now. */
+  contextTokens: number | null;
+  transcriptPath: string;
+};
+
+function kimiSessionsDir(): string {
+  return path.join(os.homedir(), '.kimi-code', 'sessions');
+}
+
+/**
+ * Locates the transcript file for a session without trusting any single id
+ * space: the app-facing session id and the provider-native id are both tried,
+ * first via the DB index, then by probing the conventional on-disk layouts.
+ */
+async function findSessionTranscript(
+  sessionId: string,
+  projectPath?: string | null,
+): Promise<string | null> {
+  const candidates = new Set<string>([sessionId]);
+
+  try {
+    const row = sessionsDb.resolveSessionRowForOverride(sessionId);
+    if (row?.provider_session_id) {
+      candidates.add(row.provider_session_id);
+    }
+    if (row?.jsonl_path && fs.existsSync(row.jsonl_path)) {
+      return row.jsonl_path;
+    }
+    if (row?.project_path && !projectPath) {
+      projectPath = row.project_path;
+    }
+  } catch {
+    // An unready DB must not break the modal — fall through to disk probing.
+  }
+
+  // Claude engine: ~/.claude/projects/<encoded cwd>/<session>.jsonl
+  if (projectPath) {
+    const encoded = projectPath.replace(/[^a-zA-Z0-9-]/g, '-');
+    for (const id of candidates) {
+      const candidate = path.join(claudeProjectsDir(), encoded, `${id}.jsonl`);
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  // Claude engine, project unknown: probe every project folder (cheap stat per dir).
+  try {
+    for (const slug of await fsp.readdir(claudeProjectsDir())) {
+      for (const id of candidates) {
+        const candidate = path.join(claudeProjectsDir(), slug, `${id}.jsonl`);
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+  } catch {
+    // No claude transcripts on this host.
+  }
+
+  // Kimi CLI: ~/.kimi-code/sessions/<wd_*>/session_<id>/agents/main/wire.jsonl
+  try {
+    for (const wdDir of await fsp.readdir(kimiSessionsDir())) {
+      for (const id of candidates) {
+        const candidate = path.join(kimiSessionsDir(), wdDir, `session_${id}`, 'agents', 'main', 'wire.jsonl');
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+  } catch {
+    // No kimi transcripts on this host.
+  }
+
+  return null;
+}
+
+const readUsageNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+/**
+ * Streams one transcript and folds every usage row into full-session burn
+ * totals. Handles both usage schemas:
+ *   claude:  message.usage = { input_tokens, output_tokens, cache_*_input_tokens }
+ *   kimi:    event.usage   = { inputOther, output, inputCacheRead, inputCacheCreation } (on step.end)
+ * and both model notations (claude `message.model`, kimi `llm.request` → model).
+ */
+export async function getSessionCostSnapshot(
+  sessionId: string | null | undefined,
+  options: { projectPath?: string | null } = {},
+): Promise<SessionCostSnapshot | null> {
+  if (!sessionId || typeof sessionId !== 'string') {
+    return null;
+  }
+
+  const transcriptPath = await findSessionTranscript(sessionId, options.projectPath);
+  if (!transcriptPath) {
+    return null;
+  }
+
+  const snapshot: Omit<SessionCostSnapshot, 'transcriptPath'> = {
+    model: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    totalTokens: 0,
+    contextTokens: null,
+  };
+
+  const rl = readline.createInterface({
+    input: fs.createReadStream(transcriptPath),
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of rl) {
+    if (!line.trim()) {
+      continue;
+    }
+
+    let entry: any;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    const usage = entry?.message?.usage
+      ?? (entry?.event?.type === 'step.end' ? entry.event.usage : null);
+    if (usage && typeof usage === 'object') {
+      const directInput = readUsageNumber(usage.input_tokens ?? usage.inputTokens ?? usage.inputOther);
+      const cacheRead = readUsageNumber(
+        usage.cache_read_input_tokens ?? usage.cacheReadInputTokens ?? usage.cacheReadTokens ?? usage.inputCacheRead,
+      );
+      const cacheCreation = readUsageNumber(
+        usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens ?? usage.cacheCreationTokens ?? usage.inputCacheCreation,
+      );
+      const output = readUsageNumber(usage.output_tokens ?? usage.outputTokens ?? usage.output);
+
+      snapshot.inputTokens += directInput + cacheRead + cacheCreation;
+      snapshot.outputTokens += output;
+      snapshot.cacheReadTokens += cacheRead;
+      snapshot.cacheCreationTokens += cacheCreation;
+      snapshot.contextTokens = directInput + cacheRead + cacheCreation + output;
+    }
+
+    // `<synthetic>` marks non-LLM placeholder rows in claude transcripts.
+    const messageModel = entry?.message?.model;
+    if (typeof messageModel === 'string' && messageModel && messageModel !== '<synthetic>') {
+      snapshot.model = messageModel;
+    } else if (entry?.type === 'llm.request' && typeof entry.model === 'string' && entry.model) {
+      snapshot.model = entry.model;
+    }
+  }
+
+  snapshot.totalTokens = snapshot.inputTokens + snapshot.outputTokens;
+  return { ...snapshot, transcriptPath };
+}

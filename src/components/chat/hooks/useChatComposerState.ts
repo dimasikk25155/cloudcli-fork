@@ -30,12 +30,15 @@ import type {
 } from '../types/types';
 import type { Project, ProjectSession, LLMProvider, ProviderModelsCacheInfo } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
+import { downscaleImageFile } from '../utils/imageDownscale';
 
 import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 
 /** Per-file upload cap (must match the server multer limit in assets.routes.ts). */
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+/** Max number of files attachable at once. */
+const MAX_ATTACHED_FILES = 20;
 
 interface UseChatComposerStateArgs {
   selectedProject: Project | null;
@@ -50,6 +53,8 @@ interface UseChatComposerStateArgs {
   codexModel: string;
   currentProviderEffort: string;
   opencodeModel: string;
+  kimiModel: string;
+  geminiModel: string;
   isLoading: boolean;
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
@@ -113,8 +118,18 @@ export type CostCommandData = {
     input?: number;
     output?: number;
   };
+  contextUsage?: {
+    used?: number;
+    total?: number;
+  } | null;
   provider?: string;
+  providerLabel?: string;
+  /** Human label, e.g. "Opus 4.8" / "Kimi K3". */
   model?: string;
+  /** Raw id from the transcript, e.g. "claude-opus-4-8" (shown as tooltip). */
+  modelId?: string | null;
+  /** Where the numbers came from: disk transcript, live stream, or nothing. */
+  source?: 'transcript' | 'live' | 'none';
 };
 
 export type StatusCommandData = {
@@ -158,6 +173,13 @@ export type QueuedDraft = {
   content: string;
   images: File[];
   /**
+   * Images uploaded at queue time as serializable asset descriptors. Kept
+   * alongside the raw `images` File[] so the flush can send them directly
+   * (no re-upload) and so they can be persisted for the auto-send path and
+   * across reloads. Empty/undefined when upload was skipped or failed.
+   */
+  uploadedImages?: unknown[];
+  /**
    * Send options snapshotted at queue time. Persisted with the draft so the
    * app-level auto-send can dispatch the message with the right model and
    * permission settings while another session is being viewed.
@@ -167,8 +189,12 @@ export type QueuedDraft = {
 
 const restoreQueuedDraft = (sessionKey: string): QueuedDraft | null => {
   const saved = readQueuedMessage(sessionKey);
-  // Image attachments can't survive a reload; only text and options persist.
-  return saved ? { content: saved.content, images: [], options: saved.options } : null;
+  // Raw File objects can't survive a reload, but images uploaded at queue time
+  // persist as descriptors — restore them so a reloaded queued message keeps
+  // its attachment.
+  return saved
+    ? { content: saved.content, images: [], uploadedImages: saved.images, options: saved.options }
+    : null;
 };
 
 const getNotificationSessionSummary = (
@@ -202,6 +228,8 @@ export function useChatComposerState({
   codexModel,
   currentProviderEffort,
   opencodeModel,
+  kimiModel,
+  geminiModel,
   isLoading,
   canAbortSession,
   tokenBudget,
@@ -244,6 +272,21 @@ export function useChatComposerState({
   // runs. This flag is set synchronously so only one submit is ever in flight.
   const isSubmittingRef = useRef(false);
   const inputValueRef = useRef(input);
+  // Synchronous mirror of attachedImages, like inputValueRef mirrors the text.
+  // The queue auto-flush fires handleSubmit via setTimeout(0) BEFORE React has
+  // re-rendered handleSubmit's closure, so reading images from the closed-over
+  // `attachedImages` state loses them (text survived only because it read the
+  // ref). handleSubmit reads images from this ref so the flush can set it
+  // synchronously right before invoking submit.
+  const attachedImagesRef = useRef<File[]>(attachedImages);
+  useEffect(() => {
+    attachedImagesRef.current = attachedImages;
+  }, [attachedImages]);
+  // Images already uploaded at queue time. When set, handleSubmit sends these
+  // directly instead of re-uploading the (possibly gone) File[] — this is how
+  // a queued attachment survives the flush and a reload. The flush sets it just
+  // before invoking submit; a normal user submit leaves it null.
+  const preUploadedImagesRef = useRef<unknown[] | null>(null);
   const selectedProjectId = selectedProject?.projectId;
   // Prefer the stable backend-allocated id (selectedSession.id) but fall back
   // to currentSessionId for a just-established session that hasn't been
@@ -384,7 +427,11 @@ export function useChatComposerState({
               ? codexModel
               : provider === 'opencode'
                   ? opencodeModel
-                  : claudeModel,
+                  : provider === 'kimi'
+                    ? kimiModel
+                    : provider === 'gemini'
+                      ? geminiModel
+                      : claudeModel,
           tokenUsage: tokenBudget,
         };
 
@@ -437,6 +484,7 @@ export function useChatComposerState({
       codexModel,
       currentSessionId,
       cursorModel,
+      kimiModel,
       opencodeModel,
       handleBuiltInCommand,
       handleCustomCommand,
@@ -550,7 +598,7 @@ export function useChatComposerState({
     });
 
     if (validFiles.length > 0) {
-      setAttachedImages((previous) => [...previous, ...validFiles].slice(0, 5));
+      setAttachedImages((previous) => [...previous, ...validFiles].slice(0, MAX_ATTACHED_FILES));
     }
   }, []);
 
@@ -583,7 +631,7 @@ export function useChatComposerState({
     // No `accept` filter: any file type may be attached (images become vision
     // blocks, other files are read off disk by the agent).
     maxSize: MAX_ATTACHMENT_BYTES,
-    maxFiles: 5,
+    maxFiles: MAX_ATTACHED_FILES,
     onDrop: handleImageFiles,
     noClick: true,
     noKeyboard: true,
@@ -603,7 +651,9 @@ export function useChatComposerState({
               ? 'codex-settings'
               : provider === 'opencode'
                   ? 'opencode-settings'
-                : 'claude-settings';
+                : provider === 'kimi'
+                  ? 'kimi-settings'
+                  : 'claude-settings';
         const savedSettings = safeLocalStorage.getItem(settingsKey);
         if (savedSettings) {
           return JSON.parse(savedSettings);
@@ -627,7 +677,11 @@ export function useChatComposerState({
           ? codexModel
           : provider === 'opencode'
             ? opencodeModel
-            : claudeModel;
+            : provider === 'kimi'
+              ? kimiModel
+              : provider === 'gemini'
+                ? geminiModel
+                : claudeModel;
 
     return {
       model,
@@ -642,6 +696,8 @@ export function useChatComposerState({
     codexModel,
     currentProviderEffort,
     cursorModel,
+    kimiModel,
+    geminiModel,
     opencodeModel,
     permissionMode,
     provider,
@@ -654,23 +710,52 @@ export function useChatComposerState({
       return [];
     }
 
-    const formData = new FormData();
-    images.forEach((file) => {
-      formData.append('images', file);
-    });
+    // Camera shots are shrunk first: a multi-megabyte original over a mobile
+    // link is what made uploads break off half-way, which in turn aborted the
+    // whole send. Non-images and small pictures pass through unchanged.
+    const payload = await Promise.all(images.map((file) => downscaleImageFile(file)));
 
-    const response = await authenticatedFetch('/api/assets/images', {
-      method: 'POST',
-      headers: {},
-      body: formData,
-    });
+    const attempt = async (): Promise<unknown[]> => {
+      const formData = new FormData();
+      // Expected sizes go in before the files so the server can reject a
+      // truncated upload instead of storing a corrupt file (it reads fields
+      // that arrive ahead of the file parts).
+      payload.forEach((file) => {
+        formData.append('sizes', String(file.size));
+      });
+      payload.forEach((file) => {
+        formData.append('images', file);
+      });
 
-    if (!response.ok) {
-      throw new Error('Failed to upload images');
+      const response = await authenticatedFetch('/api/assets/images', {
+        method: 'POST',
+        headers: {},
+        body: formData,
+      });
+
+      if (!response.ok) {
+        let detail = `${response.status}`;
+        try {
+          const body = await response.json();
+          detail = body?.error || detail;
+        } catch {
+          // Non-JSON error body: the status alone is enough context.
+        }
+        throw new Error(`Failed to upload images (${detail})`);
+      }
+
+      const result = await response.json();
+      return result.images;
+    };
+
+    try {
+      return await attempt();
+    } catch (error) {
+      // One retry: a dropped mobile connection is the common failure here and
+      // it usually succeeds on the second go.
+      console.warn('Attachment upload failed, retrying once:', error);
+      return attempt();
     }
-
-    const result = await response.json();
-    return result.images;
   }, []);
 
   const handleSubmit = useCallback(
@@ -694,10 +779,24 @@ export function useChatComposerState({
       // It's auto-flushed (re-running this same function) once the turn ends,
       // so it still goes through slash-command interception, image upload, etc.
       if (isLoading) {
+        // Upload attachments now, at queue time, rather than at flush time.
+        // The result is a serializable descriptor, so the image survives
+        // persistence and reaches the run no matter which path dispatches it
+        // (composer flush or app-level auto-send) — and across a reload. On
+        // failure, keep the raw Files so the in-memory flush can still retry.
+        let queuedUploadedImages: unknown[] | undefined;
+        if (attachedImages.length > 0) {
+          try {
+            queuedUploadedImages = await uploadAttachedImages(attachedImages);
+          } catch (error) {
+            console.error('Queue-time image upload failed, will retry at flush:', error);
+          }
+        }
         queuedDraftSessionRef.current = sessionKey;
         setQueuedDraft({
           content: currentInput,
           images: attachedImages,
+          uploadedImages: queuedUploadedImages,
           options: buildSendOptions(currentInput),
         });
         setInput('');
@@ -771,9 +870,17 @@ export function useChatComposerState({
       }
 
       let uploadedImages: unknown[] = [];
-      if (attachedImages.length > 0) {
+      // A flushed queued message already uploaded its images at queue time —
+      // use those descriptors and skip re-upload (the File[] may be gone, e.g.
+      // after a reload). Consume the ref so it never leaks into a later submit.
+      const preUploaded = preUploadedImagesRef.current;
+      preUploadedImagesRef.current = null;
+      const imagesToSend = attachedImagesRef.current;
+      if (preUploaded && preUploaded.length > 0) {
+        uploadedImages = preUploaded;
+      } else if (imagesToSend.length > 0) {
         try {
-          uploadedImages = await uploadAttachedImages(attachedImages);
+          uploadedImages = await uploadAttachedImages(imagesToSend);
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';
           console.error('Image upload failed:', error);
@@ -949,6 +1056,14 @@ export function useChatComposerState({
       setInput(queuedDraft.content);
       inputValueRef.current = queuedDraft.content;
       setAttachedImages(queuedDraft.images);
+      // Set the ref synchronously too: handleSubmit fires on the next tick,
+      // before setAttachedImages has propagated, and reads images from the ref.
+      attachedImagesRef.current = queuedDraft.images;
+      // Hand the already-uploaded descriptors to handleSubmit so it sends them
+      // without re-uploading (the File[] above is empty after a reload).
+      preUploadedImagesRef.current = Array.isArray(queuedDraft.uploadedImages) && queuedDraft.uploadedImages.length > 0
+        ? queuedDraft.uploadedImages
+        : null;
       setTimeout(() => {
         handleSubmitRef.current?.(createFakeSubmitEvent());
       }, 0);
@@ -1019,7 +1134,7 @@ export function useChatComposerState({
       return;
     }
     if (queuedDraft?.content) {
-      writeQueuedMessage(sessionKey, { content: queuedDraft.content, options: queuedDraft.options });
+      writeQueuedMessage(sessionKey, { content: queuedDraft.content, options: queuedDraft.options, images: queuedDraft.uploadedImages });
     } else {
       clearQueuedMessage(sessionKey);
     }

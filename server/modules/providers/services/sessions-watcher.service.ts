@@ -29,6 +29,12 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
     provider: 'opencode',
     rootPath: path.join(os.homedir(), '.local', 'share', 'opencode'),
   },
+  {
+    provider: 'kimi',
+    rootPath: process.env.KIMI_CODE_HOME?.trim()
+      ? path.join(process.env.KIMI_CODE_HOME.trim(), 'sessions')
+      : path.join(os.homedir(), '.kimi-code', 'sessions'),
+  },
 ];
 
 const WATCHER_IGNORED_PATTERNS = [
@@ -69,6 +75,12 @@ let watcherRescheduleAfterRefresh = false;
 function isWatcherTargetFile(provider: LLMProvider, filePath: string): boolean {
   if (provider === 'opencode') {
     return path.basename(filePath) === 'opencode.db';
+  }
+
+  if (provider === 'kimi') {
+    // Only the main agent's wire file indexes a session — subagent streams and
+    // per-session logs must not trigger sync churn.
+    return filePath.endsWith(path.join('agents', 'main', 'wire.jsonl'));
   }
 
   return filePath.endsWith('.jsonl');

@@ -32,6 +32,9 @@ export function buildRunInterruptedNotice(reason: string | null): string {
     cause = resetMatch
       ? `достигнут лимит подписки Claude — сброс в ${resetMatch[1].trim()}.`
       : 'достигнут лимит подписки Claude — дождись сброса лимита.';
+  } else if (r.includes('overloaded') || r.includes('529')) {
+    // Only reachable after the automatic retries in claude-sdk.js gave up.
+    cause = 'серверы Anthropic перегружены (529) — автоповторы не помогли, обычно отпускает за несколько минут.';
   } else if (r.includes('connection closed') || r.includes('closed mid-response') || r.includes('connection error')) {
     cause = 'оборвалась связь с API Anthropic посреди ответа — ответ неполный.';
   } else if (r.includes('ede_diagnostic') || r.includes('stop_reason=tool_use')) {
@@ -44,6 +47,30 @@ export function buildRunInterruptedNotice(reason: string | null): string {
     cause = 'прогон завершился без финального ответа.';
   }
   return `⏹ Прогон прерван — финального ответа нет.\nПричина: ${cause}\nОтправь сообщение заново, чтобы продолжить.`;
+}
+
+/**
+ * Failures that a plain retry fixes: Anthropic's servers being overloaded or
+ * unreachable for a moment. Re-sending the same turn is exactly what the user
+ * used to do by hand, so the run loop does it for them (see
+ * TRANSIENT_RETRY_DELAYS_MS in claude-sdk.js).
+ *
+ * Deliberately excluded: subscription limits, missing CLI, auth/billing
+ * problems. Those repeat forever no matter how many times we retry, so they
+ * must reach the user as a notice instead of a silent retry loop.
+ */
+const RETRYABLE_FAILURE_RE =
+  /\b529\b|overloaded|\b50[234]\b|bad gateway|service unavailable|gateway timeout|internal server error|connection closed|closed mid-response|connection error|fetch failed|socket hang up|econnreset|etimedout|enotfound/i;
+
+const PERMANENT_FAILURE_RE =
+  /session limit|usage limit|not installed|credit balance|invalid api key|authentication_error|permission_denied/i;
+
+export function isTransientRunFailure(reason: string | null | undefined): boolean {
+  const r = String(reason || '');
+  if (!r || PERMANENT_FAILURE_RE.test(r)) {
+    return false;
+  }
+  return RETRYABLE_FAILURE_RE.test(r);
 }
 
 export type RunOutcomeStatus = 'completed' | 'failed' | 'aborted';

@@ -322,6 +322,15 @@
       },
       "codex": {
         "description": "OpenAI Codex AIアシスタント"
+      },
+      "opencode": {
+        "description": "OpenCode CLI AIアシスタント"
+      },
+      "kimi": {
+        "description": "Moonshot Kimi AIアシスタント"
+      },
+      "gemini": {
+        "description": "Google Gemini AIアシスタント"
       }
     },
     "connectionStatus": "接続状態",
@@ -416,7 +425,10 @@
     "description": {
       "claude": "Model Context Protocolサーバーは、Claudeに追加のツールやデータソースを提供します",
       "cursor": "Model Context Protocolサーバーは、Cursorに追加のツールやデータソースを提供します",
-      "codex": "Model Context Protocolサーバーは、Codexに追加のツールやデータソースを提供します"
+      "codex": "Model Context Protocolサーバーは、Codexに追加のツールやデータソースを提供します",
+      "opencode": "Model Context Protocolサーバーは、OpenCodeに追加のツールやデータソースを提供します",
+      "kimi": "Model Context Protocolサーバーは、Kimiに追加のツールやデータソースを提供します",
+      "gemini": "Model Context Protocolサーバーは、Geminiに追加のツールやデータソースを提供します"
     },
     "addButton": "MCPサーバーを追加",
     "empty": "MCPサーバーは設定されていません",

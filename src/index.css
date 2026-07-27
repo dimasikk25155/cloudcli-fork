@@ -94,7 +94,10 @@
     --card-foreground: 48 15% 93%;
     --popover: 60 3% 18%;
     --popover-foreground: 48 15% 93%;
-    --primary: 15 63% 60%;
+    /* Bumped from the brand's 15 63% 60% terracotta — same hue, more
+       saturation/lightness so it reads as brighter against the dark
+       background instead of blending into it. */
+    --primary: 16 86% 67%;
     --primary-foreground: 60 3% 10%;
     --secondary: 60 3% 21%;
     --secondary-foreground: 48 15% 93%;
@@ -106,19 +109,19 @@
     --destructive-foreground: 48 15% 93%;
     --border: 60 3% 22%;
     --input: 60 3% 26%;
-    --ring: 15 63% 60%;
+    --ring: 16 86% 67%;
 
     /* Nav design tokens — dark overrides */
     --nav-glass-bg: 60 3% 18% / 0.55;
     --nav-glass-blur: 24px;
     --nav-glass-saturate: 1.6;
-    --nav-tab-glow: 15 63% 60% / 0.25;
-    --nav-tab-ring: 15 63% 60% / 0.15;
+    --nav-tab-glow: 16 86% 67% / 0.32;
+    --nav-tab-ring: 16 86% 67% / 0.22;
     --nav-float-shadow: 0 0% 0% / 0.35;
     --nav-float-ring: 60 3% 22% / 0.3;
     --nav-divider-color: 60 3% 22% / 0.5;
     --nav-input-bg: 60 3% 21% / 0.5;
-    --nav-input-focus-ring: 15 63% 60% / 0.25;
+    --nav-input-focus-ring: 16 86% 67% / 0.25;
   }
 }
 
@@ -1025,6 +1028,160 @@
       background-color: transparent;
     }
   }
+}
+
+/* =========================================================================
+   THEME: Claude (literal 1:1 clone of claude.ai — DARK)
+   Same warm near-black palette as "Тёмная", but flat: no animated/photo
+   background (gated off in AppContent.tsx via `theme !== 'claude'`) and the
+   accent uses the true, undoctored brand terracotta (#D97757, same value as
+   light mode) rather than the brighter variant "Тёмная" uses.
+   ========================================================================= */
+[data-theme='claude'] {
+  /* Pure-black canvas. Everything that must stay readable on it (cards,
+     composer, popovers, hover fills) is lifted a few percent instead —
+     otherwise a flat #000 swallows the composer whole. */
+  --background: 0 0% 0%;
+  --foreground: 48 15% 93%;
+  --card: 60 3% 7%;
+  --card-foreground: 48 15% 93%;
+  --popover: 60 3% 7%;
+  --popover-foreground: 48 15% 93%;
+  --primary: 15 63% 60%;
+  --primary-foreground: 60 3% 10%;
+  --secondary: 60 3% 11%;
+  --secondary-foreground: 48 15% 93%;
+  --muted: 60 3% 11%;
+  --muted-foreground: 45 5% 63%;
+  --accent: 60 3% 13%;
+  --accent-foreground: 48 15% 93%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 48 15% 93%;
+  --border: 60 3% 15%;
+  --input: 60 3% 18%;
+  --ring: 15 63% 60%;
+
+  --nav-glass-bg: 0 0% 4% / 0.55;
+  --nav-glass-blur: 24px;
+  --nav-glass-saturate: 1.6;
+  --nav-tab-glow: 15 63% 60% / 0.32;
+  --nav-tab-ring: 15 63% 60% / 0.22;
+  --nav-float-shadow: 0 0% 0% / 0.35;
+  --nav-float-ring: 60 3% 15% / 0.3;
+  --nav-divider-color: 60 3% 15% / 0.5;
+  --nav-input-bg: 60 3% 10% / 0.5;
+  --nav-input-focus-ring: 15 63% 60% / 0.25;
+}
+
+/* Sidebar shares the pure-black canvas; the border alone separates it from
+   the chat area. The inner panel's translucent bg-background/80 is cleared
+   so it doesn't wash the black back out. */
+[data-theme='claude'] .app-sidebar {
+  background-color: hsl(0 0% 0%);
+}
+[data-theme='claude'] .app-sidebar .bg-background\/80 {
+  background-color: transparent;
+}
+
+/* Composer 1:1 with claude.ai: opaque lifted panel (--card, a few percent
+   above the black canvas), generous pill-like radius, soft elevation, no
+   divider line between the textarea and the toolbar row. */
+[data-theme='claude'] [data-slot='prompt-input'] {
+  border-radius: 1.5rem;
+  border-color: hsl(60 3% 18% / 0.6);
+  background-color: hsl(var(--card));
+  box-shadow: 0 4px 24px hsl(0 0% 0% / 0.25);
+}
+[data-theme='claude'] [data-slot='prompt-input'].rounded-t-none {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+[data-theme='claude'] [data-slot='prompt-input-footer'] {
+  border-top-color: transparent;
+}
+
+/* Keyboard focus on the composer stays neutral like claude.ai — no
+   terracotta border/ring creeping in from the shared PromptInput styles. */
+[data-theme='claude'] [data-slot='prompt-input']:focus-within {
+  border-color: hsl(60 3% 24%);
+  box-shadow: 0 4px 24px hsl(0 0% 0% / 0.25);
+}
+
+/* claude.ai's composer toolbar is TEXT, not a row of outlined pills: the
+   model reads as plain white text, the level as muted text beside it, and
+   the meta chips carry no chrome at all. */
+[data-theme='claude'] .composer-chip {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+}
+[data-theme='claude'] .composer-chip:hover {
+  background-color: hsl(var(--accent) / 0.6);
+}
+[data-theme='claude'] .composer-chip-effort {
+  color: hsl(var(--muted-foreground));
+}
+/* Model + level read as one control, so only the level keeps a chevron. */
+[data-theme='claude'] .composer-chip-model .composer-chip-chevron {
+  display: none;
+}
+/* The little terracotta icon tiles on the token/limit chips are exactly the
+   "orange everywhere" noise — flatten them to muted glyphs. */
+[data-theme='claude'] .composer-chip-icon {
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Composer breathes like claude.ai: taller text area, roomier toolbar. */
+[data-theme='claude'] [data-slot='prompt-input-textarea'] {
+  padding: 1rem 1.25rem 0.5rem;
+}
+[data-theme='claude'] [data-slot='prompt-input-footer'] {
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+/* Send/stop is a circle, not a wide rounded slab. */
+[data-theme='claude'] .composer-submit {
+  border-radius: 9999px;
+  width: 2.5rem;
+}
+
+/* claude.ai's left nav is FLAT: plain text rows, no card chrome, no filled
+   buttons, no logo/color spam. Same utility-targeting trick as
+   .bg-background\/80 above, scoped to the sidebar only. */
+[data-theme='claude'] .app-sidebar .sidebar-crab {
+  display: none;
+}
+[data-theme='claude'] .app-sidebar h1 {
+  font-size: 1.0625rem;
+}
+[data-theme='claude'] .app-sidebar .bg-card {
+  background-color: transparent;
+}
+[data-theme='claude'] .app-sidebar [class*='border-border'],
+[data-theme='claude'] .app-sidebar [class*='border-green-500'],
+[data-theme='claude'] .app-sidebar [class*='border-primary'],
+[data-theme='claude'] .app-sidebar [class*='border-yellow'] {
+  border-color: transparent;
+}
+/* Selected chat = quiet neutral highlight, not a terracotta tint. */
+[data-theme='claude'] .app-sidebar [class*='bg-primary/5'] {
+  background-color: hsl(var(--accent) / 0.6);
+}
+/* Favorites: keep the star, drop the yellow paint. */
+[data-theme='claude'] .app-sidebar [class*='bg-yellow'] {
+  background-color: transparent;
+}
+[data-theme='claude'] .app-sidebar .lucide-star {
+  color: hsl(45 5% 63%);
+}
+/* "Новый сеанс" as a quiet "New chat"-style row instead of a filled button. */
+[data-theme='claude'] .app-sidebar .new-session-btn {
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+}
+[data-theme='claude'] .app-sidebar .new-session-btn:hover {
+  background-color: hsl(var(--accent) / 0.6);
+  color: hsl(var(--foreground));
 }
 
 /* =========================================================================

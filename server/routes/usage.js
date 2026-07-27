@@ -4,20 +4,23 @@ import {
   getClaudeUsage,
   resolveUsageGuardThreshold,
 } from '../shared/claude-usage.js';
+import { getKimiUsage } from '../shared/kimi-usage.js';
 import { getSessionUsageHistory } from '../shared/session-usage.js';
 
 const router = express.Router();
 
 // Live subscription usage (5h / 7d windows) + the run-guard threshold, for
-// the composer badge and the pre-send confirmation.
+// the composer badge and the pre-send confirmation. `kimi` is the same
+// window pair for the separate Kimi Code subscription (null when no key).
 router.get('/limits', async (req, res) => {
   try {
-    const usage = await getClaudeUsage();
+    const [usage, kimi] = await Promise.all([getClaudeUsage(), getKimiUsage()]);
     const threshold = resolveUsageGuardThreshold();
     const fiveHourPct = usage?.fiveHour?.utilization ?? null;
     res.json({
       ok: true,
       usage,
+      kimi,
       guard: {
         threshold,
         blocked: fiveHourPct !== null && fiveHourPct >= threshold,

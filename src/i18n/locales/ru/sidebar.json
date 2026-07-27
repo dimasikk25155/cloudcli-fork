@@ -20,7 +20,7 @@
     "runClaudeCli": "Запустите Claude CLI в каталоге проекта для начала работы"
   },
   "app": {
-    "title": "Claude CLI",
+    "title": "Neo3 Agent System",
     "subtitle": "Интерфейс AI помощника для программирования"
   },
   "sessions": {

@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
+import { authenticatedFetch } from '../utils/api';
+
 const ThemeContext = createContext();
 
 export const useTheme = () => {
@@ -14,6 +16,7 @@ export const useTheme = () => {
 // panels and background — via a `data-theme` attribute on <html>. Added one at
 // a time as each is built out; `default` is the original warm-orange look.
 export const THEMES = [
+  'claude',
   'default',
   'liquidGlass',
   'neonCity',
@@ -25,23 +28,30 @@ export const THEMES = [
   'kineticType',
   'liquidChrome',
   'zenParticles',
+  'aether',
 ];
+
+// The theme new installs open with (no saved preference yet). Existing users
+// keep whatever they already picked — see the `theme` initial state below.
+export const DEFAULT_THEME = 'claude';
 
 // Human-readable labels for the theme picker in Settings → Appearance.
 // Internal key stays `liquidGlass` (matches CSS/asset filenames); label is
 // what the user actually sees in the dropdown.
 export const THEME_LABELS = {
+  claude: 'Claude',
   default: 'Тёмная',
   liquidGlass: 'Apple',
   neonCity: 'Neon City',
-  synthwaveDrive: 'Synthwave',
+  synthwaveDrive: 'Aurora',
   commandDeck: 'Command Deck',
   nebulaFlow: 'Nebula Flow',
   missionControl: 'Mission Control',
-  bento3d: 'Bento 3D',
+  bento3d: 'Deep Space',
   kineticType: 'Kinetic Type',
-  liquidChrome: 'Liquid Chrome',
-  zenParticles: 'Zen Particles',
+  liquidChrome: 'Ink Flow',
+  zenParticles: 'Bioluminescence',
+  aether: 'Aether',
 };
 
 // Themes that are light (bright) rather than dark. Each theme decides whether
@@ -55,17 +65,45 @@ export const SHADER_VARIANT_LABELS = THEME_LABELS;
 
 export const ThemeProvider = ({ children }) => {
   // Animated WebGL background (opt-out).
-  const [shaderEnabled, setShaderEnabled] = useState(() => {
+  const [shaderEnabled, setShaderEnabledRaw] = useState(() => {
     const saved = localStorage.getItem('shaderBg');
     return saved === null ? true : saved === 'on';
   });
-  const [theme, setTheme] = useState(() => {
+  const [theme, setThemeRaw] = useState(() => {
     const saved = localStorage.getItem('appTheme') || localStorage.getItem('shaderVariant');
-    return THEMES.includes(saved) ? saved : 'default';
+    return THEMES.includes(saved) ? saved : DEFAULT_THEME;
   });
 
   // The active theme decides whether the app is dark or light.
   const isDarkMode = !LIGHT_THEMES.includes(theme);
+
+  // Account-wide theme/shader defaults, loaded once on mount and applied on
+  // top of whatever localStorage had (server is the cross-device source of
+  // truth; localStorage is just this browser's instant-paint cache). Uses
+  // the raw setters so this doesn't itself trigger a sync-back PUT.
+  useEffect(() => {
+    let cancelled = false;
+    authenticatedFetch('/api/settings/ui-preferences')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.preferences) {
+          return;
+        }
+        const { theme: savedTheme, shaderEnabled: savedShaderEnabled } = data.preferences;
+        if (typeof savedTheme === 'string' && THEMES.includes(savedTheme)) {
+          setThemeRaw(savedTheme);
+        }
+        if (typeof savedShaderEnabled === 'boolean') {
+          setShaderEnabledRaw(savedShaderEnabled);
+        }
+      })
+      .catch((error) => {
+        console.warn('Failed to load account theme preferences:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('shaderBg', shaderEnabled ? 'on' : 'off');
@@ -93,13 +131,38 @@ export const ThemeProvider = ({ children }) => {
     }
   }, [theme]);
 
+  // Fire-and-forget: push the new value to the account so every other
+  // device (phone, another browser) picks it up on its next load. Local
+  // state/localStorage already made the change feel instant on this device;
+  // a failed sync just means other devices stay on the old value until it
+  // succeeds again, never blocks or reverts this one.
+  const setShaderEnabled = (next) => {
+    setShaderEnabledRaw(next);
+    authenticatedFetch('/api/settings/ui-preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ shaderEnabled: next }),
+    }).catch((error) => {
+      console.warn('Failed to sync shader preference to account:', error);
+    });
+  };
+
+  const setTheme = (next) => {
+    setThemeRaw(next);
+    authenticatedFetch('/api/settings/ui-preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ theme: next }),
+    }).catch((error) => {
+      console.warn('Failed to sync theme preference to account:', error);
+    });
+  };
+
   const value = {
     isDarkMode,
     // No-op kept for backward compatibility with any lingering callers.
     toggleDarkMode: () => {},
     shaderEnabled,
     setShaderEnabled,
-    toggleShader: () => setShaderEnabled((prev) => !prev),
+    toggleShader: () => setShaderEnabled(!shaderEnabled),
     // Full app theme.
     theme,
     setTheme,

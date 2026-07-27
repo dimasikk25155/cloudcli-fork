@@ -27,8 +27,11 @@ export class ClaudeProviderAuth implements IProviderAuth {
   private checkInstalled(): boolean {
     const cliPath = resolveClaudeCodeExecutablePath(process.env.CLAUDE_CLI_PATH);
     try {
-      spawn.sync(cliPath, ['--version'], { stdio: 'ignore', timeout: 5000 });
-      return true;
+      // cross-spawn resolves (never throws) when the binary is missing — it reports
+      // ENOENT on `result.error`. Returning true from the try block alone would
+      // report "installed" on a host that has no CLI at all.
+      const result = spawn.sync(cliPath, ['--version'], { stdio: 'ignore', timeout: 5000 });
+      return !result.error && result.status === 0;
     } catch {
       return false;
     }

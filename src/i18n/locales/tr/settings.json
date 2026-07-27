@@ -323,6 +323,15 @@
       },
       "codex": {
         "description": "OpenAI Codex AI asistanı"
+      },
+      "opencode": {
+        "description": "OpenCode CLI AI asistanı"
+      },
+      "kimi": {
+        "description": "Moonshot Kimi AI asistanı"
+      },
+      "gemini": {
+        "description": "Google Gemini AI asistanı"
       }
     },
     "connectionStatus": "Bağlantı Durumu",
@@ -417,7 +426,10 @@
     "description": {
       "claude": "Model Context Protocol sunucuları Claude'a ek araçlar ve veri kaynakları sağlar",
       "cursor": "Model Context Protocol sunucuları Cursor'a ek araçlar ve veri kaynakları sağlar",
-      "codex": "Model Context Protocol sunucuları Codex'e ek araçlar ve veri kaynakları sağlar"
+      "codex": "Model Context Protocol sunucuları Codex'e ek araçlar ve veri kaynakları sağlar",
+      "opencode": "Model Context Protocol sunucuları OpenCode'e ek araçlar ve veri kaynakları sağlar",
+      "kimi": "Model Context Protocol sunucuları Kimi'e ek araçlar ve veri kaynakları sağlar",
+      "gemini": "Model Context Protocol sunucuları Gemini'e ek araçlar ve veri kaynakları sağlar"
     },
     "addButton": "MCP Sunucusu Ekle",
     "empty": "Yapılandırılmış MCP sunucusu yok",

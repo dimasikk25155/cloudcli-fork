@@ -41,6 +41,14 @@ import {
     abortOpenCodeSession,
 } from './opencode-cli.js';
 import {
+    spawnKimi,
+    abortKimiSession,
+} from './kimi-cli.js';
+import {
+    spawnGemini,
+    abortGeminiSession,
+} from './gemini-cli.js';
+import {
     stripAnsiSequences,
     normalizeDetectedUrl,
     extractUrlsFromText,
@@ -59,6 +67,7 @@ import projectModuleRoutes from './modules/projects/projects.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
 import nightshiftRoutes from './modules/nightshift/nightshift.routes.js';
 import userRoutes from './routes/user.js';
+import adminRoutes from './routes/admin.js';
 import pluginsRoutes from './routes/plugins.js';
 import providerRoutes from './modules/providers/provider.routes.js';
 import voiceRoutes from './voice-proxy.js';
@@ -69,7 +78,7 @@ import { browserUseService } from './modules/browser-use/browser-use.service.js'
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
 import { initializeDatabase, projectsDb, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
-import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
+import { validateApiKey, authenticateToken, authenticateWebSocket, requireAdmin } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
 import { c } from './utils/colors.js';
 
@@ -117,12 +126,16 @@ const wss = createWebSocketServer(server, {
             cursor: spawnCursor,
             codex: queryCodex,
             opencode: spawnOpenCode,
+            kimi: spawnKimi,
+            gemini: spawnGemini,
         },
         abortFns: {
             claude: abortClaudeSDKSession,
             cursor: abortCursorSession,
             codex: abortCodexSession,
             opencode: abortOpenCodeSession,
+            kimi: abortKimiSession,
+            gemini: abortGeminiSession,
         },
         resolveToolApproval,
         getPendingApprovalsForSession,
@@ -210,6 +223,9 @@ app.use('/api/nightshift', authenticateToken, nightshiftRoutes);
 
 // User API Routes (protected)
 app.use('/api/user', authenticateToken, userRoutes);
+
+// Admin API Routes (protected, admin-only)
+app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);
@@ -533,7 +549,13 @@ app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
             ? path.resolve(filePath)
             : path.resolve(projectRoot, filePath);
         const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
+        // Admins (the machine owner) already have full shell access via the
+        // Terminal tab, so scoping the file viewer to the project root only
+        // blocks them from agent artifacts that legitimately live elsewhere
+        // (e.g. plan files under ~/.claude/plans that Claude references). Let
+        // admins read/write any resolved path; non-admin multi-user guests stay
+        // locked to the project root.
+        if (!resolved.startsWith(normalizedRoot) && req.user?.role !== 'admin') {
             return res.status(403).json({ error: 'Path must be under project root' });
         }
 
@@ -581,7 +603,13 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
             ? path.resolve(filePath)
             : path.resolve(projectRoot, filePath);
         const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
+        // Admins (the machine owner) already have full shell access via the
+        // Terminal tab, so scoping the file viewer to the project root only
+        // blocks them from agent artifacts that legitimately live elsewhere
+        // (e.g. plan files under ~/.claude/plans that Claude references). Let
+        // admins read/write any resolved path; non-admin multi-user guests stay
+        // locked to the project root.
+        if (!resolved.startsWith(normalizedRoot) && req.user?.role !== 'admin') {
             return res.status(403).json({ error: 'Path must be under project root' });
         }
 
@@ -642,7 +670,13 @@ app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
             ? path.resolve(filePath)
             : path.resolve(projectRoot, filePath);
         const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
+        // Admins (the machine owner) already have full shell access via the
+        // Terminal tab, so scoping the file viewer to the project root only
+        // blocks them from agent artifacts that legitimately live elsewhere
+        // (e.g. plan files under ~/.claude/plans that Claude references). Let
+        // admins read/write any resolved path; non-admin multi-user guests stay
+        // locked to the project root.
+        if (!resolved.startsWith(normalizedRoot) && req.user?.role !== 'admin') {
             return res.status(403).json({ error: 'Path must be under project root' });
         }
 

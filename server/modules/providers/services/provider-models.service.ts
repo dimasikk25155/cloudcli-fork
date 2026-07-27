@@ -22,7 +22,6 @@ const UNCACHED_PROVIDERS = new Set<LLMProvider>(['claude']);
 type ProviderModelsServiceDependencies = {
   resolveProvider?: (provider: LLMProvider) => Pick<IProvider, 'models'>;
   cachePath?: string;
-  activeModelChangesPath?: string;
   now?: () => number;
 };
 
@@ -137,7 +136,6 @@ const writeProviderModelsCacheFile = async (
 export const createProviderModelsService = (dependencies: ProviderModelsServiceDependencies = {}) => {
   const resolveProvider = dependencies.resolveProvider ?? providerRegistry.resolveProvider;
   const cachePath = dependencies.cachePath ?? getProviderModelsCachePath();
-  const activeModelChangesPath = dependencies.activeModelChangesPath;
   const now = dependencies.now ?? (() => Date.now());
   const memoryCache = new Map<LLMProvider, ProviderModelsCacheEntry>();
   const pendingRequests = new Map<LLMProvider, Promise<ProviderModelsResult>>();
@@ -316,9 +314,7 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
   const getChangedActiveModel = async (
     provider: LLMProvider,
     sessionId: string,
-  ): Promise<ProviderSessionActiveModelChange> => readProviderSessionActiveModelChange(provider, sessionId, {
-    filePath: activeModelChangesPath,
-  });
+  ): Promise<ProviderSessionActiveModelChange> => readProviderSessionActiveModelChange(provider, sessionId);
 
   const resolveResumeModel = async (
     provider: LLMProvider,
@@ -338,6 +334,29 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     return normalizedRequestedModel || undefined;
   };
 
+  /**
+   * Effort/thinking-level mirror of `resolveResumeModel` — same session
+   * override row, same "client-requested value wins unless a stored override
+   * says otherwise" precedence, just reading the `effort` field.
+   */
+  const resolveResumeEffort = async (
+    provider: LLMProvider,
+    sessionId: string | undefined,
+    requestedEffort?: string | null,
+  ): Promise<string | undefined> => {
+    const normalizedRequestedEffort = typeof requestedEffort === 'string' ? requestedEffort.trim() : '';
+    if (!sessionId?.trim()) {
+      return normalizedRequestedEffort || undefined;
+    }
+
+    const changedModel = await getChangedActiveModel(provider, sessionId);
+    if (changedModel.supported && changedModel.changed && changedModel.effort?.trim()) {
+      return changedModel.effort.trim();
+    }
+
+    return normalizedRequestedEffort || undefined;
+  };
+
   const clearCache = (): void => {
     memoryCache.clear();
     pendingRequests.clear();
@@ -351,6 +370,7 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     getChangedActiveModel,
     changeActiveModel,
     resolveResumeModel,
+    resolveResumeEffort,
     clearCache,
   };
 };

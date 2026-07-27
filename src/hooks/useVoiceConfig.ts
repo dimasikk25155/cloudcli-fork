@@ -7,11 +7,32 @@ export type VoiceConfig = {
   ttsModel: string;
   ttsVoice: string;
   ttsFormat: string;
+  // Text cleanup (server-side, proxy path only): punctuation, glossary term
+  // fixes and filler removal applied to the raw transcript before it lands in
+  // the input box.
+  correctionEnabled: boolean;
+  fillerCleanup: boolean;
+  correctionModel: string;
+  language: string;
+  // Glossary as free text, one term per line: "Canon: variant1, variant2".
+  dictionary: string;
 };
 
 const STORAGE_KEY = 'voiceConfig';
 export const VOICE_CONFIG_SYNC_EVENT = 'voice-config:sync';
-const DEFAULTS: VoiceConfig = { baseUrl: '', apiKey: '', sttModel: '', ttsModel: '', ttsVoice: '', ttsFormat: '' };
+const DEFAULTS: VoiceConfig = {
+  baseUrl: '',
+  apiKey: '',
+  sttModel: '',
+  ttsModel: '',
+  ttsVoice: '',
+  ttsFormat: '',
+  correctionEnabled: true,
+  fillerCleanup: true,
+  correctionModel: '',
+  language: '',
+  dictionary: '',
+};
 
 export function readVoiceConfig(): VoiceConfig {
   try {
@@ -21,7 +42,11 @@ export function readVoiceConfig(): VoiceConfig {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ...DEFAULTS };
     const config = { ...DEFAULTS };
     for (const key of Object.keys(DEFAULTS) as (keyof VoiceConfig)[]) {
-      if (typeof parsed[key] === 'string') config[key] = parsed[key];
+      // Copy a stored value only when it matches the field's declared type, so a
+      // malformed blob can't turn a boolean toggle into a string (or vice versa).
+      if (typeof parsed[key] === typeof DEFAULTS[key]) {
+        (config[key] as VoiceConfig[typeof key]) = parsed[key];
+      }
     }
     return config;
   } catch {
@@ -41,6 +66,49 @@ export function voiceConfigHeaders(): Record<string, string> {
   if (c.ttsVoice) h['x-voice-tts-voice'] = c.ttsVoice;
   if (c.ttsFormat.trim()) h['x-voice-tts-format'] = c.ttsFormat.trim();
   return h;
+}
+
+/**
+ * Parse the free-text glossary into a { canon: [wrong, …] } map. Each non-empty,
+ * non-comment line is "Canon: variant1, variant2" (":" or "=" separator). A line
+ * with no separator is a canon term with no known misspellings (still biases STT
+ * and tells the corrector the canonical spelling).
+ */
+export function parseDictionary(blob: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const line of String(blob || '').split('\n')) {
+    const s = line.trim();
+    if (!s || s.startsWith('#')) continue;
+    const m = s.match(/^(.+?)\s*[:=]\s*(.*)$/);
+    if (m) {
+      const canon = m[1].trim();
+      if (!canon) continue;
+      out[canon] = m[2].split(',').map((w) => w.trim()).filter(Boolean);
+    } else {
+      out[s] = [];
+    }
+  }
+  return out;
+}
+
+// Cleanup options sent to the /api/voice/transcribe proxy as the 'options' field.
+export type VoiceCleanupOptions = {
+  correction: boolean;
+  fillerCleanup: boolean;
+  correctionModel: string;
+  language: string;
+  dictionary: Record<string, string[]>;
+};
+
+export function voiceCleanupOptions(): VoiceCleanupOptions {
+  const c = readVoiceConfig();
+  return {
+    correction: c.correctionEnabled === true,
+    fillerCleanup: c.fillerCleanup !== false,
+    correctionModel: c.correctionModel.trim(),
+    language: c.language.trim(),
+    dictionary: parseDictionary(c.dictionary),
+  };
 }
 
 export function useVoiceConfig() {

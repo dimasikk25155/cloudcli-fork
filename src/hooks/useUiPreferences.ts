@@ -1,5 +1,7 @@
 import { useEffect, useReducer, useRef } from 'react';
 
+import { authenticatedFetch } from '../utils/api';
+
 type UiPreferences = {
   showRawParameters: boolean;
   showThinking: boolean;
@@ -36,8 +38,15 @@ const DEFAULTS: UiPreferences = {
   showThinking: true,
   sendByCtrlEnter: false,
   sidebarVisible: true,
-  voiceEnabled: false,
+  // On by default so the mic button appears out of the box wherever a voice
+  // backend is configured. useVoiceAvailable still gates it on a healthy
+  // backend, so a deployment with no backend simply shows nothing.
+  voiceEnabled: true,
 };
+
+// Exported so other readers of the stored preferences blob (e.g. useVoiceAvailable)
+// fall back to the same defaults instead of hard-coding their own.
+export const UI_PREFERENCE_DEFAULTS: Readonly<UiPreferences> = DEFAULTS;
 
 const PREFERENCE_KEYS = Object.keys(DEFAULTS) as UiPreferenceKey[];
 const VALID_KEYS = new Set<UiPreferenceKey>(PREFERENCE_KEYS); // prevents unknown keys from being written
@@ -214,12 +223,50 @@ export function useUiPreferences(storageKey = 'uiPreferences') {
     };
   }, [storageKey]);
 
+  // Account-wide defaults, loaded once on mount and applied on top of
+  // whatever localStorage had (server is the cross-device source of truth;
+  // localStorage is just this browser's instant-paint cache). Dispatches
+  // directly rather than through setPreference/setPreferences so hydration
+  // doesn't itself trigger a sync-back PUT.
+  useEffect(() => {
+    let cancelled = false;
+    authenticatedFetch('/api/settings/ui-preferences')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.preferences) {
+          return;
+        }
+        dispatch({ type: 'set_many', value: data.preferences });
+      })
+      .catch((error) => {
+        console.warn('Failed to load account UI preferences:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fire-and-forget: push the change to the account so every other device
+  // picks it up on its next load. Local state/localStorage already made the
+  // change feel instant on this device; a failed sync just means other
+  // devices stay on the old value until it succeeds again.
+  const syncToServer = (value: Partial<Record<UiPreferenceKey, unknown>>) => {
+    authenticatedFetch('/api/settings/ui-preferences', {
+      method: 'PUT',
+      body: JSON.stringify(value),
+    }).catch((error) => {
+      console.warn('Failed to sync UI preference to account:', error);
+    });
+  };
+
   const setPreference = (key: UiPreferenceKey, value: unknown) => {
     dispatch({ type: 'set', key, value });
+    syncToServer({ [key]: value });
   };
 
   const setPreferences = (value: Partial<Record<UiPreferenceKey, unknown>>) => {
     dispatch({ type: 'set_many', value });
+    syncToServer(value);
   };
 
   const resetPreferences = (value?: Partial<UiPreferences>) => {

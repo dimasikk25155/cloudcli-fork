@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '../components/auth/context/AuthContext';
 import { IS_PLATFORM } from '../constants/config';
 
+import { WebSocketOutbox } from './websocket-outbox';
+
 /**
  * One frame received from the chat websocket. The server guarantees every
  * frame carries a `kind` (provider message kinds plus gateway kinds such as
@@ -21,7 +23,11 @@ type ServerEventListener = (event: ServerEvent) => void;
 
 type WebSocketContextType = {
   ws: WebSocket | null;
-  sendMessage: (message: unknown) => void;
+  /**
+   * Sends a frame, or queues it when the socket is not open (and kicks off an
+   * immediate reconnect). Returns whether it went out on the wire right away.
+   */
+  sendMessage: (message: unknown) => boolean;
   /**
    * Subscribes to every websocket frame. Returns an unsubscribe function.
    *
@@ -48,9 +54,9 @@ type WebSocketContextType = {
    */
   getLastFrameAt: () => number;
   /**
-   * Tears down the current socket (or a pending reconnect timer) and lets the
-   * normal onclose → reconnect → `websocket_reconnected` path re-sync
-   * consumers. Used by the chat stall watchdog when the socket looks dead.
+   * Tears down the current socket (or a pending reconnect timer) and connects
+   * again immediately, re-syncing consumers through `websocket_reconnected`.
+   * Used by the chat watchdog when the socket looks dead or half-open.
    */
   forceReconnect: () => void;
 };
@@ -86,7 +92,16 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   const [isConnected, setIsConnected] = useState(false);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFrameAtRef = useRef(0);
+  /** Frames composed while the socket was down (see WebSocketOutbox). */
+  const outboxRef = useRef(new WebSocketOutbox());
   const { token } = useAuth();
+
+  const flushOutbox = useCallback((socket: WebSocket) => {
+    if (socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    outboxRef.current.flush((frame) => socket.send(JSON.stringify(frame)));
+  }, []);
 
   const dispatch = useCallback((event: ServerEvent) => {
     for (const listener of listenersRef.current) {
@@ -131,6 +146,12 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       wsRef.current = websocket;
 
       websocket.onopen = () => {
+        // A socket that was already superseded (an immediate reconnect started
+        // while this one was still closing) must not touch shared state.
+        if (wsRef.current !== websocket) {
+          websocket.close();
+          return;
+        }
         setIsConnected(true);
         lastFrameAtRef.current = Date.now();
         if (hasConnectedRef.current) {
@@ -138,9 +159,15 @@ const useWebSocketProviderState = (): WebSocketContextType => {
           dispatch({ kind: 'websocket_reconnected', timestamp: Date.now() });
         }
         hasConnectedRef.current = true;
+        // After the re-sync listeners above, so a replayed `chat.send` lands on
+        // a session this client has already re-subscribed to.
+        flushOutbox(websocket);
       };
 
       websocket.onmessage = (event) => {
+        if (wsRef.current !== websocket) {
+          return;
+        }
         lastFrameAtRef.current = Date.now();
         try {
           const data = JSON.parse(event.data) as ServerEvent;
@@ -151,6 +178,11 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       };
 
       websocket.onclose = () => {
+        // The late close of a socket that has already been replaced must not
+        // null out (or schedule a reconnect over) the live one.
+        if (wsRef.current !== websocket) {
+          return;
+        }
         setIsConnected(false);
         wsRef.current = null;
 
@@ -168,16 +200,41 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     } catch (error) {
       console.error('Error creating WebSocket connection:', error);
     }
-  }, [token, dispatch]); // everytime token changes, we reconnect
+  }, [token, dispatch, flushOutbox]); // everytime token changes, we reconnect
+
+  /**
+   * Brings the socket back up now instead of waiting out the 3s reconnect
+   * timer (which mobile browsers also suspend while the page is backgrounded).
+   * A socket that is already OPEN or CONNECTING is left alone.
+   */
+  const reconnectNow = useCallback(() => {
+    if (unmountedRef.current) {
+      return;
+    }
+    const socket = wsRef.current;
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    connect();
+  }, [connect]);
 
   const sendMessage = useCallback((message: unknown) => {
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(message));
-    } else {
-      console.warn('WebSocket not connected');
+      return true;
     }
-  }, []);
+    // Never drop the frame: park it and reconnect right away, so a message
+    // composed over a socket the browser killed still reaches the server.
+    outboxRef.current.push(message);
+    console.warn('WebSocket not connected — frame queued until reconnect');
+    reconnectNow();
+    return false;
+  }, [reconnectNow]);
 
   const subscribe = useCallback((listener: ServerEventListener) => {
     listenersRef.current.add(listener);
@@ -192,18 +249,16 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     if (unmountedRef.current) return;
     const socket = wsRef.current;
     if (socket) {
-      // Closing hands recovery to the regular onclose → reconnect path.
+      // Drop the reference before closing: the stale socket's late `onclose`
+      // is then ignored instead of scheduling a competing reconnect.
+      wsRef.current = null;
       socket.close();
-      return;
     }
-    // No socket: a reconnect timer may be pending (and mobile browsers
-    // suspend timers in background tabs) — reconnect right now instead.
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-    connect();
-  }, [connect]);
+    // Straight back up rather than through the 3s timer (which mobile browsers
+    // suspend in background tabs anyway) — callers ask for this precisely when
+    // the connection is suspect and a send may be seconds away.
+    reconnectNow();
+  }, [reconnectNow]);
 
   const value: WebSocketContextType = useMemo(() =>
   ({

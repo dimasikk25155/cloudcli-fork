@@ -1,4 +1,4 @@
-"""Собирает /guide и /kp из общего стиля и варп-движка лендинга CloudCLI."""
+"""Собирает /guide и /kp из общего стиля и варп-движка лендинга Neo3 Agent System."""
 import re, pathlib
 
 BASE = pathlib.Path(__file__).resolve().parent
@@ -114,7 +114,7 @@ KP_CSS = """
 """
 
 FOOT = """<footer><div class="wrap"><div class="foot">
-  <div class="logo">NEO<b>3</b> · <span style="font-family:'Jura',sans-serif;font-weight:600;font-size:12px;letter-spacing:2px;color:var(--muted)">CLOUDCLI</span></div>
+  <div class="logo">NEO3 <b>AGENT</b></div>
   <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:'Jura',sans-serif;font-weight:600;font-size:13px">
     <a href="/" style="color:var(--muted)">О продукте</a>
     <a href="/guide" style="color:var(--muted)">Гайд</a>
@@ -174,10 +174,11 @@ def page(title, desc, extra_css, body, noindex=False, canonical=None):
 {svg_defs}
 
 <header id="hdr"><div class="wrap"><nav aria-label="Основная навигация">
-  <a class="logo" href="/">CLOUD<b>CLI</b></a>
+  <a class="logo" href="/">NEO3 <b>AGENT</b></a>
   <div class="nav-links">
     <a href="/">О продукте</a>
-    <a href="/guide">Гайд для новичка</a>
+    <a href="/business">Чем полезно</a>
+    <a href="/guide">Гайд</a>
     <a href="/kp">Предложение</a>
   </div>
   <a class="btn pulse" href="https://t.me/bitcoin_tothe_moon" target="_blank" rel="noopener">Написать</a>
@@ -210,7 +211,7 @@ GUIDE_SECTIONS = [
     ("claude", "Подключение вашего аккаунта Claude", """
     <p>Прежде чем ставить агенту задачи, нужно подключить подписку. Путь такой:</p>
     <p><span class="path">Settings (шестерёнка) → Агенты → Claude → «Войти снова»</span></p>
-    <p>Откроется ссылка входа в Anthropic — это компания, которая делает Claude. Логинитесь там своим аккаунтом, тем, на котором оформлена подписка Claude Code. После этого возвращаетесь в CloudCLI — всё готово к работе.</p>
+    <p>Откроется ссылка входа в Anthropic — это компания, которая делает Claude. Логинитесь там своим аккаунтом, тем, на котором оформлена подписка Claude Code. После этого возвращаетесь в Neo3 Agent System — всё готово к работе.</p>
     <p>Данные входа хранятся только на вашем сервере. Ни с чьей чужой подпиской они не пересекаются.</p>
     <figure class="shot">
       <img src="/guide/img/02-connect.webp" alt="Settings → Агенты → Claude: статус подключения и кнопка «Войти снова»" loading="lazy">
@@ -335,8 +336,8 @@ guide_body = f"""<div class="page-hero wrap">
 
 (BASE / "guide").mkdir(exist_ok=True)
 (BASE / "guide" / "index.html").write_text(page(
-    "Гайд по интерфейсу CloudCLI — для новичка",
-    "Пошаговая инструкция по CloudCLI для человека без технического опыта: первый вход, подключение Claude, проекты и сеансы, постановка задач, приложение на телефоне.",
+    "Гайд по интерфейсу Neo3 Agent System — для новичка",
+    "Пошаговая инструкция по Neo3 Agent System для человека без технического опыта: первый вход, подключение Claude, проекты и сеансы, постановка задач, приложение на телефоне.",
     SUB_CSS, guide_body, canonical="https://cli.neo3.ru/guide"))
 
 # ============================ КП ============================
@@ -443,11 +444,9 @@ kp_body = """<div class="page-hero wrap">
   </section>
 </div>"""
 
-(BASE / "kp").mkdir(exist_ok=True)
-(BASE / "kp" / "index.html").write_text(page(
-    "CloudCLI — предложение для бизнеса",
-    "ИИ-агент на вашем сервере: установка под ключ, обучение, поддержка. Задачи ставите сами, обычными словами.",
-    SUB_CSS + KP_CSS, kp_body, noindex=True))
+# /kp и /business — самодостаточные страницы, поддерживаются ВРУЧНУЮ
+# (исходники: kp-business-preview.html / biz-value-preview.html в корне проекта).
+# Сборщик их НЕ генерит и НЕ трогает, чтобы случайным перезапуском не затереть.
+# Здесь остаётся только сборка /guide.
 
 print("guide:", (BASE / "guide" / "index.html").stat().st_size, "bytes")
-print("kp:   ", (BASE / "kp" / "index.html").stat().st_size, "bytes")

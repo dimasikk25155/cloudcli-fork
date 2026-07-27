@@ -8,6 +8,8 @@
 
 import { getConnection } from '@/modules/database/connection.js';
 
+type UserRole = 'admin' | 'user';
+
 type UserRow = {
   id: number;
   username: string;
@@ -18,9 +20,12 @@ type UserRow = {
   git_name: string | null;
   git_email: string | null;
   has_completed_onboarding: number;
+  role: UserRole;
 };
 
-type UserPublicRow = Pick<UserRow, 'id' | 'username' | 'created_at' | 'last_login'>;
+type UserPublicRow = Pick<UserRow, 'id' | 'username' | 'created_at' | 'last_login' | 'role'>;
+
+type UserListRow = Pick<UserRow, 'id' | 'username' | 'role' | 'is_active' | 'created_at' | 'last_login'>;
 
 type UserGitConfig = {
   git_name: string | null;
@@ -31,6 +36,8 @@ type CreateUserResult = {
   id: number | bigint;
   username: string;
 };
+
+type CreateUserWithRoleResult = CreateUserResult & { role: UserRole };
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -53,6 +60,50 @@ export const userDb = {
       .prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
       .run(username, passwordHash);
     return { id: result.lastInsertRowid, username };
+  },
+
+  /** Inserts a new user with an explicit role (used by admin-create and first-run setup). */
+  createUserWithRole(username: string, passwordHash: string, role: UserRole): CreateUserWithRoleResult {
+    const db = getConnection();
+    const result = db
+      .prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
+      .run(username, passwordHash, role);
+    return { id: result.lastInsertRowid, username, role };
+  },
+
+  /** Returns every user (for the admin user-list screen). */
+  listUsers(): UserListRow[] {
+    const db = getConnection();
+    return db
+      .prepare('SELECT id, username, role, is_active, created_at, last_login FROM users ORDER BY id')
+      .all() as UserListRow[];
+  },
+
+  /** Updates a user's role. */
+  setUserRole(userId: number, role: UserRole): void {
+    const db = getConnection();
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+  },
+
+  /** Activates/deactivates a user (deactivated users can no longer log in). */
+  setUserActive(userId: number, isActive: boolean): void {
+    const db = getConnection();
+    db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(isActive ? 1 : 0, userId);
+  },
+
+  /** Counts active admins (used to block removing the last admin). */
+  countActiveAdmins(): number {
+    const db = getConnection();
+    const row = db
+      .prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND is_active = 1")
+      .get() as { count: number };
+    return row.count;
+  },
+
+  /** Resets a user's password hash (admin-initiated reset). */
+  setUserPassword(userId: number, passwordHash: string): void {
+    const db = getConnection();
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, userId);
   },
 
   /**
@@ -84,7 +135,7 @@ export const userDb = {
     const db = getConnection();
     return db
       .prepare(
-        'SELECT id, username, created_at, last_login FROM users WHERE id = ? AND is_active = 1'
+        'SELECT id, username, created_at, last_login, role FROM users WHERE id = ? AND is_active = 1'
       )
       .get(userId) as UserPublicRow | undefined;
   },
@@ -94,7 +145,7 @@ export const userDb = {
     const db = getConnection();
     return db
       .prepare(
-        'SELECT id, username, created_at, last_login FROM users WHERE is_active = 1 LIMIT 1'
+        'SELECT id, username, created_at, last_login, role FROM users WHERE is_active = 1 LIMIT 1'
       )
       .get() as UserPublicRow | undefined;
   },

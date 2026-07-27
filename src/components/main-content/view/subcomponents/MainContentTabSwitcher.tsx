@@ -7,6 +7,7 @@ import type { AppTab } from '../../../../types/app';
 import { usePlugins } from '../../../../contexts/PluginsContext';
 import { useAuth } from '../../../auth/context/AuthContext';
 import PluginIcon from '../../../plugins/view/PluginIcon';
+import { localizePluginName } from '../../../plugins/utils/pluginDisplayName';
 
 type MainContentTabSwitcherProps = {
   activeTab: AppTab;
@@ -77,7 +78,7 @@ export default function MainContentTabSwitcher({
     .map((p) => ({
       kind: 'plugin',
       id: `plugin:${p.name}` as AppTab,
-      label: p.displayName,
+      label: localizePluginName(p.name, p.displayName, t),
       pluginName: p.name,
       iconFile: p.icon,
     }));

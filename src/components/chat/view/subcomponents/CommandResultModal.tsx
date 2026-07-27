@@ -71,6 +71,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   cursor: 'Cursor',
   codex: 'Codex',
   opencode: 'OpenCode',
+  kimi: 'Kimi',
 };
 
 const FALLBACK_COMMANDS: CommandEntry[] = [
@@ -534,12 +535,18 @@ function CostContent({ data }: { data: CostCommandData }) {
   const used = Number(data.tokenUsage?.used ?? 0);
   const total = Number(data.tokenUsage?.total ?? 0);
   const model = data.model || 'Unknown';
-  const provider = getProviderLabel(data.provider, data.provider || 'Unknown');
+  const provider =
+    data.providerLabel || getProviderLabel(data.provider, data.provider || 'Unknown');
   const hasBreakdown =
     typeof data.tokenBreakdown?.input === 'number' ||
     typeof data.tokenBreakdown?.output === 'number';
+  const contextUsed = Number(data.contextUsage?.used ?? 0);
+  const contextTotal = Number(data.contextUsage?.total ?? 0);
+  const hasAnyData = used > 0 || hasBreakdown || contextUsed > 0;
   const usageRows = [
-    { label: 'Всего токенов', value: formatNumber(used), icon: Activity },
+    ...(used > 0
+      ? [{ label: 'Всего токенов (вся сессия, с кешем)', value: formatNumber(used), icon: Activity }]
+      : []),
     ...(hasBreakdown
       ? [
           {
@@ -553,16 +560,21 @@ function CostContent({ data }: { data: CostCommandData }) {
             icon: Coins,
           },
         ]
-      : [
-          {
-            label: 'Разбивка',
-            value: 'Недоступно',
-            icon: TerminalSquare,
-          },
-        ]),
-    ...(total > 0
-      ? [{ label: 'Окно контекста', value: formatNumber(total), icon: Gauge }]
       : []),
+    ...(contextUsed > 0
+      ? [
+          {
+            label: 'Сейчас в контексте',
+            value:
+              contextTotal > 0
+                ? `${formatNumber(contextUsed)} / ${formatNumber(contextTotal)}`
+                : formatNumber(contextUsed),
+            icon: Gauge,
+          },
+        ]
+      : total > 0
+        ? [{ label: 'Окно контекста', value: formatNumber(total), icon: Gauge }]
+        : []),
   ];
 
   if (showHistory) {
@@ -571,26 +583,35 @@ function CostContent({ data }: { data: CostCommandData }) {
 
   return (
     <div className="space-y-4">
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/75">
-        {usageRows.map((row) => {
-          const Icon = row.icon;
+      {hasAnyData ? (
+        <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/75">
+          {usageRows.map((row) => {
+            const Icon = row.icon;
 
-          return (
-            <div
-              key={row.label}
-              className="flex items-center justify-between gap-4 border-b border-border/60 px-4 py-3 last:border-b-0"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span className="truncate text-sm font-medium text-foreground">{row.label}</span>
+            return (
+              <div
+                key={row.label}
+                className="flex items-center justify-between gap-4 border-b border-border/60 px-4 py-3 last:border-b-0"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span className="truncate text-sm font-medium text-foreground">{row.label}</span>
+                </div>
+                <span className="shrink-0 font-mono text-sm font-semibold text-foreground">{row.value}</span>
               </div>
-              <span className="shrink-0 font-mono text-sm font-semibold text-foreground">{row.value}</span>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-4 py-8 text-center">
+          <p className="text-sm font-medium text-foreground">По этой сессии пока нет данных о расходе</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">
+            Цифры появятся после первых сообщений. Ниже — честная история расхода по всем сессиям с диска.
+          </p>
+        </div>
+      )}
 
       <button
         type="button"
@@ -617,7 +638,12 @@ function CostContent({ data }: { data: CostCommandData }) {
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Модель</p>
-            <p className="mt-1 break-all font-mono text-sm text-foreground">{model}</p>
+            <p
+              className="mt-1 break-all font-mono text-sm text-foreground"
+              title={data.modelId ? `id: ${data.modelId}` : undefined}
+            >
+              {model}
+            </p>
           </div>
         </div>
       </div>

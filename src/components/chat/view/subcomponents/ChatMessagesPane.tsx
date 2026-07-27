@@ -40,6 +40,10 @@ interface ChatMessagesPaneProps {
   setCodexModel: (model: string) => void;
   opencodeModel: string;
   setOpenCodeModel: (model: string) => void;
+  kimiModel: string;
+  setKimiModel: (model: string) => void;
+  geminiModel: string;
+  setGeminiModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
   tasksEnabled: boolean;
@@ -88,6 +92,10 @@ function ChatMessagesPane({
   setCodexModel,
   opencodeModel,
   setOpenCodeModel,
+  kimiModel,
+  setKimiModel,
+  geminiModel,
+  setGeminiModel,
   providerModelCatalog,
   providerModelsLoading,
   tasksEnabled,
@@ -187,6 +195,10 @@ function ChatMessagesPane({
           setCodexModel={setCodexModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
+          kimiModel={kimiModel}
+          setKimiModel={setKimiModel}
+          geminiModel={geminiModel}
+          setGeminiModel={setGeminiModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={tasksEnabled}

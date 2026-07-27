@@ -322,6 +322,15 @@
       },
       "codex": {
         "description": "OpenAI Codex KI-Assistent"
+      },
+      "opencode": {
+        "description": "OpenCode CLI KI-Assistent"
+      },
+      "kimi": {
+        "description": "Moonshot Kimi KI-Assistent"
+      },
+      "gemini": {
+        "description": "Google Gemini KI-Assistent"
       }
     },
     "connectionStatus": "Verbindungsstatus",
@@ -416,7 +425,10 @@
     "description": {
       "claude": "Model Context Protocol-Server stellen Claude zusätzliche Werkzeuge und Datenquellen zur Verfügung",
       "cursor": "Model Context Protocol-Server stellen Cursor zusätzliche Werkzeuge und Datenquellen zur Verfügung",
-      "codex": "Model Context Protocol-Server stellen Codex zusätzliche Werkzeuge und Datenquellen zur Verfügung"
+      "codex": "Model Context Protocol-Server stellen Codex zusätzliche Werkzeuge und Datenquellen zur Verfügung",
+      "opencode": "Model Context Protocol-Server stellen OpenCode zusätzliche Werkzeuge und Datenquellen zur Verfügung",
+      "kimi": "Model Context Protocol-Server stellen Kimi zusätzliche Werkzeuge und Datenquellen zur Verfügung",
+      "gemini": "Model Context Protocol-Server stellen Gemini zusätzliche Werkzeuge und Datenquellen zur Verfügung"
     },
     "addButton": "MCP-Server hinzufügen",
     "empty": "Keine MCP-Server konfiguriert",

@@ -18,8 +18,8 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
       value: 'opus[1m]',
-      label: 'Opus 4.8 (1M context)',
-      description: 'Opus 4.8 with 1M context · Most capable for complex work · $5/$25 per Mtok',
+      label: 'Opus 5',
+      description: 'Opus 5 · Most capable for complex work · $5/$25 per Mtok',
       effort: {
         default: 'high',
         values: [
@@ -33,8 +33,8 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'sonnet[1m]',
-      label: 'Sonnet (1M context)',
-      description: 'Sonnet 4.6 for long sessions · $3/$15 per Mtok',
+      label: 'Sonnet 5',
+      description: 'Sonnet 5 for long sessions · $3/$15 per Mtok',
       effort: {
         default: 'high',
         values: [
@@ -47,7 +47,7 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'fable',
-      label: 'Fable',
+      label: 'Fable 5',
       description: 'Fable 5 · Most capable for your hardest and longest-running tasks · Uses your limits ~2× faster than Opus',
       effort: {
         default: 'high',

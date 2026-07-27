@@ -32,7 +32,7 @@ import {
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
-import { recordRunOutcome, buildRunInterruptedNotice } from './shared/run-outcomes.js';
+import { recordRunOutcome, buildRunInterruptedNotice, isTransientRunFailure } from './shared/run-outcomes.js';
 import { checkUsageGuard, buildUsageGuardNotice } from './shared/claude-usage.js';
 
 // The CLI binary self-updates by swapping a versions/X.Y.Z file and
@@ -45,6 +45,14 @@ import { checkUsageGuard, buildUsageGuardNotice } from './shared/claude-usage.js
 // scratch without risking duplicated output).
 const CLI_SPAWN_RACE_PATTERN = /exists but failed to launch/i;
 const CLI_SPAWN_RACE_RETRY_DELAY_MS = 800;
+
+// A run can still die on Anthropic being overloaded or dropping the connection
+// even with the CLI's own retry watchdog on (see mapCliOptionsToSDK). The user's
+// only recourse used to be re-sending the message by hand — often losing an
+// hour of agent work to a red error banner. The run loop now does that resend
+// itself, on the same session, waiting longer after each failure. Four attempts
+// span ~3.5 minutes, which covers a typical 529 wave.
+const TRANSIENT_RETRY_DELAYS_MS = [5_000, 20_000, 60_000, 120_000];
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -62,6 +70,68 @@ const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEO
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
+// The Claude Code CLI (>=2.1.x) already defers MCP tools behind a ToolSearch
+// tool by default: telegram/playwright/windows/ollama schemas (~30k tokens,
+// telegram alone is 101 tools) are pulled in on demand instead of bloating the
+// turn-1 prompt. We only need to opt specific servers OUT of that deferral.
+// MCP servers whose tools must stay in the prompt (alwaysLoad, never deferred)
+// because the model needs them on essentially every turn — obsidian-dimasik is
+// the external memory. Verified against claude 2.1.218 (see .tmp verify runs):
+// without this the memory tools are deferred and invisible at turn 1.
+const MCP_ALWAYS_LOAD_SERVERS = new Set(['obsidian-dimasik']);
+
+// Nudge for weaker (Kimi) models. The Claude Code CLI defers heavy MCP servers
+// behind a ToolSearch tool: only the server name reaches the turn-1 prompt, not
+// the ~30k tokens of tool schemas (telegram alone is 101 tools). Claude loads
+// them on demand automatically; Kimi tends to see just the name and declare the
+// tool unusable ("I see telegram but can't call it") instead of searching. This
+// ~40-token hint restores access without pinning every schema into every turn
+// (~750x cheaper than alwaysLoad). Scoped to Kimi — Claude needs no reminder.
+const MCP_DEFERRED_TOOLS_HINT =
+  'Some MCP server tools (e.g. telegram, windows, playwright, ollama) are loaded ' +
+  'on demand: only the server name is visible to you, not the individual tool ' +
+  'schemas. Before calling any such MCP tool, first call the ToolSearch tool ' +
+  '(e.g. query "select:mcp__telegram__get_messages", or keywords like "telegram ' +
+  'messages") to load its schema, then call the tool. Never tell the user an MCP ' +
+  'tool is unavailable without calling ToolSearch for it first.';
+
+// UI model ids that route to Kimi's endpoint (consumed in mapCliOptionsToSDK).
+// Module-scoped so the MCP-pin logic in queryClaudeSDK can detect Kimi too.
+const KIMI_MODEL_MAP = {
+  'kimi-k3': 'k3',
+  'kimi-coding': 'kimi-for-coding',
+  'kimi-coding-highspeed': 'kimi-for-coding-highspeed',
+};
+const isKimiModel = (model) =>
+  typeof model === 'string' && Object.prototype.hasOwnProperty.call(KIMI_MODEL_MAP, model);
+
+// Anthropic-style effort levels that a given Kimi model actually understands
+// when translated to Kimi's native vocabulary (low/high/max). The SDK only
+// accepts Anthropic levels; we translate right before the request goes out.
+// K2.7 models expose no effort control at all — they always think at their
+// one fixed level, so they are absent here and will have effort stripped.
+const KIMI_EFFORT_MAP = {
+  k3: { low: 'low', high: 'high', max: 'max' },
+};
+
+// Plan B for Kimi's weak tool discovery. The ~40-token ToolSearch hint above is
+// not enough: Kimi ignores ToolSearch and, rather than call the deferred
+// telegram MCP, reverse-engineers telegram-mcp and hits the API with raw creds.
+// So when a Kimi chat actually works with a given MCP server, pin that server —
+// its tools then sit directly in the prompt and Kimi can call them with no
+// ToolSearch. Kept OFF by default so ordinary turns never pay the schema cost
+// (telegram alone is ~30k); sticky per session so follow-ups in the SAME chat
+// stay pinned. Claude is untouched (it uses ToolSearch fine). Applies to all
+// heavy local MCPs: telegram, windows, playwright, ollama.
+const KIMI_MCP_PIN_RULES = [
+  { server: 'telegram', re: /telegram|телеграм|избранн|(?:^|[^a-zа-яё])(?:тг|tg)(?:[^a-zа-яё]|$)/i },
+  { server: 'windows', re: /windows|виндов|винсервер|винд[аеы]/i },
+  { server: 'playwright', re: /playwright|плейрайт|плейврайт|браузер|browser/i },
+  { server: 'ollama', re: /ollama|оллама|олама|qwen|квен|gemma|гемма/i },
+];
+// sessionId -> Set of pinned server names (sticky per chat).
+const KIMI_PINNED_MCP_BY_SESSION = new Map();
+
 // Safety net for the held-open prompt stream (see buildPromptPayload): if the
 // CLI never emits `session_state_changed: idle` — version drift, or the event
 // simply not firing for a turn shape — the input stays open and the run hangs
@@ -73,6 +143,15 @@ const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode'])
 const IDLE_FALLBACK_NO_STATE_EVENTS_MS = parseInt(process.env.CLAUDE_IDLE_FALLBACK_NO_STATE_EVENTS_MS, 10) || 60_000;
 const IDLE_FALLBACK_SILENCE_MS = parseInt(process.env.CLAUDE_IDLE_FALLBACK_SILENCE_MS, 10) || 30 * 60_000;
 const IDLE_FALLBACK_CHECK_INTERVAL_MS = 10_000;
+// Grace window before honoring an `idle` event with no pending approvals.
+// The CLI can emit `session_state_changed: idle` a beat BEFORE the matching
+// permission control-request reaches canUseTool — the pending-approvals guard
+// then sees an empty map and releasing on the spot closes the CLI's stdin
+// right before AskUserQuestion/ExitPlanMode needs it ("Tool permission
+// request failed: AbortError: Stream closed" even with the guard deployed).
+// Defer the release and re-check at fire time; by then the control request
+// has landed and the guard sees the real state.
+const RELEASE_GRACE_MS = parseInt(process.env.CLAUDE_RELEASE_GRACE_MS, 10) || 3_000;
 
 function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_FALLBACK_MODELS) {
   const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
@@ -197,7 +276,17 @@ function mapCliOptionsToSDK(options = {}) {
   // CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS makes the CLI emit
   // `session_state_changed` messages; queryClaudeSDK relies on the `idle`
   // one to release the held-open prompt stream so the CLI can exit.
-  sdkOptions.env = { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' };
+  // CLAUDE_CODE_RETRY_WATCHDOG makes the CLI survive Anthropic being overloaded
+  // instead of failing the run with "API Error: 529 Overloaded". Without it the
+  // CLI (a) caps retries at 10, (b) gives up when the server asks to wait too
+  // long, and (c) drops a 529 outright in background sub-requests (compaction,
+  // subagents) — its own telemetry calls that `overload_background_dropped`.
+  // With it: 300 retries, mid-stream 529s retried, long waits honoured.
+  sdkOptions.env = {
+    ...process.env,
+    CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1',
+    CLAUDE_CODE_RETRY_WATCHDOG: process.env.CLAUDE_CODE_RETRY_WATCHDOG || '1',
+  };
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
@@ -252,13 +341,13 @@ function mapCliOptionsToSDK(options = {}) {
     sdkOptions.effort = resolvedEffort;
   }
 
-  // Kimi K3: the UI model id is `kimi-<native>` (e.g. `kimi-k3`). Kimi is the
-  // same Claude Code CLI pointed at Kimi's Anthropic-compatible endpoint using a
-  // separate Kimi subscription — it does NOT touch the Claude Max limit. Strip
-  // the prefix for the real model and inject Kimi's base URL + key into THIS
+  // Kimi models: the UI ids in this map run the same Claude Code engine
+  // pointed at Kimi's Anthropic-compatible endpoint using a separate Kimi
+  // subscription — they do NOT touch the Claude Max limit. Each UI id maps to
+  // Kimi's native model id, and the base URL + key are injected into THIS
   // subprocess env only. Non-Kimi models fall through untouched (Claude Max).
-  if (typeof sdkOptions.model === 'string' && sdkOptions.model.startsWith('kimi-')) {
-    const kimiModel = sdkOptions.model.slice('kimi-'.length) || 'k3';
+  const kimiModel = typeof sdkOptions.model === 'string' ? KIMI_MODEL_MAP[sdkOptions.model] : undefined;
+  if (kimiModel) {
     const kimiKey = (process.env.KIMI_CODE_KEY || '').trim();
     sdkOptions.model = kimiModel;
     sdkOptions.env = {
@@ -269,14 +358,32 @@ function mapCliOptionsToSDK(options = {}) {
       ANTHROPIC_MODEL: kimiModel,
       ANTHROPIC_SMALL_FAST_MODEL: 'kimi-for-coding',
     };
-    // Kimi's gateway does not use Claude effort levels.
-    delete sdkOptions.effort;
+    // Kimi's gateway accepts its own effort vocabulary (low/high/max), not
+    // Anthropic's (low/medium/high/xhigh/max). The resolveClaudeEffort call
+    // above already vetted `effort` against the model's declared UI values;
+    // here we translate to the native level. Anything not in KIMI_EFFORT_MAP
+    // (i.e. the K2.7 models, which have no effort control) is stripped, so
+    // the gateway never receives a level it can't parse.
+    const translatedEffort = KIMI_EFFORT_MAP[kimiModel]?.[sdkOptions.effort];
+    if (translatedEffort) {
+      sdkOptions.effort = translatedEffort;
+    } else {
+      delete sdkOptions.effort;
+    }
   }
 
   sdkOptions.systemPrompt = {
     type: 'preset',
     preset: 'claude_code'
   };
+
+  // Kimi is weaker at agentic tool discovery and does not reliably call
+  // ToolSearch for deferred MCP servers, so telegram/windows/etc. look present
+  // but uncallable. Append a short hint for Kimi only (Claude does this
+  // unprompted). Far cheaper than un-deferring the schemas via alwaysLoad.
+  if (kimiModel) {
+    sdkOptions.systemPrompt.append = MCP_DEFERRED_TOOLS_HINT;
+  }
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
 
@@ -520,6 +627,9 @@ async function loadMcpConfig(cwd) {
 async function queryClaudeSDK(command, options = {}, ws) {
   const { sessionId, sessionSummary } = options;
   let capturedSessionId = sessionId;
+  // Servers this run pins for Kimi (see mcpServers build), so the session id
+  // captured mid-run can be added to the sticky map for a brand-new chat.
+  const pinnedMcpThisRun = new Set();
   let sessionCreatedSent = false;
 
   // Usage guard: hold new runs once the 5-hour subscription window crosses the
@@ -563,6 +673,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sessionId,
       options.model,
     );
+    const resolvedEffort = await providerModelsService.resolveResumeEffort(
+      'claude',
+      sessionId,
+      options.effort,
+    );
     let effortModels = CLAUDE_FALLBACK_MODELS;
     try {
       effortModels = (await providerModelsService.getProviderModels('claude')).models;
@@ -573,11 +688,45 @@ async function queryClaudeSDK(command, options = {}, ws) {
     const sdkOptions = mapCliOptionsToSDK({
       ...options,
       model: resolvedModel || options.model,
+      effort: resolvedEffort || options.effort,
       effortModels,
     });
 
     const mcpServers = await loadMcpConfig(options.cwd);
     if (mcpServers) {
+      // Pin the memory server so its tools stay in the prompt instead of being
+      // deferred behind ToolSearch with the rest. Applied for every provider:
+      // on Claude it un-defers memory; on Kimi it is a harmless no-op if the
+      // gateway ignores alwaysLoad, and keeps memory reachable if it doesn't.
+      const alwaysLoad = new Set(MCP_ALWAYS_LOAD_SERVERS);
+
+      // Kimi sessions: pin an MCP server whose domain shows up in the message
+      // (Kimi ignores ToolSearch, so deferred tools are unusable for it).
+      // Sticky for the rest of that chat. See KIMI_MCP_PIN_RULES /
+      // KIMI_PINNED_MCP_BY_SESSION.
+      if (isKimiModel(resolvedModel || options.model)) {
+        const sid = capturedSessionId || sessionId || null;
+        const sticky = sid ? KIMI_PINNED_MCP_BY_SESSION.get(sid) : undefined;
+        const text = command || '';
+        for (const { server, re } of KIMI_MCP_PIN_RULES) {
+          if (!mcpServers[server]) continue; // not configured — nothing to pin
+          if (re.test(text) || (sticky && sticky.has(server))) {
+            alwaysLoad.add(server);
+            pinnedMcpThisRun.add(server);
+            if (sid) {
+              let set = KIMI_PINNED_MCP_BY_SESSION.get(sid);
+              if (!set) KIMI_PINNED_MCP_BY_SESSION.set(sid, (set = new Set()));
+              set.add(server);
+            }
+          }
+        }
+      }
+
+      for (const [name, config] of Object.entries(mcpServers)) {
+        if (config && typeof config === 'object' && alwaysLoad.has(name)) {
+          mcpServers[name] = { ...config, alwaysLoad: true };
+        }
+      }
       sdkOptions.mcpServers = mcpServers;
     }
 
@@ -691,6 +840,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     let queryInstance;
     let anyMessageReceived = false;
     let spawnRaceAttempt = 0;
+    let transientRetryAttempt = 0;
 
     while (true) {
       try {
@@ -725,8 +875,25 @@ async function queryClaudeSDK(command, options = {}, ws) {
         let lastStreamActivityAt = Date.now();
         let turnResultSeen = false;
         let sawSessionStateEvent = false;
+        // Tool-use ids streamed by the CLI that have not yet received a matching
+        // tool_result. While this is non-empty the CLI is actively working on a
+        // tool (or blocked on the user for an interactive one like
+        // AskUserQuestion / ExitPlanMode, whose tool_result only arrives after
+        // the user answers). Releasing the held-open input in that state closes
+        // the CLI's stdin mid-tool and the pending permission response lands in
+        // a dead channel — "Tool permission request failed: AbortError: Stream
+        // closed". This is the authoritative activity signal and does not depend
+        // on the racy pending-approval registration or timing guesses: it covers
+        // both the interactive-tool idle race AND a long-running tool (e.g. a
+        // Vercel CLI call hanging for minutes) that would otherwise trip the
+        // silence-based idle fallback below.
+        const outstandingToolUseIds = new Set();
         idleFallbackTimer = setInterval(() => {
           if (inputReleased || !turnResultSeen) return;
+          if (outstandingToolUseIds.size > 0) {
+            lastStreamActivityAt = Date.now();
+            return;
+          }
           const sid = capturedSessionId || sessionId || null;
           if (sid && getPendingApprovalsForSession(sid).length > 0) {
             lastStreamActivityAt = Date.now();
@@ -748,6 +915,23 @@ async function queryClaudeSDK(command, options = {}, ws) {
             turnResultSeen = true;
           }
 
+          // Track open tool calls: a tool_use block is outstanding until its
+          // tool_result streams back. Shape-tolerant scan of the Anthropic
+          // message payload (assistant → tool_use, user → tool_result). Used by
+          // the release guards to keep stdin open while any tool is in flight.
+          {
+            const content = Array.isArray(message?.message?.content) ? message.message.content : null;
+            if (content) {
+              for (const block of content) {
+                if (block?.type === 'tool_use' && block.id) {
+                  outstandingToolUseIds.add(block.id);
+                } else if (block?.type === 'tool_result' && block.tool_use_id) {
+                  outstandingToolUseIds.delete(block.tool_use_id);
+                }
+              }
+            }
+          }
+
           // Authoritative turn-over signal: fires only after the result flushed
           // AND background agents drained. Releasing here lets the prompt
           // generator finish, so the SDK closes the CLI's stdin and the idle CLI
@@ -757,7 +941,47 @@ async function queryClaudeSDK(command, options = {}, ws) {
           if (message.type === 'system' && message.subtype === 'session_state_changed') {
             sawSessionStateEvent = true;
             if (message.state === 'idle') {
-              releaseInput();
+              // Interactive tools (AskUserQuestion, ExitPlanMode) make the CLI
+              // emit `idle` WHILE a permission prompt is still pending in the
+              // browser — the CLI has nothing to compute, it's blocked on the
+              // user. Releasing input here would close the CLI's stdin and tear
+              // down the stdio control channel, so when the user finally answers
+              // the SDK writes the response into a dead channel and it fails with
+              // "AbortError: Stream closed". Mirror the idle-fallback timer's
+              // guard: defer the release while approvals are outstanding. Once
+              // the user answers, a later idle (or the fallback timer) releases.
+              const sid = capturedSessionId || sessionId || null;
+              if (outstandingToolUseIds.size > 0) {
+                // A tool is still in flight (interactive tool blocked on the
+                // user, or a long tool call). The CLI can emit `idle` here
+                // because it has nothing to compute while waiting — do not
+                // release; the tool_result (or the next idle) will clear it.
+                lastStreamActivityAt = Date.now();
+              } else if (sid && getPendingApprovalsForSession(sid).length > 0) {
+                lastStreamActivityAt = Date.now();
+              } else {
+                // No approval is pending RIGHT NOW — but the control request
+                // may still be in flight behind this idle event (see
+                // RELEASE_GRACE_MS). Defer the release and re-check at fire
+                // time: bail if input was already released, if newer stream
+                // activity arrived after this idle, or if an approval got
+                // registered meanwhile. Otherwise really release.
+                const idleAt = lastStreamActivityAt;
+                setTimeout(() => {
+                  if (inputReleased) return;
+                  if (lastStreamActivityAt > idleAt) return;
+                  if (outstandingToolUseIds.size > 0) {
+                    lastStreamActivityAt = Date.now();
+                    return;
+                  }
+                  const sidNow = capturedSessionId || sessionId || null;
+                  if (sidNow && getPendingApprovalsForSession(sidNow).length > 0) {
+                    lastStreamActivityAt = Date.now();
+                    return;
+                  }
+                  releaseInput();
+                }, RELEASE_GRACE_MS);
+              }
             }
           }
 
@@ -766,6 +990,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
             capturedSessionId = message.session_id;
             addSession(capturedSessionId, queryInstance, ws);
+            // New chat pinned MCPs before its id existed — record them now so
+            // follow-up turns in this chat stay pinned (Kimi MCP stickiness).
+            if (pinnedMcpThisRun.size) {
+              let set = KIMI_PINNED_MCP_BY_SESSION.get(capturedSessionId);
+              if (!set) KIMI_PINNED_MCP_BY_SESSION.set(capturedSessionId, (set = new Set()));
+              for (const server of pinnedMcpThisRun) set.add(server);
+            }
 
             // Set session ID on writer
             if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -802,18 +1033,62 @@ async function queryClaudeSDK(command, options = {}, ws) {
           }
         }
         break;
-      } catch (spawnError) {
-        const isSpawnRace = CLI_SPAWN_RACE_PATTERN.test(spawnError?.message || '');
+      } catch (runError) {
+        const isSpawnRace = CLI_SPAWN_RACE_PATTERN.test(runError?.message || '');
         if (idleFallbackTimer) {
           clearInterval(idleFallbackTimer);
           idleFallbackTimer = null;
         }
-        if (!isSpawnRace || anyMessageReceived || spawnRaceAttempt >= 1) {
-          throw spawnError;
+        if (isSpawnRace && !anyMessageReceived && spawnRaceAttempt < 1) {
+          spawnRaceAttempt += 1;
+          console.warn(`[Claude SDK] CLI binary mid-update, retrying spawn in ${CLI_SPAWN_RACE_RETRY_DELAY_MS}ms:`, runError.message);
+          await sleep(CLI_SPAWN_RACE_RETRY_DELAY_MS);
+          continue;
         }
-        spawnRaceAttempt += 1;
-        console.warn(`[Claude SDK] CLI binary mid-update, retrying spawn in ${CLI_SPAWN_RACE_RETRY_DELAY_MS}ms:`, spawnError.message);
-        await sleep(CLI_SPAWN_RACE_RETRY_DELAY_MS);
+
+        // Anthropic wobbled (529 overloaded, 5xx, dropped connection): resend
+        // the turn instead of ending the run with an error the user can only
+        // answer by re-sending it themselves.
+        const sid = capturedSessionId || sessionId || null;
+        const retryDelayMs = TRANSIENT_RETRY_DELAYS_MS[transientRetryAttempt];
+        if (retryDelayMs === undefined
+          || !isTransientRunFailure(runError?.message)
+          || (sid && abortedSessionIds.has(sid))) {
+          throw runError;
+        }
+        transientRetryAttempt += 1;
+
+        const waitSeconds = Math.round(retryDelayMs / 1000);
+        console.warn(`[Claude SDK] Transient failure — resuming the run in ${waitSeconds}s (attempt ${transientRetryAttempt}/${TRANSIENT_RETRY_DELAYS_MS.length}, session: ${sid || 'NEW'}):`, runError?.message);
+        ws.send(createNormalizedMessage({
+          kind: 'text',
+          role: 'assistant',
+          content: `⏳ Серверы Anthropic перегружены — повторяю запрос сам через ${waitSeconds} с (попытка ${transientRetryAttempt} из ${TRANSIENT_RETRY_DELAYS_MS.length}). Делать ничего не надо.`,
+          sessionId: sid,
+          provider: 'claude'
+        }));
+
+        // Resume rather than start over: a brand-new chat got its session id
+        // mid-run, and the retry must land in that same chat, keeping whatever
+        // the agent already managed to do.
+        if (capturedSessionId) {
+          sdkOptions.resume = capturedSessionId;
+        }
+
+        // The dead query instance can no longer be interrupted, so "Stop" in the
+        // UI would quietly do nothing for the whole pause. Stand in for it: the
+        // stub cancels the wait, then the abort path finishes the run normally.
+        let cancelWait = () => {};
+        if (sid) {
+          addSession(sid, { interrupt: async () => cancelWait() }, ws);
+        }
+        await new Promise(resolve => {
+          const timer = setTimeout(resolve, retryDelayMs);
+          cancelWait = () => { clearTimeout(timer); resolve(); };
+        });
+        if (sid && abortedSessionIds.has(sid)) {
+          throw runError;
+        }
       }
     }
 

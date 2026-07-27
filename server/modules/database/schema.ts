@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_active BOOLEAN DEFAULT 1,
     git_name TEXT,
     git_email TEXT,
-    has_completed_onboarding BOOLEAN DEFAULT 0
+    has_completed_onboarding BOOLEAN DEFAULT 0,
+    role TEXT NOT NULL DEFAULT 'user'
 );
 `;
 
@@ -109,6 +110,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     custom_name TEXT,
     project_path TEXT,
     jsonl_path TEXT,
+    -- Per-session model/thinking-effort override: NULL means "no override
+    -- for this session yet", so callers fall back to the user's account-wide
+    -- default (see USER_PROVIDER_PREFERENCES_TABLE_SCHEMA_SQL below).
+    model TEXT,
+    effort TEXT,
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -116,6 +122,24 @@ CREATE TABLE IF NOT EXISTS sessions (
     FOREIGN KEY (project_path) REFERENCES projects(project_path)
     ON DELETE SET NULL
     ON UPDATE CASCADE
+);
+`;
+
+// Per-employee project allow-list for multi-user installs. Admins bypass
+// this table entirely (see requireAdmin/role checks) — it only restricts
+// non-admin users, and an empty result set means "no projects visible",
+// not "all projects" (fail-closed default).
+export const USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS user_project_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    project_id TEXT NOT NULL,
+    granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    granted_by INTEGER,
+    UNIQUE(user_id, project_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+    FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL
 );
 `;
 
@@ -143,6 +167,18 @@ CREATE TABLE IF NOT EXISTS user_provider_preferences (
     user_id INTEGER PRIMARY KEY,
     models_json TEXT NOT NULL DEFAULT '{}',
     efforts_json TEXT NOT NULL DEFAULT '{}',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
+// Cross-device sync for appearance/behavior toggles (theme, shader background,
+// composer/sidebar toggles) that used to live only in that browser's
+// localStorage and reset on every fresh install or new device.
+export const USER_UI_PREFERENCES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS user_ui_preferences (
+    user_id INTEGER PRIMARY KEY,
+    preferences_json TEXT NOT NULL DEFAULT '{}',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -183,6 +219,10 @@ ${PROJECTS_TABLE_SCHEMA_SQL}
 -- NOTE: These indexes are created in migrations after legacy table-shape repairs.
 -- Creating them here can fail on upgraded installs where projects lacks those columns.
 
+${USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_user_project_access_user_id ON user_project_access(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_project_access_project_id ON user_project_access(project_id);
+
 ${SESSIONS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);
 -- NOTE: This index is created in migrations after sessions is rebuilt to include project_path.
@@ -190,6 +230,9 @@ CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);
 
 ${USER_PROVIDER_PREFERENCES_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_user_provider_preferences_user_id ON user_provider_preferences(user_id);
+
+${USER_UI_PREFERENCES_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_user_ui_preferences_user_id ON user_ui_preferences(user_id);
 
 ${LAST_SCANNED_AT_SQL}
 

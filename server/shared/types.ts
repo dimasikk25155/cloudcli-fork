@@ -44,6 +44,7 @@ export type AuthenticatedWebSocketUser = {
   id?: string | number;
   userId?: string | number;
   username?: string;
+  role?: string;
   [key: string]: unknown;
 };
 
@@ -65,7 +66,7 @@ export type AuthenticatedWebSocketRequest = IncomingMessage & {
  * Use this as the source of truth whenever a function or payload needs to identify
  * a specific LLM integration.
  */
-export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode';
+export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'kimi' | 'gemini';
 
 /**
  * One selectable model row in a provider model catalog.
@@ -131,27 +132,29 @@ export type ProviderCurrentActiveModel = {
 };
 
 /**
- * Input payload used when one session needs to use a different model on its
- * next resumed turn.
+ * Input payload used when one session needs to use a different model and/or
+ * thinking effort on its next resumed turn. `model` and `effort` are each
+ * optional so a caller can update just one without clobbering the other.
  *
  * This is a backend-owned session override, not a claim that the provider has
  * already switched the currently running session in-place. Provider adapters
- * persist this request so the next CLI/SDK resume can inject the chosen model
- * using the provider-specific mechanism supported by that runtime.
+ * persist this request so the next CLI/SDK resume can inject the chosen
+ * model/effort using the provider-specific mechanism supported by that runtime.
  */
 export type ProviderChangeActiveModelInput = {
   sessionId: string;
-  model: string;
+  model?: string;
+  effort?: string;
 };
 
 /**
- * Provider-neutral session model-change state.
+ * Provider-neutral session model/effort-change state.
  *
  * `supported` indicates whether the provider adapter supports the app's
  * session-scoped resume override flow. `changed` is the persisted boolean the
- * resume layer checks before forcing a model on the next resumed turn. When
- * `changed` is `false`, `model` is `null` and the runtime should use the
- * normal request/default model selection path.
+ * resume layer checks before forcing a model/effort on the next resumed turn.
+ * When `changed` is `false`, `model`/`effort` are `null` and the runtime
+ * should use the normal request/default selection path.
  */
 export type ProviderSessionActiveModelChange = {
   provider: LLMProvider;
@@ -159,6 +162,7 @@ export type ProviderSessionActiveModelChange = {
   supported: boolean;
   changed: boolean;
   model: string | null;
+  effort: string | null;
 };
 
 /**

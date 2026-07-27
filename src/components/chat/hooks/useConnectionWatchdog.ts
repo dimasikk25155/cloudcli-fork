@@ -18,6 +18,14 @@ import { useEffect, useRef } from 'react';
 const STALL_THRESHOLD_MS = 30_000;
 const STALL_CHECK_INTERVAL_MS = 5_000;
 const WAKE_THROTTLE_MS = 2_000;
+/**
+ * How long the page has to have been hidden before returning to it is treated
+ * as "the socket is probably dead". Anything that leaves the page — switching
+ * apps, and above all the system file/camera picker behind the composer's
+ * attach button — can kill the socket without ever firing `onclose`, leaving
+ * a half-open socket that still reads OPEN while nothing reaches the server.
+ */
+const HIDDEN_RECONNECT_THRESHOLD_MS = 5_000;
 
 type ConnectionWatchdogOptions = {
   isProcessing: boolean;
@@ -36,6 +44,8 @@ export function useConnectionWatchdog({
   onWake,
 }: ConnectionWatchdogOptions) {
   const lastWakeAtRef = useRef(0);
+  /** When the page went into the background, or null while it is visible. */
+  const hiddenSinceRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isProcessing || !isConnected) return;
@@ -53,12 +63,24 @@ export function useConnectionWatchdog({
 
   useEffect(() => {
     const handleWake = () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible') {
+        hiddenSinceRef.current = Date.now();
+        return;
+      }
       const now = Date.now();
+      const hiddenForMs = hiddenSinceRef.current ? now - hiddenSinceRef.current : 0;
+      hiddenSinceRef.current = null;
       if (now - lastWakeAtRef.current < WAKE_THROTTLE_MS) return;
       lastWakeAtRef.current = now;
 
       if (!isConnected) {
+        forceReconnect();
+        return;
+      }
+      if (hiddenForMs > HIDDEN_RECONNECT_THRESHOLD_MS) {
+        // Back from a long stretch in the background (e.g. picking a photo to
+        // attach): the socket may look open but be dead. Rebuild it before the
+        // user sends anything, rather than discovering it on a lost message.
         forceReconnect();
         return;
       }

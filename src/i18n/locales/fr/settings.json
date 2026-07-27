@@ -323,6 +323,12 @@
       "codex": {
         "description": "Assistant IA Codex d'OpenAI"
       },
+      "kimi": {
+        "description": "Assistant IA Moonshot Kimi d'OpenAI"
+      },
+      "gemini": {
+        "description": "Assistant IA Google Gemini d'OpenAI"
+      },
       "opencode": {
         "description": "Assistant CLI OpenCode"
       }
@@ -420,6 +426,8 @@
       "claude": "Les serveurs Model Context Protocol fournissent des outils et sources de données supplémentaires à Claude",
       "cursor": "Les serveurs Model Context Protocol fournissent des outils et sources de données supplémentaires à Cursor",
       "codex": "Les serveurs Model Context Protocol fournissent des outils et sources de données supplémentaires à Codex",
+      "kimi": "Les serveurs Model Context Protocol fournissent des outils et sources de données supplémentaires à Kimi",
+      "gemini": "Les serveurs Model Context Protocol fournissent des outils et sources de données supplémentaires à Gemini",
       "opencode": "Les serveurs Model Context Protocol fournissent des outils et sources de données supplémentaires à OpenCode"
     },
     "addButton": "Ajouter un serveur MCP",

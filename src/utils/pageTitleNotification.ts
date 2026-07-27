@@ -90,7 +90,7 @@ export const showCompletionTitleIndicator = (): void => {
     return;
   }
 
-  const baseTitle = stripIndicator(document.title || 'Claude CLI');
+  const baseTitle = stripIndicator(document.title || 'Neo3 Agent System');
   document.title = `${getIndicatorPrefix()}${baseTitle}`;
 
   if (pageIsActive()) {

@@ -172,7 +172,9 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
     if (!open) return null;
 
     return createPortal(
-      <div className={cn('fixed inset-0 z-50', wrapperClassName)}>
+      // z-[10000]: must sit above the settings modal (.modal-backdrop z-[9999]),
+      // otherwise any dialog opened from inside settings renders underneath it.
+      <div className={cn('fixed inset-0 z-[10000]', wrapperClassName)}>
         {/* Overlay */}
         <div
           className="fixed inset-0 animate-dialog-overlay-show bg-black/50 backdrop-blur-sm"
@@ -192,7 +194,7 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
           role="dialog"
           aria-modal="true"
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2',
+            'fixed left-1/2 top-1/2 z-[10000] w-full max-w-lg -translate-x-1/2 -translate-y-1/2',
             'rounded-xl border bg-popover text-popover-foreground shadow-lg',
             'animate-dialog-content-show',
             className

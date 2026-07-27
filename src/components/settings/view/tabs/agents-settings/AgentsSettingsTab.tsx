@@ -20,14 +20,37 @@ export default function AgentsSettingsTab({
 }: AgentsSettingsTabProps) {
   const [selectedAgent, setSelectedAgent] = useState<AgentProvider>('claude');
   const [selectedCategory, setSelectedCategory] = useState<AgentCategory>('account');
-  const visibleCategories = useMemo<AgentCategory[]>(() => (
-    selectedAgent === 'opencode'
-      ? ['account', 'permissions', 'mcp']
-      : ['account', 'permissions', 'mcp', 'skills']
-  ), [selectedAgent]);
+  // Only list a category that actually renders something for this agent:
+  // AgentCategoryContentSection implements Permissions for claude/cursor/codex
+  // and Skills for everyone but opencode, so offering those tabs elsewhere
+  // opened a blank panel. Kimi is headless-only (`kimi -p` always auto-
+  // approves — there is no permission mode to pick), hence no Permissions tab.
+  const visibleCategories = useMemo<AgentCategory[]>(() => {
+    if (selectedAgent === 'opencode') {
+      return ['account', 'mcp'];
+    }
+    if (selectedAgent === 'kimi') {
+      return ['account', 'mcp', 'skills'];
+    }
+    // Gemini: MCP is fully implemented (settings.json), but its skills reader
+    // is still a stub and headless runs have no pickable permission mode.
+    if (selectedAgent === 'gemini') {
+      return ['account', 'mcp'];
+    }
+    return ['account', 'permissions', 'mcp', 'skills'];
+  }, [selectedAgent]);
 
   const visibleAgents = useMemo<AgentProvider[]>(() => {
-    return ['claude', 'cursor', 'codex', 'opencode'];
+    // Kimi re-added 2026-07-26 — bring-your-own-login engine alongside the
+    // others (each user signs in with their own Kimi account, like Cursor).
+    // 'gemini' intentionally excluded — Google killed free personal-account
+    // login for Gemini CLI/Code Assist on 2026-06-18 (confirmed by a live
+    // login attempt: OAuth succeeds, then Code Assist itself rejects with
+    // "This client is no longer supported ... migrate to Antigravity").
+    // Backend/types/i18n all stay in place; re-add only once there's a real
+    // login path (paid GCP Vertex AI, or a from-scratch Antigravity CLI
+    // integration — see wiki/concepts/cloudcli-gemini-engine.md).
+    return ['claude', 'codex', 'cursor', 'opencode', 'kimi'];
   }, []);
 
   const agentContextById = useMemo<Record<AgentProvider, AgentContext>>(() => ({
@@ -47,12 +70,22 @@ export default function AgentsSettingsTab({
       authStatus: providerAuthStatus.opencode,
       onLogin: () => onProviderLogin('opencode'),
     },
+    kimi: {
+      authStatus: providerAuthStatus.kimi,
+      onLogin: () => onProviderLogin('kimi'),
+    },
+    gemini: {
+      authStatus: providerAuthStatus.gemini,
+      onLogin: () => onProviderLogin('gemini'),
+    },
   }), [
     onProviderLogin,
     providerAuthStatus.claude,
     providerAuthStatus.codex,
     providerAuthStatus.cursor,
     providerAuthStatus.opencode,
+    providerAuthStatus.kimi,
+    providerAuthStatus.gemini,
   ]);
 
   useEffect(() => {

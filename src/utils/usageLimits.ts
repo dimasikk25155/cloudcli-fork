@@ -13,6 +13,10 @@ export type UsageLimitsSnapshot = {
   fiveHourResetsAt: string | null;
   sevenDayPct: number | null;
   sevenDayResetsAt: string | null;
+  kimiFiveHourPct: number | null;
+  kimiFiveHourResetsAt: string | null;
+  kimiSevenDayPct: number | null;
+  kimiSevenDayResetsAt: string | null;
   threshold: number;
   blocked: boolean;
   fetchedAt: number;
@@ -41,11 +45,17 @@ export async function refreshUsageLimits(): Promise<UsageLimitsSnapshot | null> 
     const data = await response.json();
     const fiveHour = data?.usage?.fiveHour ?? null;
     const sevenDay = data?.usage?.sevenDay ?? null;
+    const kimiFiveHour = data?.kimi?.fiveHour ?? null;
+    const kimiSevenDay = data?.kimi?.sevenDay ?? null;
     latest = {
       fiveHourPct: typeof fiveHour?.utilization === 'number' ? fiveHour.utilization : null,
       fiveHourResetsAt: typeof fiveHour?.resetsAt === 'string' ? fiveHour.resetsAt : null,
       sevenDayPct: typeof sevenDay?.utilization === 'number' ? sevenDay.utilization : null,
       sevenDayResetsAt: typeof sevenDay?.resetsAt === 'string' ? sevenDay.resetsAt : null,
+      kimiFiveHourPct: typeof kimiFiveHour?.utilization === 'number' ? kimiFiveHour.utilization : null,
+      kimiFiveHourResetsAt: typeof kimiFiveHour?.resetsAt === 'string' ? kimiFiveHour.resetsAt : null,
+      kimiSevenDayPct: typeof kimiSevenDay?.utilization === 'number' ? kimiSevenDay.utilization : null,
+      kimiSevenDayResetsAt: typeof kimiSevenDay?.resetsAt === 'string' ? kimiSevenDay.resetsAt : null,
       threshold: typeof data?.guard?.threshold === 'number' ? data.guard.threshold : 90,
       blocked: data?.guard?.blocked === true,
       fetchedAt: Date.now(),

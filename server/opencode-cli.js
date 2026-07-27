@@ -233,6 +233,7 @@ async function spawnOpenCode(command, options = {}, ws) {
     };
 
     void providerModelsService.resolveResumeModel('opencode', sessionId, model).then(async (resolvedModel) => {
+      const resolvedRequestedEffort = await providerModelsService.resolveResumeEffort('opencode', sessionId, effort);
       let effortModels = null;
       try {
         effortModels = (await providerModelsService.getProviderModels('opencode')).models;
@@ -240,7 +241,7 @@ async function spawnOpenCode(command, options = {}, ws) {
         console.warn('[OpenCode] Unable to load provider models for effort validation:', error);
       }
 
-      const resolvedEffort = resolveOpenCodeEffort(resolvedModel, effort, effortModels);
+      const resolvedEffort = resolveOpenCodeEffort(resolvedModel, resolvedRequestedEffort, effortModels);
       const args = ['run', '--format', 'json'];
       // OpenCode's `run` command owns workspace selection through `--dir`.
       // Relying on the child-process cwd alone is not enough on Linux, where

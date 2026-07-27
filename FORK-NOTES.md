@@ -77,6 +77,11 @@ moved upstream to `POST /api/assets/images` (`server/modules/assets`).
   lose the control channel, so AskUserQuestion/ExitPlanMode fail instantly
   with "Tool permission request failed: Error: Stream closed". Requires a CLI
   that emits session-state events (verified on 2.1.207).
+- Built-in project memory (`templates/memory/` + `scripts/install-memory.sh`, wired
+  into `install.sh`): SessionStart hook injects `<project>/memory/INDEX.md`, Stop hook
+  forces a write-up when a session changed files but recorded nothing. Plain `.md`
+  files in the client's repo, no database. Pure configuration — no fork code involved,
+  it rides on the SDK's existing `settingSources: ['project','user','local']`.
 - Idle-fallback safety net for the held-open stream (`claude-sdk.js`): if
   `idle` never arrives, sustained post-`result` silence releases the input so
   the run terminates instead of hanging forever — 60s when the CLI has emitted
@@ -117,3 +122,31 @@ unreachable from this Mac's own network). Red smoke means the deploy did not
 happen. History: before this script, sessions kept rebuilding only the server
 or restarting without rebuilding the client, so prod served a stale `dist/`
 for days while git said everything shipped.
+
+## 2026-07-23 — Interactive tools fixed: AskUserQuestion Stream closed + ExitPlanMode on Kimi
+
+**Symptom 1:** `AskUserQuestion` panel rendered, answer failed with
+`Tool permission request failed: AbortError: Stream closed`. Root cause: race —
+the CLI emits `session_state_changed: idle` BEFORE its can-use-tool control
+request registers the pending approval, so the pending-approval guard saw 0 and
+`releaseInput()` closed stdin mid-question. Fix in `server/claude-sdk.js`:
+debounced release (`RELEASE_GRACE_MS`, default 3s, env-overridable) — on idle,
+re-check `inputReleased` / newer stream activity / pending approvals at fire
+time before really releasing.
+
+**Symptom 2:** Kimi in plan mode could not call `ExitPlanMode` (tried
+`Skill("ExitPlanMode")`, then looped on `Bash: true` claiming to load it via
+ToolSearch). Root cause: CLI 2.1.218 defers built-in tools with
+`shouldDefer: true` (ExitPlanMode is one) behind ToolSearch; Kimi can't operate
+ToolSearch. Fix (no deploy needed, applies per spawned CLI):
+`tengu_non_deferrable_builtins: ["ExitPlanMode","AskUserQuestion"]` in
+`~/.claude.json` (flat array = all models; per-model map also supported).
+Verified with `scripts/probe-tools.mjs`: `deferredBuiltinTools: []`,
+ExitPlanMode PRESENT, and Kimi actually calls it. MCP deferral untouched
+(telegram/playwright stay lazy; obsidian-dimasik stays alwaysLoad).
+Caveat: `~/.claude.json` is rewritten by running CLI sessions — if the key
+vanishes, re-apply it. The settings.json key `non_deferrable_builtins` does NOT
+exist (schema rejects it) — only the tengu key in `~/.claude.json` works.
+Note: the snake_case `exit_plan_mode` entry in plan-mode `allowedTools` is a
+load-bearing typo — an exact `ExitPlanMode` match would auto-allow the tool and
+skip the plan-approval panel. Do not "fix" it.

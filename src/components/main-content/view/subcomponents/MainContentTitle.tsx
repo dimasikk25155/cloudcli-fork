@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import type { AppTab, Project, ProjectSession } from '../../../../types/app';
 import { usePlugins } from '../../../../contexts/PluginsContext';
+import { localizePluginName } from '../../../plugins/utils/pluginDisplayName';
 
 type MainContentTitleProps = {
   activeTab: AppTab;
@@ -55,8 +56,11 @@ export default function MainContentTitle({
   const { t } = useTranslation();
   const { plugins } = usePlugins();
 
-  const pluginDisplayName = activeTab.startsWith('plugin:')
-    ? plugins.find((p) => p.name === activeTab.replace('plugin:', ''))?.displayName
+  const activePlugin = activeTab.startsWith('plugin:')
+    ? plugins.find((p) => p.name === activeTab.replace('plugin:', ''))
+    : undefined;
+  const pluginDisplayName = activePlugin
+    ? localizePluginName(activePlugin.name, activePlugin.displayName, t)
     : undefined;
 
   const showSessionIcon = activeTab === 'chat' && Boolean(selectedSession);

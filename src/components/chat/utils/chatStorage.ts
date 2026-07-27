@@ -54,6 +54,14 @@ export type QueuedSendOptions = Record<string, unknown>;
 export type StoredQueuedMessage = {
   content: string;
   options?: QueuedSendOptions;
+  /**
+   * Image attachments uploaded at queue time. Unlike raw File objects (which
+   * can't be serialized), these are server-side asset descriptors, so they
+   * survive persistence — a queued image now reaches the run whether it's
+   * dispatched by the composer's flush or the app-level auto-send, and even
+   * across a page reload.
+   */
+  images?: unknown[];
 };
 
 export const queuedMessageKey = (sessionId: string) => `queued_message_${sessionId}`;
@@ -71,8 +79,8 @@ export function readQueuedMessage(sessionId: string): StoredQueuedMessage | null
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === 'object' && typeof (parsed as StoredQueuedMessage).content === 'string') {
-      const { content, options } = parsed as StoredQueuedMessage;
-      return content.trim() ? { content, options } : null;
+      const { content, options, images } = parsed as StoredQueuedMessage;
+      return content.trim() ? { content, options, images: Array.isArray(images) ? images : undefined } : null;
     }
   } catch {
     // Legacy format: the raw draft text itself.

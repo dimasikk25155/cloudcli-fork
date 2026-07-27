@@ -19,6 +19,7 @@ import type { Project } from '../../../types/app';
 import { TaskMasterPanel } from '../../task-master';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
+import ShellModeSwitcher from './subcomponents/ShellModeSwitcher';
 import MainContentStateView from './subcomponents/MainContentStateView';
 import ErrorBoundary from './ErrorBoundary';
 
@@ -59,6 +60,8 @@ function MainContent({
   const { currentProject, setCurrentProject } = useTaskMaster() as TaskMasterContextValue;
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings() as TasksSettingsContextValue;
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
+  // Terminal tab: agent CLI session (default) vs a real interactive shell.
+  const [shellMode, setShellMode] = useState<'agent' | 'plain'>('agent');
 
   const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled);
   const shouldShowBrowserTab = browserUseEnabled;
@@ -187,13 +190,18 @@ function MainContent({
           )}
 
           {activeTab === 'shell' && (
-            <div className="h-full w-full overflow-hidden">
-              <StandaloneShell
-                project={selectedProject}
-                session={selectedSession}
-                showHeader={false}
-                isActive={activeTab === 'shell'}
-              />
+            <div className="flex h-full w-full flex-col overflow-hidden">
+              <ShellModeSwitcher mode={shellMode} onChange={setShellMode} />
+              <div className="min-h-0 flex-1">
+                <StandaloneShell
+                  key={shellMode}
+                  project={selectedProject}
+                  session={shellMode === 'plain' ? null : selectedSession}
+                  isPlainShell={shellMode === 'plain'}
+                  showHeader={false}
+                  isActive={activeTab === 'shell'}
+                />
+              </div>
             </div>
           )}
 

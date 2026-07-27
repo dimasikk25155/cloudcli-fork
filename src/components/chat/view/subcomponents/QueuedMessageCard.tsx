@@ -40,7 +40,7 @@ export default function QueuedMessageCard({
           <p className="mt-0.5 line-clamp-2 break-words text-sm text-foreground/90">{content}</p>
           {imageCount > 0 && (
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {imageCount} {imageCount === 1 ? 'image' : 'images'} attached
+              {t('input.queue.imagesAttached', { count: imageCount, defaultValue: '{{count}} image attached' })}
             </p>
           )}
         </div>

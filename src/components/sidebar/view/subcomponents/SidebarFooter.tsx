@@ -66,7 +66,7 @@ export default function SidebarFooter({
       {!IS_PLATFORM && (
         <div className="hidden px-3 py-2 text-center md:block">
           <span className="text-[10px] text-muted-foreground/40">
-            Claude CLI v{currentVersion}
+            Neo3 Agent System v{currentVersion}
           </span>
         </div>
       )}

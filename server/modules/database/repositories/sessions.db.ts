@@ -9,13 +9,15 @@ type SessionRow = {
   project_path: string | null;
   jsonl_path: string | null;
   custom_name: string | null;
+  model: string | null;
+  effort: string | null;
   isArchived: number;
   created_at: string;
   updated_at: string;
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, isArchived, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -220,6 +222,31 @@ export const sessionsDb = {
     ).run(customName, sessionId);
   },
 
+  /**
+   * Persists this session's own model override (NULL clears it, falling back
+   * to the user's account-wide default on the next resume/hydration).
+   */
+  updateSessionModel(sessionId: string, model: string | null): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET model = ?
+       WHERE session_id = ?`
+    ).run(model, sessionId);
+  },
+
+  /**
+   * Persists this session's own thinking-effort override (NULL clears it).
+   */
+  updateSessionEffort(sessionId: string, effort: string | null): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET effort = ?
+       WHERE session_id = ?`
+    ).run(effort, sessionId);
+  },
+
   getSessionById(sessionId: string): SessionRow | null {
     const db = getConnection();
     const row = db
@@ -255,6 +282,16 @@ export const sessionsDb = {
       .get(providerSessionId) as SessionRow | undefined;
 
     return normalizeSessionRow(row) ?? null;
+  },
+
+  /**
+   * Resolves a session row for the per-session model/effort override cache,
+   * accepting either id space: the stable app `session_id` (used by routes,
+   * which always have it) or the provider-native `provider_session_id` (used
+   * by resume-time spawn calls, which only ever see that id).
+   */
+  resolveSessionRowForOverride(id: string): SessionRow | null {
+    return this.getSessionById(id) ?? this.getSessionByProviderSessionId(id);
   },
 
   /**

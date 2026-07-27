@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
-import { sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -105,6 +105,12 @@ function readRequestUserId(
   return null;
 }
 
+/** Reads the authenticated request user's role, if present (added alongside userId/username). */
+function readRequestUserRole(request: AuthenticatedWebSocketRequest | undefined): string | null {
+  const role = request?.user?.role;
+  return typeof role === 'string' ? role : null;
+}
+
 function sendJson(ws: WebSocket, payload: unknown): void {
   if (ws.readyState === WS_OPEN_STATE) {
     ws.send(JSON.stringify(payload));
@@ -146,6 +152,7 @@ function readRequiredSessionId(data: AnyRecord): string | null {
 async function handleChatSend(
   ws: WebSocket,
   userId: string | number | null,
+  userRole: string | null,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
 ): Promise<void> {
@@ -164,6 +171,23 @@ async function handleChatSend(
       sessionId
     );
     return;
+  }
+
+  // Non-admin employees may only open sessions for projects an admin granted
+  // them via the admin panel — listing already filters the sidebar, but a
+  // known/guessed sessionId must not bypass that (see user_project_access).
+  if (userRole && userRole !== 'admin' && userId !== null && session.project_path) {
+    const projectRow = projectsDb.getProjectPath(session.project_path);
+    const accessibleProjectIds = userProjectAccessDb.getAccessibleProjectIds(Number(userId));
+    if (!projectRow || !accessibleProjectIds.includes(projectRow.project_id)) {
+      sendProtocolError(
+        ws,
+        'PROJECT_ACCESS_DENIED',
+        'You do not have access to this project.',
+        sessionId
+      );
+      return;
+    }
   }
 
   const provider = session.provider as LLMProvider;
@@ -383,6 +407,7 @@ export function handleChatConnection(
   connectedClients.add(ws);
 
   const userId = readRequestUserId(request);
+  const userRole = readRequestUserRole(request);
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -396,7 +421,7 @@ export function handleChatConnection(
 
       switch (messageType) {
         case 'chat.send':
-          await handleChatSend(ws, userId, data, dependencies);
+          await handleChatSend(ws, userId, userRole, data, dependencies);
           return;
         case 'chat.abort':
           await handleChatAbort(ws, data, dependencies);

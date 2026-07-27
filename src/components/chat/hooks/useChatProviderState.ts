@@ -21,9 +21,19 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   cursor: 'gpt-5.3-codex',
   codex: 'gpt-5.4',
   opencode: 'anthropic/claude-sonnet-4-5',
+  kimi: 'kimi-code/k3',
+  gemini: 'gemini-2.5-pro',
 };
 
-const PROVIDERS: LLMProvider[] = ['claude', 'cursor', 'codex', 'opencode'];
+// Kimi re-added 2026-07-26 — including it here re-enables `loadProviderModels`
+// below to fetch/populate providerModelCatalog.kimi, so the model dropdown and
+// the new-chat picker show Kimi again. Login/usage is the user's own account.
+// 'gemini' intentionally excluded — Google killed free personal-account login
+// for Gemini CLI/Code Assist on 2026-06-18 (live test: OAuth token obtained,
+// but Code Assist itself rejects with "no longer supported ... migrate to
+// Antigravity"). Excluding it here also stops loadProviderModels from
+// fetching providerModelCatalog.gemini. Re-add once there's a real login path.
+const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'cursor', 'opencode', 'kimi'];
 
 const readStoredProvider = (): LLMProvider => {
   const storedProvider = localStorage.getItem('selected-provider');
@@ -43,6 +53,12 @@ const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
   cursor: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
   codex: ['default', 'acceptEdits', 'bypassPermissions'],
   opencode: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+  // Headless `kimi -p` is always fully autonomous; there is no mode to pick.
+  kimi: ['default'],
+  // Gemini's own interactive `default` prompts for approval, which would
+  // stall a headless run — the runner maps this onto `--approval-mode
+  // auto_edit`. See resolveGeminiApprovalMode in server/gemini-cli.js.
+  gemini: ['default', 'bypassPermissions', 'plan'],
 };
 
 type ProviderCapabilities = {
@@ -87,6 +103,17 @@ type ChangeActiveModelApiResponse = {
   };
 };
 
+type ChangeActiveEffortApiResponse = {
+  success?: boolean;
+  data?: {
+    provider?: LLMProvider;
+    sessionId?: string;
+    supported?: boolean;
+    changed?: boolean;
+    effort?: string | null;
+  };
+};
+
 export function useChatProviderState({ selectedSession, selectedProject: _selectedProject }: UseChatProviderStateArgs) {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
@@ -108,6 +135,12 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   });
   const [opencodeModel, setOpenCodeModel] = useState<string>(() => {
     return localStorage.getItem('opencode-model') || FALLBACK_DEFAULT_MODEL.opencode;
+  });
+  const [kimiModel, setKimiModel] = useState<string>(() => {
+    return localStorage.getItem('kimi-model') || FALLBACK_DEFAULT_MODEL.kimi;
+  });
+  const [geminiModel, setGeminiModel] = useState<string>(() => {
+    return localStorage.getItem('gemini-model') || FALLBACK_DEFAULT_MODEL.gemini;
   });
 
   /**
@@ -131,6 +164,17 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [providerModelsRefreshing, setProviderModelsRefreshing] = useState(false);
 
   const providerModelsRequestIdRef = useRef(0);
+
+  // Local mirror of session-scoped model/effort writes, keyed by session id.
+  // `selectedSession` comes from the sidebar's already-fetched project list,
+  // which isn't refetched after a POST to active-model/active-effort — so
+  // right after picking a model, switching away and back would read the
+  // stale (pre-change) value off `selectedSession` and fall back to the
+  // global default. This ref is the source of truth for "what did *this*
+  // browser session just set", checked before `selectedSession.model/.effort`
+  // in the hydration effect below. Survives session switches because this
+  // hook isn't remounted when `selectedSession` changes (no key prop upstream).
+  const sessionOverridesRef = useRef<Record<string, { model?: string; effort?: string }>>({});
 
   // Fire-and-forget: push the new default to the account so every other
   // device (phone, another Mac session) picks it up on its next load. Local
@@ -165,9 +209,15 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     } else if (targetProvider === 'codex') {
       setCodexModel(model);
       localStorage.setItem('codex-model', model);
-    } else {
+    } else if (targetProvider === 'opencode') {
       setOpenCodeModel(model);
       localStorage.setItem('opencode-model', model);
+    } else if (targetProvider === 'gemini') {
+      setGeminiModel(model);
+      localStorage.setItem('gemini-model', model);
+    } else {
+      setKimiModel(model);
+      localStorage.setItem('kimi-model', model);
     }
     syncProviderModelToServer(targetProvider, model);
   }, [syncProviderModelToServer]);
@@ -189,7 +239,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
             if (targetProvider === 'claude') setClaudeModel(model);
             else if (targetProvider === 'cursor') setCursorModel(model);
             else if (targetProvider === 'codex') setCodexModel(model);
-            else setOpenCodeModel(model);
+            else if (targetProvider === 'opencode') setOpenCodeModel(model);
+            else if (targetProvider === 'gemini') setGeminiModel(model);
+            else setKimiModel(model);
             localStorage.setItem(`${targetProvider}-model`, model);
           }
           const effort = data.efforts?.[targetProvider];
@@ -334,17 +386,25 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     return Boolean(FALLBACK_PROVIDER_EFFORT_VALUES[targetProvider]?.length);
   }, [providerCapabilities]);
 
+  // `current` (React state) must win over `storageKey` (the global last-used
+  // default) whenever both are valid: `current` is what the hydration effect
+  // below just set for this session, and re-reading localStorage first would
+  // silently snap it back to the global default on every render — exactly
+  // the bug that made per-session model memory look like it "didn't stick".
+  // localStorage is only a fallback for the cases this function actually
+  // exists for: first paint before `current` is set, or `current` holding a
+  // model the catalog no longer lists.
   const pickStoredOrCurrent = (
     storageKey: string,
     current: string,
     def: ProviderModelsDefinition,
   ): string => {
+    if (current && def.OPTIONS.some((o) => o.value === current)) {
+      return current;
+    }
     const stored = localStorage.getItem(storageKey);
     if (stored && def.OPTIONS.some((o) => o.value === stored)) {
       return stored;
-    }
-    if (current && def.OPTIONS.some((o) => o.value === current)) {
-      return current;
     }
     return def.DEFAULT;
   };
@@ -410,7 +470,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     cursor: cursorModel,
     codex: codexModel,
     opencode: opencodeModel,
-  }), [claudeModel, cursorModel, codexModel, opencodeModel]);
+    kimi: kimiModel,
+    gemini: geminiModel,
+  }), [claudeModel, cursorModel, codexModel, opencodeModel, kimiModel, geminiModel]);
 
   useEffect(() => {
     const claude = providerModelCatalog.claude;
@@ -465,6 +527,32 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   }, [providerModelCatalog.opencode, opencodeModel]);
 
   useEffect(() => {
+    const kimi = providerModelCatalog.kimi;
+    if (kimi) {
+      const next = pickStoredOrCurrent('kimi-model', kimiModel, kimi);
+      if (next !== kimiModel) {
+        setKimiModel(next);
+      }
+      if (localStorage.getItem('kimi-model') !== next) {
+        localStorage.setItem('kimi-model', next);
+      }
+    }
+  }, [providerModelCatalog.kimi, kimiModel]);
+
+  useEffect(() => {
+    const gemini = providerModelCatalog.gemini;
+    if (gemini) {
+      const next = pickStoredOrCurrent('gemini-model', geminiModel, gemini);
+      if (next !== geminiModel) {
+        setGeminiModel(next);
+      }
+      if (localStorage.getItem('gemini-model') !== next) {
+        localStorage.setItem('gemini-model', next);
+      }
+    }
+  }, [providerModelCatalog.gemini, geminiModel]);
+
+  useEffect(() => {
     const nextEfforts: Partial<Record<LLMProvider, string>> = {};
     let hasUpdates = false;
 
@@ -485,21 +573,86 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
   }, [providerEfforts, providerModels, reconcileStoredEffort]);
 
+  // Guards the "no session yet" branch below from clobbering a mode the user
+  // just picked for an in-progress draft when getDefaultPermissionModeForProvider
+  // changes identity a moment later (e.g. GET /api/providers/capabilities
+  // resolving after mount, slower over a phone connection) — without this, a
+  // mode picked right after opening a brand-new chat could silently snap
+  // back to the default before the first send. Rearmed on every real
+  // identity change (new draft, switched to a different chat, or switched
+  // provider); a background re-render of the callbacks alone does not touch it.
+  const draftPermissionModePickedRef = useRef(false);
+  useEffect(() => {
+    draftPermissionModePickedRef.current = false;
+  }, [selectedSession?.id, provider]);
+
   useEffect(() => {
     const validModes = getPermissionModesForProvider(provider);
-    const sessionSavedMode = selectedSession?.id
-      ? (localStorage.getItem(`permissionMode-${selectedSession.id}`) as PermissionMode | null)
-      : null;
-    // Fall back to the last mode picked for this provider: a brand-new chat
-    // only receives its session id after the first send, so without this the
-    // mode chosen beforehand would snap back to the default as soon as the
-    // session id appears.
-    const providerSavedMode = localStorage.getItem(`permissionMode-last-${provider}`) as PermissionMode | null;
-    const savedMode = [sessionSavedMode, providerSavedMode].find(
-      (mode): mode is PermissionMode => Boolean(mode && validModes.includes(mode)),
-    );
-    setPermissionMode(savedMode ?? getDefaultPermissionModeForProvider(provider));
+
+    if (selectedSession?.id) {
+      // Every session's mode lives ONLY under its own key — no fallback to
+      // any other chat's choice, so a mode picked in one conversation can
+      // never leak into another that simply never set its own.
+      const sessionSavedMode = localStorage.getItem(`permissionMode-${selectedSession.id}`) as PermissionMode | null;
+      setPermissionMode(
+        sessionSavedMode && validModes.includes(sessionSavedMode)
+          ? sessionSavedMode
+          : getDefaultPermissionModeForProvider(provider),
+      );
+      return;
+    }
+
+    if (draftPermissionModePickedRef.current) {
+      // User already picked a mode for this in-progress, not-yet-sent draft
+      // — leave it alone. It becomes this chat's own permanent record the
+      // moment it gets a real id (see commitPermissionModeToSession, called
+      // from ChatInterface's onSessionEstablished).
+      return;
+    }
+
+    setPermissionMode(getDefaultPermissionModeForProvider(provider));
   }, [selectedSession?.id, provider, getDefaultPermissionModeForProvider, getPermissionModesForProvider]);
+
+  // Mirrors the permissionMode effect above: a session with its own saved
+  // model/effort shows that; a session with none (or a brand-new chat) falls
+  // back to this provider's last-used default, so switching between chats
+  // moves the composer's Model/Level buttons with it instead of leaving them
+  // on whatever the previous chat happened to leave in place. Any invalid
+  // leftover value (e.g. a since-removed model) self-corrects via the
+  // pickStoredOrCurrent/reconcileStoredEffort effects above on the next render.
+  useEffect(() => {
+    const localOverride = selectedSession?.id ? sessionOverridesRef.current[selectedSession.id] : undefined;
+
+    const sessionModel = localOverride?.model
+      ?? (typeof selectedSession?.model === 'string' && selectedSession.model ? selectedSession.model : null);
+    const sessionEffort = localOverride?.effort
+      ?? (typeof selectedSession?.effort === 'string' && selectedSession.effort ? selectedSession.effort : null);
+
+    const nextModel = sessionModel
+      ?? localStorage.getItem(`${provider}-model`)
+      ?? FALLBACK_DEFAULT_MODEL[provider];
+    const nextEffort = sessionEffort
+      ?? localStorage.getItem(`${provider}-effort`)
+      ?? DEFAULT_EFFORT_VALUE;
+
+    if (provider === 'claude') {
+      setClaudeModel(nextModel);
+    } else if (provider === 'cursor') {
+      setCursorModel(nextModel);
+    } else if (provider === 'codex') {
+      setCodexModel(nextModel);
+    } else if (provider === 'opencode') {
+      setOpenCodeModel(nextModel);
+    } else if (provider === 'gemini') {
+      setGeminiModel(nextModel);
+    } else {
+      setKimiModel(nextModel);
+    }
+
+    setProviderEfforts((previous) => (
+      previous[provider] === nextEffort ? previous : { ...previous, [provider]: nextEffort }
+    ));
+  }, [selectedSession?.id, selectedSession?.model, selectedSession?.effort, provider]);
 
   useEffect(() => {
     if (!selectedSession?.__provider || selectedSession.__provider === provider) {
@@ -543,14 +696,30 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const selectPermissionMode = useCallback((nextMode: PermissionMode) => {
     setPermissionMode(nextMode);
 
-    // Persist per provider as well as per session: a brand-new chat has no
-    // session id yet, and the per-provider key keeps the choice sticky when
-    // the real id arrives (and for future sessions of this provider).
-    localStorage.setItem(`permissionMode-last-${provider}`, nextMode);
     if (selectedSession?.id) {
       localStorage.setItem(`permissionMode-${selectedSession.id}`, nextMode);
+    } else {
+      // No real session yet (composing a brand-new, unsent chat) — nothing
+      // to key a per-chat record on yet. Just mark that this draft has its
+      // own deliberate pick (see draftPermissionModePickedRef above); the
+      // value itself lives only in `permissionMode` state until it gets
+      // written to this chat's own key by commitPermissionModeToSession.
+      draftPermissionModePickedRef.current = true;
     }
-  }, [provider, selectedSession?.id]);
+  }, [selectedSession?.id]);
+
+  // Called once, exactly when a brand-new chat's session id becomes real
+  // (see ChatInterface's onSessionEstablished). Whatever mode is active
+  // RIGHT NOW becomes this session's own permanent record — the only way a
+  // mode picked before the first send survives the "no id" -> "real id"
+  // jump, without ever touching any other chat's stored mode.
+  const commitPermissionModeToSession = useCallback((sessionId: string) => {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    localStorage.setItem(`permissionMode-${normalizedSessionId}`, permissionMode);
+  }, [permissionMode]);
 
   const cyclePermissionMode = useCallback(() => {
     const modes = getPermissionModesForProvider(provider);
@@ -604,6 +773,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     // one global switch: persist it as the default too, so every new session
     // (and every session started after this one) picks it up automatically.
     setStoredProviderModel(targetProvider, resolvedModel);
+    sessionOverridesRef.current[normalizedSessionId] = {
+      ...sessionOverridesRef.current[normalizedSessionId],
+      model: resolvedModel,
+    };
 
     return {
       scope: 'session' as const,
@@ -611,6 +784,50 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       model: resolvedModel,
     };
   }, [setStoredProviderModel]);
+
+  const selectProviderEffort = useCallback(async (
+    targetProvider: LLMProvider,
+    effort: string,
+    sessionId?: string | null,
+  ) => {
+    const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+    if (!normalizedSessionId) {
+      setStoredProviderEffort(targetProvider, effort);
+      return {
+        scope: 'default' as const,
+        changed: false,
+        effort,
+      };
+    }
+
+    const response = await authenticatedFetch(
+      `/api/providers/${targetProvider}/sessions/${encodeURIComponent(normalizedSessionId)}/active-effort`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ effort }),
+      },
+    );
+
+    const body = (await response.json()) as ChangeActiveEffortApiResponse;
+    if (!response.ok || !body.success || !body.data?.supported) {
+      throw new Error('Unable to change the active effort for this session.');
+    }
+
+    const resolvedEffort = body.data.effort || effort;
+    // Same "also becomes the new global default" behavior as selectProviderModel,
+    // so a brand-new chat inherits whatever effort was picked most recently.
+    setStoredProviderEffort(targetProvider, resolvedEffort);
+    sessionOverridesRef.current[normalizedSessionId] = {
+      ...sessionOverridesRef.current[normalizedSessionId],
+      effort: resolvedEffort,
+    };
+
+    return {
+      scope: 'session' as const,
+      changed: body.data.changed === true,
+      effort: resolvedEffort,
+    };
+  }, [setStoredProviderEffort]);
 
   const currentProviderEffortOptions = useMemo(() => {
     return getEffortOptionsForModel(provider, providerModels[provider]);
@@ -636,12 +853,17 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     currentProviderEffortOptions,
     opencodeModel,
     setOpenCodeModel,
+    kimiModel,
+    setKimiModel,
+    geminiModel,
+    setGeminiModel,
     permissionMode,
     setPermissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
     cyclePermissionMode,
     selectPermissionMode,
+    commitPermissionModeToSession,
     availablePermissionModes: getPermissionModesForProvider(provider),
     providerModels,
     providerModelCatalog,
@@ -650,6 +872,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     providerModelsRefreshing,
     hardRefreshProviderModels: () => loadProviderModels({ bypassCache: true }),
     selectProviderModel,
+    selectProviderEffort,
     setStoredProviderModel,
     setStoredProviderEffort,
     resolvePermissionModeForProvider,

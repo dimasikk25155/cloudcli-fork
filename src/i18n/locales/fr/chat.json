@@ -18,6 +18,8 @@
     "claude": "Claude",
     "cursor": "Cursor",
     "codex": "Codex",
+    "kimi": "Kimi",
+    "gemini": "Gemini",
     "opencode": "OpenCode"
   },
   "tools": {
@@ -136,6 +138,8 @@
       "claude": "Prêt à utiliser Claude avec {{model}}. Commencez à taper votre message ci-dessous.",
       "cursor": "Prêt à utiliser Cursor avec {{model}}. Commencez à taper votre message ci-dessous.",
       "codex": "Prêt à utiliser Codex avec {{model}}. Commencez à taper votre message ci-dessous.",
+      "kimi": "Prêt à utiliser Kimi avec {{model}}. Commencez à taper votre message ci-dessous.",
+      "gemini": "Prêt à utiliser Gemini avec {{model}}. Commencez à taper votre message ci-dessous.",
       "opencode": "Prêt à utiliser OpenCode avec {{model}}. Commencez à taper votre message ci-dessous.",
       "default": "Sélectionnez un fournisseur ci-dessus pour commencer"
     },

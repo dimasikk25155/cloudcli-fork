@@ -49,11 +49,6 @@ type SidebarProjectItemProps = {
   t: TFunction;
 };
 
-const getSessionCountDisplay = (project: Project, sessions: SessionWithProvider[]): string => {
-  const total = Number(project.sessionMeta?.total ?? sessions.length);
-  return String(total);
-};
-
 export default function SidebarProjectItem({
   project,
   selectedProject,
@@ -95,9 +90,6 @@ export default function SidebarProjectItem({
   // after the projectName → projectId migration.
   const isSelected = selectedProject?.projectId === project.projectId;
   const isEditing = editingProject === project.projectId;
-  const totalSessionCount = Number(project.sessionMeta?.total ?? sessions.length);
-  const sessionCountDisplay = getSessionCountDisplay(project, sessions);
-  const sessionCountLabel = `${sessionCountDisplay} session${totalSessionCount === 1 ? '' : 's'}`;
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
 
   const toggleProject = () => onToggleProject(project.projectId);
@@ -125,34 +117,37 @@ export default function SidebarProjectItem({
               isSelected && 'bg-primary/5 border-primary/20',
               isStarred &&
                 !isSelected &&
+                !isRecentView &&
                 'bg-yellow-50/50 dark:bg-yellow-900/5 border-yellow-200/30 dark:border-yellow-800/30',
             )}
             onClick={toggleProject}
           >
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <button
-                  className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
-                    isStarred
-                      ? 'bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800'
-                      : 'bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800',
-                  )}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleStarProject();
-                  }}
-                  title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
-                >
-                  <Star
+                {!isRecentView && (
+                  <button
                     className={cn(
-                      'w-4 h-4 transition-colors',
+                      'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
                       isStarred
-                        ? 'text-yellow-600 dark:text-yellow-400 fill-current'
-                        : 'text-gray-600 dark:text-gray-400',
+                        ? 'bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800'
+                        : 'bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800',
                     )}
-                  />
-                </button>
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleStarProject();
+                    }}
+                    title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+                  >
+                    <Star
+                      className={cn(
+                        'w-4 h-4 transition-colors',
+                        isStarred
+                          ? 'text-yellow-600 dark:text-yellow-400 fill-current'
+                          : 'text-gray-600 dark:text-gray-400',
+                      )}
+                    />
+                  </button>
+                )}
 
                 <div className="min-w-0 flex-1">
                   {isEditing ? (
@@ -183,7 +178,7 @@ export default function SidebarProjectItem({
                   ) : (
                     <>
                       <div className="flex min-w-0 flex-1 items-center justify-between">
-                        <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
+                        <h3 className="truncate text-sm font-normal text-foreground" title={project.fullPath}>{project.displayName}</h3>
                         {tasksEnabled && (
                           <TaskIndicator
                             status={taskStatus}
@@ -192,7 +187,6 @@ export default function SidebarProjectItem({
                           />
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground">{sessionCountLabel}</p>
                     </>
                   )}
                 </div>
@@ -220,7 +214,7 @@ export default function SidebarProjectItem({
                       <X className="h-4 w-4 text-white" />
                     </button>
                   </>
-                ) : (
+                ) : !isRecentView ? (
                   <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
                     {isExpanded ? (
                       <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -228,7 +222,7 @@ export default function SidebarProjectItem({
                       <ChevronRight className="h-3 w-3 text-muted-foreground" />
                     )}
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
@@ -241,33 +235,36 @@ export default function SidebarProjectItem({
             isSelected && 'bg-accent text-accent-foreground',
             isStarred &&
               !isSelected &&
+              !isRecentView &&
               'bg-yellow-50/50 dark:bg-yellow-900/10 hover:bg-yellow-100/50 dark:hover:bg-yellow-900/20',
           )}
           onClick={selectAndToggleProject}
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div
-              className={cn(
-                'w-6 h-6 flex items-center justify-center rounded cursor-pointer transition-all duration-200',
-                isStarred
-                  ? 'hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
-                  : 'opacity-40 hover:opacity-100 hover:bg-accent',
-              )}
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleStarProject();
-              }}
-              title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
-            >
-              <Star
+            {!isRecentView && (
+              <div
                 className={cn(
-                  'w-3 h-3 transition-colors',
+                  'w-6 h-6 flex items-center justify-center rounded cursor-pointer transition-all duration-200',
                   isStarred
-                    ? 'text-yellow-600 dark:text-yellow-400 fill-current'
-                    : 'text-muted-foreground',
+                    ? 'hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
+                    : 'opacity-40 hover:opacity-100 hover:bg-accent',
                 )}
-              />
-            </div>
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleStarProject();
+                }}
+                title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+              >
+                <Star
+                  className={cn(
+                    'w-3 h-3 transition-colors',
+                    isStarred
+                      ? 'text-yellow-600 dark:text-yellow-400 fill-current'
+                      : 'text-muted-foreground',
+                  )}
+                />
+              </div>
+            )}
             <div className="min-w-0 flex-1 text-left">
               {isEditing ? (
                 <div className="space-y-1">
@@ -292,19 +289,8 @@ export default function SidebarProjectItem({
                   </div>
                 </div>
               ) : (
-                <div>
-                  <div className="truncate text-sm font-normal text-foreground" title={project.displayName}>
-                    {project.displayName}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {sessionCountDisplay}
-                    {project.fullPath !== project.displayName && (
-                      <span className="ml-1 opacity-60" title={project.fullPath}>
-                        {' - '}
-                        {project.fullPath.length > 25 ? `...${project.fullPath.slice(-22)}` : project.fullPath}
-                      </span>
-                    )}
-                  </div>
+                <div className="truncate text-sm font-normal text-foreground" title={project.fullPath}>
+                  {project.displayName}
                 </div>
               )}
             </div>
@@ -332,13 +318,13 @@ export default function SidebarProjectItem({
                   <X className="h-3 w-3" />
                 </div>
               </>
-            ) : (
+            ) : !isRecentView ? (
               isExpanded ? (
                 <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
               ) : (
                 <ChevronRight className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
               )
-            )}
+            ) : null}
           </div>
         </Button>
       </div>

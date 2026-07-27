@@ -18,6 +18,8 @@
     "claude": "Claude",
     "cursor": "Cursor",
     "codex": "Codex",
+    "kimi": "Kimi",
+    "gemini": "Gemini",
     "opencode": "OpenCode"
   },
   "tools": {
@@ -109,7 +111,10 @@
     "transcribing": "Transcribing…",
     "speak": "Read aloud",
     "stopSpeaking": "Stop",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "retry": "Retry transcription",
+    "discard": "Discard recording",
+    "retryHint": "Could not transcribe ({{error}}). Your recording is saved — tap to retry."
   },
   "input": {
     "placeholder": "Type / for commands, @ for files, or ask {{provider}} anything...",
@@ -136,9 +141,13 @@
       "sendNext": "Queue next message",
       "update": "Update queued message",
       "label": "Queued",
+      "sendingNow": "Stopping current turn…",
       "willSend": "Will send when this finishes",
+      "sendNow": "Stop and send now",
       "edit": "Edit queued message",
-      "delete": "Delete queued message"
+      "delete": "Delete queued message",
+      "imagesAttached_one": "{{count}} image attached",
+      "imagesAttached_other": "{{count}} images attached"
     }
   },
   "providerSelection": {
@@ -155,6 +164,8 @@
       "claude": "Ready to use Claude with {{model}}. Start typing your message below.",
       "cursor": "Ready to use Cursor with {{model}}. Start typing your message below.",
       "codex": "Ready to use Codex with {{model}}. Start typing your message below.",
+      "kimi": "Ready to use Kimi with {{model}}. Start typing your message below.",
+      "gemini": "Ready to use Gemini with {{model}}. Start typing your message below.",
       "opencode": "Ready to use OpenCode with {{model}}. Start typing your message below.",
       "default": "Select a provider above to begin"
     },

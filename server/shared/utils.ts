@@ -17,6 +17,7 @@ import readline from 'node:readline';
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
+import { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 import { parseFrontMatter } from '@/shared/frontmatter.js';
 import type {
   AnyRecord,
@@ -533,94 +534,7 @@ export function buildDefaultProviderCurrentActiveModel(
 }
 
 // ---------------------------
-//----------------- PROVIDER SESSION MODEL CHANGE UTILITIES ------------
-type ProviderSessionActiveModelChangeCacheEntry = ProviderSessionActiveModelChange & {
-  updatedAt: string;
-};
-
-type ProviderSessionActiveModelChangeCacheFile = {
-  version: number;
-  entries: Record<string, ProviderSessionActiveModelChangeCacheEntry>;
-};
-
-const PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION = 1;
-
-/**
- * Resolves the backend-owned cache file used for session-scoped resume model
- * overrides.
- *
- * The file lives under `~/.cloudcli` because these overrides are an application
- * concern rather than a provider-native config file. Providers, routes, and
- * runtime command launchers should all use this helper instead of re-creating
- * the path so the storage location stays consistent.
- */
-export function getProviderSessionActiveModelChangesPath(): string {
-  return path.join(os.homedir(), '.cloudcli', 'provider-session-active-model-changes.json');
-}
-
-const buildProviderSessionActiveModelChangeKey = (
-  provider: LLMProvider,
-  sessionId: string,
-): string => `${provider}:${sessionId}`;
-
-const isProviderSessionActiveModelChangeCacheEntry = (
-  value: unknown,
-): value is ProviderSessionActiveModelChangeCacheEntry => {
-  const record = readObjectRecord(value);
-  return Boolean(
-    record
-    && typeof record.provider === 'string'
-    && typeof record.sessionId === 'string'
-    && typeof record.supported === 'boolean'
-    && typeof record.changed === 'boolean'
-    && (typeof record.model === 'string' || record.model === null)
-    && typeof record.updatedAt === 'string',
-  );
-};
-
-const readProviderSessionActiveModelChangeCacheFile = async (
-  filePath: string,
-): Promise<ProviderSessionActiveModelChangeCacheFile> => {
-  try {
-    const raw = await readFile(filePath, 'utf8');
-    const parsed = readObjectRecord(JSON.parse(raw));
-    if (
-      !parsed
-      || parsed.version !== PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION
-      || !readObjectRecord(parsed.entries)
-    ) {
-      return {
-        version: PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION,
-        entries: {},
-      };
-    }
-
-    const entries = Object.fromEntries(
-      Object.entries(parsed.entries).filter((entry): entry is [string, ProviderSessionActiveModelChangeCacheEntry] =>
-        isProviderSessionActiveModelChangeCacheEntry(entry[1]),
-      ),
-    );
-
-    return {
-      version: PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION,
-      entries,
-    };
-  } catch {
-    return {
-      version: PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION,
-      entries: {},
-    };
-  }
-};
-
-const writeProviderSessionActiveModelChangeCacheFile = async (
-  filePath: string,
-  payload: ProviderSessionActiveModelChangeCacheFile,
-): Promise<void> => {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-};
-
+//----------------- PROVIDER SESSION MODEL/EFFORT CHANGE UTILITIES ------------
 const buildUnsupportedProviderSessionActiveModelChange = (
   provider: LLMProvider,
   sessionId: string,
@@ -630,21 +544,25 @@ const buildUnsupportedProviderSessionActiveModelChange = (
   supported: false,
   changed: false,
   model: null,
+  effort: null,
 });
 
 /**
- * Reads the persisted session model-change state for one provider session.
+ * Reads the persisted session model/effort override for one provider session,
+ * stored directly on that session's `sessions` table row (see
+ * `sessionsDb.resolveSessionRowForOverride`).
  *
  * Runtime resume paths use this to decide whether they should inject a
- * provider-specific model argument/thread option for the next resumed turn.
- * Missing cache entries are normalized to `{ changed: false }` so callers can
- * treat absence as "use the ordinary model selection flow".
+ * provider-specific model/effort argument on the next resumed turn. Sessions
+ * without a stored override normalize to `{ changed: false }` so callers can
+ * treat absence as "use the ordinary model/effort selection flow". The lookup
+ * accepts either id space (app `session_id` or provider-native
+ * `provider_session_id`) since resume call sites only ever have the latter.
  */
 export async function readProviderSessionActiveModelChange(
   provider: LLMProvider,
   sessionId: string,
   options: {
-    filePath?: string;
     supported?: boolean;
   } = {},
 ): Promise<ProviderSessionActiveModelChange> {
@@ -658,84 +576,68 @@ export async function readProviderSessionActiveModelChange(
     return buildUnsupportedProviderSessionActiveModelChange(provider, normalizedSessionId);
   }
 
-  const filePath = options.filePath ?? getProviderSessionActiveModelChangesPath();
-  const cacheFile = await readProviderSessionActiveModelChangeCacheFile(filePath);
-  const cacheEntry = cacheFile.entries[
-    buildProviderSessionActiveModelChangeKey(provider, normalizedSessionId)
-  ];
-
-  if (!cacheEntry || !cacheEntry.changed || !cacheEntry.model?.trim()) {
-    return {
-      provider,
-      sessionId: normalizedSessionId,
-      supported: true,
-      changed: false,
-      model: null,
-    };
-  }
+  const row = sessionsDb.resolveSessionRowForOverride(normalizedSessionId);
+  const model = row?.model?.trim() || null;
+  const effort = row?.effort?.trim() || null;
 
   return {
     provider,
     sessionId: normalizedSessionId,
     supported: true,
-    changed: true,
-    model: cacheEntry.model.trim(),
+    changed: Boolean(model || effort),
+    model,
+    effort,
   };
 }
 
 /**
- * Persists a session model-change request for one provider.
- *
- * Provider adapters call this when the frontend explicitly selects a different
- * model for an existing session. The stored `changed: true` flag is the single
- * source of truth used later by resume paths to decide whether they should add
- * a provider-native model override on the next invocation.
+ * Persists a session model/effort-change request for one provider directly
+ * onto that session's `sessions` table row. `model`/`effort` on the input are
+ * each optional, so a caller can update just one without clobbering the
+ * other. The stored value is the single source of truth resume paths check
+ * before adding a provider-native override on the next invocation.
  */
 export async function writeProviderSessionActiveModelChange(
   provider: LLMProvider,
   input: ProviderChangeActiveModelInput,
   options: {
-    filePath?: string;
     supported?: boolean;
   } = {},
 ): Promise<ProviderSessionActiveModelChange> {
   const normalizedSessionId = input.sessionId.trim();
-  const normalizedModel = input.model.trim();
+  const normalizedModel = input.model?.trim() || undefined;
+  const normalizedEffort = input.effort?.trim() || undefined;
   const supported = options.supported ?? true;
 
   if (!supported) {
     return buildUnsupportedProviderSessionActiveModelChange(provider, normalizedSessionId);
   }
 
-  if (!normalizedSessionId || !normalizedModel) {
+  if (!normalizedSessionId || (!normalizedModel && !normalizedEffort)) {
     return {
       provider,
       sessionId: normalizedSessionId,
       supported: true,
       changed: false,
       model: null,
+      effort: null,
     };
   }
 
-  const filePath = options.filePath ?? getProviderSessionActiveModelChangesPath();
-  const cacheFile = await readProviderSessionActiveModelChangeCacheFile(filePath);
-  cacheFile.entries[buildProviderSessionActiveModelChangeKey(provider, normalizedSessionId)] = {
-    provider,
-    sessionId: normalizedSessionId,
-    supported: true,
-    changed: true,
-    model: normalizedModel,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await writeProviderSessionActiveModelChangeCacheFile(filePath, cacheFile);
+  if (normalizedModel) {
+    sessionsDb.updateSessionModel(normalizedSessionId, normalizedModel);
+  }
+  if (normalizedEffort) {
+    sessionsDb.updateSessionEffort(normalizedSessionId, normalizedEffort);
+  }
 
   return {
     provider,
     sessionId: normalizedSessionId,
     supported: true,
     changed: true,
-    model: normalizedModel,
+    model: normalizedModel ?? null,
+    effort: normalizedEffort ?? null,
   };
 }
 
@@ -1081,6 +983,64 @@ export function readJsonRecord(value: unknown): AnyRecord | null {
  */
 export function getOpenCodeDatabasePath(): string {
   return path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+}
+
+/**
+ * Root of the Kimi Code CLI's local data (config, sessions, credentials).
+ * Honors KIMI_CODE_HOME, same as the CLI itself.
+ */
+export function getKimiCodeHome(): string {
+  const fromEnv = process.env.KIMI_CODE_HOME?.trim();
+  return fromEnv || path.join(os.homedir(), '.kimi-code');
+}
+
+/**
+ * Resolves the Kimi Code CLI binary. Order: KIMI_CLI_PATH env override, then
+ * the official installer's location (~/.kimi-code/bin/kimi), then bare 'kimi'
+ * for PATH resolution. The launchd service PATH does not include the
+ * installer's bin dir, so the home location is the common case on the Mac.
+ */
+export function resolveKimiCliPath(): string {
+  const fromEnv = process.env.KIMI_CLI_PATH?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  const homeBinary = path.join(
+    getKimiCodeHome(),
+    'bin',
+    process.platform === 'win32' ? 'kimi.exe' : 'kimi',
+  );
+  if (fs.existsSync(homeBinary)) {
+    return homeBinary;
+  }
+
+  return 'kimi';
+}
+
+/**
+ * Gemini CLI's config/state home. Honors GEMINI_HOME for parity with the other
+ * providers; the CLI itself always uses ~/.gemini (settings.json, oauth_creds.json,
+ * sessions/, skills/).
+ */
+export function getGeminiHome(): string {
+  const fromEnv = process.env.GEMINI_HOME?.trim();
+  return fromEnv || path.join(os.homedir(), '.gemini');
+}
+
+/**
+ * Resolves the Gemini CLI binary. Order: GEMINI_CLI_PATH override, then bare
+ * 'gemini' for PATH resolution — the npm global install (@google/gemini-cli)
+ * lands in a directory that the launchd service PATH already covers
+ * (/usr/local/bin), unlike Kimi's private installer location.
+ */
+export function resolveGeminiCliPath(): string {
+  const fromEnv = process.env.GEMINI_CLI_PATH?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  return 'gemini';
 }
 
 /**

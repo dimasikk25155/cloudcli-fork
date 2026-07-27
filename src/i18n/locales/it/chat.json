@@ -17,7 +17,10 @@
     "tool": "Strumento",
     "claude": "Claude",
     "cursor": "Cursor",
-    "codex": "Codex"
+    "codex": "Codex",
+    "opencode": "OpenCode",
+    "kimi": "Kimi",
+    "gemini": "Gemini"
   },
   "tools": {
     "settings": "Impostazioni strumento",
@@ -135,6 +138,9 @@
       "claude": "Pronto a usare Claude con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
       "cursor": "Pronto a usare Cursor con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
       "codex": "Pronto a usare Codex con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
+      "opencode": "Pronto a usare OpenCode con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
+      "kimi": "Pronto a usare Kimi con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
+      "gemini": "Pronto a usare Gemini con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
       "default": "Seleziona un provider sopra per iniziare"
     },
     "pressToSearch": "Premi <kbd>{{shortcut}}</kbd> per cercare sessioni, file e commit"

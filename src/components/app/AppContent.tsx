@@ -213,9 +213,12 @@ function AppContentInner() {
 
   return (
     <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
-      {shaderEnabled && <ThemeBackground theme={theme} />}
+      {/* Тема "Claude" — буквальный клон claude.ai: там фон статичный,
+          без анимации, поэтому для неё фон-компонент не рендерим вообще,
+          независимо от тумблера "Живой фон" (он для остальных тем). */}
+      {shaderEnabled && theme !== 'claude' && <ThemeBackground theme={theme} />}
       {!isMobile ? (
-        <div className="relative z-10 h-full flex-shrink-0 border-r border-border/50 bg-background">
+        <div className="app-sidebar relative z-10 h-full flex-shrink-0 border-r border-border/50 bg-background">
           <Sidebar {...sidebarSharedProps} />
         </div>
       ) : (
@@ -237,7 +240,7 @@ function AppContentInner() {
             aria-label={t('versionUpdate.ariaLabels.closeSidebar')}
           />
           <div
-            className={`relative h-full w-[85vw] max-w-sm transform border-r border-border/40 bg-card transition-transform duration-150 ease-out sm:w-80 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+            className={`app-sidebar relative h-full w-[85vw] max-w-sm transform border-r border-border/40 bg-card transition-transform duration-150 ease-out sm:w-80 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
               }`}
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}

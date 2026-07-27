@@ -11,7 +11,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { Paperclip, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
+import { Plus, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
 
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useVoiceAvailable } from '../../hooks/useVoiceAvailable';
@@ -222,12 +222,24 @@ export default function ChatComposer({
     if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
   }, []);
   const noopTranscript = useCallback(() => {}, []);
-  const { state: voiceState, toggle: voiceToggle, stop: voiceStop } = useVoiceInput(
-    onVoiceTranscript ?? noopTranscript,
-    handleVoiceError,
-  );
+  const {
+    state: voiceState,
+    toggle: voiceToggle,
+    stop: voiceStop,
+    discard: voiceDiscard,
+  } = useVoiceInput(onVoiceTranscript ?? noopTranscript, handleVoiceError);
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';
+  // While a failed recording is waiting to be retried, keep the reason on screen
+  // instead of letting the 4s auto-hide leave an unexplained retry button.
+  useEffect(() => {
+    if (voiceState !== 'error' && voiceErrorTimer.current) return;
+    if (voiceState === 'error' && voiceErrorTimer.current) {
+      clearTimeout(voiceErrorTimer.current);
+      voiceErrorTimer.current = null;
+    }
+    if (voiceState === 'idle') setVoiceError(null);
+  }, [voiceState]);
   const [isEffortDropdownOpen, setIsEffortDropdownOpen] = useState(false);
   const effortDropdownRef = useRef<HTMLDivElement | null>(null);
   const effortDropdownMenuRef = useRef<HTMLDivElement | null>(null);
@@ -259,6 +271,19 @@ export default function ChatComposer({
     () => [{ value: 'default' }, ...availableEffortOptions],
     [availableEffortOptions],
   );
+  // The trigger buttons show the CURRENT choice (claude.ai-style "Fable 5" /
+  // "High"), falling back to the generic label only when nothing concrete is
+  // selected.
+  const selectedModelOption = useMemo(
+    () => availableModelOptions.find((candidate) => candidate.value === model) ?? null,
+    [availableModelOptions, model],
+  );
+  const selectedModelLabel = selectedModelOption?.label ?? (model || null);
+  // "default" is not a level a human recognises — show the level the model
+  // actually runs at, which is the catalog's declared default for it.
+  const selectedEffortLabel = effort && effort !== 'default'
+    ? effort
+    : selectedModelOption?.effort?.default ?? null;
   const updateEffortDropdownPosition = useCallback(() => {
     const rect = effortDropdownButtonRef.current?.getBoundingClientRect();
     if (!rect) {
@@ -402,6 +427,35 @@ export default function ChatComposer({
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
   }, [isModelDropdownOpen, updateModelDropdownPosition]);
+
+  // Menu items in the Mode/Model/Effort dropdowns live inside an
+  // overflow-y-auto container. On real touch devices (most visible in the
+  // Android TWA app) the browser's tap-vs-scroll arbitration treats even
+  // tiny finger jitter during a tap as the start of a scroll on that
+  // scrollable container and suppresses the synthetic `click` entirely —
+  // the option never registers and the menu just sits there open. `touchend`
+  // always fires regardless of that arbitration, so it drives the actual
+  // selection on touch; `onClick` stays as the mouse/keyboard path. The
+  // suppress-ref (same shape as useMobileMenuHandlers' pattern) stops the
+  // click that normally follows a clean tap from firing the selection twice.
+  const suppressNextOptionClickRef = useRef(false);
+  const tapSelect = useCallback((onSelect: () => void) => ({
+    onTouchEnd: (event: TouchEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      suppressNextOptionClickRef.current = true;
+      onSelect();
+      window.setTimeout(() => {
+        suppressNextOptionClickRef.current = false;
+      }, 350);
+    },
+    onClick: () => {
+      if (suppressNextOptionClickRef.current) {
+        suppressNextOptionClickRef.current = false;
+        return;
+      }
+      onSelect();
+    },
+  }), []);
 
   // Detect if the AskUserQuestion interactive panel is active
   const hasQuestionPanel = pendingPermissionRequests.some(
@@ -564,12 +618,8 @@ export default function ChatComposer({
               tooltip={{ content: t('input.attachFiles', { defaultValue: 'Attach files' }) }}
               onClick={openImagePicker}
             >
-              <Paperclip />
+              <Plus />
             </PromptInputButton>
-
-            {onVoiceTranscript && voiceAvailable && (
-              <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
-            )}
 
             <div ref={modeDropdownRef} className="relative">
               <button
@@ -579,7 +629,7 @@ export default function ChatComposer({
                   updateModeDropdownPosition();
                   setIsModeDropdownOpen((current) => !current);
                 }}
-                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ${modeButtonClass(permissionMode)}`}
+                className={`composer-chip inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ${modeButtonClass(permissionMode)}`}
                 aria-haspopup="menu"
                 aria-expanded={isModeDropdownOpen}
                 title={t('codex.permissionMode', { defaultValue: 'Permission mode' })}
@@ -608,10 +658,10 @@ export default function ChatComposer({
                         type="button"
                         role="menuitemradio"
                         aria-checked={isSelected}
-                        onClick={() => {
+                        {...tapSelect(() => {
                           onSelectPermissionMode(mode);
                           setIsModeDropdownOpen(false);
-                        }}
+                        })}
                         className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
                           isSelected
                             ? 'bg-accent text-foreground'
@@ -640,14 +690,14 @@ export default function ChatComposer({
                     updateModelDropdownPosition();
                     setIsModelDropdownOpen((current) => !current);
                   }}
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
+                  className="composer-chip composer-chip-model flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
                   aria-haspopup="menu"
                   aria-expanded={isModelDropdownOpen}
                   aria-label={t('input.selectModel')}
                   title={t('input.selectModel')}
                 >
-                  <span>{t('input.modelLabel')}</span>
-                  <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
+                  <span>{selectedModelLabel ?? t('input.modelLabel')}</span>
+                  <ChevronDown className={`composer-chip-chevron h-3 w-3 text-muted-foreground transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {isModelDropdownOpen && modelDropdownPosition && createPortal(
@@ -670,10 +720,10 @@ export default function ChatComposer({
                           type="button"
                           role="menuitemradio"
                           aria-checked={isSelected}
-                          onClick={() => {
+                          {...tapSelect(() => {
                             onSelectModel(option.value);
                             setIsModelDropdownOpen(false);
-                          }}
+                          })}
                           className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
                             isSelected
                               ? 'bg-accent text-foreground'
@@ -702,13 +752,15 @@ export default function ChatComposer({
                     updateEffortDropdownPosition();
                     setIsEffortDropdownOpen((current) => !current);
                   }}
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
+                  className="composer-chip composer-chip-effort flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
                   aria-haspopup="menu"
                   aria-expanded={isEffortDropdownOpen}
                   aria-label="Select reasoning effort"
                   title="Select reasoning effort"
                 >
-                  <span>{t('input.effortLabel', { defaultValue: 'Effort' })}</span>
+                  <span className={selectedEffortLabel ? 'capitalize' : undefined}>
+                    {selectedEffortLabel ?? t('input.effortLabel', { defaultValue: 'Effort' })}
+                  </span>
                   <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isEffortDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -733,10 +785,10 @@ export default function ChatComposer({
                           type="button"
                           role="menuitemradio"
                           aria-checked={isSelected}
-                          onClick={() => {
+                          {...tapSelect(() => {
                             onSelectEffort(option.value);
                             setIsEffortDropdownOpen(false);
-                          }}
+                          })}
                           className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs capitalize transition-colors ${
                             isSelected
                               ? 'bg-accent text-foreground'
@@ -758,7 +810,7 @@ export default function ChatComposer({
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
 
-            <UsageLimitsBadge />
+            <UsageLimitsBadge model={model} />
 
             {hasInput && (
               <PromptInputButton
@@ -773,6 +825,14 @@ export default function ChatComposer({
           </PromptInputTools>
 
           <div className="flex shrink-0 items-center gap-2 pl-2">
+            {onVoiceTranscript && voiceAvailable && (
+              <VoiceInputButton
+                state={voiceState}
+                onToggle={voiceToggle}
+                errorMsg={voiceError}
+                onDiscard={voiceDiscard}
+              />
+            )}
             <PromptInputSubmit
               onClick={
                 canQueueDraft
@@ -792,7 +852,7 @@ export default function ChatComposer({
               disabled={isLoading ? false : isRecording ? false : isTranscribing ? true : !input.trim()}
               aria-label={submitAriaLabel}
               title={submitAriaLabel}
-              className="h-10 w-14 sm:w-16"
+              className="composer-submit h-10 w-14 sm:w-16"
             >
               {isTranscribing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

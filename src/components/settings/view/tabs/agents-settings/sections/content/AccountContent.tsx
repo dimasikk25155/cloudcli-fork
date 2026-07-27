@@ -54,6 +54,24 @@ const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
     subtextClass: 'text-zinc-700 dark:text-zinc-300',
     buttonClass: 'bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-950 dark:bg-zinc-700 dark:hover:bg-zinc-600',
   },
+  kimi: {
+    name: 'Kimi',
+    description: 'Kimi Code CLI assistant (Moonshot AI)',
+    bgClass: 'bg-sky-50 dark:bg-sky-900/20',
+    borderClass: 'border-sky-200 dark:border-sky-700',
+    textClass: 'text-sky-900 dark:text-sky-100',
+    subtextClass: 'text-sky-700 dark:text-sky-300',
+    buttonClass: 'bg-sky-600 hover:bg-sky-700 active:bg-sky-800',
+  },
+  gemini: {
+    name: 'Gemini',
+    description: 'Google Gemini CLI assistant',
+    bgClass: 'bg-indigo-50 dark:bg-indigo-900/20',
+    borderClass: 'border-indigo-200 dark:border-indigo-700',
+    textClass: 'text-indigo-900 dark:text-indigo-100',
+    subtextClass: 'text-indigo-700 dark:text-indigo-300',
+    buttonClass: 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800',
+  },
 };
 
 export default function AccountContent({ agent, authStatus, onLogin }: AccountContentProps) {

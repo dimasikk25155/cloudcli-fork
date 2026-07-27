@@ -23,11 +23,15 @@ import {
   Card,
 } from "../../../../shared/view/ui";
 
+// Kimi re-added 2026-07-26 — bring-your-own-login engine alongside the others.
+// 'gemini' intentionally excluded — Google killed free personal-account login
+// for Gemini CLI/Code Assist on 2026-06-18. See useChatProviderState.ts.
 const PROVIDER_META: { id: LLMProvider; name: string }[] = [
   { id: "claude", name: "Anthropic" },
   { id: "codex", name: "OpenAI" },
   { id: "cursor", name: "Cursor" },
   { id: "opencode", name: "OpenCode" },
+  { id: "kimi", name: "Moonshot" },
 ];
 
 const MOD_KEY =
@@ -58,6 +62,10 @@ type ProviderSelectionEmptyStateProps = {
   setCodexModel: (model: string) => void;
   opencodeModel: string;
   setOpenCodeModel: (model: string) => void;
+  kimiModel: string;
+  setKimiModel: (model: string) => void;
+  geminiModel: string;
+  setGeminiModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
   tasksEnabled: boolean;
@@ -86,10 +94,14 @@ function getCurrentModel(
   cu: string,
   co: string,
   o: string,
+  k: string,
+  g: string,
 ) {
   if (p === "claude") return c;
   if (p === "codex") return co;
   if (p === "opencode") return o;
+  if (p === "kimi") return k;
+  if (p === "gemini") return g;
   return cu;
 }
 
@@ -98,6 +110,8 @@ function getProviderDisplayName(p: LLMProvider) {
   if (p === "cursor") return "Cursor";
   if (p === "codex") return "Codex";
   if (p === "opencode") return "OpenCode";
+  if (p === "kimi") return "Kimi";
+  if (p === "gemini") return "Gemini";
   return "Claude";
 }
 
@@ -115,6 +129,10 @@ export default function ProviderSelectionEmptyState({
   setCodexModel,
   opencodeModel,
   setOpenCodeModel,
+  kimiModel,
+  setKimiModel,
+  geminiModel,
+  setGeminiModel,
   providerModelCatalog,
   providerModelsLoading,
   tasksEnabled,
@@ -143,6 +161,8 @@ export default function ProviderSelectionEmptyState({
     cursorModel,
     codexModel,
     opencodeModel,
+    kimiModel,
+    geminiModel,
   );
 
   const currentModelLabel = useMemo(() => {
@@ -164,12 +184,18 @@ export default function ProviderSelectionEmptyState({
       } else if (providerId === "opencode") {
         setOpenCodeModel(modelValue);
         localStorage.setItem("opencode-model", modelValue);
+      } else if (providerId === "kimi") {
+        setKimiModel(modelValue);
+        localStorage.setItem("kimi-model", modelValue);
+      } else if (providerId === "gemini") {
+        setGeminiModel(modelValue);
+        localStorage.setItem("gemini-model", modelValue);
       } else {
         setCursorModel(modelValue);
         localStorage.setItem("cursor-model", modelValue);
       }
     },
-    [setClaudeModel, setCursorModel, setCodexModel, setOpenCodeModel],
+    [setClaudeModel, setCursorModel, setCodexModel, setOpenCodeModel, setKimiModel, setGeminiModel],
   );
 
   const handleModelSelect = useCallback(
@@ -315,6 +341,14 @@ export default function ProviderSelectionEmptyState({
                 opencode: t("providerSelection.readyPrompt.opencode", {
                   model: opencodeModel,
                   defaultValue: "Ready with OpenCode {{model}}",
+                }),
+                kimi: t("providerSelection.readyPrompt.kimi", {
+                  model: kimiModel,
+                  defaultValue: "Ready with Kimi {{model}}",
+                }),
+                gemini: t("providerSelection.readyPrompt.gemini", {
+                  model: geminiModel,
+                  defaultValue: "Ready with Gemini {{model}}",
                 }),
               }[provider]
             }

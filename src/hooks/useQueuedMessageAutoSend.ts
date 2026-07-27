@@ -62,7 +62,10 @@ export function useQueuedMessageAutoSend({
         type: 'chat.send',
         sessionId,
         content: queued.content,
-        options: { ...(queued.options ?? {}), images: [] },
+        // Images were uploaded at queue time (serializable descriptors), so a
+        // queued attachment is no longer dropped when this hook — rather than
+        // the composer's own flush — is the one that dispatches the message.
+        options: { ...(queued.options ?? {}), images: Array.isArray(queued.images) ? queued.images : [] },
       });
       markSessionProcessing(sessionId, { statusText: null, canInterrupt: true });
     }

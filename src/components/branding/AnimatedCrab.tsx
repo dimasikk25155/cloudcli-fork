@@ -13,7 +13,7 @@ type AnimatedCrabProps = {
 
 export default function AnimatedCrab({ className, animated = true }: AnimatedCrabProps) {
   return (
-    <svg className={className} viewBox="0 0 64 64" fill="none" role="img" aria-label="Claude CLI">
+    <svg className={className} viewBox="0 0 64 64" fill="none" role="img" aria-label="Neo3 Agent System">
       {animated && (
         <style>{`
           @media (prefers-reduced-motion: no-preference) {

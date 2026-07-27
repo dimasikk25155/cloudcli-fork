@@ -1,6 +1,8 @@
 import { ClaudeProvider } from '@/modules/providers/list/claude/claude.provider.js';
 import { CodexProvider } from '@/modules/providers/list/codex/codex.provider.js';
 import { CursorProvider } from '@/modules/providers/list/cursor/cursor.provider.js';
+import { GeminiProvider } from '@/modules/providers/list/gemini/gemini.provider.js';
+import { KimiProvider } from '@/modules/providers/list/kimi/kimi.provider.js';
 import { OpenCodeProvider } from '@/modules/providers/list/opencode/opencode.provider.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type { LLMProvider } from '@/shared/types.js';
@@ -11,6 +13,8 @@ const providers: Record<LLMProvider, IProvider> = {
   codex: new CodexProvider(),
   cursor: new CursorProvider(),
   opencode: new OpenCodeProvider(),
+  kimi: new KimiProvider(),
+  gemini: new GeminiProvider(),
 };
 
 /**

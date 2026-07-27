@@ -1,7 +1,7 @@
-import { Activity, Archive, Folder, FolderPlus, History, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+import { Activity, Folder, FolderPlus, History, Plus, RefreshCw, Search, X, PanelLeftClose, type LucideIcon } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
-import { Button, Input, Tooltip } from '../../../../shared/view/ui';
+import { Button, Input } from '../../../../shared/view/ui';
 import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
 import { IS_PLATFORM } from '../../../../constants/config';
 import { cn } from '../../../../lib/utils';
@@ -64,9 +64,66 @@ export default function SidebarHeader({
   const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
   const recentBadgeText = recentSessionsCount > 99 ? '99+' : String(recentSessionsCount);
 
+  // claude.ai's own split is two flat text tabs (Home / Code) — no boxes,
+  // no icon rail. "Проекты"/"Недавние" get the same treatment; the
+  // "Running" indicator doesn't have a claude.ai counterpart, so it rides
+  // along as a small pill on the far right instead of a third equal tab.
+  type NavTab = { key: 'projects' | 'recent'; icon: LucideIcon; label: string };
+
+  const primaryTabs: NavTab[] = [
+    { key: 'projects', icon: Folder, label: t('search.modeProjects') },
+    { key: 'recent', icon: History, label: t('search.modeRecent', 'Recent') },
+  ];
+
+  const NavTabs = () => (
+    !showSearchTools ? null : (
+      <div className="flex items-center gap-4">
+        {primaryTabs.map(({ key, icon: Icon, label }) => {
+          const active = searchMode === key;
+          return (
+            <button
+              key={key}
+              onClick={() => onSearchModeChange(key)}
+              aria-pressed={active}
+              className={cn(
+                'sidebar-nav-tab flex items-center gap-1.5 border-b-2 pb-1 text-sm font-normal transition-colors',
+                active
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+              {key === 'recent' && recentSessionsCount > 0 && (
+                <span className="text-[11px] text-muted-foreground/70">{recentBadgeText}</span>
+              )}
+            </button>
+          );
+        })}
+
+        {runningSessionsCount > 0 && (
+          <button
+            onClick={() => onSearchModeChange('running')}
+            aria-pressed={searchMode === 'running'}
+            title={t('search.runningTooltip', 'Running sessions')}
+            className={cn(
+              'ml-auto flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
+              searchMode === 'running'
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                : 'text-muted-foreground hover:text-emerald-500',
+            )}
+          >
+            <Activity className="h-3 w-3" />
+            {runningBadgeText}
+          </button>
+        )}
+      </div>
+    )
+  );
+
   const LogoBlock = () => (
     <div className="flex min-w-0 items-center gap-2.5">
-      <AnimatedCrab className="h-7 w-7 flex-shrink-0" />
+      <AnimatedCrab className="sidebar-crab h-7 w-7 flex-shrink-0" />
       <h1
         className="truncate text-sm font-bold tracking-tight text-foreground"
         style={{ fontFamily: CLOUDCLI_WORDMARK_FONT_FAMILY }}
@@ -132,66 +189,11 @@ export default function SidebarHeader({
           </div>
         </div>
 
-        {/* Search bar */}
-        {showSearchTools && (
-          <div className="mt-2.5 space-y-2">
-            {/* Search mode toggle */}
-            <div className="flex rounded-lg bg-muted/50 p-0.5">
-              <button
-                onClick={() => onSearchModeChange('projects')}
-                aria-pressed={searchMode === 'projects'}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-normal transition-all",
-                  searchMode === 'projects'
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Folder className="h-3 w-3" />
-                {t('search.modeProjects')}
-              </button>
-              <button
-                onClick={() => onSearchModeChange('recent')}
-                aria-pressed={searchMode === 'recent'}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-normal transition-all",
-                  searchMode === 'recent'
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <History className="h-3 w-3" />
-                {t('search.modeRecent', 'Recent')}
-                {recentSessionsCount > 0 && (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-500/15 px-1 text-[10px] font-semibold leading-none text-sky-600 dark:text-sky-400">
-                    {recentBadgeText}
-                  </span>
-                )}
-              </button>
-              <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
-                <button
-                  onClick={() => onSearchModeChange('running')}
-                  aria-pressed={searchMode === 'running'}
-                  aria-label={t('search.runningTooltip', 'Running sessions')}
-                  title={t('search.runningTooltip', 'Running sessions')}
-                  className={cn(
-                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
-                    searchMode === 'running'
-                      ? "bg-background shadow-sm text-foreground ring-1 ring-emerald-500/15"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <span className="relative flex h-3 w-3 items-center justify-center">
-                    <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
-                    {runningSessionsCount > 0 && (
-                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
-                        {runningBadgeText}
-                      </span>
-                    )}
-                  </span>
-                </button>
-              </Tooltip>
-            </div>
+        {/* Nav tabs + search */}
+        <div className="mt-2.5 space-y-2">
+          <NavTabs />
+
+          {showSearchTools && (
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
               <Input
@@ -220,8 +222,8 @@ export default function SidebarHeader({
                 </kbd>
               )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Desktop divider */}
@@ -262,66 +264,11 @@ export default function SidebarHeader({
           </div>
         </div>
 
-        {/* Mobile search */}
-        {showSearchTools && (
-          <div className="mt-2.5 space-y-2">
-            <div className="flex rounded-lg bg-muted/50 p-0.5">
-              <button
-                onClick={() => onSearchModeChange('projects')}
-                aria-pressed={searchMode === 'projects'}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-normal transition-all",
-                  searchMode === 'projects'
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Folder className="h-3 w-3" />
-                {t('search.modeProjects')}
-              </button>
-              <button
-                onClick={() => onSearchModeChange('recent')}
-                aria-pressed={searchMode === 'recent'}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-normal transition-all",
-                  searchMode === 'recent'
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <History className="h-3 w-3" />
-                {t('search.modeRecent', 'Recent')}
-                {recentSessionsCount > 0 && (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-500/15 px-1 text-[10px] font-semibold leading-none text-sky-600 dark:text-sky-400">
-                    {recentBadgeText}
-                  </span>
-                )}
-              </button>
-              <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
-                <button
-                  onClick={() => onSearchModeChange('running')}
-                  aria-pressed={searchMode === 'running'}
-                  aria-label={t('search.runningTooltip', 'Running sessions')}
-                  title={t('search.runningTooltip', 'Running sessions')}
-                  className={cn(
-                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
-                    searchMode === 'running'
-                      ? "bg-background shadow-sm text-foreground ring-1 ring-emerald-500/15"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <span className="relative flex h-3 w-3 items-center justify-center">
-                    <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
-                    {runningSessionsCount > 0 && (
-                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
-                        {runningBadgeText}
-                      </span>
-                    )}
-                  </span>
-                  <span className="sr-only">{t('search.modeRunning', 'Running')}</span>
-                </button>
-              </Tooltip>
-            </div>
+        {/* Mobile nav tabs + search */}
+        <div className="mt-2.5 space-y-2">
+          <NavTabs />
+
+          {showSearchTools && (
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
               <Input
@@ -341,8 +288,8 @@ export default function SidebarHeader({
                 </button>
               )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Mobile divider */}

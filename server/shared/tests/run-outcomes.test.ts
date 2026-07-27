@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildRunInterruptedNotice } from '@/shared/run-outcomes.js';
+import { buildRunInterruptedNotice, isTransientRunFailure } from '@/shared/run-outcomes.js';
 
 const PREFIX = '⏹ Прогон прерван — финального ответа нет.';
 const SUFFIX = 'Отправь сообщение заново, чтобы продолжить.';
@@ -95,4 +95,53 @@ test('session limit wins over a co-occurring connection error', () => {
     causeLine(notice),
     'достигнут лимит подписки Claude — дождись сброса лимита.',
   );
+});
+
+test('an overloaded API maps to the 529 copy', () => {
+  const expected =
+    'серверы Anthropic перегружены (529) — автоповторы не помогли, обычно отпускает за несколько минут.';
+  for (const reason of [
+    'Claude Code returned an error result: API Error: 529 Overloaded.',
+    'API Error: 529 Overloaded. This is a server-side issue',
+  ]) {
+    assert.equal(causeLine(buildRunInterruptedNotice(reason)), expected);
+  }
+});
+
+test('overload copy wins over a co-occurring connection error', () => {
+  const notice = buildRunInterruptedNotice('529 Overloaded, connection closed');
+  assert.ok(causeLine(notice).startsWith('серверы Anthropic перегружены'));
+});
+
+test('server wobbles are retryable', () => {
+  for (const reason of [
+    'Claude Code returned an error result: API Error: 529 Overloaded.',
+    'API Error: 503 Service Unavailable',
+    'Bad Gateway',
+    'Connection closed mid-response',
+    'fetch failed',
+    'read ECONNRESET',
+  ]) {
+    assert.equal(isTransientRunFailure(reason), true, `expected retryable: ${reason}`);
+  }
+});
+
+test('failures a retry cannot fix are not retryable', () => {
+  for (const reason of [
+    "You've hit your session limit. Resets 5pm.",
+    'Claude AI usage limit reached',
+    'Claude Code is not installed',
+    'Your credit balance is too low',
+    'invalid api key',
+    '[ede_diagnostic] result_type=user stop_reason=tool_use',
+    'Some brand new failure',
+    null,
+    '',
+  ]) {
+    assert.equal(isTransientRunFailure(reason), false, `expected non-retryable: ${reason}`);
+  }
+});
+
+test('a session limit delivered as a 503 is still not retried', () => {
+  assert.equal(isTransientRunFailure('503 — usage limit reached for this session'), false);
 });

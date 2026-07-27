@@ -4,6 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { closeConnection } from '@/modules/database/connection.js';
+import { initializeDatabase } from '@/modules/database/init-db.js';
+import { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 import {
   createProviderModelsService,
   PROVIDER_MODELS_CACHE_TTL_MS,
@@ -15,7 +18,6 @@ import type {
   ProviderModelsDefinition,
   ProviderSessionActiveModelChange,
 } from '@/shared/types.js';
-import { writeProviderSessionActiveModelChange } from '@/shared/utils.js';
 
 const createModels = (value: string): ProviderModelsDefinition => ({
   OPTIONS: [{ value, label: value }],
@@ -34,8 +36,31 @@ const createSessionActiveModelChange = (
   sessionId: input.sessionId,
   supported: true,
   changed: true,
-  model: input.model,
+  model: input.model ?? null,
+  effort: input.effort ?? null,
 });
+
+async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'provider-models-service-db-'));
+  const databasePath = path.join(tempDirectory, 'auth.db');
+
+  closeConnection();
+  process.env.DATABASE_PATH = databasePath;
+  await initializeDatabase();
+
+  try {
+    await runTest();
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) {
+      delete process.env.DATABASE_PATH;
+    } else {
+      process.env.DATABASE_PATH = previousDatabasePath;
+    }
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+}
 
 const createEphemeralCachePath = (): string => path.join(
   os.tmpdir(),
@@ -319,12 +344,8 @@ test('provider models service delegates active model change requests to the prov
 });
 
 test('resolveResumeModel prefers a stored changed model over the requested one', async () => {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'provider-model-change-'));
-  const activeModelChangesPath = path.join(tempRoot, 'session-model-changes.json');
-
-  try {
+  await withIsolatedDatabase(async () => {
     const service = createProviderModelsService({
-      activeModelChangesPath,
       resolveProvider: (provider) => ({
         models: {
           getSupportedModels: async () => createModels(`${provider}-models`),
@@ -334,16 +355,30 @@ test('resolveResumeModel prefers a stored changed model over the requested one',
       }),
     });
 
-    await writeProviderSessionActiveModelChange('cursor', {
-      sessionId: 'session-456',
-      model: 'composer-2',
-    }, {
-      filePath: activeModelChangesPath,
-    });
+    sessionsDb.createAppSession('session-456', 'cursor', '/workspace/demo-project');
+    sessionsDb.updateSessionModel('session-456', 'composer-2');
 
     const model = await service.resolveResumeModel('cursor', 'session-456', 'composer-2-fast');
     assert.equal(model, 'composer-2');
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true });
-  }
+  });
+});
+
+test('resolveResumeEffort prefers a stored changed effort over the requested one', async () => {
+  await withIsolatedDatabase(async () => {
+    const service = createProviderModelsService({
+      resolveProvider: (provider) => ({
+        models: {
+          getSupportedModels: async () => createModels(`${provider}-models`),
+          getCurrentActiveModel: async () => createCurrentActiveModel(`${provider}-active`),
+          changeActiveModel: async (input) => createSessionActiveModelChange(provider, input),
+        },
+      }),
+    });
+
+    sessionsDb.createAppSession('session-789', 'codex', '/workspace/demo-project');
+    sessionsDb.updateSessionEffort('session-789', 'high');
+
+    const effort = await service.resolveResumeEffort('codex', 'session-789', 'low');
+    assert.equal(effort, 'high');
+  });
 });

@@ -10,6 +10,8 @@ import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
 import { queryCodex } from '../openai-codex.js';
 import { spawnOpenCode } from '../opencode-cli.js';
+import { spawnKimi } from '../kimi-cli.js';
+import { spawnGemini } from '../gemini-cli.js';
 import { Octokit } from '@octokit/rest';
 import { providerModelsService } from '../modules/providers/services/provider-models.service.js';
 import { IS_PLATFORM } from '../constants/config.js';
@@ -870,8 +872,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  if (!['claude', 'cursor', 'codex', 'opencode'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", or "opencode"' });
+  if (!['claude', 'cursor', 'codex', 'opencode', 'kimi', 'gemini'].includes(provider)) {
+    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "opencode", "kimi", or "gemini"' });
   }
 
   // Validate GitHub branch/PR creation requirements
@@ -995,6 +997,28 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         sessionId: sessionId || null,
         model: model || opencodeModels.DEFAULT,
         effort,
+        permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
+      }, writer);
+    } else if (provider === 'kimi') {
+      console.log('Starting Kimi Code CLI session');
+
+      const kimiModels = (await providerModelsService.getProviderModels('kimi')).models;
+      await spawnKimi(message.trim(), {
+        projectPath: finalProjectPath,
+        cwd: finalProjectPath,
+        sessionId: sessionId || null,
+        model: model || kimiModels.DEFAULT,
+        // Headless kimi -p is always fully autonomous — no permissionMode mapping
+      }, writer);
+    } else if (provider === 'gemini') {
+      console.log('Starting Gemini CLI session');
+
+      const geminiModels = (await providerModelsService.getProviderModels('gemini')).models;
+      await spawnGemini(message.trim(), {
+        projectPath: finalProjectPath,
+        cwd: finalProjectPath,
+        sessionId: sessionId || null,
+        model: model || geminiModels.DEFAULT,
         permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
       }, writer);
     }

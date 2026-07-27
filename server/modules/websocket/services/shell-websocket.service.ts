@@ -125,6 +125,8 @@ function buildShellCommand(
     (!!initialCommand && !hasSession) ||
     provider === 'plain-shell';
 
+  // Plain shell with no command = an interactive terminal. The empty string is
+  // the marker for that; the spawn site starts a login shell instead of `-c`.
   if (isPlainShell) {
     return initialCommand;
   }
@@ -261,8 +263,12 @@ export function handleShellConnection(
             initialCommand.includes('cursor-agent login') ||
             initialCommand.includes('auth login'));
 
-        const commandSuffix =
-          isPlainShell && initialCommand
+        // Interactive terminal (plain shell, no command): keep it in its own PTY
+        // slot so it never collides with the agent session for the same project.
+        const isInteractiveShell = isPlainShell && !initialCommand;
+        const commandSuffix = isInteractiveShell
+          ? '_plainshell'
+          : isPlainShell && initialCommand
             ? `_cmd_${Buffer.from(initialCommand).toString('base64').slice(0, 16)}`
             : '';
         ptySessionKey = `${projectPath}_${sessionId ?? 'default'}${commandSuffix}`;
@@ -327,9 +333,17 @@ export function handleShellConnection(
 
         const shellCommand = buildShellCommand(data, dependencies);
         const resumeSessionId = resolveResumeSessionId(data, dependencies);
-        const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
-        const shellArgs =
-          os.platform() === 'win32' ? ['-Command', shellCommand] : ['-c', shellCommand];
+        // No command to run -> interactive login shell (the terminal a user can
+        // type into). Otherwise run the single command and exit, as before.
+        const isWindows = os.platform() === 'win32';
+        const shell = isWindows ? 'powershell.exe' : process.env.SHELL || 'bash';
+        const shellArgs = shellCommand
+          ? isWindows
+            ? ['-Command', shellCommand]
+            : ['-c', shellCommand]
+          : isWindows
+            ? []
+            : ['-l'];
         const termCols = readNumber(data.cols, 80);
         const termRows = readNumber(data.rows, 24);
         const prioritizedPath = prioritizeUserNpmGlobalBin(process.env);

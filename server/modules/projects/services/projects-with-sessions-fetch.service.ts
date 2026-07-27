@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
@@ -13,6 +13,8 @@ type SessionSummary = {
   summary: string;
   messageCount: number;
   lastActivity: string;
+  model: string | null;
+  effort: string | null;
 };
 
 type SessionRepositoryRow = {
@@ -21,6 +23,8 @@ type SessionRepositoryRow = {
   custom_name?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
+  model?: string | null;
+  effort?: string | null;
 };
 
 export type ProjectListItem = {
@@ -47,11 +51,36 @@ type ProgressUpdate = {
   currentProject?: string;
 };
 
+type RequestingUser = {
+  id: number;
+  role: string;
+};
+
 type GetProjectsWithSessionsOptions = {
   skipSynchronization?: boolean;
   sessionsLimit?: number;
   sessionsOffset?: number;
+  /**
+   * Non-admin requesters only ever see projects explicitly granted via
+   * user_project_access (empty grants = empty list, fail-closed). Admins —
+   * and any caller that omits this field, e.g. internal/background callers —
+   * bypass filtering entirely and see every project, matching pre-multiuser
+   * behavior.
+   */
+  requestingUser?: RequestingUser;
 };
+
+/** Filters project rows down to what a non-admin requester has been granted. Admins pass through untouched. */
+function filterProjectRowsForRequester<T extends { project_id: string }>(
+  rows: T[],
+  requestingUser?: RequestingUser
+): T[] {
+  if (!requestingUser || requestingUser.role === 'admin') {
+    return rows;
+  }
+  const accessibleProjectIds = new Set(userProjectAccessDb.getAccessibleProjectIds(requestingUser.id));
+  return rows.filter((row) => accessibleProjectIds.has(row.project_id));
+}
 
 type SessionPaginationOptions = {
   limit?: number;
@@ -124,6 +153,8 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     summary: row.custom_name || '',
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+    model: row.model ?? null,
+    effort: row.effort ?? null,
   };
 }
 
@@ -184,12 +215,13 @@ export async function getProjectsWithSessions(
     await sessionSynchronizerService.synchronizeSessions();
   }
 
-  const projectRows = projectsDb.getProjectPaths() as Array<{
+  const allProjectRows = projectsDb.getProjectPaths() as Array<{
     project_id: string;
     project_path: string;
     custom_project_name?: string | null;
     isStarred?: number;
   }>;
+  const projectRows = filterProjectRowsForRequester(allProjectRows, options.requestingUser);
   const totalProjects = projectRows.length;
   const projects: ProjectListItem[] = [];
   let processedProjects = 0;
@@ -246,18 +278,19 @@ export async function getProjectsWithSessions(
  * conversation history in the archive view regardless of each session's flag.
  */
 export async function getArchivedProjectsWithSessions(
-  options: Pick<GetProjectsWithSessionsOptions, 'skipSynchronization'> = {},
+  options: Pick<GetProjectsWithSessionsOptions, 'skipSynchronization' | 'requestingUser'> = {},
 ): Promise<ArchivedProjectListItem[]> {
   if (!options.skipSynchronization) {
     await sessionSynchronizerService.synchronizeSessions();
   }
 
-  const projectRows = projectsDb.getArchivedProjectPaths() as Array<{
+  const allProjectRows = projectsDb.getArchivedProjectPaths() as Array<{
     project_id: string;
     project_path: string;
     custom_project_name?: string | null;
     isStarred?: number;
   }>;
+  const projectRows = filterProjectRowsForRequester(allProjectRows, options.requestingUser);
 
   const archivedProjects: ArchivedProjectListItem[] = [];
 

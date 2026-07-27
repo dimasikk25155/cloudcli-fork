@@ -1,7 +1,7 @@
 {
-  "name": "Claude CLI",
-  "short_name": "Claude CLI",
-  "description": "Claude CLI — мобильный пульт для Claude Code",
+  "name": "Neo3 Agent System",
+  "short_name": "Neo3 Agent",
+  "description": "Neo3 Agent System — мобильный пульт для ИИ-агента",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

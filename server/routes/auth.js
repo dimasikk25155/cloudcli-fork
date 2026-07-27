@@ -50,8 +50,8 @@ router.post('/register', async (req, res) => {
       const saltRounds = 12;
       const passwordHash = await bcrypt.hash(password, saltRounds);
       
-      // Create user
-      const user = userDb.createUser(username, passwordHash);
+      // Create user — the first-ever user is always admin (single-user setup flow)
+      const user = userDb.createUserWithRole(username, passwordHash, 'admin');
       
       // Generate token
       const token = generateToken(user);

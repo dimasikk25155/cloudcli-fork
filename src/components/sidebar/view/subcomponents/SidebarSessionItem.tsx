@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, Loader2, Trash2, X } from 'lucide-react';
+import { Check, Edit2, Loader2, MessageSquare, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Tooltip, buttonVariants } from '../../../../shared/view/ui';
@@ -7,11 +7,12 @@ import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
 import { createSessionViewModel } from '../../utils/utils';
-import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
 type SidebarSessionItemProps = {
   project: Project;
   session: SessionWithProvider;
+  /** Position in the list — drives the claude.ai-style 1..9 rank badge. */
+  index: number;
   selectedSession: ProjectSession | null;
   isProcessing: boolean;
   needsAttention: boolean;
@@ -60,6 +61,7 @@ const formatCompactSessionAge = (dateString: string, currentTime: Date): string 
 export default function SidebarSessionItem({
   project,
   session,
+  index,
   selectedSession,
   isProcessing,
   needsAttention,
@@ -88,6 +90,18 @@ export default function SidebarSessionItem({
   const saveEditedSession = () => {
     onSaveEditingSession(project.projectId, session.id, editingSessionName, session.__provider);
   };
+
+  // claude.ai marks the first nine recents with a small ranked square and
+  // falls back to a chat bubble for the rest.
+  const RankMark = () => (
+    index < 9 ? (
+      <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[3px] border border-muted-foreground/30 text-[10px] leading-none text-muted-foreground">
+        {index + 1}
+      </span>
+    ) : (
+      <MessageSquare className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+    )
+  );
 
   // While editing, a tap/click outside the rename panel SAVES the typed name
   // (or cancels when it is empty). Silently discarding the edit here was the
@@ -165,14 +179,7 @@ export default function SidebarSessionItem({
           onClick={selectMobileSession}
         >
           <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                'w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0',
-                isSelected ? 'bg-primary/10' : 'bg-muted/50',
-              )}
-            >
-              <SessionProviderLogo provider={session.__provider} className="h-3 w-3" />
-            </div>
+            {!isEditing && <RankMark />}
 
             {isEditing ? (
               <div
@@ -295,14 +302,7 @@ export default function SidebarSessionItem({
           }}
         >
           <div className="flex w-full min-w-0 items-center gap-2">
-            <div
-              className={cn(
-                'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md',
-                isSelected ? 'bg-primary/10' : 'bg-muted/50',
-              )}
-            >
-              <SessionProviderLogo provider={session.__provider} className="h-3 w-3" />
-            </div>
+            <RankMark />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>

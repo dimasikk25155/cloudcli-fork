@@ -7,12 +7,37 @@ import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils
 import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
 import { deleteOrArchiveProject, restoreArchivedProject } from '@/modules/projects/services/project-delete.service.js';
 import { applyLegacyStarredProjectIds, toggleProjectStar } from '@/modules/projects/services/project-star.service.js';
+import { userProjectAccessDb } from '@/modules/database/index.js';
 
 const router = express.Router();
 
 type AuthenticatedUser = {
   id?: number | string;
+  role?: string;
 };
+
+function readRequestingUser(req: express.Request): { id: number; role: string } | undefined {
+  const authenticatedUser = (req as typeof req & { user?: AuthenticatedUser }).user;
+  if (authenticatedUser?.id === undefined || authenticatedUser?.id === null || !authenticatedUser.role) {
+    return undefined;
+  }
+  return { id: Number(authenticatedUser.id), role: authenticatedUser.role };
+}
+
+/** Throws 403 if a non-admin requester hasn't been granted this project. Admins/unauthenticated internal callers pass through. */
+function assertProjectAccess(req: express.Request, projectId: string): void {
+  const requestingUser = readRequestingUser(req);
+  if (!requestingUser || requestingUser.role === 'admin') {
+    return;
+  }
+  const accessibleProjectIds = userProjectAccessDb.getAccessibleProjectIds(requestingUser.id);
+  if (!accessibleProjectIds.includes(projectId)) {
+    throw new AppError('You do not have access to this project', {
+      code: 'PROJECT_ACCESS_DENIED',
+      statusCode: 403,
+    });
+  }
+}
 
 function readQueryStringValue(value: unknown): string {
   if (typeof value === 'string') {
@@ -77,6 +102,7 @@ router.get(
       skipSynchronization,
       sessionsLimit,
       sessionsOffset,
+      requestingUser: readRequestingUser(req),
     });
     res.json(projects);
   }),
@@ -84,8 +110,8 @@ router.get(
 
 router.get(
   '/archived',
-  asyncHandler(async (_req, res) => {
-    const projects = await getArchivedProjectsWithSessions();
+  asyncHandler(async (req, res) => {
+    const projects = await getArchivedProjectsWithSessions({ requestingUser: readRequestingUser(req) });
     res.json(createApiSuccessResponse({ projects }));
   }),
 );
@@ -94,6 +120,7 @@ router.get(
   '/:projectId/sessions',
   asyncHandler(async (req, res) => {
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    assertProjectAccess(req, projectId);
     const limit = parseNonNegativeIntQuery(req.query.limit, 'limit', 20);
     const offset = parseNonNegativeIntQuery(req.query.offset, 'offset', 0);
     const sessionsPage = await getProjectSessionsPage(projectId, { limit, offset });
@@ -222,6 +249,7 @@ router.get(
   '/:projectId/taskmaster',
   asyncHandler(async (req, res) => {
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    assertProjectAccess(req, projectId);
     const taskMasterDetails = await getProjectTaskMaster(projectId);
     res.json(taskMasterDetails);
   }),

@@ -12,7 +12,7 @@ type AgentListItemProps = {
 
 type AgentConfig = {
   name: string;
-  color: 'blue' | 'purple' | 'gray' | 'zinc';
+  color: 'blue' | 'purple' | 'gray' | 'zinc' | 'sky' | 'indigo';
 };
 
 const agentConfig: Record<AgentProvider, AgentConfig> = {
@@ -32,6 +32,14 @@ const agentConfig: Record<AgentProvider, AgentConfig> = {
     name: 'OpenCode',
     color: 'zinc',
   },
+  kimi: {
+    name: 'Kimi',
+    color: 'sky',
+  },
+  gemini: {
+    name: 'Gemini',
+    color: 'indigo',
+  },
 };
 
 const colorClasses = {
@@ -46,6 +54,12 @@ const colorClasses = {
   },
   zinc: {
     dot: 'bg-zinc-500',
+  },
+  sky: {
+    dot: 'bg-sky-500',
+  },
+  indigo: {
+    dot: 'bg-indigo-500',
   },
 } as const;
 

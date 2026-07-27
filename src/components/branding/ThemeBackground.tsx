@@ -1,4 +1,5 @@
 import ShaderBackground from './ShaderBackground';
+import AetherShaderBackground from './AetherShaderBackground';
 
 /**
  * Per-theme full-viewport background, rendered behind the whole app at z-0.
@@ -23,6 +24,10 @@ const PHOTO_THEMES = new Set([
 ]);
 
 export default function ThemeBackground({ theme = 'default' }: { theme?: string }) {
+  if (theme === 'aether') {
+    return <AetherShaderBackground />;
+  }
+
   if (theme === 'liquidGlass') {
     return (
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden">

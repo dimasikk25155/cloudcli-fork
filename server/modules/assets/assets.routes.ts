@@ -1,4 +1,5 @@
 import fsSync, { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 import express from 'express';
 import mime from 'mime-types';
@@ -24,18 +25,44 @@ const router = express.Router();
 
 // Multer writes uploads straight into the global assets folder; the service
 // owns the folder location and the response record shape.
+/**
+ * Paths multer has started writing for this request. An upload that dies
+ * mid-flight (the mobile case) may never reach the route handler at all, so
+ * the abort handler needs its own record of what to delete.
+ */
+type UploadTracking = { assetsDir: string; paths: string[] };
+const trackingByRequest = new WeakMap<express.Request, UploadTracking>();
+
+function trackRequest(req: express.Request): UploadTracking {
+  let tracking = trackingByRequest.get(req);
+  if (!tracking) {
+    tracking = { assetsDir: '', paths: [] };
+    trackingByRequest.set(req, tracking);
+  }
+  return tracking;
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     ensureImageAssetsDir()
-      .then((assetsDir) => cb(null, assetsDir))
+      .then((assetsDir) => {
+        trackRequest(req).assetsDir = assetsDir;
+        cb(null, assetsDir);
+      })
       .catch((error) => cb(error as Error, ''));
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${uniqueSuffix}-${sanitizedName}`);
+    const name = `${uniqueSuffix}-${sanitizedName}`;
+    const tracking = trackRequest(req);
+    tracking.paths.push(path.join(tracking.assetsDir, name));
+    cb(null, name);
   },
 });
+
+/** Max files per upload (must match MAX_ATTACHED_FILES in the composer). */
+const MAX_ATTACHED_FILES = 20;
 
 const upload = multer({
   storage,
@@ -44,7 +71,7 @@ const upload = multer({
   // only gate here (per-file cap below).
   limits: {
     fileSize: 25 * 1024 * 1024, // 25MB
-    files: 5,
+    files: MAX_ATTACHED_FILES,
   },
 });
 
@@ -53,20 +80,78 @@ const upload = multer({
  * returns their absolute paths for use in provider prompts and chat history.
  */
 router.post('/images', (req, res) => {
-  upload.array('images', 5)(req, res, (err: unknown) => {
+  // A connection that drops mid-upload used to leave a half-written file
+  // behind: the client saw the failure, the truncated file stayed on disk.
+  req.on('aborted', () => {
+    const tracking = trackingByRequest.get(req);
+    if (!tracking) {
+      return;
+    }
+    // Give multer's write stream a moment to unwind before removing.
+    setTimeout(() => discardPaths(tracking.paths), 1_000);
+  });
+
+  upload.array('images', MAX_ATTACHED_FILES)(req, res, (err: unknown) => {
+    const files = Array.isArray(req.files) ? req.files : [];
+
     if (err) {
       const message = err instanceof Error ? err.message : 'Upload failed';
+      discardFiles(files);
       return res.status(400).json({ error: message });
     }
 
-    const files = Array.isArray(req.files) ? req.files : [];
     if (files.length === 0) {
       return res.status(400).json({ error: 'No files provided' });
+    }
+
+    // A mobile upload that breaks off mid-flight still reaches this handler,
+    // with a partially written file on disk. Storing it produced a corrupt
+    // attachment the model could not decode, so compare what landed against
+    // the sizes the client announced and refuse anything short.
+    const truncated = findTruncatedUpload(files, req.body?.sizes);
+    if (truncated) {
+      discardFiles(files);
+      return res.status(400).json({ error: truncated });
     }
 
     res.json({ images: buildStoredImageRecords(files) });
   });
 });
+
+/** Removes stored files for a rejected upload; best-effort, never throws. */
+function discardFiles(files: Express.Multer.File[]): void {
+  discardPaths(files.map((file) => file.path));
+}
+
+function discardPaths(paths: string[]): void {
+  for (const filePath of paths) {
+    fs.unlink(filePath).catch(() => undefined);
+  }
+}
+
+/**
+ * Compares each stored file against the byte count the client sent alongside
+ * it. Returns an error message for the first short file, or null when every
+ * file arrived whole (or the client sent no sizes — older clients).
+ */
+function findTruncatedUpload(
+  files: Express.Multer.File[],
+  rawSizes: unknown
+): string | null {
+  const sizes = (Array.isArray(rawSizes) ? rawSizes : [rawSizes])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (sizes.length !== files.length) {
+    return null;
+  }
+
+  for (const [index, file] of files.entries()) {
+    if (file.size !== sizes[index]) {
+      return `Upload of "${file.originalname}" was cut off (${file.size} of ${sizes[index]} bytes) — check the connection and try again.`;
+    }
+  }
+  return null;
+}
 
 /**
  * Serves one stored image asset by filename. Only files directly inside the

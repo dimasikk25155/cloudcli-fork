@@ -1,5 +1,5 @@
 import { authenticatedFetch } from '../utils/api';
-import { readVoiceConfig, voiceConfigHeaders } from '../hooks/useVoiceConfig';
+import { readVoiceConfig, voiceConfigHeaders, voiceCleanupOptions } from '../hooks/useVoiceConfig';
 
 function directUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -24,6 +24,10 @@ export function transcribeVoice(blob: Blob, filename: string): Promise<Response>
   }
 
   body.append('audio', blob, filename);
+  // Cleanup config (glossary + toggles) travels as a form field, not a header —
+  // a user's glossary can exceed header size limits. Server-side text cleanup
+  // runs on this proxy path only (the direct-backend path above stays raw).
+  body.append('options', JSON.stringify(voiceCleanupOptions()));
   return authenticatedFetch('/api/voice/transcribe', {
     method: 'POST',
     headers: voiceConfigHeaders(),

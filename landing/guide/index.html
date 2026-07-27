@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Гайд по интерфейсу CloudCLI — для новичка</title>
-<meta name="description" content="Пошаговая инструкция по CloudCLI для человека без технического опыта: первый вход, подключение Claude, проекты и сеансы, постановка задач, приложение на телефоне.">
+<title>Гайд по интерфейсу Neo3 Agent System — для новичка</title>
+<meta name="description" content="Пошаговая инструкция по Neo3 Agent System для человека без технического опыта: первый вход, подключение Claude, проекты и сеансы, постановка задач, приложение на телефоне.">
 <link rel="canonical" href="https://cli.neo3.ru/guide">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="neo3">
-<meta property="og:title" content="Гайд по интерфейсу CloudCLI — для новичка">
-<meta property="og:description" content="Пошаговая инструкция по CloudCLI для человека без технического опыта: первый вход, подключение Claude, проекты и сеансы, постановка задач, приложение на телефоне.">
+<meta property="og:title" content="Гайд по интерфейсу Neo3 Agent System — для новичка">
+<meta property="og:description" content="Пошаговая инструкция по Neo3 Agent System для человека без технического опыта: первый вход, подключение Claude, проекты и сеансы, постановка задач, приложение на телефоне.">
 <meta property="og:image" content="https://cli.neo3.ru/og-neo3.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -211,10 +211,11 @@
 </svg>
 
 <header id="hdr"><div class="wrap"><nav aria-label="Основная навигация">
-  <a class="logo" href="/">CLOUD<b>CLI</b></a>
+  <a class="logo" href="/">NEO3 <b>AGENT</b></a>
   <div class="nav-links">
     <a href="/">О продукте</a>
-    <a href="/guide">Гайд для новичка</a>
+    <a href="/business">Чем полезно</a>
+    <a href="/guide">Гайд</a>
     <a href="/kp">Предложение</a>
   </div>
   <a class="btn pulse" href="https://t.me/bitcoin_tothe_moon" target="_blank" rel="noopener">Написать</a>
@@ -258,7 +259,7 @@
     <h2><span class="num">2</span>Подключение вашего аккаунта Claude</h2>
     <p>Прежде чем ставить агенту задачи, нужно подключить подписку. Путь такой:</p>
     <p><span class="path">Settings (шестерёнка) → Агенты → Claude → «Войти снова»</span></p>
-    <p>Откроется ссылка входа в Anthropic — это компания, которая делает Claude. Логинитесь там своим аккаунтом, тем, на котором оформлена подписка Claude Code. После этого возвращаетесь в CloudCLI — всё готово к работе.</p>
+    <p>Откроется ссылка входа в Anthropic — это компания, которая делает Claude. Логинитесь там своим аккаунтом, тем, на котором оформлена подписка Claude Code. После этого возвращаетесь в Neo3 Agent System — всё готово к работе.</p>
     <p>Данные входа хранятся только на вашем сервере. Ни с чьей чужой подпиской они не пересекаются.</p>
     <figure class="shot">
       <img src="/guide/img/02-connect.webp" alt="Settings → Агенты → Claude: статус подключения и кнопка «Войти снова»" loading="lazy">
@@ -373,7 +374,7 @@
 </main>
 
 <footer><div class="wrap"><div class="foot">
-  <div class="logo">NEO<b>3</b> · <span style="font-family:'Jura',sans-serif;font-weight:600;font-size:12px;letter-spacing:2px;color:var(--muted)">CLOUDCLI</span></div>
+  <div class="logo">NEO3 <b>AGENT</b></div>
   <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:'Jura',sans-serif;font-weight:600;font-size:13px">
     <a href="/" style="color:var(--muted)">О продукте</a>
     <a href="/guide" style="color:var(--muted)">Гайд</a>
@@ -413,7 +414,7 @@
       {count:Math.round(118*f),spMin:0.9,spMax:2.1,wMin:0.8,wMax:2.2},
       {count:Math.round(78*f),spMin:1.6,spMax:2.9,wMin:1.1,wMax:2.4},
       {count:Math.round(46*f),spMin:2.4,spMax:3.6,wMin:1.6,wMax:3.4,chroma:true}
-    ],nebMin:0.09,nebMax:0.18,trail:0.24,base:1.1,comet:[2.4,4.6]};
+    ],nebMin:0.09,nebMax:0.18,trail:0.24,base:0.55,comet:[4.8,9.2]};  /* base×0.5 + comet-интервал×2 — варп замедлен в 2 раза (2026-07-25) */
     let W,H,maxD,vpx,vpy,vtx,vty,parts=[],comets=[],speed=3.2,t=0,nextComet=0,raf=0,last=0,running=false;
     const rnd=(a,b)=>a+Math.random()*(b-a);
     function resize(){W=cv.width=Math.max(1,Math.round(cv.offsetWidth*DPR));H=cv.height=Math.max(1,Math.round(cv.offsetHeight*DPR));maxD=Math.max(W,H);vpx=vtx=W/2;vpy=vty=H/2;}

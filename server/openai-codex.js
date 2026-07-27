@@ -239,14 +239,21 @@ export async function queryCodex(command, options = {}, ws) {
     sessionId,
     model,
   );
+  const resolvedRequestedEffort = await providerModelsService.resolveResumeEffort(
+    'codex',
+    sessionId,
+    effort,
+  );
 
   const workingDirectory = cwd || projectPath || process.cwd();
   const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(permissionMode);
   const catalog = (await providerModelsService.getProviderModels('codex')).models;
   const selectedModel = catalog.OPTIONS.find((option) => option.value === resolvedModel) || null;
   const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value) || [];
-  const resolvedEffort = typeof effort === 'string' && effort !== 'default' && allowedEfforts.includes(effort)
-    ? effort
+  const resolvedEffort = typeof resolvedRequestedEffort === 'string'
+    && resolvedRequestedEffort !== 'default'
+    && allowedEfforts.includes(resolvedRequestedEffort)
+    ? resolvedRequestedEffort
     : undefined;
 
   let codex;

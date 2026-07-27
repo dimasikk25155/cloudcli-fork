@@ -6,6 +6,7 @@ import {
   notificationPreferencesDb,
   providerPreferencesDb,
   pushSubscriptionsDb,
+  uiPreferencesDb,
 } from '../modules/database/index.js';
 import { getPublicKey } from '../services/vapid-keys.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '../services/notification-orchestrator.js';
@@ -322,6 +323,34 @@ router.put('/provider-preferences/effort', async (req, res) => {
   } catch (error) {
     console.error('Error saving provider effort preference:', error);
     res.status(500).json({ error: 'Failed to save provider effort preference' });
+  }
+});
+
+// ===============================
+// UI preferences (cross-device theme/appearance defaults)
+// ===============================
+
+// Appearance/behavior toggles (theme, shader background, composer/sidebar
+// toggles) for the authenticated user, so a choice made on one device shows
+// up on every other device instead of being stuck in that browser's
+// localStorage.
+router.get('/ui-preferences', async (req, res) => {
+  try {
+    const preferences = uiPreferencesDb.getUiPreferences(req.user.id);
+    res.json({ success: true, preferences });
+  } catch (error) {
+    console.error('Error fetching UI preferences:', error);
+    res.status(500).json({ error: 'Failed to fetch UI preferences' });
+  }
+});
+
+router.put('/ui-preferences', async (req, res) => {
+  try {
+    const preferences = uiPreferencesDb.updateUiPreferences(req.user.id, req.body || {});
+    res.json({ success: true, preferences });
+  } catch (error) {
+    console.error('Error saving UI preferences:', error);
+    res.status(500).json({ error: 'Failed to save UI preferences' });
   }
 });
 
