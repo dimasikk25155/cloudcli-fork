@@ -15,7 +15,7 @@ import { promises as fsPromises } from 'fs';
 // cross-spawn: drop-in spawn with Windows .cmd/PATHEXT resolution — required
 // here since task-master/npx are .cmd shims on Windows.
 import spawn from 'cross-spawn';
-import { projectsDb } from '../modules/database/index.js';
+import { projectsDb, userProjectAccessDb } from '../modules/database/index.js';
 import { detectTaskMasterMCPServer } from '../utils/mcp-detector.js';
 import { broadcastTaskMasterProjectUpdate, broadcastTaskMasterTasksUpdate } from '../utils/taskmaster-websocket.js';
 
@@ -35,6 +35,26 @@ async function resolveProjectPathFromId(projectId) {
 }
 
 const router = express.Router();
+
+/**
+ * Same guard the project and git routes apply: a teammate who was never granted a
+ * project must not reach it by passing its id straight into the URL. Route params
+ * need `router.param` rather than a plain middleware — `req.params` isn't populated
+ * until the matching route runs.
+ */
+router.param('projectId', (req, res, next, projectId) => {
+  const requestingUser = req.user;
+  if (!requestingUser || requestingUser.role === 'admin') {
+    return next();
+  }
+
+  const accessibleProjectIds = userProjectAccessDb.getAccessibleProjectIds(requestingUser.id);
+  if (!accessibleProjectIds.includes(projectId)) {
+    return res.status(403).json({ error: 'You do not have access to this project' });
+  }
+
+  return next();
+});
 
 /**
  * Check if TaskMaster CLI is installed globally

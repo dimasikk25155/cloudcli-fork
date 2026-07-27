@@ -3,12 +3,38 @@ import express from 'express';
 import spawn from 'cross-spawn';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { projectsDb } from '../modules/database/index.js';
+import { projectsDb, userProjectAccessDb } from '../modules/database/index.js';
 import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
 
 const router = express.Router();
 const COMMIT_DIFF_CHARACTER_LIMIT = 500_000;
+
+/**
+ * Every route below operates on a project identified by `project` in the query or body.
+ * Without this guard a teammate who was never granted a project could still read its
+ * files and history by passing its id directly — the project list was filtered, but
+ * these endpoints were not. Mirrors assertProjectAccess in modules/projects/projects.routes.ts.
+ */
+router.use((req, res, next) => {
+  const requestingUser = req.user;
+  if (!requestingUser || requestingUser.role === 'admin') {
+    return next();
+  }
+
+  const raw = req.query?.project ?? req.body?.project;
+  const projectId = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof projectId !== 'string' || !projectId) {
+    return next();
+  }
+
+  const accessibleProjectIds = userProjectAccessDb.getAccessibleProjectIds(requestingUser.id);
+  if (!accessibleProjectIds.includes(projectId)) {
+    return res.status(403).json({ error: 'You do not have access to this project' });
+  }
+
+  return next();
+});
 
 function spawnAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
