@@ -187,6 +187,20 @@ $SSH "$RELEASE_VPS" "test -d '$RELEASE_REMOTE_DIR'" \
 scp -q -i "$RELEASE_VPS_KEY" "$ARCHIVE_PATH" "$RELEASE_VPS:$RELEASE_REMOTE_DIR/.upload-$ARCHIVE_NAME"
 scp -q -i "$RELEASE_VPS_KEY" "$MANIFEST_PATH" "$RELEASE_VPS:$RELEASE_REMOTE_DIR/.upload-latest.json"
 
+# The updater is also published on its own, taken from this very commit. A box being
+# updated has, by definition, an older copy — and boxes installed before the updater
+# existed have none at all. Serving it standalone makes the bootstrap a single command
+# instead of "download the archive, dig the script out of it, then run it".
+UPDATER_PATH="$BUILD_DIR/update-client.sh"
+if tar xzf "$ARCHIVE_PATH" -C "$BUILD_DIR" scripts/update-client.sh 2>/dev/null; then
+  mv "$BUILD_DIR/scripts/update-client.sh" "$UPDATER_PATH"
+  scp -q -i "$RELEASE_VPS_KEY" "$UPDATER_PATH" "$RELEASE_VPS:$RELEASE_REMOTE_DIR/.upload-update-client.sh"
+  PUBLISH_UPDATER=1
+else
+  echo "    ⚠️  no scripts/update-client.sh in this commit — publishing without a bootstrap updater"
+  PUBLISH_UPDATER=0
+fi
+
 step "Activating the release"
 $SSH "$RELEASE_VPS" "set -e
   cd '$RELEASE_REMOTE_DIR'
@@ -196,6 +210,12 @@ $SSH "$RELEASE_VPS" "set -e
   cp '$ARCHIVE_NAME' '.upload-cloudcli-latest.tar.gz'
   mv '.upload-cloudcli-latest.tar.gz' 'cloudcli-latest.tar.gz'
   mv '.upload-latest.json' 'latest.json'
+  # if/fi, not '[ ] && ...': a false test ends an && chain with status 1, and the
+  # remote shell runs under set -e, so the whole activation would abort here.
+  if [ '$PUBLISH_UPDATER' = '1' ]; then
+    mv '.upload-update-client.sh' 'update-client.sh'
+    chmod 644 'update-client.sh'
+  fi
   chmod 644 '$ARCHIVE_NAME' cloudcli-latest.tar.gz latest.json
   ls -1t cloudcli-*-*.tar.gz 2>/dev/null | tail -n +$((KEEP_ARCHIVES + 1)) | while read -r old; do
     echo \"    pruning \$old\"; rm -f \"\$old\"
