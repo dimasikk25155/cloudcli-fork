@@ -29,6 +29,10 @@
   html{scroll-behavior:smooth}
   section[id]{scroll-margin-top:76px}
   a:focus-visible,.btn:focus-visible,summary:focus-visible{outline:2px solid var(--a);outline-offset:3px;border-radius:6px}
+  .nw{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--a);color:#150c02;font-family:'Jura',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.4px;vertical-align:middle;text-transform:uppercase;white-space:nowrap}
+  .wn{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:12px;max-width:860px}
+  .wn li{padding:15px 17px;border:1px solid var(--line);border-radius:12px;font-size:14.5px;line-height:1.6;color:var(--muted)}
+  .wn li b{color:var(--fg);font-family:'Jura',sans-serif;font-weight:700;letter-spacing:.4px}
   body{background:var(--bg);color:var(--fg);font-family:Inter,-apple-system,system-ui,sans-serif;overflow-x:hidden;line-height:1.55;-webkit-font-smoothing:antialiased}
   .wrap{max-width:1120px;margin:0 auto;padding:0 22px}
   a{color:inherit;text-decoration:none}
@@ -245,6 +249,18 @@
       <div class="prcard"><div class="pg">Рассылка по своей базе</div><div class="promptbox">«По базе клиентов сделай рассылку про акцию к выходным — вежливо, в моём тоне, только тем, кто сам писал. Через разрешённые каналы, без спама.»</div></div>
       <div class="prcard"><div class="pg">Соцсети на автопостинге</div><div class="promptbox">«Готовь мне посты для соцсетей на неделю вперёд в моём тоне и ставь на автопубликацию по расписанию. Темы согласуй со мной заранее.»</div></div>
     </div>
+  </section>
+
+  <section  id="whatsnew">
+    <div class="eyebrow">Обновления · июль 2026</div>
+    <h2 class="focus">Что нового в системе</h2>
+    <ul class="wn">
+      <li><b>Голосом вместо печати</b><span class="nw">Новое</span><br>Нажал микрофон, продиктовал задачу обычными словами — агент её выполняет. Удобно с телефона и за рулём.</li>
+      <li><b>Файлы прямо в чат</b><span class="nw">Новое</span><br>Скидываешь агенту документ, выгрузку или фото — до 20 файлов за раз, с компьютера и с телефона. Он читает их и работает с содержимым.</li>
+      <li><b>Приложение на телефоне</b><span class="nw">Новое</span><br>Ставится на домашний экран и присылает уведомление, когда задача готова. Держать вкладку открытой не нужно.</li>
+      <li><b>Задача не падает при перегрузке</b><span class="nw">Новое</span><br>Когда серверы ИИ перегружены, система сама пережидает и дожимает работу до конца, а не бросает её на середине.</li>
+    </ul>
+    <p class="note" style="text-align:left;margin-left:0">Всё это уже работает на боевых серверах. Обновления ставим бесплатно — доплачивать за новые возможности не надо.</p>
   </section>
 
   <section id="economics">

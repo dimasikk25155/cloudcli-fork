@@ -29,6 +29,10 @@
   html{scroll-behavior:smooth}
   section[id]{scroll-margin-top:76px}
   a:focus-visible,.btn:focus-visible,summary:focus-visible{outline:2px solid var(--a);outline-offset:3px;border-radius:6px}
+  .nw{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--a);color:#150c02;font-family:'Jura',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.4px;vertical-align:middle;text-transform:uppercase;white-space:nowrap}
+  .wn{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:12px;max-width:860px}
+  .wn li{padding:15px 17px;border:1px solid var(--line);border-radius:12px;font-size:14.5px;line-height:1.6;color:var(--muted)}
+  .wn li b{color:var(--fg);font-family:'Jura',sans-serif;font-weight:700;letter-spacing:.4px}
   body{background:var(--bg);color:var(--fg);font-family:Inter,-apple-system,system-ui,sans-serif;overflow-x:hidden;line-height:1.55;-webkit-font-smoothing:antialiased}
   .wrap{max-width:1120px;margin:0 auto;padding:0 22px}
   a{color:inherit;text-decoration:none}
@@ -326,6 +330,7 @@
     <ul>
       <li><strong>Files</strong> — посмотреть файлы проекта прямо в браузере, без скачивания.</li>
       <li><strong>Tasks</strong> — список задач, которые ставились агенту, с их статусами.</li>
+      <li><strong>Скрепка в чате</strong><span class="nw">Новое</span> — приложить к задаче документ, выгрузку или фото: до 20 файлов за раз, с компьютера и с телефона.</li>
       <li><strong>Shell</strong> — обычный терминал сервера. На части установок отключён специально, чтобы не нужно было разбираться в командной строке. Если вкладки нет — так и задумано.</li>
     </ul>
     <figure class="shot">
@@ -339,7 +344,7 @@
       <li><strong>Внешний вид</strong> — 13 визуальных тем, светлые и тёмные.</li>
       <li><strong>Агенты</strong> — подключение и переподключение аккаунта Claude (см. раздел 2).</li>
       <li><strong>Уведомления</strong> — push-уведомления о готовых задачах.</li>
-      <li><strong>Голос</strong> — голосовой ввод сообщений вместо печати.</li>
+      <li><strong>Голос</strong><span class="nw">Новое</span> — голосовой ввод: нажали микрофон, продиктовали задачу вместо печати.</li>
       <li><strong>API, Git, Browser-use, Tasks</strong> — технические разделы. Обычному пользователю трогать не нужно, всё настроено при установке.</li>
     </ul>
     <figure class="shot">
@@ -361,6 +366,7 @@
     <ul>
       <li><strong>Чат «завис»</strong> — смело закрывайте вкладку и открывайте заново, прогресс не теряется.</li>
       <li><strong>Агент не отвечает совсем</strong> — проверьте, что аккаунт Claude всё ещё подключён: <span class="path">Settings → Агенты</span> — не истекла ли подписка или сессия входа.</li>
+      <li><strong>Серверы ИИ перегружены</strong><span class="nw">Новое</span> — делать ничего не нужно: система сама пережидает и дожимает задачу до конца.</li>
       <li><strong>Любые другие сбои</strong> — напишите тому, кто настраивал сервер. Это входит в поддержку.</li>
     </ul>
   </section>

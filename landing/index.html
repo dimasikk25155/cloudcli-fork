@@ -29,6 +29,10 @@
   html{scroll-behavior:smooth}
   section[id]{scroll-margin-top:76px}
   a:focus-visible,.btn:focus-visible,summary:focus-visible{outline:2px solid var(--a);outline-offset:3px;border-radius:6px}
+  .nw{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--a);color:#150c02;font-family:'Jura',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.4px;vertical-align:middle;text-transform:uppercase;white-space:nowrap}
+  .wn{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:12px;max-width:860px}
+  .wn li{padding:15px 17px;border:1px solid var(--line);border-radius:12px;font-size:14.5px;line-height:1.6;color:var(--muted)}
+  .wn li b{color:var(--fg);font-family:'Jura',sans-serif;font-weight:700;letter-spacing:.4px}
   body{background:var(--bg);color:var(--fg);font-family:Inter,-apple-system,system-ui,sans-serif;overflow-x:hidden;line-height:1.55;-webkit-font-smoothing:antialiased}
   .wrap{max-width:1120px;margin:0 auto;padding:0 22px}
   a{color:inherit;text-decoration:none}
@@ -276,17 +280,30 @@
   <div class="eyebrow">Проверено на своём боевом сервере, не с чужих слов</div>
   <h2 class="focus">Что реально умеет Neo3 Agent System</h2>
   <div class="grid3">
-    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><h3>Надёжность</h3><p>Полгода боевых доработок на живом сервере: чат не виснет, если свернуть браузер или телефон уснул посреди задачи, а после перезапуска сервис поднимается сам — без потери прогресса.</p></div>
-    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-phone"/></svg><h3>Приложение на телефоне</h3><p>Ставится на домашний экран без магазинов приложений. Push-уведомление, когда задача готова — не нужно держать вкладку открытой и ждать.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><h3>Надёжность<span class="nw">Новое</span></h3><p>Полгода боевых доработок на живом сервере: чат не виснет, если свернуть браузер или телефон уснул посреди задачи, а после перезапуска сервис поднимается сам. А если серверы ИИ перегружены — задача не падает: система пережидает и дожимает работу до конца.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-phone"/></svg><h3>Приложение на телефоне<span class="nw">Новое</span></h3><p>Ставится на домашний экран без магазинов приложений. Push-уведомление, когда задача готова — не нужно держать вкладку открытой и ждать.</p></div>
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg><h3>Доступ без VPN</h3><p>Сервер физически ближе — открывается как обычный сайт, никаких обходных путей для входа.</p></div>
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg><h3>Управление прямо в чате</h3><p>Модель под задачу — побыстрее или поумнее, «глубина размышления» и счётчик расхода токенов в реальном времени. Переключается на лету, не выходя из диалога.</p></div>
-    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-team"/></svg><h3>Команде — по кабинету</h3><p>Каждому сотруднику — отдельный изолированный вход, привязанный к нужному ему проекту. Работа не пересекается, файлы синхронизируются через git. Уже работает на нескольких серверах, не эксперимент.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-team"/></svg><h3>Команде — по кабинету</h3><p>Каждому сотруднику — свой изолированный вход и свой проект. Работа не пересекается. Уже работает на нескольких серверах, не эксперимент.</p></div>
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg><h3>Полная изоляция</h3><p>Отдельный сервер под каждый бизнес, свой репозиторий, своя подписка Claude. Ваши данные не соседствуют с чужими — это архитектура, а не обещание на словах.</p></div>
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg><h3>Часы, а не недели</h3><p>От согласия до рабочей ссылки с паролем — часы: сервер, установка, первый вход. Не многодневный проект с этапами и ожиданием.</p></div>
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><h3>Файлы и история под рукой</h3><p>Файлы проекта видно прямо в браузере, задачи — со статусами, недавние сеансы и избранные проекты — в один клик. История работы не теряется.</p></div>
-    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg><h3>Голос и внешний вид</h3><p>Голосовой ввод вместо печати и 13 визуальных тем. Не критично для дела, но инструмент не выглядит «сырой консолью для айтишников».</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><h3>Файлы прямо в чат<span class="nw">Новое</span></h3><p>Скидываете агенту документ, выгрузку или фото — до 20 файлов за раз, с компьютера и с телефона. Он читает их и работает с содержимым, а результат вы скачиваете себе.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg><h3>Голосом вместо печати<span class="nw">Новое</span></h3><p>Нажали микрофон, продиктовали задачу обычными словами — агент её выполняет. Удобно с телефона и за рулём. Плюс 13 визуальных тем, чтобы инструмент не выглядел консолью для айтишников.</p></div>
   </div>
   <p class="note">Что из этого выходит для бизнеса — <a href="/business" style="color:var(--a)">Чем полезно</a> · живые проекты — в <a href="https://portfolio.neo3.ru" style="color:var(--a)">портфолио</a></p>
+</section>
+
+<section class="block wrap" id="whatsnew">
+  <div class="eyebrow">Обновления · июль 2026</div>
+  <h2 class="focus">Что нового в системе</h2>
+  <ul class="wn">
+    <li><b>Голосом вместо печати</b><span class="nw">Новое</span><br>Нажали микрофон, продиктовали задачу обычными словами — агент её выполняет. Удобно с телефона и за рулём.</li>
+    <li><b>Файлы прямо в чат</b><span class="nw">Новое</span><br>Скидываете агенту документ, выгрузку или фото — до 20 файлов за раз, с компьютера и с телефона. Он читает их и работает с содержимым.</li>
+    <li><b>Приложение на телефоне</b><span class="nw">Новое</span><br>Ставится на домашний экран и присылает уведомление, когда задача готова. Держать вкладку открытой не нужно.</li>
+    <li><b>Задача не падает при перегрузке</b><span class="nw">Новое</span><br>Когда серверы ИИ перегружены, система сама пережидает и дожимает работу до конца, а не бросает её на середине.</li>
+  </ul>
+  <p class="note" style="text-align:left;margin-left:0">Всё это уже работает на боевых серверах. Обновления ставим клиентам бесплатно — доплачивать за новые возможности не нужно.</p>
 </section>
 
 <!-- ================= СВОЙ СЕРВЕР И ДАННЫЕ ================= -->
@@ -297,7 +314,7 @@
   <div class="grid3" style="margin-top:30px">
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg><h3>Свой сервер</h3><p>Файлы, история диалогов и вход в Claude хранятся только на вашем VPS. Ни с одним другим клиентом ничего не пересекается — у каждого своя машина.</p></div>
     <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg><h3>Своя подписка</h3><p>Вы платите Anthropic напрямую, со своего аккаунта. Мы не перепродаём доступ через общий — значит, нет риска, что из-за чужих действий «общий» аккаунт забанят и работа встанет у всех разом.</p></div>
-    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-git"/></svg><h3>Свой репозиторий</h3><p>Рабочая папка агента — ваш приватный git-репозиторий (хранилище файлов с историей изменений) на вашем сервере. Это обычные файлы, не запертый формат: захотите — заберёте всё целиком.</p></div>
+    <div class="card3"><svg class="ic" aria-hidden="true"><use href="#i-git"/></svg><h3>Свой репозиторий</h3><p>Рабочая папка агента лежит на вашем сервере — это обычные файлы, а не запертый формат. Захотите уйти — заберёте всё целиком.</p></div>
   </div>
   <p class="note"><b>Кому и за что платите:</b> нам — за установку, хостинг, настройку, обучение и поддержку; Anthropic — напрямую за подписку на сам ИИ.</p>
 </section>
