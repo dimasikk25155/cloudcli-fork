@@ -450,6 +450,11 @@ export const runMigrations = (db: Database) => {
     const usersTableInfo = db.prepare('PRAGMA table_info(users)').all() as { name: string }[];
     const userColumnNames = usersTableInfo.map((column) => column.name);
 
+    // is_active only ever existed in the fresh-install schema, so a database created
+    // before it was introduced never gained the column — and the server crashed at
+    // boot on `CREATE INDEX ... ON users(is_active)` long before reaching here.
+    // The index moved out of INIT_SCHEMA_SQL for that reason; it is created below.
+    addColumnToTableIfNotExists(db, 'users', userColumnNames, 'is_active', 'BOOLEAN DEFAULT 1');
     addColumnToTableIfNotExists(db, 'users', userColumnNames, 'git_name', 'TEXT');
     addColumnToTableIfNotExists(db, 'users', userColumnNames, 'git_email', 'TEXT');
     addColumnToTableIfNotExists(
@@ -460,6 +465,7 @@ export const runMigrations = (db: Database) => {
       'BOOLEAN DEFAULT 0'
     );
     addUserRoleColumn(db);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active)');
 
     db.exec(APP_CONFIG_TABLE_SCHEMA_SQL);
     db.exec(USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL);

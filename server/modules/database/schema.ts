@@ -191,7 +191,9 @@ PRAGMA foreign_keys = ON;
 ${USER_TABLE_SCHEMA_SQL}
 -- Indexes for performance for user lookups
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);
+-- NOTE: idx_users_active is created in migrations, after is_active is added.
+-- Creating it here crashes the server on upgraded installs whose users table predates
+-- that column — CREATE TABLE IF NOT EXISTS leaves the old shape untouched.
 
 ${API_KEYS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(api_key);
