@@ -14,6 +14,7 @@ import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
 import { api } from '../../utils/api';
 import { useTheme } from '../../contexts/ThemeContext';
 import ThemeBackground from '../branding/ThemeBackground';
+import { computeKeyboardInsets } from './keyboard-insets';
 
 type RunningSessionApiItem = {
   sessionId?: unknown;
@@ -191,28 +192,52 @@ function AppContentInner() {
   // the `chat_subscribed` ack carries them on session open and on reconnect,
   // so no separate permission-recovery message is needed here.
 
-  // Adjust the app container to stay above the virtual keyboard on iOS Safari.
-  // On Chrome for Android the layout viewport already shrinks when the keyboard opens,
-  // so inset-0 adjusts automatically. On iOS the layout viewport stays full-height and
-  // the keyboard overlays it — we use the Visual Viewport API to track keyboard height
-  // and apply it as a CSS variable that shifts the container's bottom edge up.
+  // Keep the app shell glued to the visible part of the screen while the
+  // on-screen keyboard is up. On Chrome for Android the layout viewport itself
+  // shrinks, so inset-0 already follows. Every iOS browser (Safari, and Chrome
+  // too — Apple only allows the WebKit engine) instead keeps the page at full
+  // height, overlays the keyboard AND scrolls the visible window down so the
+  // focused field clears it. Tracking only the height loss therefore fixes the
+  // bottom edge but not the top: the shell keeps its origin at the layout
+  // viewport, so its top slides off-screen and an equally tall dead strip is
+  // left above the keyboard. We publish both the height loss and the shift,
+  // and `.app-shell` (index.css) positions itself against the visible window.
   useEffect(() => {
     const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      // Only resize matters — keyboard open/close changes vv.height.
-      // Do NOT listen to scroll: on iOS Safari, scrolling content changes
-      // vv.offsetTop which would make --keyboard-height fluctuate during
-      // normal scrolling, causing the container to bounce up and down.
-      const kb = Math.max(0, window.innerHeight - vv.height);
-      document.documentElement.style.setProperty('--keyboard-height', `${kb}px`);
+    if (!vv) return undefined;
+
+    const root = document.documentElement;
+    let frame = 0;
+
+    const apply = () => {
+      frame = 0;
+      const { offset, height } = computeKeyboardInsets(window.innerHeight, vv.height, vv.offsetTop);
+
+      root.style.setProperty('--keyboard-offset', `${offset}px`);
+      root.style.setProperty('--keyboard-height', `${height}px`);
     };
-    vv.addEventListener('resize', update);
-    return () => vv.removeEventListener('resize', update);
+
+    // Both events fire in bursts while the keyboard animates; coalesce them
+    // into one write per frame so the shell follows it smoothly.
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(apply);
+    };
+
+    vv.addEventListener('resize', schedule);
+    vv.addEventListener('scroll', schedule);
+    apply();
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      vv.removeEventListener('resize', schedule);
+      vv.removeEventListener('scroll', schedule);
+      root.style.removeProperty('--keyboard-offset');
+      root.style.removeProperty('--keyboard-height');
+    };
   }, []);
 
   return (
-    <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
+    <div className="app-shell fixed inset-0 flex bg-background">
       {/* Тема "Claude" — буквальный клон claude.ai: там фон статичный,
           без анимации, поэтому для неё фон-компонент не рендерим вообще,
           независимо от тумблера "Живой фон" (он для остальных тем). */}

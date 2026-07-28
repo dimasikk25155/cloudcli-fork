@@ -188,7 +188,28 @@
     right: var(--safe-area-inset-right);
     bottom: 0;
   }
-  
+
+  /* On iOS the on-screen keyboard never shrinks the layout viewport: WebKit
+     keeps the page at full height, overlays the keyboard on the bottom and
+     SHIFTS the visible window down (visualViewport.offsetTop) so the focused
+     field stays above it. A `fixed inset-0` shell therefore loses its top to
+     that shift and leaves an equally tall dead strip above the keyboard.
+     AppContent publishes both numbers, and the shell tracks the visible
+     window instead of the layout viewport. Both default to 0, so every other
+     platform keeps the plain inset-0 behaviour. */
+  .fixed.inset-0.app-shell {
+    top: var(--keyboard-offset, 0px);
+    bottom: var(--keyboard-height, 0px);
+  }
+
+  /* Installed-to-home-screen mode pins the shell to `bottom: 0` above, which
+     would swallow the keyboard inset — restate it here, where the safe-area
+     header padding and the keyboard shift stack. */
+  body.pwa-mode .fixed.inset-0.app-shell {
+    top: calc(var(--header-total-padding) + var(--keyboard-offset, 0px));
+    bottom: var(--keyboard-height, 0px);
+  }
+
   /* Global transition defaults */
   button, 
   a, 
