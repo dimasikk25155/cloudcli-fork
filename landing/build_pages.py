@@ -1,7 +1,25 @@
-"""Собирает /guide и /kp из общего стиля и варп-движка лендинга Neo3 Agent System."""
-import re, pathlib
+"""Собирает /guide из общего стиля и варп-движка лендинга Neo3 Agent System.
+
+Собирает ТОЛЬКО /guide. Старое название «и /kp» неверно: /kp, /business и
+/install ведутся вручную, /start собирается отдельным build_start.py.
+
+По умолчанию НИЧЕГО НЕ ЗАТИРАЕТ — пишет черновик рядом и показывает, что
+разойдётся с живой страницей. Причина: 2026-07-30 пересборка съела 33 строки
+ручных правок живой /guide (og:url, canonical, классы .back/.toc/.doc h2 .num/
+.path, ссылку «Вопросы» на /start, бейдж «Новое», пункт про скрепку и 20
+файлов). Генератор отстал от страницы, поэтому право затирать у него забрали.
+
+    python3 build_pages.py            # черновик + отчёт о расхождениях
+    python3 build_pages.py --force    # перезаписать живую /guide
+
+Перед --force перенеси в генератор всё, что он теряет, иначе откатишь прод.
+"""
+import pathlib, re, sys
+
+from safe_write import safe_write
 
 BASE = pathlib.Path(__file__).resolve().parent
+FORCE = "--force" in sys.argv
 src = (BASE / "index.html").read_text()
 
 # --- общие куски из лендинга ---
@@ -340,11 +358,10 @@ guide_body = f"""<div class="page-hero wrap">
   </section>
 </div>"""
 
-(BASE / "guide").mkdir(exist_ok=True)
-(BASE / "guide" / "index.html").write_text(page(
+safe_write(BASE / "guide" / "index.html", page(
     "Гайд по интерфейсу Neo3 Agent System — для новичка",
     "Пошаговая инструкция по Neo3 Agent System для человека без технического опыта: первый вход, подключение Claude, проекты и сеансы, постановка задач, приложение на телефоне.",
-    SUB_CSS, guide_body, canonical="https://cli.neo3.ru/guide"))
+    SUB_CSS, guide_body, canonical="https://cli.neo3.ru/guide"), FORCE)
 
 # ============================ КП ============================
 kp_body = """<div class="page-hero wrap">

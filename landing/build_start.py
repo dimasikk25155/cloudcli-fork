@@ -1,7 +1,18 @@
-"""Собирает /start — страницу провоцирующих вопросов — из скелета /kp (стиль, шапка, футер, варп)."""
-import re, pathlib
+"""Собирает /start — страницу провоцирующих вопросов — из скелета /kp (стиль, шапка, футер, варп).
+
+По умолчанию НИЧЕГО НЕ ЗАТИРАЕТ: пишет черновик рядом и показывает, что
+разойдётся с живой страницей (подробнее — safe_write.py). Перезапись — только
+осознанно:
+
+    python3 build_start.py            # черновик + отчёт о расхождениях
+    python3 build_start.py --force    # перезаписать живую /start
+"""
+import re, pathlib, sys
+
+from safe_write import safe_write
 
 BASE = pathlib.Path(__file__).resolve().parent
+FORCE = "--force" in sys.argv
 src = (BASE / "kp" / "index.html").read_text(encoding="utf-8")
 lines = src.split("\n")
 
@@ -188,7 +199,4 @@ BODY = f"""
 </div>
 """
 
-out = BASE / "start" / "index.html"
-out.parent.mkdir(exist_ok=True)
-out.write_text(prefix + HERO + BODY + suffix, encoding="utf-8")
-print(f"собрано: {out} ({len((prefix + HERO + BODY + suffix).splitlines())} строк)")
+safe_write(BASE / "start" / "index.html", prefix + HERO + BODY + suffix, FORCE)
