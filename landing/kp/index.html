@@ -7,6 +7,8 @@
 <meta name="description" content="ИИ-агент на вашем сервере, который делает работу: сайты, разбор конкурентов, коммерческие, аналитика. Без VPN, за фиксированную подписку. Доступ для всей команды.">
 <meta name="robots" content="noindex,nofollow">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://cli.neo3.ru/kp">
+<link rel="canonical" href="https://cli.neo3.ru/kp">
 <meta property="og:site_name" content="neo3">
 <meta property="og:title" content="Neo3 Agent System — ИИ-агент для вашего бизнеса">
 <meta property="og:description" content="Один цифровой сотрудник вместо десяти подрядчиков. Задачи ставите словами — агент делает. Без VPN, фикс-подписка, доступ для всей команды.">
@@ -18,40 +20,37 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23070504'/%3E%3Ctext x='32' y='47' font-family='Arial Black,Arial,sans-serif' font-size='42' font-weight='900' fill='%23f7931a' text-anchor='middle'%3E3%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Jura:wght@400;600;700&family=Inter:wght@400;500;700&family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Jura:wght@400;600;700&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/neo3.css">
 <style>
-  :root{
-    --bg:#070504; --fg:#fff4ea; --muted:#a4937f;
-    --card:rgba(255,255,255,.04); --line:rgba(255,255,255,.08);
-    --a:#f7931a; --a2:#ffb866; --gold:#ffd9a0; --glow:rgba(247,147,26,.55); --glow-soft:rgba(247,147,26,.22);
-  }
+  
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
   section[id]{scroll-margin-top:76px}
   a:focus-visible,.btn:focus-visible,summary:focus-visible{outline:2px solid var(--a);outline-offset:3px;border-radius:6px}
-  .nw{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--a);color:#150c02;font-family:'Jura',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.4px;vertical-align:middle;text-transform:uppercase;white-space:nowrap}
+  .nw{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--a);color:#150c02;font-family:var(--font-head);font-weight:700;font-size:10px;letter-spacing:1.4px;vertical-align:middle;text-transform:uppercase;white-space:nowrap}
   .wn{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:12px;max-width:860px}
   .wn li{padding:15px 17px;border:1px solid var(--line);border-radius:12px;font-size:14.5px;line-height:1.6;color:var(--muted)}
-  .wn li b{color:var(--fg);font-family:'Jura',sans-serif;font-weight:700;letter-spacing:.4px}
-  body{background:var(--bg);color:var(--fg);font-family:Inter,-apple-system,system-ui,sans-serif;overflow-x:hidden;line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wn li b{color:var(--fg);font-family:var(--font-head);font-weight:700;letter-spacing:.4px}
+  body{background:var(--bg);color:var(--fg);font-family:var(--font-body);overflow-x:hidden;line-height:1.55;-webkit-font-smoothing:antialiased}
   .wrap{max-width:1120px;margin:0 auto;padding:0 22px}
   a{color:inherit;text-decoration:none}
 
   header{position:fixed;top:0;left:0;right:0;z-index:50;background:rgba(7,5,4,0);transition:background .3s,backdrop-filter .3s,border-color .3s;border-bottom:1px solid transparent}
   header.solid{background:rgba(7,5,4,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
   nav{display:flex;align-items:center;justify-content:space-between;height:64px}
-  .logo{font-family:'Russo One',sans-serif;letter-spacing:1.5px;font-size:20px}
+  .logo{font-family:var(--font-logo);letter-spacing:1.5px;font-size:20px}
   .logo b{color:var(--a);text-shadow:0 0 18px var(--glow)}
-  .nav-links{display:flex;gap:28px;font-family:'Jura',sans-serif;font-weight:600;font-size:14px;color:var(--muted)}
+  .nav-links{display:flex;gap:28px;font-family:var(--font-head);font-weight:600;font-size:14px;color:var(--muted)}
   .nav-links a{transition:color .2s}
   .nav-links a:hover{color:var(--fg)}
-  .btn{display:inline-flex;align-items:center;gap:8px;font-family:'Jura',sans-serif;font-weight:700;letter-spacing:.4px;background:var(--a);color:#1a0e00;padding:12px 24px;border-radius:12px;border:0;cursor:pointer;font-size:15px;transition:transform .15s,box-shadow .3s}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-head);font-weight:700;letter-spacing:.4px;background:var(--a);color:#1a0e00;padding:12px 24px;border-radius:12px;border:0;cursor:pointer;font-size:15px;transition:transform .15s,box-shadow .3s}
   .btn:hover{transform:translateY(-2px)}
   .btn.pulse{animation:pulseGlow 2.6s ease-in-out infinite}
-  @keyframes pulseGlow{0%,100%{box-shadow:0 6px 20px -2px var(--glow-soft)}50%{box-shadow:0 8px 34px 2px var(--glow)}}
+  
   .btn.shine{position:relative;overflow:hidden}
   .btn.shine::after{content:'';position:absolute;top:0;left:-160%;width:55%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.6),transparent);transform:skewX(-20deg);animation:shine 3.4s ease-in-out infinite}
-  @keyframes shine{0%{left:-160%}55%,100%{left:170%}}
+  
   .btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
   .btn.ghost:hover{border-color:rgba(247,147,26,.5)}
 
@@ -59,13 +58,13 @@
   section,footer{position:relative;z-index:1}
 
   /* только вертикальные отступы — боковые остаются от .wrap */
-  .eyebrow{font-family:'Jura',sans-serif;font-weight:700;letter-spacing:4px;color:var(--a);font-size:13px;text-transform:uppercase}
-  h2{font-family:'Jura',sans-serif;font-weight:700;font-size:clamp(28px,5vw,46px);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 30px;line-height:1.04}
+  .eyebrow{font-family:var(--font-head);font-weight:700;letter-spacing:4px;color:var(--a);font-size:13px;text-transform:uppercase}
+  h2{font-family:var(--font-head);font-weight:700;font-size:clamp(28px,5vw,46px);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 30px;line-height:1.04}
   .sub{color:var(--muted);font-size:clamp(15px,2.2vw,18px);max-width:620px}
   .focus .w{display:inline-block}
   html.js .focus .w{filter:blur(12px);opacity:.25;transform:translateY(6px);transition:filter .7s cubic-bezier(.2,.7,.2,1),opacity .7s,transform .7s;transition-delay:calc(var(--i) * 90ms)}
   html.js .focus.seen .w{filter:blur(0);opacity:1;transform:none}
-  @keyframes rise{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+  
 
   .cta-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:34px}
 
@@ -76,7 +75,7 @@
   .faq{max-width:820px;margin:6px auto 0;display:flex;flex-direction:column;gap:12px}
   .faq details{border:1px solid var(--line);border-radius:16px;background:var(--card);transition:border-color .25s}
   .faq details[open]{border-color:rgba(247,147,26,.45)}
-  .faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:18px 22px;font-family:'Jura',sans-serif;font-weight:700;font-size:15.5px;letter-spacing:.3px}
+  .faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:18px 22px;font-family:var(--font-head);font-weight:700;font-size:15.5px;letter-spacing:.3px}
   .faq summary::-webkit-details-marker{display:none}
   .faq summary::after{content:'+';color:var(--a);font-size:22px;line-height:1;flex:none;transition:transform .25s;text-shadow:0 0 12px var(--glow)}
   .faq details[open] summary::after{transform:rotate(45deg)}
@@ -114,13 +113,13 @@
     border:solid var(--a);border-width:0 2.2px 2.2px 0;transform:rotate(42deg)}
   .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:24px;counter-reset:f}
   .flow .st{border:1px solid var(--line);border-radius:16px;background:var(--card);padding:20px 16px}
-  .flow .st::before{counter-increment:f;content:counter(f);font-family:'Russo One',sans-serif;font-size:26px;
+  .flow .st::before{counter-increment:f;content:counter(f);font-family:var(--font-logo);font-size:26px;
     color:var(--a);opacity:.55;display:block;margin-bottom:6px;text-shadow:0 0 18px var(--glow)}
-  .flow h3{font-family:'Jura',sans-serif;font-weight:700;font-size:15px;margin-bottom:5px}
+  .flow h3{font-family:var(--font-head);font-weight:700;font-size:15px;margin-bottom:5px}
   .flow p{font-size:13px;margin:0;color:var(--muted);line-height:1.55}
   .money{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
   .money .m{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:24px 22px}
-  .money .m h3{font-family:'Jura',sans-serif;font-weight:700;font-size:17px;margin-bottom:10px;color:var(--a2)}
+  .money .m h3{font-family:var(--font-head);font-weight:700;font-size:17px;margin-bottom:10px;color:var(--a2)}
   .money .m p{font-size:14.5px;margin:0;color:var(--muted);line-height:1.65}
   .soon-list{list-style:none;margin-top:20px;display:grid;gap:2px}
   .soon-list li{position:relative;padding:14px 0 14px 26px;border-top:1px solid var(--line);
@@ -132,33 +131,33 @@
   /* ---------- доп. компоненты бизнес-КП ---------- */
   .hchips{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:30px auto 0;max-width:820px;text-align:left}
   .hchip{border:1px solid var(--line);border-radius:16px;background:var(--card);padding:18px 20px}
-  .hchip .n{font-family:'Jura',sans-serif;font-weight:700;font-size:17px;color:var(--a);text-shadow:0 0 16px var(--glow);margin-bottom:6px}
+  .hchip .n{font-family:var(--font-head);font-weight:700;font-size:17px;color:var(--a);text-shadow:0 0 16px var(--glow);margin-bottom:6px}
   .hchip .l{color:var(--muted);font-size:13px;line-height:1.5}
 
   .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;text-align:left}
   .pcard{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:22px 22px;transition:transform .2s,border-color .2s,box-shadow .3s}
   .pcard:hover{transform:translateY(-3px);border-color:rgba(247,147,26,.5);box-shadow:0 18px 44px -26px var(--glow)}
-  .pcard h3{font-family:'Jura',sans-serif;font-weight:700;font-size:16.5px;margin-bottom:8px;line-height:1.28}
+  .pcard h3{font-family:var(--font-head);font-weight:700;font-size:16.5px;margin-bottom:8px;line-height:1.28}
   .pcard p{color:var(--muted);font-size:14.5px;line-height:1.6}
 
   .ugrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;text-align:left}
   .ucard{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:22px 22px}
-  .ucard>h3{font-family:'Jura',sans-serif;font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .ucard>h3{font-family:var(--font-head);font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
   .uitem{margin-bottom:14px}
   .uitem:last-child{margin-bottom:0}
   .uitem b{display:block;color:var(--fg);font-size:14.5px;font-weight:600;margin-bottom:2px}
   .uitem span{color:var(--muted);font-size:13.5px;line-height:1.55}
 
   .anchor{margin-top:22px;border:1px solid rgba(247,147,26,.4);border-radius:20px;background:rgba(247,147,26,.06);padding:26px 28px;text-align:left}
-  .anchor .big{font-family:'Jura',sans-serif;font-weight:700;font-size:clamp(17px,2.6vw,22px);line-height:1.35;color:var(--fg)}
+  .anchor .big{font-family:var(--font-head);font-weight:700;font-size:clamp(17px,2.6vw,22px);line-height:1.35;color:var(--fg)}
   .anchor .big b{color:var(--a);text-shadow:0 0 20px var(--glow)}
   .anchor .subline{margin-top:12px;color:var(--muted);font-size:14.5px;line-height:1.6}
 
   .calc{margin-top:20px;border:1px solid var(--line);border-radius:18px;background:var(--card);overflow:hidden;text-align:left}
   .calc .ci{padding:18px 22px;color:var(--muted);font-size:14.5px;line-height:1.6;border-bottom:1px solid var(--line)}
   .crow{display:grid;grid-template-columns:1fr auto;gap:6px 18px;padding:16px 22px;border-bottom:1px solid var(--line)}
-  .crow .cl{font-family:'Jura',sans-serif;font-weight:700;font-size:15px;color:var(--fg)}
-  .crow .cv{font-family:'JetBrains Mono',monospace;font-size:14.5px;color:var(--a);text-align:right;white-space:nowrap}
+  .crow .cl{font-family:var(--font-head);font-weight:700;font-size:15px;color:var(--fg)}
+  .crow .cv{font-family:var(--font-mono);font-size:14.5px;color:var(--a);text-align:right;white-space:nowrap}
   .crow .cn{grid-column:1/-1;color:var(--muted);font-size:12.5px;line-height:1.5}
   .ctotal{padding:18px 22px;background:rgba(247,147,26,.06);font-size:14.5px;line-height:1.65;color:var(--muted)}
   .ctotal b{color:var(--a2)}
@@ -166,7 +165,7 @@
 
   .egrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;text-align:left}
   .ecard{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:22px 22px}
-  .ecard h3{font-family:'Jura',sans-serif;font-weight:700;font-size:16px;margin-bottom:8px;color:var(--gold)}
+  .ecard h3{font-family:var(--font-head);font-weight:700;font-size:16px;margin-bottom:8px;color:var(--gold)}
   .ecard p{color:var(--muted);font-size:14px;line-height:1.6}
 
   .modes{margin-top:22px;border:1px solid var(--line);border-left:3px solid var(--a);border-radius:0 14px 14px 0;background:var(--card);padding:18px 22px;color:var(--muted);font-size:14.5px;line-height:1.65}
@@ -196,10 +195,10 @@
 <body>
 
 <header id="hdr"><div class="wrap"><nav aria-label="Основная навигация">
-  <a class="logo" href="/">NEO3 <b>AGENT</b></a>
+  <div class="nav-left"><a class="logo" href="/">NEO3 <b>AGENT</b></a><a class="home-badge" href="https://neo3.ru" title="На главную neo3.ru — все проекты экосистемы">&larr; все проекты</a></div>
   <div class="nav-links">
     <a href="/">О продукте</a>
-    <a href="/business">Чем полезно</a>
+    <a href="/start">Вопросы</a><a href="/business">Чем полезно</a>
     <a href="/guide">Гайд</a>
     <a href="/kp">Предложение</a>
   </div>
@@ -211,7 +210,7 @@
 <main>
 <div class="page-hero wrap">
   <div class="eyebrow">Neo3 Agent System · предложение для бизнеса</div>
-  <h1 class="focus" style="font-family:'Jura',sans-serif;text-transform:uppercase;color:var(--fg);-webkit-text-fill-color:currentColor;background:none;animation:none;filter:none;font-size:clamp(28px,5.6vw,54px);max-width:940px;margin:0 auto">Один цифровой сотрудник вместо десяти подрядчиков</h1>
+  <h1 class="focus" style="font-family:var(--font-head);text-transform:uppercase;color:var(--fg);-webkit-text-fill-color:currentColor;background:none;animation:none;filter:none;font-size:clamp(28px,5.6vw,54px);max-width:940px;margin:0 auto">Один цифровой сотрудник вместо десяти подрядчиков</h1>
   <p class="sub" style="max-width:740px">Разворачиваем на вашем сервере ИИ-агента (умного исполнителя, который не советует, а делает работу). Вы ставите задачи обычными словами — «собери лендинг», «разбери конкурентов», «подготовь коммерческое» — а он берёт и выполняет. Без VPN, с телефона и компьютера, за фиксированную подписку вместо непредсказуемых счетов.</p>
   <div class="cta-row">
     <a class="btn pulse shine" href="https://t.me/bitcoin_tothe_moon" target="_blank" rel="noopener">Написать в Telegram</a>
@@ -329,6 +328,13 @@
       <div class="crow"><span class="cl">Наценка за оплату из РФ</span><span class="cv">≈ +1 000 – 3 500 ₽</span><span class="cn">Если оплачиваем зарубежную подписку за вас через посредника — это плата за удобство оплаты, а не накрутка на сам продукт.</span></div>
       <div class="ctotal">Итого по максимуму — <b>в пределах 20–30 тысяч ₽ в месяц</b>, а чаще заметно меньше. И это фиксированная сумма: сколько бы агент ни работал, вы платите столько же. Та же интенсивность по поштучной оплате API легко ушла бы за 300 000 ₽ и без потолка — разница в 10+ раз.</div>
     </div>
+    <div class="calc" style="margin-top:18px">
+      <div class="ci">А теперь то, о чём обычно молчат, — <b>как это выглядит на дистанции</b>. Чтобы вы заранее понимали всю картину, а не узнавали её платежами:</div>
+      <div class="crow"><span class="cl">Первый месяц</span><span class="cv">внедрение + 20–30 тыс ₽</span><span class="cn">Разовое внедрение — сервер, установка, подключение подписки, обучение — это единственный крупный платёж, и он бывает один раз. Плюс обычный месячный расход, который дальше не меняется.</span></div>
+      <div class="crow"><span class="cl">Со второго месяца</span><span class="cv">20–30 тыс ₽ + сопровождение</span><span class="cn">Остаётся только фиксированный месячный расход и наше сопровождение. Задач агенту ставьте сколько угодно: за каждую новую задачу, идею или «а сделай ещё вот это» отдельно платить не нужно — в этом и разница с подрядчиком.</span></div>
+      <div class="crow"><span class="cl">Когда вас станет больше</span><span class="cv">без второй подписки</span><span class="cn">Кабинет сотруднику — это не ещё одна подписка на движок. Выросли с одного человека до трёх-пяти — месячный расход остаётся тем же. Именно здесь обычные сервисы включают счётчик «за каждое место», и он растёт быстрее вашей выручки.</span></div>
+      <div class="ctotal">Больше в этой схеме платить не за что: <b>скрытых расходов и доплат «за новую функцию» нет</b>, обновления системы бесплатны. Стоимость самого внедрения и сопровождения зависит от объёма — посчитаем вместе на первом разговоре, до всяких обязательств.</div>
+    </div>
     <p class="kp-fn">Цифры — ориентир на сегодня по текущему курсу (≈85–90 ₽/$) и актуальным тарифам подписок (Claude Max 5x — $100, Max 20x — $200); финальную сумму фиксируем с вами перед стартом. Опорный факт для сравнения: одно 5-часовое окно активной работы агента по API-тарифу тянет на $150+ — и целиком входит в месячную подписку.</p>
   </section>
 
@@ -339,7 +345,7 @@
     <div class="hl-sec">
       <ul class="check">
         <li><strong>У каждого сотрудника — свой изолированный кабинет.</strong> Это уже работает, не эксперимент: люди трудятся параллельно, не мешают друг другу и не видят чужого. Каждому — свои проекты и своя рабочая область, всё внутри вашей компании и вашего доступа.</li>
-        <li><strong>Одна подписка на команду, а не по подписке на человека.</strong> Не нужно покупать отдельный доступ каждому сотруднику. Внутри вашей компании люди работают через ваш же доступ — это нормальное использование, а не перепродажа.</li>
+        <li><strong>Одна подписка на команду, а не по подписке на человека.</strong> Не нужно покупать отдельный доступ каждому сотруднику. Внутри вашей компании люди работают через ваш же доступ — это нормальное использование, а не перепродажа. Оговорим сразу, до старта: оснований для блокировки при такой работе сегодня нет, но 100%-ю гарантию, что поставщик никогда не изменит правила, не даст никто. Поэтому <b>раздавать доступ команде или нет — ваше решение и ваш риск</b>; захотите исключить его полностью — оформим сотруднику отдельную подписку.</li>
         <li><strong>Управление доступом, которого из коробки не купить.</strong> У реселлеров и голых систем нормального управления доступом нет вовсе. Изолированные кабинеты мы уже даём; удобную панель «добавь сотрудника в один клик» ещё дорабатываем — пока нового человека заводим вручную, обычно в тот же день.</li>
         <li><strong>Данные команды — на вашем сервере.</strong> Вся работа сотрудников, файлы и переписка лежат на вашей машине, а не в чужом облаке. Вы видите общую картину, а доступы раздаёте и забираете вы.</li>
       </ul>
@@ -370,6 +376,7 @@
       <div class="st"><h3>Подписка и оплата из РФ</h3><p>Подключаем подписку и объясняем оба пути оплаты: прямой аккаунт Anthropic (нужна нероссийская карта) или через реселлера (обычная карта РФ).</p></div>
       <div class="st"><h3>Обучение на ваших задачах</h3><p>Показываем всё на живых примерах вашего бизнеса — как ставить задачи словами. Разберётесь даже если совсем не про технику.</p></div>
       <div class="st"><h3>Поддержка и сотрудники</h3><p>Остаёмся на связи в Telegram: следим, чтобы всё было живо, чиним при сбоях, заводим новых сотрудников.</p></div>
+      <div class="st"><h3>Отчёт: что реально сэкономили</h3><p>Ведём простой журнал: какую задачу агент закрыл, сколько она занимала руками и сколько заняла теперь. В конце месяца вы смотрите не на ощущения, а на список сделанного и сэкономленные часы — и сами решаете, окупается ли это.</p></div>
     </div>
     <div class="modes">Два равноценных варианта. <b>ПОД КЛЮЧ</b> — мы арендуем сервер, разворачиваем, настраиваем, подключаем подписку и сопровождаем всё сами; вы просто пользуетесь. <b>ПО ИНСТРУКЦИИ</b> — даём подробное пошаговое руководство и обучаем, вы разворачиваете и управляете сами, а система остаётся полностью вашей, без привязки к нам. В обоих случаях это ваш актив: собран на открытом стандартном движке, поэтому продолжить сможете сами или с любым грамотным специалистом — вы не в заложниках.</div>
   </section>
@@ -381,7 +388,7 @@
     <ul class="check">
       <li><strong>Свой сервер, свой аккаунт.</strong> Система стоит на вашем отдельном сервере (можно российский), под вашей честной подпиской, оформленной на вас. Ваша переписка не идёт через чужую инфраструктуру в общем котле с другими клиентами.</li>
       <li><strong>Рабочие файлы — на вашей машине.</strong> Все наработки, файлы и настройки лежат у вас. Наружу уходят только сами запросы к движку — ровно как у любого, кто пользуется ChatGPT. Захотите уйти — всё останется у вас, никакого «рубильника», который мы могли бы выключить.</li>
-      <li><strong>Без VPN и без заложничества.</strong> Заходите как на обычный сайт, без обходов. Система на открытом стандартном движке, а не на «известной только нам» самоделке — при необходимости продолжить или починить сможет любой грамотный специалист.</li>
+      <li><strong>Без VPN и без заложничества.</strong> Заходите как на обычный сайт — сервер и все ваши данные стоят в России, а выход к движку за границу обеспечиваем мы, со стороны сервера. От вас никаких обходов не требуется. Система на открытом стандартном движке, а не на «известной только нам» самоделке — при необходимости продолжить или починить сможет любой грамотный специалист.</li>
     </ul>
   </section>
 
@@ -394,6 +401,7 @@
       <li>По-настоящему обкатан на боевых багах пока движок Claude. Codex, Cursor и Kimi уже подключаются через переключатель как выбор — но самый предсказуемый результат сегодня даёт Claude.</li>
       <li>Помощь с почтой и подобные подключения настраиваются под ваш конкретный ящик и доступы — это не мгновенная кнопка «вкл», а короткая настройка под вас.</li>
       <li>Оплата зарубежной подписки из РФ идёт через посредника с небольшой наценкой — это про удобство оплаты, а не накрутку на сам продукт. Прямой аккаунт Anthropic требует нероссийскую карту; объясняем оба пути честно.</li>
+      <li>Поставщик движка вправе ограничить доступ к аккаунту — и мы не делаем вид, что такого не бывает. Гарантий здесь не даёт никто, правила устанавливает Anthropic, а не мы. Важно другое: это не обнуляет вашу систему — сервер, файлы, проекты и интерфейс остаются на месте, менять нужно только «мотор». Что делаем в этом случае, написано ниже в вопросах, и это оговаривается до оплаты, а не после.</li>
       <li>Агент — мощный исполнитель, но не волшебник: результат стоит проверять, особенно в договорах и цифрах. Он готовит черновик и берёт на себя рутину, финальное слово — за вами.</li>
     </ul>
   </section>
@@ -404,7 +412,9 @@
     <div class="faq">
       <details><summary>Это же сложно, я в нейросетях не разбираюсь — не разберусь и брошу?</summary><div class="a">Разбираться в устройстве не нужно — это как автомобиль: вы им пользуетесь, а не собираете. Заходите на сайт или открываете приложение на телефоне, пишете задачу обычными словами — «сделай лендинг», «разбери конкурентов», «напиши коммерческое» — и получаете результат. Мы всё разворачиваем, настраиваем и показываем на живых примерах вашего бизнеса, плюс остаёмся на связи, когда возникнут вопросы.</div></details>
       <details><summary>Правда без VPN? Не верю.</summary><div class="a">Правда. VPN нужен, когда вы ломитесь напрямую на зарубежный сервис из России. Здесь наоборот: движок живёт на вашем сервере, который стоит ближе (можно в РФ), а вы заходите на него как на обычный сайт — по адресу в браузере. Никаких обходов. Оплату подписки из России тоже решаем: есть простой путь через посредника, мы объясним оба варианта.</div></details>
-      <details><summary>А меня не забанят за то, что подключил всех сотрудников на одну подписку?</summary><div class="a">Риск сведён к минимуму, но честно: 100%-й гарантии от санкций поставщика за совместный доступ вам не даст никто. У вас свой сервер и своя честная подписка, оформленная на вас, а внутри вашей же компании сотрудники работают через ваш доступ — это нормальное использование, а не перепродажа. Мы не сажаем чужие компании на один общий аккаунт и не торгуем кусочками — именно на таких схемах и банят, а их здесь нет.</div></details>
+      <details><summary>А меня не забанят за то, что подключил всех сотрудников на одну подписку?</summary><div class="a">Отвечаем прямо, без маркетинга. Технически это работает, и сегодня оснований для блокировки нет: подписка честно оформлена и оплачена вами, сервер ваш, работают ваши же люди внутри вашей компании. Банят за другое — за перепродажу доступа и посадку разных фирм на один общий аккаунт; такой схемы здесь нет и не будет. Но 100%-ю гарантию не даст никто: правила устанавливает поставщик и вправе их менять. Поэтому решение честное и простое — <b>раздавать доступ сотрудникам или нет, решаете вы, и риск здесь ваш</b>. Мы проговариваем это до старта, а не после. Хотите исключить риск полностью — оформим сотруднику отдельную подписку, схема от этого не ломается.</div></details>
+      <details><summary>А если Anthropic заблокирует доступ — я останусь ни с чем?</summary><div class="a">Нет, и это важно понимать заранее. Ограничить доступ поставщик вправе — гарантий не даёт никто, включая тех, кто продаёт вам «бесперебойный ИИ». Но блокируется только «мотор», а не ваша система: сервер, файлы, проекты, история переписки и сам интерфейс лежат на вашей машине, их отключить снаружи нельзя. Дальше два пути, оба быстрые: оформляем вам новый доступ у того же поставщика или переключаем на другой движок прямо в интерфейсе — Codex, Cursor, Kimi и OpenCode уже в переключателе. Пока движок недоступен, ежемесячное сопровождение вы не оплачиваете. Ровно ради этого система с самого начала сделана не привязанной к одному поставщику.</div></details>
+      <details><summary>А если с вами что-то случится — я останусь один на один с системой?</summary><div class="a">Справедливый вопрос, и ответ у нас не «у нас большая команда», а честный: вы изначально ни к кому не привязаны. Сервер оформлен на вас, доступ нам вы забираете в любой момент сменой пароля, файлы и проекты лежат на вашей машине. Система собрана на открытом стандартном движке, а не на самоделке, известной только нам, — продолжить, обновить или починить сможет любой грамотный технический специалист. Письменную инструкцию по установке и обслуживанию отдаём вам на руки, и попросить её можно ещё до оплаты — чтобы это была проверяемая вещь, а не обещание.</div></details>
       <details><summary>Чем это лучше обычного ChatGPT-бота?</summary><div class="a">Обычный бот умеет поболтать и написать текст. Здесь агент реально делает работу: сам создаёт и правит сайт, лазит по сайтам конкурентов и собирает данные, готовит и рассылает коммерческие предложения, разбирает статистику и рекламу. Это не «поговорить», а «сделал и отдал результат». Плюс внутри есть переключатель движков (Claude, Codex, Cursor, Kimi) — вы не привязаны к одному поставщику.</div></details>
       <details><summary>А если сломается — кто чинит?</summary><div class="a">Чиним мы — это часть поддержки. Сервер и система устроены так, что при сбое ключевые процессы сами перезапускаются, а мы следим, чтобы всё было живо. Отвалилось — пишете в Telegram, мы поднимаем. Плюс всё на открытом стандартном движке: вы не заперты на самоделке, при необходимости починить сможет любой грамотный специалист.</div></details>
       <details><summary>А если я захочу уйти — что у меня останется?</summary><div class="a">Всё останется у вас. Сервер ваш, подписка оформлена на вас, наработки, файлы и настройки лежат на вашей машине — мы ничего не забираем. Система на открытом стандартном движке, поэтому вы не в заложниках: можете продолжать сами, передать другому специалисту или просто менять пароли и пользоваться дальше без нас.</div></details>
@@ -423,7 +433,7 @@
 
 <footer><div class="wrap"><div class="foot">
   <div class="logo">NEO3 <b>AGENT</b></div>
-  <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:'Jura',sans-serif;font-weight:600;font-size:13px">
+  <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:var(--font-head);font-weight:600;font-size:13px">
     <a href="/" style="color:var(--muted)">О продукте</a>
     <a href="/guide" style="color:var(--muted)">Гайд</a>
     <a href="https://neo3.ru" style="color:var(--muted)">neo3.ru · хаб</a>

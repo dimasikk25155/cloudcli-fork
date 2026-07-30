@@ -15,8 +15,13 @@ warp = "\n".join(lines[start:end + 1])
 FONTS = ('<link rel="preconnect" href="https://fonts.googleapis.com">\n'
          '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
          '<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Jura:wght@400;600;700'
-         '&family=Inter:wght@400;500;700&family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000'
+         '&family=Golos+Text:wght@400;500;600;700&family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000'
          '&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">')
+
+# Ядро дизайн-системы портала. Источник правды — neo3-hub/shared/neo3.css,
+# копия раскладывается сюда скриптом neo3-hub/shared/sync.sh.
+# Подключается ДО <style>, чтобы страница могла переопределить базу.
+CORE_CSS = '<link rel="stylesheet" href="/neo3.css">'
 
 FAVICON = ('<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' '
            'viewBox=\'0 0 64 64\'%3E%3Crect width=\'64\' height=\'64\' rx=\'14\' fill=\'%23070504\'/%3E'
@@ -167,6 +172,7 @@ def page(title, desc, extra_css, body, noindex=False, canonical=None):
 <meta name="twitter:image" content="https://cli.neo3.ru/og-neo3.png">
 {FAVICON}
 {FONTS}
+{CORE_CSS}
 <style>{style}{extra_css}</style>
 </head>
 <body>

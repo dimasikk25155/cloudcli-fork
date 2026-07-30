@@ -7,6 +7,8 @@
 <meta name="description" content="Владей инструментами, а не арендуй. Свой сайт, своя CRM, боты, рассылки, автопостинг — агент пишет их твоими словами. Написать один раз дешевле, чем платить за чужой софт вечно.">
 <meta name="robots" content="noindex,nofollow">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://cli.neo3.ru/business">
+<link rel="canonical" href="https://cli.neo3.ru/business">
 <meta property="og:site_name" content="neo3">
 <meta property="og:title" content="Владей инструментами, а не арендуй — Neo3 Agent System">
 <meta property="og:description" content="То, за что бизнес платит помесячно годами — сайт, CRM, боты, рассылки — можно сделать своим. Агент пишет инструменты твоими словами.">
@@ -18,60 +20,57 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23070504'/%3E%3Ctext x='32' y='47' font-family='Arial Black,Arial,sans-serif' font-size='42' font-weight='900' fill='%23f7931a' text-anchor='middle'%3E3%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Jura:wght@400;600;700&family=Inter:wght@400;500;700&family=Roboto+Flex:opsz,wdth,wght@8..144,25..151,100..1000&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Jura:wght@400;600;700&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/neo3.css">
 <style>
-  :root{
-    --bg:#070504; --fg:#fff4ea; --muted:#a4937f;
-    --card:rgba(255,255,255,.04); --line:rgba(255,255,255,.08);
-    --a:#f7931a; --a2:#ffb866; --gold:#ffd9a0; --glow:rgba(247,147,26,.55); --glow-soft:rgba(247,147,26,.22);
-  }
+  
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
   section[id]{scroll-margin-top:76px}
   a:focus-visible,.btn:focus-visible,summary:focus-visible{outline:2px solid var(--a);outline-offset:3px;border-radius:6px}
-  .nw{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--a);color:#150c02;font-family:'Jura',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.4px;vertical-align:middle;text-transform:uppercase;white-space:nowrap}
+  .nw{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--a);color:#150c02;font-family:var(--font-head);font-weight:700;font-size:10px;letter-spacing:1.4px;vertical-align:middle;text-transform:uppercase;white-space:nowrap}
   .wn{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:12px;max-width:860px}
   .wn li{padding:15px 17px;border:1px solid var(--line);border-radius:12px;font-size:14.5px;line-height:1.6;color:var(--muted)}
-  .wn li b{color:var(--fg);font-family:'Jura',sans-serif;font-weight:700;letter-spacing:.4px}
-  body{background:var(--bg);color:var(--fg);font-family:Inter,-apple-system,system-ui,sans-serif;overflow-x:hidden;line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wn li b{color:var(--fg);font-family:var(--font-head);font-weight:700;letter-spacing:.4px}
+  body{background:var(--bg);color:var(--fg);font-family:var(--font-body);overflow-x:hidden;line-height:1.55;-webkit-font-smoothing:antialiased}
   .wrap{max-width:1120px;margin:0 auto;padding:0 22px}
   a{color:inherit;text-decoration:none}
 
   header{position:fixed;top:0;left:0;right:0;z-index:50;background:rgba(7,5,4,0);transition:background .3s,backdrop-filter .3s,border-color .3s;border-bottom:1px solid transparent}
   header.solid{background:rgba(7,5,4,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
   nav{display:flex;align-items:center;justify-content:space-between;height:64px}
-  .logo{font-family:'Russo One',sans-serif;letter-spacing:1.5px;font-size:20px}
+  .logo{font-family:var(--font-logo);letter-spacing:1.5px;font-size:20px}
   .logo b{color:var(--a);text-shadow:0 0 18px var(--glow)}
-  .nav-links{display:flex;gap:26px;font-family:'Jura',sans-serif;font-weight:600;font-size:14px;color:var(--muted)}
+  .nav-links{display:flex;gap:26px;font-family:var(--font-head);font-weight:600;font-size:14px;color:var(--muted)}
   .nav-links a{transition:color .2s}
   .nav-links a:hover{color:var(--fg)}
-  .btn{display:inline-flex;align-items:center;gap:8px;font-family:'Jura',sans-serif;font-weight:700;letter-spacing:.4px;background:var(--a);color:#1a0e00;padding:12px 24px;border-radius:12px;border:0;cursor:pointer;font-size:15px;transition:transform .15s,box-shadow .3s}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-head);font-weight:700;letter-spacing:.4px;background:var(--a);color:#1a0e00;padding:12px 24px;border-radius:12px;border:0;cursor:pointer;font-size:15px;transition:transform .15s,box-shadow .3s}
   .btn:hover{transform:translateY(-2px)}
   .btn.pulse{animation:pulseGlow 2.6s ease-in-out infinite}
-  @keyframes pulseGlow{0%,100%{box-shadow:0 6px 20px -2px var(--glow-soft)}50%{box-shadow:0 8px 34px 2px var(--glow)}}
+  
   .btn.shine{position:relative;overflow:hidden}
   .btn.shine::after{content:'';position:absolute;top:0;left:-160%;width:55%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.6),transparent);transform:skewX(-20deg);animation:shine 3.4s ease-in-out infinite}
-  @keyframes shine{0%{left:-160%}55%,100%{left:170%}}
+  
   .btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
   .btn.ghost:hover{border-color:rgba(247,147,26,.5)}
 
   #road{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
   section,footer{position:relative;z-index:1}
 
-  .eyebrow{font-family:'Jura',sans-serif;font-weight:700;letter-spacing:4px;color:var(--a);font-size:13px;text-transform:uppercase}
-  h2{font-family:'Jura',sans-serif;font-weight:700;font-size:clamp(28px,5vw,46px);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 30px;line-height:1.04}
+  .eyebrow{font-family:var(--font-head);font-weight:700;letter-spacing:4px;color:var(--a);font-size:13px;text-transform:uppercase}
+  h2{font-family:var(--font-head);font-weight:700;font-size:clamp(28px,5vw,46px);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 30px;line-height:1.04}
   .sub{color:var(--muted);font-size:clamp(15px,2.2vw,18px);max-width:620px}
   .focus .w{display:inline-block}
   html.js .focus .w{filter:blur(12px);opacity:.25;transform:translateY(6px);transition:filter .7s cubic-bezier(.2,.7,.2,1),opacity .7s,transform .7s;transition-delay:calc(var(--i) * 90ms)}
   html.js .focus.seen .w{filter:blur(0);opacity:1;transform:none}
-  @keyframes rise{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+  
 
   .cta-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:34px}
 
   .faq{max-width:820px;margin:6px auto 0;display:flex;flex-direction:column;gap:12px}
   .faq details{border:1px solid var(--line);border-radius:16px;background:var(--card);transition:border-color .25s}
   .faq details[open]{border-color:rgba(247,147,26,.45)}
-  .faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:18px 22px;font-family:'Jura',sans-serif;font-weight:700;font-size:15.5px;letter-spacing:.3px}
+  .faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:18px 22px;font-family:var(--font-head);font-weight:700;font-size:15.5px;letter-spacing:.3px}
   .faq summary::-webkit-details-marker{display:none}
   .faq summary::after{content:'+';color:var(--a);font-size:22px;line-height:1;flex:none;transition:transform .25s;text-shadow:0 0 12px var(--glow)}
   .faq details[open] summary::after{transform:rotate(45deg)}
@@ -103,21 +102,21 @@
 
   .hchips{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:30px auto 0;max-width:720px;text-align:left}
   .hchip{border:1px solid var(--line);border-radius:16px;background:var(--card);padding:18px 20px;display:flex;align-items:center;gap:14px}
-  .hchip .n{font-family:'Russo One',sans-serif;font-size:22px;color:var(--a);text-shadow:0 0 16px var(--glow);opacity:.85}
-  .hchip .l{color:var(--fg);font-family:'Jura',sans-serif;font-weight:600;font-size:14px;line-height:1.3}
+  .hchip .n{font-family:var(--font-logo);font-size:22px;color:var(--a);text-shadow:0 0 16px var(--glow);opacity:.85}
+  .hchip .l{color:var(--fg);font-family:var(--font-head);font-weight:600;font-size:14px;line-height:1.3}
 
   .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;text-align:left}
   .pcard{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:22px 22px;transition:transform .2s,border-color .2s,box-shadow .3s}
   .pcard:hover{transform:translateY(-3px);border-color:rgba(247,147,26,.5);box-shadow:0 18px 44px -26px var(--glow)}
-  .pcard h3{font-family:'Jura',sans-serif;font-weight:700;font-size:16.5px;margin-bottom:8px;line-height:1.28}
+  .pcard h3{font-family:var(--font-head);font-weight:700;font-size:16.5px;margin-bottom:8px;line-height:1.28}
   .pcard p{color:var(--muted);font-size:14.5px;line-height:1.6}
 
   /* было / стало */
   .tgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;text-align:left}
   .tcard{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:22px 22px}
-  .tcard h3{font-family:'Jura',sans-serif;font-weight:700;font-size:16.5px;margin-bottom:12px;line-height:1.28}
+  .tcard h3{font-family:var(--font-head);font-weight:700;font-size:16.5px;margin-bottom:12px;line-height:1.28}
   .trow{margin-bottom:9px}
-  .tlbl{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;display:block;margin-bottom:3px}
+  .tlbl{font-family:var(--font-mono);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;display:block;margin-bottom:3px}
   .tlbl.was{color:var(--muted)}
   .tlbl.now{color:var(--a2)}
   .tcard .tw{color:var(--muted);font-size:13.5px;line-height:1.55}
@@ -128,16 +127,16 @@
   /* промты */
   .prgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;text-align:left}
   .prcard{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:20px 20px}
-  .prcard .pg{font-family:'Jura',sans-serif;font-weight:700;font-size:13.5px;letter-spacing:.5px;color:var(--a2);margin-bottom:10px}
-  .promptbox{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.6;color:var(--fg);border-left:2px solid var(--a);padding:2px 0 2px 14px}
+  .prcard .pg{font-family:var(--font-head);font-weight:700;font-size:13.5px;letter-spacing:.5px;color:var(--a2);margin-bottom:10px}
+  .promptbox{font-family:var(--font-mono);font-size:13px;line-height:1.6;color:var(--fg);border-left:2px solid var(--a);padding:2px 0 2px 14px}
 
   /* аренда vs своё */
   .evrgrid{margin-top:22px;border:1px solid var(--line);border-radius:18px;overflow:hidden;text-align:left}
   .evhead,.evrow{display:grid;grid-template-columns:1.05fr 1fr 1.25fr;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line)}
-  .evhead{background:rgba(255,255,255,.03);font-family:'Jura',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+  .evhead{background:rgba(255,255,255,.03);font-family:var(--font-head);font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
   .evhead .h-own{color:var(--a)}
   .evrow:last-child{border-bottom:0}
-  .evrow .ev-t{font-family:'Jura',sans-serif;font-weight:700;font-size:14px;color:var(--fg)}
+  .evrow .ev-t{font-family:var(--font-head);font-weight:700;font-size:14px;color:var(--fg)}
   .evrow .ev-r{color:var(--muted);font-size:13px;line-height:1.5}
   .evrow .ev-own{color:var(--fg);font-size:13px;line-height:1.5}
   .ev-note{margin-top:16px;font-size:13px;color:var(--muted);line-height:1.65;text-align:left}
@@ -147,8 +146,8 @@
   .pfgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:24px;text-align:left}
   .pfcard{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:20px 20px;transition:transform .2s,border-color .2s,box-shadow .3s}
   .pfcard:hover{transform:translateY(-3px);border-color:rgba(247,147,26,.5);box-shadow:0 16px 40px -24px var(--glow)}
-  .pfcat{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.5px;color:var(--a2);border:1px solid rgba(247,147,26,.35);border-radius:999px;padding:3px 10px;margin-bottom:10px}
-  .pfcard h3{font-family:'Jura',sans-serif;font-weight:700;font-size:15px;margin-bottom:8px}
+  .pfcat{display:inline-block;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.5px;color:var(--a2);border:1px solid rgba(247,147,26,.35);border-radius:999px;padding:3px 10px;margin-bottom:10px}
+  .pfcard h3{font-family:var(--font-head);font-weight:700;font-size:15px;margin-bottom:8px}
   .pfcard p{color:var(--muted);font-size:13px;line-height:1.55}
 
   @media(max-width:860px){.tgrid,.prgrid,.pgrid,.hchips{grid-template-columns:1fr}.pfgrid{grid-template-columns:1fr 1fr}}
@@ -157,8 +156,8 @@
     .evhead{display:none}
     .evrow{grid-template-columns:1fr;gap:8px;padding:16px 18px}
     .evrow .ev-t{font-size:15px}
-    .evrow .ev-r::before{content:'Аренда: ';color:var(--a2);font-family:'JetBrains Mono',monospace;font-size:11px}
-    .evrow .ev-own::before{content:'Своё: ';color:var(--a);font-family:'JetBrains Mono',monospace;font-size:11px}
+    .evrow .ev-r::before{content:'Аренда: ';color:var(--a2);font-family:var(--font-mono);font-size:11px}
+    .evrow .ev-own::before{content:'Своё: ';color:var(--a);font-family:var(--font-mono);font-size:11px}
   }
   @media(max-width:560px){.pfgrid{grid-template-columns:1fr}}
 
@@ -177,10 +176,10 @@
 <body>
 
 <header id="hdr"><div class="wrap"><nav aria-label="Основная навигация">
-  <a class="logo" href="/">NEO3 <b>AGENT</b></a>
+  <div class="nav-left"><a class="logo" href="/">NEO3 <b>AGENT</b></a><a class="home-badge" href="https://neo3.ru" title="На главную neo3.ru — все проекты экосистемы">&larr; все проекты</a></div>
   <div class="nav-links">
     <a href="/">О продукте</a>
-    <a href="/business">Чем полезно</a>
+    <a href="/start">Вопросы</a><a href="/business">Чем полезно</a>
     <a href="/guide">Гайд</a>
     <a href="/kp">Предложение</a>
   </div>
@@ -192,7 +191,7 @@
 <main>
 <div class="page-hero wrap">
   <div class="eyebrow">Neo3 Agent System · Чем это полезно бизнесу</div>
-  <h1 class="focus" style="font-family:'Jura',sans-serif;text-transform:uppercase;color:var(--fg);-webkit-text-fill-color:currentColor;background:none;animation:none;filter:none;font-size:clamp(30px,6vw,60px);max-width:940px;margin:0 auto">Владей инструментами, а не арендуй</h1>
+  <h1 class="focus" style="font-family:var(--font-head);text-transform:uppercase;color:var(--fg);-webkit-text-fill-color:currentColor;background:none;animation:none;filter:none;font-size:clamp(30px,6vw,60px);max-width:940px;margin:0 auto">Владей инструментами, а не арендуй</h1>
   <p class="sub" style="max-width:760px">То, за что бизнес платит помесячно годами — сайт, CRM (система учёта клиентов и сделок), боты, рассылки — можно сделать СВОИМ. Написать инструмент один раз своими словами дешевле, чем вечно снимать чужое за каждого сотрудника. Ты перестаёшь быть арендатором чужого софта и становишься владельцем своих инструментов.</p>
   <div class="cta-row">
     <a class="btn pulse shine" href="https://t.me/bitcoin_tothe_moon" target="_blank" rel="noopener">Написать в Telegram</a>
@@ -317,7 +316,7 @@
       <details><summary>Сделать CRM — это же сложно и долго?</summary><div class="a">Мы не строим за вечер клон Битрикса со всеми кнопками. Начинаем с лёгкой версии под твои реальные процессы: где ведёшь клиентов, что важно видеть, какие поля нужны. Она уже работает и приносит пользу, а дальше агент дорабатывает и наращивает её вместе с бизнесом.</div></details>
       <details><summary>Безопасно ли держать базу клиентов у себя?</summary><div class="a">Наоборот, спокойнее, чем отдавать базу в чужой сервис: данные на твоём сервере, доступ только у тебя. Настраиваем разграничение прав и резервные копии. По факту ты перестаёшь зависеть от того, что чужой сервис поднимет цену, закроется или заблокирует аккаунт.</div></details>
       <details><summary>Рассылки в WhatsApp и Telegram — это законно, меня не забанят?</summary><div class="a">Работаем только через доступные и официальные каналы и по правилам самих площадок — никаких серых массовых рассылок и обхода банов (это как раз путь к блокировке). Агент помогает собирать базу тех, кто сам тебе написал, и общаться с ними в рамках правил. Настраивается под конкретные доступы — WhatsApp тут особенно строгий, и мы это учитываем.</div></details>
-      <details><summary>А какой ИИ-движок внутри — ему можно доверять?</summary><div class="a">По-настоящему обкатанный движок — Claude Code от Anthropic, на нём и работаем по умолчанию. Есть и другие на выбор (Codex, Cursor, Kimi — это тоже ИИ-движки, которые пишут код), но по умолчанию берём проверенный. Что бы ни было под капотом, результат — код и данные — остаётся твоим на твоём сервере.</div></details>
+      <details><summary>А какой ИИ-движок внутри — ему можно доверять?</summary><div class="a">По-настоящему обкатанный движок — Claude Code от Anthropic, на нём и работаем по умолчанию. Есть и другие на выбор — Codex (от создателей ChatGPT), Cursor, Kimi и OpenCode: все они уже переключаются прямо в интерфейсе, каждый по твоей подписке. Но по умолчанию берём проверенный. Что бы ни было под капотом, результат — код и данные — остаётся твоим на твоём сервере.</div></details>
     </div>
   </section>
 
@@ -333,7 +332,7 @@
 
 <footer><div class="wrap"><div class="foot">
   <div class="logo">NEO3 <b>AGENT</b></div>
-  <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:'Jura',sans-serif;font-weight:600;font-size:13px">
+  <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:var(--font-head);font-weight:600;font-size:13px">
     <a href="/" style="color:var(--muted)">О продукте</a>
     <a href="/guide" style="color:var(--muted)">Гайд</a>
     <a href="https://neo3.ru" style="color:var(--muted)">neo3.ru · хаб</a>
