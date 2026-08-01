@@ -105,6 +105,14 @@
     },
     "technicalDetails": "技术细节"
   },
+  "voice": {
+    "input": "语音输入",
+    "stopRecording": "停止录音",
+    "transcribing": "转写中…",
+    "speak": "朗读",
+    "stopSpeaking": "停止",
+    "loading": "加载中…"
+  },
   "input": {
     "placeholder": "输入 / 调用命令，@ 选择文件，或向 {{provider}} 提问...",
     "placeholderDefault": "输入您的消息...",
@@ -115,14 +123,24 @@
     "stop": "停止",
     "hintText": {
       "ctrlEnter": "Ctrl+Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令",
-      "enter": "Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令"
+      "enter": "Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令",
+      "queue": "Enter 排队发送下一条消息",
+      "updateQueued": "Enter 更新排队消息"
     },
     "clickToChangeMode": "点击更改权限模式（或在输入框中按 Tab）",
     "showAllCommands": "显示所有命令",
     "clearInput": "清空输入",
     "scrollToBottom": "滚动到底部",
     "modelLabel": "Model",
-    "selectModel": "Select model"
+    "selectModel": "Select model",
+    "queue": {
+      "sendNext": "排队发送下一条消息",
+      "update": "更新排队消息",
+      "label": "已排队",
+      "willSend": "将在当前完成后发送",
+      "edit": "编辑排队消息",
+      "delete": "删除排队消息"
+    }
   },
   "providerSelection": {
     "title": "选择您的 AI 助手",
@@ -210,6 +228,7 @@
       "label": "{{time}} elapsed",
       "startingNow": "Starting now"
     },
+    "stop": "停止",
     "controls": {
       "stopGeneration": "Stop Generation",
       "pressEscToStop": "Press Esc anytime to stop"
