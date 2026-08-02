@@ -159,9 +159,9 @@
       "scrollToLoad": "Faites défiler vers le haut pour charger plus",
       "showingLast": "Affichage des {{count}} derniers messages ({{total}} au total)",
       "loadEarlier": "Charger les messages précédents",
-      "loadAll": "Charger tous les messages",
-      "loadingAll": "Chargement de tous les messages...",
-      "allLoaded": "Tous les messages chargés",
+      "loadAll": "Aller au premier message",
+      "loadingAll": "Accès au premier message...",
+      "allLoaded": "Vous êtes au début",
       "perfWarning": "Tous les messages chargés — le défilement peut être plus lent. Cliquez sur « Défiler vers le bas » pour rétablir les performances."
     }
   },

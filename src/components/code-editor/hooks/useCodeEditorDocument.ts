@@ -24,6 +24,10 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isBinary, setIsBinary] = useState(false);
+  // The server may resolve a reference from chat to a file in another workspace,
+  // so it reports back the absolute path it actually read. Saving uses that path
+  // instead of re-resolving the ambiguous reference.
+  const [resolvedPath, setResolvedPath] = useState(file.path);
   // Some binaries (images, PDFs, audio, video) can be rendered natively, so the
   // editor shows an inline preview instead of the generic binary placeholder.
   const previewKind = getPreviewKind(file.name);
@@ -41,6 +45,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
       try {
         setLoading(true);
         setIsBinary(false);
+        setResolvedPath(filePath);
 
         // Natively previewable media (image/pdf/audio/video) is rendered by
         // CodeEditorMediaPreview, so there is nothing to read as text here.
@@ -78,6 +83,9 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
 
         const data = await response.json();
         setContent(data.content);
+        if (typeof data.path === 'string' && data.path) {
+          setResolvedPath(data.path);
+        }
       } catch (error) {
         const message = getErrorMessage(error);
         console.error('Error loading file:', error);
@@ -105,7 +113,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         throw new Error('Missing project identifier');
       }
 
-      const response = await api.saveFile(fileProjectId, filePath, content);
+      const response = await api.saveFile(fileProjectId, resolvedPath, content);
 
       if (!response.ok) {
         const contentType = response.headers.get('content-type');
@@ -130,7 +138,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     } finally {
       setSaving(false);
     }
-  }, [content, filePath, fileProjectId, previewKind, fileName]);
+  }, [content, resolvedPath, fileProjectId, previewKind, fileName]);
 
   const handleDownload = useCallback(() => {
     const blob = new Blob([content], { type: 'text/plain' });

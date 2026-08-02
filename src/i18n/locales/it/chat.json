@@ -159,9 +159,9 @@
       "scrollToLoad": "Scorri in alto per caricare altri",
       "showingLast": "Visualizzati ultimi {{count}} messaggi ({{total}} totali)",
       "loadEarlier": "Carica messaggi precedenti",
-      "loadAll": "Carica tutti i messaggi",
-      "loadingAll": "Caricamento di tutti i messaggi...",
-      "allLoaded": "Tutti i messaggi caricati",
+      "loadAll": "Vai al primo messaggio",
+      "loadingAll": "Passaggio al primo messaggio...",
+      "allLoaded": "Sei all'inizio",
       "perfWarning": "Tutti i messaggi caricati — lo scorrimento potrebbe essere più lento. Clicca \"Scorri in basso\" per ripristinare le prestazioni."
     }
   },

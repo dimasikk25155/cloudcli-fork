@@ -129,6 +129,70 @@ test('complete marks the run finished and duplicate completes are dropped', asyn
   });
 });
 
+test('an aborted run cannot stream anything else into the chat', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-10', 'claude', '/workspace/demo');
+    const connection = new FakeConnection();
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'app-run-10',
+      provider: 'claude',
+      providerSessionId: 'native-10',
+      connection,
+      userId: null,
+    });
+    assert.ok(run);
+
+    run.writer.send({ kind: 'text', provider: 'claude', sessionId: 'native-10', content: 'before stop' });
+    chatRunRegistry.completeRun('app-run-10', { exitCode: 0, aborted: true });
+
+    // The runtime keeps streaming for a moment after the abort (interrupt is
+    // advisory, a killed process still drains its buffer). None of it may
+    // reach the user, who is looking at a stopped chat.
+    run.writer.send({ kind: 'stream_delta', provider: 'claude', sessionId: 'native-10', content: 'after stop' });
+    run.writer.send({ kind: 'text', provider: 'claude', sessionId: 'native-10', content: 'late answer' });
+    run.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-10', exitCode: 0 });
+
+    assert.deepEqual(
+      connection.frames.map((frame) => frame.kind),
+      ['text', 'complete'],
+    );
+    assert.equal(connection.frames[0]?.content, 'before stop');
+    assert.equal(connection.frames[1]?.aborted, true);
+  });
+});
+
+test('an abort armed before the provider id exists fires the moment it lands', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-11', 'claude', '/workspace/demo');
+    const connection = new FakeConnection();
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'app-run-11',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: null,
+    });
+    assert.ok(run);
+
+    const aborted: string[] = [];
+    // Stop pressed in the first seconds of a brand-new chat: the runtime has
+    // no native id yet, so the abort cannot be delivered.
+    // (deepEqual asserts the value's type, so compare copies — asserting on
+    // `aborted` itself would narrow it to never[] for the rest of the test.)
+    assert.equal(chatRunRegistry.armPendingAbort('app-run-11', (id) => aborted.push(id)), true);
+    assert.deepEqual([...aborted], []);
+
+    run.writer.setSessionId('native-11');
+    assert.deepEqual([...aborted], ['native-11']);
+
+    // Already-addressable runs are aborted straight away, and only once.
+    assert.equal(chatRunRegistry.armPendingAbort('app-run-11', (id) => aborted.push(id)), true);
+    assert.deepEqual([...aborted], ['native-11', 'native-11']);
+    run.writer.setSessionId('native-11-renamed');
+    assert.deepEqual([...aborted], ['native-11', 'native-11']);
+  });
+});
+
 test('a finished run\'s safety net cannot complete the session\'s next run', async () => {
   await withIsolatedDatabase(() => {
     sessionsDb.createAppSession('app-run-9', 'codex', '/workspace/demo');

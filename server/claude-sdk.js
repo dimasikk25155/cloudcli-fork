@@ -34,6 +34,7 @@ import { providerAuthService } from './modules/providers/services/provider-auth.
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { recordRunOutcome, buildRunInterruptedNotice, isTransientRunFailure } from './shared/run-outcomes.js';
 import { checkUsageGuard, buildUsageGuardNotice } from './shared/claude-usage.js';
+import { getContextWindow } from './shared/token-pricing.js';
 
 // The CLI binary self-updates by swapping a versions/X.Y.Z file and
 // repointing the ~/.local/bin/claude symlink (see resolveClaudeCodeExecutablePath).
@@ -53,6 +54,15 @@ const CLI_SPAWN_RACE_RETRY_DELAY_MS = 800;
 // itself, on the same session, waiting longer after each failure. Four attempts
 // span ~3.5 minutes, which covers a typical 529 wave.
 const TRANSIENT_RETRY_DELAYS_MS = [5_000, 20_000, 60_000, 120_000];
+
+// Stop must mean stop. `interrupt()` is only a request: it travels over the
+// SDK control channel and the CLI honours it when it gets to it — a model
+// mid-block, a wedged tool call or a dead control channel all leave the run
+// happily going while the user is looking at a stopped chat. So the abort path
+// is staged: interrupt (clean, keeps the transcript resumable), then close
+// stdin, then tear the process down by force if the run is still alive.
+const ABORT_INTERRUPT_TIMEOUT_MS = 3_000;
+const ABORT_HARD_KILL_DELAY_MS = 2_500;
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -399,13 +409,20 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {string} sessionId - Session identifier
  * @param {Object} queryInstance - SDK query instance
  * @param {Object} writer - WebSocket writer for reconnect support
+ * @param {Object} controls - Run-scoped kill switches used by the abort path:
+ *   `releaseInput` closes the held-open stdin so an interrupted CLI can exit,
+ *   `abortController` tears the CLI process down when the interrupt is
+ *   ignored, and `runState.finished` tells those two cases apart.
  */
-function addSession(sessionId, queryInstance, writer = null) {
+function addSession(sessionId, queryInstance, writer = null, controls = null) {
   activeSessions.set(sessionId, {
     instance: queryInstance,
     startTime: Date.now(),
     status: 'active',
-    writer
+    writer,
+    releaseInput: controls?.releaseInput ?? null,
+    abortController: controls?.abortController ?? null,
+    runState: controls?.runState ?? null
   });
 }
 
@@ -456,6 +473,18 @@ function readNumber(value) {
 }
 
 /**
+ * Context window for the composer badge's denominator. The window belongs to
+ * the model (1M on current Opus/Sonnet), so a global constant misreported it;
+ * an explicit CONTEXT_WINDOW override still wins for custom setups.
+ * @param {string|null|undefined} model
+ * @returns {number}
+ */
+function resolveContextWindow(model) {
+  const override = parseInt(process.env.CONTEXT_WINDOW, 10);
+  return Number.isFinite(override) ? override : getContextWindow(model);
+}
+
+/**
  * Extracts token usage from SDK messages.
  * Prefers per-step `message.usage` (Claude message payload), then falls back
  * to result-level usage/modelUsage for compatibility across SDK versions.
@@ -476,11 +505,13 @@ function extractTokenBudget(sdkMessage) {
     const inputTokens = directInputTokens + cacheTokens;
     const outputTokens = readNumber(messageUsage.output_tokens ?? messageUsage.outputTokens);
     const totalUsed = inputTokens + outputTokens;
-    const contextWindow = parseInt(process.env.CONTEXT_WINDOW, 10) || 160000;
+    const model = typeof sdkMessage.message?.model === 'string' ? sdkMessage.message.model : null;
+    const contextWindow = resolveContextWindow(model);
 
     return {
       used: totalUsed,
       total: contextWindow,
+      model,
       inputTokens,
       outputTokens,
       cacheReadTokens,
@@ -508,11 +539,12 @@ function extractTokenBudget(sdkMessage) {
   const inputTokens = readNumber(modelData.cumulativeInputTokens ?? modelData.inputTokens);
   const outputTokens = readNumber(modelData.cumulativeOutputTokens ?? modelData.outputTokens);
   const totalUsed = inputTokens + outputTokens;
-  const contextWindow = parseInt(process.env.CONTEXT_WINDOW, 10) || 160000;
+  const contextWindow = resolveContextWindow(modelKey);
 
   return {
     used: totalUsed,
     total: contextWindow,
+    model: modelKey ?? null,
     inputTokens,
     outputTokens,
     breakdown: {
@@ -667,6 +699,18 @@ async function queryClaudeSDK(command, options = {}, ws) {
   });
   let idleFallbackTimer = null;
 
+  // Kill switches handed to the abort path via the active-sessions map, so
+  // "Stop" can go all the way down to the CLI process instead of only asking
+  // it nicely. `finished` flips in the finally below and is what stops the
+  // hard kill from firing at a run that already ended on its own.
+  const runAbortController = new AbortController();
+  const runState = { finished: false };
+  const runControls = {
+    releaseInput: () => releaseInput(),
+    abortController: runAbortController,
+    runState
+  };
+
   try {
     const resolvedModel = await providerModelsService.resolveResumeModel(
       'claude',
@@ -691,6 +735,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
       effort: resolvedEffort || options.effort,
       effortModels,
     });
+
+    // The SDK's own cancellation handle: aborting it closes stdin, gives the
+    // CLI a short grace window, then kills the process. Only used as the last
+    // stage of the abort path (see abortClaudeSDKSession).
+    sdkOptions.abortController = runAbortController;
 
     const mcpServers = await loadMcpConfig(options.cwd);
     if (mcpServers) {
@@ -862,7 +911,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
         // Track the query instance for abort capability
         if (capturedSessionId) {
-          addSession(capturedSessionId, queryInstance, ws);
+          addSession(capturedSessionId, queryInstance, ws, runControls);
         }
 
         // Safety net: if `session_state_changed: idle` never arrives, the
@@ -989,7 +1038,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
           if (message.session_id && !capturedSessionId) {
 
             capturedSessionId = message.session_id;
-            addSession(capturedSessionId, queryInstance, ws);
+            addSession(capturedSessionId, queryInstance, ws, runControls);
             // New chat pinned MCPs before its id existed — record them now so
             // follow-up turns in this chat stay pinned (Kimi MCP stickiness).
             if (pinnedMcpThisRun.size) {
@@ -1080,7 +1129,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
         // stub cancels the wait, then the abort path finishes the run normally.
         let cancelWait = () => {};
         if (sid) {
-          addSession(sid, { interrupt: async () => cancelWait() }, ws);
+          addSession(sid, { interrupt: async () => cancelWait() }, ws, runControls);
         }
         await new Promise(resolve => {
           const timer = setTimeout(resolve, retryDelayMs);
@@ -1161,6 +1210,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       reason: !installed ? errorContent : (error?.message || String(error))
     });
   } finally {
+    // Tells a scheduled hard kill that this run is already over (see
+    // abortClaudeSDKSession) — the CLI must not be shot down after it exited.
+    runState.finished = true;
     if (idleFallbackTimer) {
       clearInterval(idleFallbackTimer);
     }
@@ -1169,9 +1221,22 @@ async function queryClaudeSDK(command, options = {}, ws) {
 }
 
 /**
- * Aborts an active SDK session
+ * Aborts an active SDK session — for real, not just by asking.
+ *
+ * Three stages, cheapest first:
+ *  1. `interrupt()` — the clean stop. The CLI closes the turn itself and the
+ *     on-disk transcript stays resumable (see abortAllActiveClaudeSDKSessions
+ *     for what a hard kill costs when skipped). Bounded by a timeout: a wedged
+ *     control channel must not make Stop hang.
+ *  2. release the held-open stdin, so an interrupted CLI can exit instead of
+ *     idling with the control channel open.
+ *  3. kill the process, if the run is still alive a moment later. Stage 1 is
+ *     advisory and silently no-ops often enough (model mid-block, dead control
+ *     channel) that without this "Stop" would keep spending tokens and editing
+ *     files behind a chat that already looks stopped.
+ *
  * @param {string} sessionId - Session identifier
- * @returns {boolean} True if session was aborted, false if not found
+ * @returns {boolean} True if the session was found and cancellation started
  */
 async function abortClaudeSDKSession(sessionId) {
   const session = getSession(sessionId);
@@ -1181,29 +1246,45 @@ async function abortClaudeSDKSession(sessionId) {
     return false;
   }
 
+  console.log(`Aborting SDK session: ${sessionId}`);
+
+  // Mark before interrupting so the run loop knows not to emit its own
+  // terminal complete (the abort handler sends the aborted one).
+  abortedSessionIds.add(sessionId);
+  session.status = 'aborted';
+  removeSession(sessionId);
+
   try {
-    console.log(`Aborting SDK session: ${sessionId}`);
-
-    // Mark before interrupting so the run loop knows not to emit its own
-    // terminal complete (the abort handler sends the aborted one).
-    abortedSessionIds.add(sessionId);
-
-    // Call interrupt() on the query instance
-    await session.instance.interrupt();
-
-    // Update session status
-    session.status = 'aborted';
-
-    // Clean up session
-    removeSession(sessionId);
-
-    return true;
+    await Promise.race([
+      session.instance.interrupt(),
+      sleep(ABORT_INTERRUPT_TIMEOUT_MS)
+    ]);
   } catch (error) {
-    console.error(`Error aborting session ${sessionId}:`, error);
-    // The run keeps going; let it emit its own terminal complete.
-    abortedSessionIds.delete(sessionId);
-    return false;
+    // Expected when the query already died (e.g. "Query closed before response
+    // received"); the stages below still apply.
+    console.warn(`Interrupt failed for session ${sessionId}:`, error?.message || error);
   }
+
+  try {
+    session.releaseInput?.();
+  } catch (error) {
+    console.warn(`Releasing input failed for session ${sessionId}:`, error?.message || error);
+  }
+
+  const { abortController, runState } = session;
+  if (abortController && runState) {
+    const hardKillTimer = setTimeout(() => {
+      if (runState.finished || abortController.signal.aborted) {
+        return;
+      }
+      console.warn(`[Claude SDK] Interrupt did not end the run — killing the CLI process (session: ${sessionId})`);
+      abortController.abort();
+    }, ABORT_HARD_KILL_DELAY_MS);
+    // Never keep the process alive just to shoot down a run.
+    hardKillTimer.unref?.();
+  }
+
+  return true;
 }
 
 /**

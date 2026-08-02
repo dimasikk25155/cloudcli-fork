@@ -117,7 +117,13 @@ export type CostCommandData = {
   tokenBreakdown?: {
     input?: number;
     output?: number;
+    /** Cached input replayed at 0.1x the fresh-input rate. */
+    cacheRead?: number;
+    /** Cache writes (1.25x for the 5-minute TTL, 2x for the 1-hour one). */
+    cacheWrite?: number;
   };
+  /** API-rate cost of this session; null for models without published rates. */
+  costUsd?: number | null;
   contextUsage?: {
     used?: number;
     total?: number;

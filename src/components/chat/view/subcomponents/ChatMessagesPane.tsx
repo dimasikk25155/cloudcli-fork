@@ -46,10 +46,6 @@ interface ChatMessagesPaneProps {
   setGeminiModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
-  tasksEnabled: boolean;
-  isTaskMasterInstalled: boolean | null;
-  onShowAllTasks?: (() => void) | null;
-  setInput: Dispatch<SetStateAction<string>>;
   isLoadingMoreMessages: boolean;
   hasMoreMessages: boolean;
   totalMessages: number;
@@ -98,10 +94,6 @@ function ChatMessagesPane({
   setGeminiModel,
   providerModelCatalog,
   providerModelsLoading,
-  tasksEnabled,
-  isTaskMasterInstalled,
-  onShowAllTasks,
-  setInput,
   isLoadingMoreMessages,
   hasMoreMessages,
   totalMessages,
@@ -201,10 +193,6 @@ function ChatMessagesPane({
           setGeminiModel={setGeminiModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
-          tasksEnabled={tasksEnabled}
-          isTaskMasterInstalled={isTaskMasterInstalled}
-          onShowAllTasks={onShowAllTasks}
-          setInput={setInput}
         />
       ) : (
         <>

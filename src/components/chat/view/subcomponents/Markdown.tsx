@@ -36,6 +36,25 @@ const looksLikeFilePath = (value?: string): value is string => {
   return /[\\/]/.test(cleaned) || /\.[a-z0-9]+$/i.test(cleaned);
 };
 
+// Inline code that is just a path (`src/foo.ts`, `templates/КАТАЛОГ.html`) is
+// turned into a tappable reference, so a file mentioned in prose can be opened
+// without retyping it into the file browser.
+const looksLikeInlineFileRef = (value: string): boolean => {
+  const cleaned = stripLineSuffix(value.trim());
+  if (!cleaned || cleaned.length > 200 || /\s/.test(cleaned)) {
+    return false;
+  }
+  if (/^(https?:|mailto:|tel:|data:|www\.)/i.test(cleaned)) {
+    return false;
+  }
+  // Shell/glob punctuation means it is a command or pattern, not a single file.
+  if (/[`'"<>|*?$]/.test(cleaned)) {
+    return false;
+  }
+  // An ASCII extension keeps version numbers (`2.1.218`), IPs and abbreviations out.
+  return /\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(cleaned);
+};
+
 // Extract plain text from link children so a reference rendered only as link
 // text (e.g. `[src/foo.ts]()` with an empty href) can still be opened.
 const childrenToText = (children: React.ReactNode): string => {
@@ -61,6 +80,7 @@ type CodeBlockProps = {
 const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockProps) => {
   const { t } = useTranslation('chat');
   const { isDarkMode } = useTheme();
+  const { openFileInEditor } = usePaletteOps();
   const [copied, setCopied] = useState(false);
   const raw = Array.isArray(children) ? children.join('') : String(children ?? '');
   const looksMultiline = /[\r\n]/.test(raw);
@@ -68,6 +88,31 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
   const shouldInline = inlineDetected || !looksMultiline;
 
   if (shouldInline) {
+    if (looksLikeInlineFileRef(raw)) {
+      const fileRef = stripLineSuffix(raw.trim());
+      const open = () => openFileInEditor(fileRef);
+
+      return (
+        <code
+          role="button"
+          tabIndex={0}
+          title={fileRef}
+          onClick={open}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              open();
+            }
+          }}
+          className={`cursor-pointer whitespace-pre-wrap break-words rounded-md border border-blue-300 bg-blue-50 px-1.5 py-0.5 font-mono text-[0.9em] text-blue-700 underline decoration-dotted underline-offset-2 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20 ${className || ''
+            }`}
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
+
     return (
       <code
         className={`whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-[0.9em] text-gray-900 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100 ${className || ''

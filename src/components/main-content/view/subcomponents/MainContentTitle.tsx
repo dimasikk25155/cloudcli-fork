@@ -9,12 +9,11 @@ type MainContentTitleProps = {
   activeTab: AppTab;
   selectedProject: Project;
   selectedSession: ProjectSession | null;
-  shouldShowTasksTab: boolean;
   /** Large centered treatment for the desktop header. */
   centered?: boolean;
 };
 
-function getTabTitle(activeTab: AppTab, shouldShowTasksTab: boolean, t: (key: string) => string, pluginDisplayName?: string) {
+function getTabTitle(activeTab: AppTab, t: (key: string) => string, pluginDisplayName?: string) {
   if (activeTab.startsWith('plugin:') && pluginDisplayName) {
     return pluginDisplayName;
   }
@@ -25,10 +24,6 @@ function getTabTitle(activeTab: AppTab, shouldShowTasksTab: boolean, t: (key: st
 
   if (activeTab === 'git') {
     return t('tabs.git');
-  }
-
-  if (activeTab === 'tasks' && shouldShowTasksTab) {
-    return 'TaskMaster';
   }
 
   if (activeTab === 'browser') {
@@ -50,7 +45,6 @@ export default function MainContentTitle({
   activeTab,
   selectedProject,
   selectedSession,
-  shouldShowTasksTab,
   centered = false,
 }: MainContentTitleProps) {
   const { t } = useTranslation();
@@ -70,7 +64,7 @@ export default function MainContentTitle({
       ? getSessionTitle(selectedSession)
       : activeTab === 'chat' && !selectedSession
         ? t('mainContent.newSession')
-        : getTabTitle(activeTab, shouldShowTasksTab, t, pluginDisplayName);
+        : getTabTitle(activeTab, t, pluginDisplayName);
   const subtitle = selectedProject.displayName;
 
   if (centered) {

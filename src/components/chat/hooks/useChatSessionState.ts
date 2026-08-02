@@ -136,6 +136,11 @@ export function useChatSessionState({
   const topLoadLockRef = useRef(false);
   const pendingScrollRestoreRef = useRef<ScrollRestoreState | null>(null);
   const pendingInitialScrollRef = useRef(true);
+  // VS Code Copilot Chat-style scroll: the message you just sent docks near the
+  // top of the pane and the reply streams in below it, instead of the pane
+  // chasing the bottom on every streamed chunk.
+  const pendingUserPinRef = useRef(false);
+  const pinnedToUserMessageRef = useRef(false);
   const messagesOffsetRef = useRef(0);
   const scrollPositionRef = useRef({ height: 0, top: 0 });
   const loadAllFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -197,6 +202,8 @@ export function useChatSessionState({
     topLoadLockRef.current = false;
     pendingScrollRestoreRef.current = null;
     pendingInitialScrollRef.current = true;
+    pendingUserPinRef.current = false;
+    pinnedToUserMessageRef.current = false;
     lastLoadedSessionKeyRef.current = null;
 
     if (loadAllOverlayTimerRef.current) {
@@ -289,6 +296,9 @@ export function useChatSessionState({
   /* ---------------------------------------------------------------- */
 
   const addMessage = useCallback((msg: ChatMessage) => {
+    if (msg.type === 'user') {
+      pendingUserPinRef.current = true;
+    }
     if (!activeSessionId) {
       // No session yet — show as pending until the backend creates one
       setPendingUserMessage(msg);
@@ -315,6 +325,7 @@ export function useChatSessionState({
   }, []);
 
   const scrollToBottomAndReset = useCallback(() => {
+    pinnedToUserMessageRef.current = false;
     scrollToBottom();
     if (allMessagesLoaded) {
       setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
@@ -322,6 +333,22 @@ export function useChatSessionState({
       allMessagesLoadedRef.current = false;
     }
   }, [allMessagesLoaded, scrollToBottom]);
+
+  // Docks the most recently sent user message near the top of the pane, the
+  // way VS Code's chat view keeps your prompt in view while the reply grows
+  // beneath it.
+  const scrollNewestUserMessageToTop = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const userEls = container.querySelectorAll('.chat-message.user');
+    const last = userEls[userEls.length - 1] as HTMLElement | undefined;
+    if (!last) {
+      scrollToBottom();
+      return;
+    }
+    const delta = last.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    container.scrollTop = container.scrollTop + delta - 12;
+  }, [scrollToBottom]);
 
   const isNearBottom = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -434,6 +461,8 @@ export function useChatSessionState({
     topLoadLockRef.current = false;
     pendingScrollRestoreRef.current = null;
     wasNearTopRef.current = false;
+    pendingUserPinRef.current = false;
+    pinnedToUserMessageRef.current = false;
     setIsUserScrolledUp(false);
   }, [selectedProject?.projectId, selectedSession?.id]);
 
@@ -754,6 +783,23 @@ export function useChatSessionState({
     if (isLoadingMoreRef.current || isLoadingMoreMessages || pendingScrollRestoreRef.current) return;
     if (searchScrollActiveRef.current) return;
 
+    // A message was just sent: dock it near the top instead of chasing the
+    // bottom, and keep it pinned there while the reply streams in below.
+    if (pendingUserPinRef.current) {
+      pendingUserPinRef.current = false;
+      pinnedToUserMessageRef.current = true;
+      scrollNewestUserMessageToTop();
+      return;
+    }
+
+    if (pinnedToUserMessageRef.current) {
+      if (isNearBottom()) {
+        pinnedToUserMessageRef.current = false;
+      } else {
+        return;
+      }
+    }
+
     if (!isUserScrolledUp) {
       setTimeout(() => scrollToBottom(), 50);
       return;
@@ -765,7 +811,7 @@ export function useChatSessionState({
     const newHeight = container.scrollHeight;
     const heightDiff = newHeight - prevHeight;
     if (heightDiff > 0 && prevTop > 0) container.scrollTop = prevTop + heightDiff;
-  }, [chatMessages.length, isLoadingMoreMessages, isUserScrolledUp, scrollToBottom]);
+  }, [chatMessages.length, isLoadingMoreMessages, isUserScrolledUp, isNearBottom, scrollToBottom, scrollNewestUserMessageToTop]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -790,10 +836,6 @@ export function useChatSessionState({
       loadAllOverlayTimerRef.current = null;
     }
 
-    const container = scrollContainerRef.current;
-    const previousScrollHeight = container ? container.scrollHeight : 0;
-    const previousScrollTop = container ? container.scrollTop : 0;
-
     try {
       const slot = await sessionStore.fetchFromServer(requestSessionId, {
         limit: null,
@@ -803,9 +845,12 @@ export function useChatSessionState({
       if (currentSessionId !== requestSessionId) return;
 
       if (slot) {
-        if (container) {
-          pendingScrollRestoreRef.current = { height: previousScrollHeight, top: previousScrollTop };
-        }
+        // Jump to the very first message instead of restoring the scroll
+        // position — that's the point of the button.
+        pendingScrollRestoreRef.current = null;
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+        });
 
         setHasMoreMessages(false);
         setTotalMessages(slot.total);

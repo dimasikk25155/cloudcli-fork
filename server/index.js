@@ -15,12 +15,14 @@ import mime from 'mime-types';
 import Database from 'better-sqlite3';
 
 import { AppError, WORKSPACES_ROOT, getOpenCodeDatabasePath, validateWorkspacePath } from '@/shared/utils.js';
+import { getContextWindow } from '@/shared/token-pricing.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
+import { resolveProjectFilePath } from './utils/file-reference-resolver.js';
 import {
     queryClaudeSDK,
     abortClaudeSDKSession,
@@ -57,8 +59,6 @@ import {
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import cursorRoutes from './routes/cursor.js';
-import taskmasterRoutes from './routes/taskmaster.js';
-import mcpUtilsRoutes from './routes/mcp-utils.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
 import usageRoutes from './routes/usage.js';
@@ -201,12 +201,6 @@ app.use('/api/git', authenticateToken, gitRoutes);
 
 // Cursor API Routes (protected)
 app.use('/api/cursor', authenticateToken, cursorRoutes);
-
-// TaskMaster API Routes (protected)
-app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
-
-// MCP utilities
-app.use('/api/mcp-utils', authenticateToken, mcpUtilsRoutes);
 
 // Commands API Routes (protected)
 app.use('/api/commands', authenticateToken, commandsRoutes);
@@ -544,20 +538,13 @@ app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        // Handle both absolute and relative paths
-        const resolved = path.isAbsolute(filePath)
-            ? path.resolve(filePath)
-            : path.resolve(projectRoot, filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        // Admins (the machine owner) already have full shell access via the
-        // Terminal tab, so scoping the file viewer to the project root only
-        // blocks them from agent artifacts that legitimately live elsewhere
-        // (e.g. plan files under ~/.claude/plans that Claude references). Let
-        // admins read/write any resolved path; non-admin multi-user guests stay
-        // locked to the project root.
-        if (!resolved.startsWith(normalizedRoot) && req.user?.role !== 'admin') {
-            return res.status(403).json({ error: 'Path must be under project root' });
+        // Resolves absolute, project-relative and other-project references alike
+        // (a chat message often points at a file that lives in another workspace).
+        const outcome = await resolveProjectFilePath({ filePath, projectRoot, user: req.user });
+        if (!outcome.ok) {
+            return res.status(outcome.status).json({ error: outcome.error });
         }
+        const resolved = outcome.resolved;
 
         if (await isBinaryFile(resolved)) {
             return res.status(415).json({
@@ -599,19 +586,11 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
 
         // Match the text reader endpoint so callers can pass either project-relative
         // or absolute paths without changing how the bytes are served.
-        const resolved = path.isAbsolute(filePath)
-            ? path.resolve(filePath)
-            : path.resolve(projectRoot, filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        // Admins (the machine owner) already have full shell access via the
-        // Terminal tab, so scoping the file viewer to the project root only
-        // blocks them from agent artifacts that legitimately live elsewhere
-        // (e.g. plan files under ~/.claude/plans that Claude references). Let
-        // admins read/write any resolved path; non-admin multi-user guests stay
-        // locked to the project root.
-        if (!resolved.startsWith(normalizedRoot) && req.user?.role !== 'admin') {
-            return res.status(403).json({ error: 'Path must be under project root' });
+        const outcome = await resolveProjectFilePath({ filePath, projectRoot, user: req.user });
+        if (!outcome.ok) {
+            return res.status(outcome.status).json({ error: outcome.error });
         }
+        const resolved = outcome.resolved;
 
         // Check if file exists
         try {
@@ -665,20 +644,15 @@ app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        // Handle both absolute and relative paths
-        const resolved = path.isAbsolute(filePath)
-            ? path.resolve(filePath)
-            : path.resolve(projectRoot, filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        // Admins (the machine owner) already have full shell access via the
-        // Terminal tab, so scoping the file viewer to the project root only
-        // blocks them from agent artifacts that legitimately live elsewhere
-        // (e.g. plan files under ~/.claude/plans that Claude references). Let
-        // admins read/write any resolved path; non-admin multi-user guests stay
-        // locked to the project root.
-        if (!resolved.startsWith(normalizedRoot) && req.user?.role !== 'admin') {
-            return res.status(403).json({ error: 'Path must be under project root' });
+        // Same resolution as the reader, so a cross-project file opened from chat
+        // saves back to the file it was read from. New files can only be created
+        // inside the project root, since resolution only leaves it for paths that
+        // already exist.
+        const outcome = await resolveProjectFilePath({ filePath, projectRoot, user: req.user });
+        if (!outcome.ok) {
+            return res.status(outcome.status).json({ error: outcome.error });
         }
+        const resolved = outcome.resolved;
 
         // Never let a utf8 write land on a binary file: every invalid byte was
         // already replaced with U+FFFD on read, so saving would destroy it
@@ -1397,12 +1371,11 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
         }
         const lines = fileContent.trim().split('\n');
 
-        const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
-        const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160000;
         let inputTokens = 0;
         let outputTokens = 0;
         let cacheReadTokens = 0;
         let cacheCreationTokens = 0;
+        let model = null;
 
         // Find the latest assistant message with usage data (scan from end)
         for (let i = lines.length - 1; i >= 0; i--) {
@@ -1419,6 +1392,9 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
                     cacheCreationTokens = readUsageNumber(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens ?? usage.cacheCreationTokens);
                     inputTokens = directInputTokens + cacheReadTokens + cacheCreationTokens;
                     outputTokens = readUsageNumber(usage.output_tokens ?? usage.outputTokens);
+                    if (typeof entry.message.model === 'string' && entry.message.model !== '<synthetic>') {
+                        model = entry.message.model;
+                    }
 
                     break; // Stop after finding the latest assistant message
                 }
@@ -1428,12 +1404,22 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
             }
         }
 
+        // The window is a property of the MODEL, not a global constant. The old
+        // 160000 default understated a 1M-context model by 6x, which made the
+        // composer badge ("310K tokens") impossible to read as a fill level.
+        // An explicit CONTEXT_WINDOW override still wins, for custom setups.
+        const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
+        const contextWindow = Number.isFinite(parsedContextWindow)
+            ? parsedContextWindow
+            : getContextWindow(model);
+
         const totalUsed = inputTokens + outputTokens;
         const cacheTokens = cacheReadTokens + cacheCreationTokens;
 
         res.json({
             used: totalUsed,
             total: contextWindow,
+            model,
             inputTokens,
             outputTokens,
             cacheReadTokens,

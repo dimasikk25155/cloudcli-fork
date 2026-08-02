@@ -282,14 +282,31 @@ async function handleChatAbort(
   }
 
   const abortFn = dependencies.abortFns[run.provider];
-  let success = false;
-  if (abortFn && run.providerSessionId) {
-    success = Boolean(await abortFn(run.providerSessionId));
+
+  // Complete FIRST, kill second. Marking the run finished fences its event
+  // stream (the registry drops everything a still-winding-down runtime emits),
+  // so no output can land in the chat after the user pressed Stop — and the
+  // UI gets its answer immediately instead of waiting out the interrupt RPC.
+  chatRunRegistry.completeRun(sessionId, { exitCode: 0, aborted: true });
+
+  if (!abortFn) {
+    return;
   }
 
-  chatRunRegistry.completeRun(sessionId, {
-    exitCode: success ? 0 : 1,
-    aborted: true,
+  if (run.providerSessionId) {
+    await abortFn(run.providerSessionId);
+    return;
+  }
+
+  // Brand-new chat whose runtime has not announced its native session id yet:
+  // there is nothing to address the abort with, so arm it to fire the instant
+  // the id arrives. Without this the agent kept running (and kept spending
+  // tokens) after a Stop pressed in the first seconds of a chat.
+  chatRunRegistry.armPendingAbort(sessionId, (providerSessionId) => {
+    void Promise.resolve(abortFn(providerSessionId)).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[Chat] Deferred abort failed', { sessionId, error: message });
+    });
   });
 }
 

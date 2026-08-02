@@ -19,6 +19,9 @@ export const useEditorSidebar = ({
   const [editorExpanded, setEditorExpanded] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [hasManualWidth, setHasManualWidth] = useState(false);
+  // Files opened from a chat link (rather than the file tree) pop straight into
+  // the centered modal used on mobile, instead of the desktop side panel.
+  const [openAsModal, setOpenAsModal] = useState(false);
   const resizeHandleRef = useRef<HTMLDivElement | null>(null);
 
   const handleFileOpen = useCallback(
@@ -41,6 +44,7 @@ export const useEditorSidebar = ({
   const handleCloseEditor = useCallback(() => {
     setEditingFile(null);
     setEditorExpanded(false);
+    setOpenAsModal(false);
   }, []);
 
   const handleToggleEditorExpand = useCallback(() => {
@@ -110,6 +114,8 @@ export const useEditorSidebar = ({
     editorWidth,
     editorExpanded,
     hasManualWidth,
+    openAsModal,
+    setOpenAsModal,
     resizeHandleRef,
     handleFileOpen,
     handleCloseEditor,

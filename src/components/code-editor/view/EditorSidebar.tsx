@@ -15,6 +15,7 @@ type EditorSidebarProps = {
   onToggleEditorExpand: () => void;
   projectPath?: string;
   fillSpace?: boolean;
+  openAsModal?: boolean;
 };
 
 // Minimum width for the left content (file tree, chat, etc.)
@@ -34,6 +35,7 @@ export default function EditorSidebar({
   onToggleEditorExpand,
   projectPath,
   fillSpace,
+  openAsModal,
 }: EditorSidebarProps) {
   const [poppedOut, setPoppedOut] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -41,7 +43,7 @@ export default function EditorSidebar({
 
   // Adjust editor width when container size changes to ensure buttons are always visible
   useEffect(() => {
-    if (!editingFile || isMobile || poppedOut) return;
+    if (!editingFile || isMobile || poppedOut || openAsModal) return;
 
     const updateWidth = () => {
       if (!containerRef.current) return;
@@ -78,13 +80,13 @@ export default function EditorSidebar({
       window.removeEventListener('resize', updateWidth);
       resizeObserver.disconnect();
     };
-  }, [editingFile, isMobile, poppedOut, editorWidth]);
+  }, [editingFile, isMobile, poppedOut, openAsModal, editorWidth]);
 
   if (!editingFile) {
     return null;
   }
 
-  if (isMobile || poppedOut) {
+  if (isMobile || poppedOut || openAsModal) {
     return (
       <CodeEditor
         file={editingFile}

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
-import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import PermissionContext from '../../../contexts/PermissionContext';
 import { QuickSettingsPanel } from '../../quick-settings-panel';
@@ -36,9 +35,7 @@ function ChatInterface({
   sendByCtrlEnter,
   externalMessageUpdate,
   newSessionTrigger,
-  onShowAllTasks,
 }: ChatInterfaceProps) {
-  const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
   const { subscribe, isConnected, getLastFrameAt, forceReconnect } = useWebSocket();
   const { t } = useTranslation('chat');
 
@@ -417,10 +414,6 @@ function ChatInterface({
           setGeminiModel={setGeminiModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
-          tasksEnabled={tasksEnabled}
-          isTaskMasterInstalled={isTaskMasterInstalled}
-          onShowAllTasks={onShowAllTasks}
-          setInput={setInput}
           isLoadingMoreMessages={isLoadingMoreMessages}
           hasMoreMessages={hasMoreMessages}
           totalMessages={totalMessages}

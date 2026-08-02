@@ -16,6 +16,7 @@ import {
   TerminalSquare,
   Timer,
   RefreshCw,
+  Wallet,
   X,
 } from 'lucide-react';
 
@@ -24,6 +25,7 @@ import {
   fetchUsageHistory,
   formatDayLabel,
   formatTokensShort,
+  formatUsd,
   type UsageHistoryDay,
 } from '../../../../utils/usageHistory';
 import type { LLMProvider, ProviderModelsCacheInfo, ProviderModelsDefinition } from '../../../../types/app';
@@ -446,6 +448,13 @@ function CostHistoryView({ onBack }: { onBack: () => void }) {
     [days],
   );
 
+  // Only priced days contribute; if nothing was priceable we show no money at
+  // all rather than an understated total.
+  const grandTotalCost = useMemo(() => {
+    const priced = (days ?? []).filter((day) => day.costUsd !== null);
+    return priced.length ? priced.reduce((sum, day) => sum + (day.costUsd ?? 0), 0) : null;
+  }, [days]);
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 items-center justify-between gap-3">
@@ -462,6 +471,9 @@ function CostHistoryView({ onBack }: { onBack: () => void }) {
         {days && days.length > 0 && (
           <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Всего за {days.length} дн. · {formatTokensShort(grandTotal)} токенов
+            {grandTotalCost !== null && (
+              <span className="text-primary"> · {formatUsd(grandTotalCost)} по API</span>
+            )}
           </span>
         )}
       </div>
@@ -487,6 +499,9 @@ function CostHistoryView({ onBack }: { onBack: () => void }) {
                 <span className="text-sm font-semibold capitalize text-foreground">{formatDayLabel(day.day)}</span>
                 <span className="font-mono text-xs font-semibold text-muted-foreground">
                   {formatTokensShort(day.tokens)}
+                  {day.costUsd !== null && (
+                    <span className="text-primary"> · {formatUsd(day.costUsd)}</span>
+                  )}
                 </span>
               </div>
               <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/75">
@@ -513,7 +528,11 @@ function CostHistoryView({ onBack }: { onBack: () => void }) {
                       <p className="font-mono text-sm font-semibold text-foreground">
                         {formatTokensShort(session.tokens)}
                       </p>
-                      <p className="font-mono text-[11px] text-muted-foreground">{formatNumber(session.tokens)}</p>
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {session.costUsd !== null
+                          ? formatUsd(session.costUsd)
+                          : formatNumber(session.tokens)}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -523,6 +542,10 @@ function CostHistoryView({ onBack }: { onBack: () => void }) {
           <p className="px-1 pb-1 text-[11px] leading-4 text-muted-foreground">
             Токены здесь — полный расход сессии (вход + output + кеш), поэтому цифры крупнее снимка
             текущего окна выше. Так видно, какая сессия реально нагрузила модель.
+            <br />
+            Сумма в долларах — сколько это стоило бы по тарифам API, с раздельными ставками:
+            чтение кэша в 10 раз дешевле свежего входа, и на него приходится почти весь объём.
+            На подписке эти деньги не списываются — это мера нагрузки, а не счёт.
           </p>
         </div>
       )}
@@ -542,8 +565,17 @@ function CostContent({ data }: { data: CostCommandData }) {
     typeof data.tokenBreakdown?.output === 'number';
   const contextUsed = Number(data.contextUsage?.used ?? 0);
   const contextTotal = Number(data.contextUsage?.total ?? 0);
+  const cacheRead = Number(data.tokenBreakdown?.cacheRead ?? 0);
+  const costUsd = typeof data.costUsd === 'number' ? data.costUsd : null;
+  const contextPct = contextTotal > 0 ? Math.round((contextUsed / contextTotal) * 100) : null;
   const hasAnyData = used > 0 || hasBreakdown || contextUsed > 0;
-  const usageRows = [
+  const usageRows: Array<{
+    label: string;
+    value: string;
+    icon: typeof Activity;
+    hint?: string;
+    accent?: boolean;
+  }> = [
     ...(used > 0
       ? [{ label: 'Всего токенов (вся сессия, с кешем)', value: formatNumber(used), icon: Activity }]
       : []),
@@ -553,6 +585,11 @@ function CostContent({ data }: { data: CostCommandData }) {
             label: 'Вход',
             value: formatNumber(Number(data.tokenBreakdown?.input ?? 0)),
             icon: TerminalSquare,
+            // Cache read dominates the input number and costs a tenth of fresh
+            // input, so the raw total reads as alarming without this line.
+            ...(cacheRead > 0
+              ? { hint: `из них ${formatNumber(cacheRead)} — чтение кэша (в 10 раз дешевле)` }
+              : {}),
           },
           {
             label: 'Output',
@@ -567,7 +604,9 @@ function CostContent({ data }: { data: CostCommandData }) {
             label: 'Сейчас в контексте',
             value:
               contextTotal > 0
-                ? `${formatNumber(contextUsed)} / ${formatNumber(contextTotal)}`
+                ? `${formatNumber(contextUsed)} / ${formatNumber(contextTotal)}${
+                    contextPct !== null ? ` · ${contextPct}%` : ''
+                  }`
                 : formatNumber(contextUsed),
             icon: Gauge,
           },
@@ -575,6 +614,17 @@ function CostContent({ data }: { data: CostCommandData }) {
       : total > 0
         ? [{ label: 'Окно контекста', value: formatNumber(total), icon: Gauge }]
         : []),
+    ...(costUsd !== null
+      ? [
+          {
+            label: 'Стоимость по API',
+            value: formatUsd(costUsd),
+            icon: Wallet,
+            hint: 'на подписке не списывается — это мера нагрузки',
+            accent: true,
+          },
+        ]
+      : []),
   ];
 
   if (showHistory) {
@@ -594,12 +644,29 @@ function CostContent({ data }: { data: CostCommandData }) {
                 className="flex items-center justify-between gap-4 border-b border-border/60 px-4 py-3 last:border-b-0"
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                  <span
+                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${
+                      row.accent
+                        ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-500'
+                        : 'border-primary/20 bg-primary/10 text-primary'
+                    }`}
+                  >
                     <Icon className="h-4 w-4" />
                   </span>
-                  <span className="truncate text-sm font-medium text-foreground">{row.label}</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{row.label}</p>
+                    {row.hint && (
+                      <p className="truncate text-[11px] text-muted-foreground">{row.hint}</p>
+                    )}
+                  </div>
                 </div>
-                <span className="shrink-0 font-mono text-sm font-semibold text-foreground">{row.value}</span>
+                <span
+                  className={`shrink-0 font-mono text-sm font-semibold ${
+                    row.accent ? 'text-emerald-500' : 'text-foreground'
+                  }`}
+                >
+                  {row.value}
+                </span>
               </div>
             );
           })}

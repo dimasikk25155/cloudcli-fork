@@ -9,7 +9,6 @@ export default function MainContentHeader({
   setActiveTab,
   selectedProject,
   selectedSession,
-  shouldShowTasksTab,
   shouldShowBrowserTab,
   isMobile,
   onMenuClick,
@@ -45,7 +44,6 @@ export default function MainContentHeader({
               activeTab={activeTab}
               selectedProject={selectedProject}
               selectedSession={selectedSession}
-              shouldShowTasksTab={shouldShowTasksTab}
             />
           </div>
         </div>
@@ -56,7 +54,6 @@ export default function MainContentHeader({
             activeTab={activeTab}
             selectedProject={selectedProject}
             selectedSession={selectedSession}
-            shouldShowTasksTab={shouldShowTasksTab}
             centered
           />
         </div>
@@ -74,7 +71,6 @@ export default function MainContentHeader({
             <MainContentTabSwitcher
               activeTab={activeTab}
               setActiveTab={setActiveTab}
-              shouldShowTasksTab={shouldShowTasksTab}
               shouldShowBrowserTab={shouldShowBrowserTab}
             />
           </div>

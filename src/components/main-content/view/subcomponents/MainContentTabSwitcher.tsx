@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, ClipboardCheck, MonitorPlay, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, MonitorPlay, type LucideIcon } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,7 +12,6 @@ import { localizePluginName } from '../../../plugins/utils/pluginDisplayName';
 type MainContentTabSwitcherProps = {
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
-  shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
 };
 
@@ -46,28 +45,18 @@ const BROWSER_TAB: BuiltInTab = {
   icon: MonitorPlay,
 };
 
-const TASKS_TAB: BuiltInTab = {
-  kind: 'builtin',
-  id: 'tasks',
-  labelKey: 'tabs.tasks',
-  icon: ClipboardCheck,
-};
-
 export default function MainContentTabSwitcher({
   activeTab,
   setActiveTab,
-  shouldShowTasksTab,
   shouldShowBrowserTab,
 }: MainContentTabSwitcherProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
   const { terminalDisabled } = useAuth();
 
-  // Git, Browser и Tasks табы скрыты по просьбе — оставлены только Chat/Shell/Files.
+  // Git и Browser табы скрыты по просьбе — оставлены только Chat/Shell/Files.
   void shouldShowBrowserTab;
-  void shouldShowTasksTab;
   void BROWSER_TAB;
-  void TASKS_TAB;
 
   const builtInTabs: BuiltInTab[] = [
     ...BASE_TABS.filter((tab) => !(terminalDisabled && tab.id === 'shell')),

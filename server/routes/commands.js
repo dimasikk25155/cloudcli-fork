@@ -355,8 +355,12 @@ Custom commands can be created in:
     // last usage row in the transcript.
     const contextUsed =
       (liveUsed > 0 ? liveUsed : 0) || snapshot?.contextTokens || null;
+    // The window belongs to the model: fall back to the transcript's model when
+    // no live event is around (reopened session), so the fill level always has
+    // a denominator instead of showing a bare number.
+    const contextWindow = liveTotal > 0 ? liveTotal : snapshot?.contextWindow ?? 0;
     const contextUsage = contextUsed
-      ? { used: contextUsed, ...(liveTotal > 0 ? { total: liveTotal } : {}) }
+      ? { used: contextUsed, ...(contextWindow > 0 ? { total: contextWindow } : {}) }
       : null;
 
     // Model: what the transcript recorded (truth) → what the UI has selected
@@ -384,9 +388,17 @@ Custom commands can be created in:
               tokenBreakdown: {
                 input: inputTokens,
                 output: outputTokens,
+                // Cache read is ~97% of a typical agent session and is billed
+                // at a tenth of fresh input — the UI shows it so the cost makes
+                // sense next to the raw token count.
+                cacheRead: snapshot?.cacheReadTokens ?? cacheReadTokens,
+                cacheWrite: snapshot?.cacheCreationTokens ?? cacheCreationTokens,
               },
             }
           : {}),
+        // What this session would have cost at API rates; null when the model
+        // has no published rates (Kimi and friends) — a blank beats a guess.
+        costUsd: snapshot?.costUsd ?? null,
         contextUsage,
         provider,
         providerLabel: MODEL_PROVIDER_LABELS[provider] || provider,

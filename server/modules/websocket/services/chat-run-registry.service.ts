@@ -36,6 +36,11 @@ type ChatRun = {
   writer: ChatSessionWriter;
   startedAt: number;
   completedAt: number | null;
+  /**
+   * Abort that arrived before the runtime announced its native session id —
+   * fired the moment it does (see `armPendingAbort`).
+   */
+  pendingAbort: ((providerSessionId: string) => void) | null;
 };
 
 /**
@@ -127,11 +132,15 @@ function evictRunLater(appSessionId: string): void {
  * 4. Flip the run to `completed` when the terminal `complete` event passes by.
  */
 function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): NormalizedMessage | null {
-  // Exactly-one-complete contract: when a run is aborted the chat handler
-  // emits the terminal `complete` immediately, but the killed runtime may
-  // still emit its own `complete` from its exit handler moments later.
-  // Whichever arrives first wins; the duplicate is dropped here.
-  if (message.kind === 'complete' && run.status === 'completed') {
+  // Nothing escapes a finished run — this is what makes Stop mean stop.
+  // Cancelling a run is not instantaneous: `interrupt()` is advisory (the CLI
+  // finishes the block it was writing), a killed process still drains its
+  // stdout buffer, and both keep streaming for seconds after the terminal
+  // `complete` went out. Forwarding any of it paints text on screen after the
+  // user pressed Stop, which reads as "the button did nothing". Dropping every
+  // late event also subsumes the old exactly-one-complete rule (a killed
+  // runtime emitting its own `complete` from its exit handler).
+  if (run.status === 'completed') {
     return null;
   }
 
@@ -175,6 +184,24 @@ function recordProviderSessionId(run: ChatRun, providerSessionId: string): void 
   }
 
   run.providerSessionId = providerSessionId;
+
+  // A Stop pressed before this id existed could not be delivered to the
+  // runtime — deliver it now, first thing, so the run is killed within
+  // milliseconds of becoming addressable instead of running on.
+  const pendingAbort = run.pendingAbort;
+  run.pendingAbort = null;
+  if (pendingAbort) {
+    try {
+      pendingAbort(providerSessionId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[ChatRunRegistry] Deferred abort failed', {
+        appSessionId: run.appSessionId,
+        providerSessionId,
+        error: message,
+      });
+    }
+  }
 
   try {
     sessionsDb.assignProviderSessionId(run.appSessionId, providerSessionId);
@@ -231,6 +258,7 @@ export const chatRunRegistry = {
       writer: null as unknown as ChatSessionWriter,
       startedAt: Date.now(),
       completedAt: null,
+      pendingAbort: null,
     };
 
     run.writer = new ChatSessionWriter({
@@ -250,6 +278,34 @@ export const chatRunRegistry = {
 
   getRun(appSessionId: string): ChatRun | undefined {
     return runs.get(appSessionId);
+  },
+
+  /**
+   * Delivers an abort to the provider runtime, even when the run is not
+   * addressable yet.
+   *
+   * During the first seconds of a brand-new chat the runtime has not announced
+   * its native session id, and that id is the only handle the provider abort
+   * functions take. A Stop pressed in that window used to end the run for the
+   * UI only, while the agent kept working (and kept editing files). The
+   * callback is armed here and fires from `recordProviderSessionId` the moment
+   * the id lands.
+   *
+   * @returns `false` when the session has no tracked run at all.
+   */
+  armPendingAbort(appSessionId: string, abort: (providerSessionId: string) => void): boolean {
+    const run = runs.get(appSessionId);
+    if (!run) {
+      return false;
+    }
+
+    if (run.providerSessionId) {
+      abort(run.providerSessionId);
+      return true;
+    }
+
+    run.pendingAbort = abort;
+    return true;
   },
 
   isProcessing(appSessionId: string): boolean {

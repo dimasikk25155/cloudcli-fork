@@ -185,9 +185,9 @@
       "scrollToLoad": "Scroll up to load more",
       "showingLast": "Showing last {{count}} messages ({{total}} total)",
       "loadEarlier": "Load earlier messages",
-      "loadAll": "Load all messages",
-      "loadingAll": "Loading all messages...",
-      "allLoaded": "All messages loaded",
+      "loadAll": "Jump to first message",
+      "loadingAll": "Jumping to first message...",
+      "allLoaded": "You're at the start",
       "perfWarning": "All messages loaded — scrolling may be slower. Click \"Scroll to bottom\" to restore performance."
     }
   },

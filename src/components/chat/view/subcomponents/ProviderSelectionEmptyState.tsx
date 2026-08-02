@@ -8,7 +8,6 @@ import type {
   ProviderModelsDefinition,
 } from "../../../../types/app";
 import SessionProviderLogo from "../../../llm-logo-provider/SessionProviderLogo";
-import { NextTaskBanner } from "../../../task-master";
 import {
   Dialog,
   DialogTrigger,
@@ -68,10 +67,6 @@ type ProviderSelectionEmptyStateProps = {
   setGeminiModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
-  tasksEnabled: boolean;
-  isTaskMasterInstalled: boolean | null;
-  onShowAllTasks?: (() => void) | null;
-  setInput: React.Dispatch<React.SetStateAction<string>>;
 };
 
 type ProviderGroup = {
@@ -135,10 +130,6 @@ export default function ProviderSelectionEmptyState({
   setGeminiModel,
   providerModelCatalog,
   providerModelsLoading,
-  tasksEnabled,
-  isTaskMasterInstalled,
-  onShowAllTasks,
-  setInput,
 }: ProviderSelectionEmptyStateProps) {
   const { t } = useTranslation("chat");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -150,10 +141,6 @@ export default function ProviderSelectionEmptyState({
       models: providerModelCatalog[p.id]?.OPTIONS ?? [],
     }));
   }, [providerModelCatalog]);
-
-  const nextTaskPrompt = t("tasks.nextTaskPrompt", {
-    defaultValue: "Start the next task",
-  });
 
   const currentModel = getCurrentModel(
     provider,
@@ -366,15 +353,6 @@ export default function ProviderSelectionEmptyState({
               }}
             />
           </p>
-
-          {provider && tasksEnabled && isTaskMasterInstalled && (
-            <div className="mt-5">
-              <NextTaskBanner
-                onStartTask={() => setInput(nextTaskPrompt)}
-                onShowAllTasks={onShowAllTasks}
-              />
-            </div>
-          )}
         </div>
       </div>
     );
@@ -390,15 +368,6 @@ export default function ProviderSelectionEmptyState({
           <p className="text-sm leading-relaxed text-muted-foreground">
             {t("session.continue.description")}
           </p>
-
-          {tasksEnabled && isTaskMasterInstalled && (
-            <div className="mt-5">
-              <NextTaskBanner
-                onStartTask={() => setInput(nextTaskPrompt)}
-                onShowAllTasks={onShowAllTasks}
-              />
-            </div>
-          )}
         </div>
       </div>
     );
