@@ -6,6 +6,8 @@ import { authenticatedFetch } from './api';
  * session. Powers the expandable view of the "Token Usage" modal.
  */
 export type UsageHistorySession = {
+  /** Moscow day this slice belongs to (a session past midnight yields two). */
+  day: string;
   project: string;
   projectPath: string | null;
   sessionId: string;
@@ -14,11 +16,14 @@ export type UsageHistorySession = {
   output: number;
   model: string | null;
   lastActivity: string;
+  /** What it would have cost at API rates; null when the model has no rates. */
+  costUsd: number | null;
 };
 
 export type UsageHistoryDay = {
   day: string;
   tokens: number;
+  costUsd: number | null;
   sessions: UsageHistorySession[];
 };
 
@@ -29,6 +34,21 @@ export async function fetchUsageHistory(): Promise<UsageHistoryDay[]> {
   }
   const data = await response.json();
   return Array.isArray(data?.days) ? (data.days as UsageHistoryDay[]) : [];
+}
+
+/**
+ * Money as a human reads it: cents under $100, whole dollars up to $10K, then
+ * compact. Returns "—" for unpriced models — a blank is honest, a zero is not.
+ */
+export function formatUsd(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '—';
+  }
+  if (value <= 0) return '$0';
+  if (value < 0.01) return '<$0.01';
+  if (value < 100) return `$${value.toFixed(2)}`;
+  if (value < 10_000) return `$${Math.round(value).toLocaleString('en-US')}`;
+  return `$${(value / 1000).toFixed(1)}K`;
 }
 
 /** Compact token count, e.g. 471990 → "472K", 2400000 → "2.4M". */

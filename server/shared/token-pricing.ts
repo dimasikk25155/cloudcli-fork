@@ -1,0 +1,203 @@
+/**
+ * Single source of truth for "what would this have cost on the API" and "how
+ * big is this model's context window".
+ *
+ * Two things the UI could not answer before this module existed:
+ *   1. Token counts alone are meaningless as a cost signal — ~97% of a typical
+ *      agent session is cache-read, billed at 0.1x the fresh-input rate. A
+ *      naive `tokens * input_rate` estimate overstates the bill by ~10x.
+ *   2. The context badge divided by a hardcoded 160K window, while the models
+ *      actually in use have a 1M window — so "how full is my context" was
+ *      unanswerable.
+ *
+ * Rates are USD per 1M tokens, first-party Anthropic API pricing.
+ * Cache multipliers (relative to the model's input rate) are uniform across
+ * models: read = 0.1x, 5-minute write = 1.25x, 1-hour write = 2x.
+ */
+
+export type ModelRates = {
+  /** USD per 1M fresh input tokens. */
+  input: number;
+  /** USD per 1M generated output tokens. */
+  output: number;
+  /** Context window in tokens. */
+  contextWindow: number;
+};
+
+const CACHE_READ_MULTIPLIER = 0.1;
+const CACHE_WRITE_5M_MULTIPLIER = 1.25;
+const CACHE_WRITE_1H_MULTIPLIER = 2;
+
+/** Fast mode (Opus 5 / Opus 4.8) runs the same model at premium rates. */
+const FAST_MODE_RATES: ModelRates = { input: 10, output: 50, contextWindow: 1_000_000 };
+
+/**
+ * Longest-prefix match wins, so `claude-opus-5` and a dated/suffixed variant
+ * (`claude-opus-5-fast`, `us.anthropic.claude-opus-5`) both resolve.
+ * Non-Anthropic engines (Kimi) intentionally carry a window but no price —
+ * we do not invent rates for a subscription we don't bill through.
+ */
+const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: number]> = [
+  // Anthropic — priced
+  ['claude-fable-5', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-mythos-5', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-mythos-preview', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-opus-5', { input: 5, output: 25, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-opus-4-8', { input: 5, output: 25, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-opus-4-7', { input: 5, output: 25, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-opus-4-6', { input: 5, output: 25, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-opus-4-5', { input: 5, output: 25, contextWindow: 200_000 }, 200_000],
+  ['claude-opus-4-1', { input: 15, output: 75, contextWindow: 200_000 }, 200_000],
+  ['claude-opus-4', { input: 15, output: 75, contextWindow: 200_000 }, 200_000],
+  ['claude-sonnet-5', { input: 3, output: 15, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-sonnet-4-6', { input: 3, output: 15, contextWindow: 1_000_000 }, 1_000_000],
+  ['claude-sonnet-4-5', { input: 3, output: 15, contextWindow: 200_000 }, 200_000],
+  ['claude-sonnet-4', { input: 3, output: 15, contextWindow: 200_000 }, 200_000],
+  ['claude-haiku-4-5', { input: 1, output: 5, contextWindow: 200_000 }, 200_000],
+  ['claude-3-7-sonnet', { input: 3, output: 15, contextWindow: 200_000 }, 200_000],
+  ['claude-3-5-haiku', { input: 0.8, output: 4, contextWindow: 200_000 }, 200_000],
+  // Non-Anthropic engines routed through this app — window only, no pricing.
+  ['kimi', null, 256_000],
+  ['k3', null, 256_000],
+  ['k2', null, 256_000],
+  ['gpt-', null, 400_000],
+  ['o3', null, 200_000],
+  ['gemini', null, 1_000_000],
+];
+
+/** Default window for an unrecognised model: conservative, never optimistic. */
+const FALLBACK_CONTEXT_WINDOW = 200_000;
+
+function normaliseModel(model: string | null | undefined): string {
+  if (!model || typeof model !== 'string') {
+    return '';
+  }
+  // Strip provider prefixes (`anthropic.`, `us.anthropic.`) so Bedrock/Vertex
+  // ids match the same table as first-party ones.
+  return model.toLowerCase().replace(/^(us|eu|apac)\./, '').replace(/^anthropic\./, '');
+}
+
+function lookup(model: string | null | undefined): { rates: ModelRates | null; window: number } | null {
+  const id = normaliseModel(model);
+  if (!id) {
+    return null;
+  }
+
+  let best: { rates: ModelRates | null; window: number; length: number } | null = null;
+  for (const [prefix, rates, window] of MODEL_RATES) {
+    if (id.startsWith(prefix) && (!best || prefix.length > best.length)) {
+      best = { rates, window, length: prefix.length };
+    }
+  }
+
+  return best ? { rates: best.rates, window: best.window } : null;
+}
+
+/**
+ * Context window for a model id, used as the denominator of the context badge.
+ * Falls back to a conservative 200K when the model is unknown, so the badge
+ * never claims more headroom than the session actually has.
+ */
+export function getContextWindow(model: string | null | undefined): number {
+  return lookup(model)?.window ?? FALLBACK_CONTEXT_WINDOW;
+}
+
+/** True when we have real published rates for this model. */
+export function isPricedModel(model: string | null | undefined): boolean {
+  return Boolean(lookup(model)?.rates);
+}
+
+export type TokenBreakdown = {
+  /** Fresh (uncached) input tokens. */
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  /** Cache writes with the 5-minute TTL (1.25x input rate). */
+  cacheWrite5mTokens: number;
+  /** Cache writes with the 1-hour TTL (2x input rate). */
+  cacheWrite1hTokens: number;
+};
+
+export type CostEstimate = {
+  /** Total USD this usage would cost at published API rates. */
+  totalUsd: number;
+  /** Per-bucket USD, so the UI can show where the money actually goes. */
+  inputUsd: number;
+  outputUsd: number;
+  cacheReadUsd: number;
+  cacheWriteUsd: number;
+};
+
+export const EMPTY_BREAKDOWN: TokenBreakdown = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWrite5mTokens: 0,
+  cacheWrite1hTokens: 0,
+};
+
+/**
+ * What this usage would have cost on the API. Returns null for models we have
+ * no published rates for — a missing number is honest, a guessed one is not.
+ *
+ * `speed: 'fast'` selects the Opus fast-mode premium rates ($10/$50).
+ */
+export function estimateCostUsd(
+  breakdown: TokenBreakdown,
+  model: string | null | undefined,
+  options: { speed?: string | null } = {},
+): CostEstimate | null {
+  const entry = lookup(model);
+  if (!entry?.rates) {
+    return null;
+  }
+
+  const rates = options.speed === 'fast' ? FAST_MODE_RATES : entry.rates;
+  const perToken = rates.input / 1_000_000;
+
+  const inputUsd = breakdown.inputTokens * perToken;
+  const outputUsd = (breakdown.outputTokens * rates.output) / 1_000_000;
+  const cacheReadUsd = breakdown.cacheReadTokens * perToken * CACHE_READ_MULTIPLIER;
+  const cacheWriteUsd =
+    breakdown.cacheWrite5mTokens * perToken * CACHE_WRITE_5M_MULTIPLIER +
+    breakdown.cacheWrite1hTokens * perToken * CACHE_WRITE_1H_MULTIPLIER;
+
+  return {
+    totalUsd: inputUsd + outputUsd + cacheReadUsd + cacheWriteUsd,
+    inputUsd,
+    outputUsd,
+    cacheReadUsd,
+    cacheWriteUsd,
+  };
+}
+
+/**
+ * Reads the cache-creation split out of a Claude `message.usage` row.
+ * Recent transcripts carry `cache_creation: { ephemeral_5m_input_tokens,
+ * ephemeral_1h_input_tokens }`; older ones only have the flat
+ * `cache_creation_input_tokens`, which we bill at the 5-minute rate.
+ */
+export function readCacheCreationSplit(usage: Record<string, any> | null | undefined): {
+  cacheWrite5mTokens: number;
+  cacheWrite1hTokens: number;
+} {
+  const num = (value: unknown): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  };
+
+  const detail = usage?.cache_creation;
+  if (detail && typeof detail === 'object') {
+    const fiveMin = num(detail.ephemeral_5m_input_tokens);
+    const oneHour = num(detail.ephemeral_1h_input_tokens);
+    if (fiveMin > 0 || oneHour > 0) {
+      return { cacheWrite5mTokens: fiveMin, cacheWrite1hTokens: oneHour };
+    }
+  }
+
+  // Older schema: no TTL split available — assume the cheaper 5-minute write.
+  return {
+    cacheWrite5mTokens: num(usage?.cache_creation_input_tokens ?? usage?.cacheCreationInputTokens),
+    cacheWrite1hTokens: 0,
+  };
+}
