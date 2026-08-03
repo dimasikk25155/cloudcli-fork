@@ -640,6 +640,14 @@
     contain-intrinsic-size: auto 96px;
   }
 
+  /* Safari re-evaluates layout containment against contain-intrinsic-size on every
+     mutation of a growing box near the scrollport edge, which shows up as visible
+     text jitter while a response streams in (not reproducible in Chrome/Firefox).
+     Opt the actively-streaming message out of content-visibility until it settles. */
+  .chat-message.streaming {
+    content-visibility: visible;
+  }
+
   /* Mobile touch optimization and safe areas */
   @media (max-width: 768px) {
     * {
