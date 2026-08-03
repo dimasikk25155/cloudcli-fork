@@ -19,12 +19,30 @@ test('context window comes from the model, not a global constant', () => {
   assert.equal(getContextWindow('claude-haiku-4-5'), 200_000);
 });
 
-test('provider-prefixed and unknown model ids still resolve to a window', () => {
+test('provider-prefixed model ids still resolve to a window', () => {
   assert.equal(getContextWindow('us.anthropic.claude-opus-5'), 1_000_000);
   assert.equal(getContextWindow('anthropic.claude-sonnet-5'), 1_000_000);
-  // Unknown models fall back conservatively — never claim unearned headroom.
-  assert.equal(getContextWindow('some-future-model'), 200_000);
-  assert.equal(getContextWindow(null), 200_000);
+});
+
+test('an unknown window is reported as unknown, not as a wrong 200K', () => {
+  // Defaulting to 200K used to render a normal 222K turn on a 1M model as a
+  // red "111%". Zero means "no denominator" and the badge shows the count only.
+  assert.equal(getContextWindow('some-future-model'), 0);
+  assert.equal(getContextWindow(null), 0);
+  assert.equal(getContextWindow(''), 0);
+});
+
+test('picker aliases resolve instead of collapsing to no window', () => {
+  // Catalog values are what the model picker stores; they are not API ids.
+  assert.equal(getContextWindow('opus[1m]'), 1_000_000);
+  assert.equal(getContextWindow('sonnet[1m]'), 1_000_000);
+  assert.equal(getContextWindow('fable'), 1_000_000);
+  assert.equal(getContextWindow('haiku'), 200_000);
+});
+
+test('the [1m] suffix wins even on a model the table does not know', () => {
+  // The suffix *is* the 1M-context variant, whichever model carries it.
+  assert.equal(getContextWindow('some-future-model[1m]'), 1_000_000);
 });
 
 test('longest matching prefix wins so 4-5 does not shadow 4-6', () => {

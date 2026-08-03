@@ -65,8 +65,23 @@ const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: numb
   ['gemini', null, 1_000_000],
 ];
 
-/** Default window for an unrecognised model: conservative, never optimistic. */
-const FALLBACK_CONTEXT_WINDOW = 200_000;
+/**
+ * Catalog values the model picker stores (`opus[1m]`, `sonnet[1m]`, `fable`)
+ * are not API model ids, so they miss the prefix table entirely. Whenever one
+ * reaches this module — a session model override, a resumed run, a transcript
+ * that recorded the alias rather than the resolved id — an unmapped alias used
+ * to collapse to the fallback and the badge announced a 200K window for a 1M
+ * model. The `[1m]` suffix is handled on its own below, since it *means* the
+ * 1M-context variant no matter which model carries it.
+ */
+const MODEL_ALIASES: Record<string, string> = {
+  fable: 'claude-fable-5',
+  opus: 'claude-opus-5',
+  sonnet: 'claude-sonnet-5',
+  haiku: 'claude-haiku-4-5',
+};
+
+const ONE_MILLION_SUFFIX = '[1m]';
 
 function normaliseModel(model: string | null | undefined): string {
   if (!model || typeof model !== 'string') {
@@ -74,7 +89,11 @@ function normaliseModel(model: string | null | undefined): string {
   }
   // Strip provider prefixes (`anthropic.`, `us.anthropic.`) so Bedrock/Vertex
   // ids match the same table as first-party ones.
-  return model.toLowerCase().replace(/^(us|eu|apac)\./, '').replace(/^anthropic\./, '');
+  const id = model.toLowerCase().replace(/^(us|eu|apac)\./, '').replace(/^anthropic\./, '');
+  const bare = id.endsWith(ONE_MILLION_SUFFIX)
+    ? id.slice(0, -ONE_MILLION_SUFFIX.length)
+    : id;
+  return MODEL_ALIASES[bare] ?? bare;
 }
 
 function lookup(model: string | null | undefined): { rates: ModelRates | null; window: number } | null {
@@ -95,11 +114,18 @@ function lookup(model: string | null | undefined): { rates: ModelRates | null; w
 
 /**
  * Context window for a model id, used as the denominator of the context badge.
- * Falls back to a conservative 200K when the model is unknown, so the badge
- * never claims more headroom than the session actually has.
+ *
+ * Returns 0 when the model is unknown or not yet reported (a fresh session has
+ * no assistant message to read a model from). Callers treat 0 as "no window":
+ * the badge then shows the raw token count with no denominator. The old
+ * behaviour — defaulting to 200K — looked conservative but simply lied on a 1M
+ * model, and the lie was loud: a normal 222K turn rendered as "111%" in red.
+ * An unknown window is better shown as unknown than as a wrong number.
  */
 export function getContextWindow(model: string | null | undefined): number {
-  return lookup(model)?.window ?? FALLBACK_CONTEXT_WINDOW;
+  const explicitOneMillion = typeof model === 'string'
+    && model.toLowerCase().endsWith(ONE_MILLION_SUFFIX);
+  return lookup(model)?.window ?? (explicitOneMillion ? 1_000_000 : 0);
 }
 
 /** True when we have real published rates for this model. */
