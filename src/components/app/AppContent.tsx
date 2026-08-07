@@ -56,7 +56,7 @@ function AppContentInner() {
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { ws, sendMessage, subscribe } = useWebSocket();
-  const { shaderEnabled, theme } = useTheme();
+  const { shaderEnabled, theme, backgroundVariant, customBackgroundUrl } = useTheme();
 
   const {
     processingSessions,
@@ -237,13 +237,22 @@ function AppContentInner() {
   }, []);
 
   return (
-    <div className="app-shell fixed inset-0 flex bg-background">
+    <div className="app-shell fixed inset-0 flex">
       {/* Тема "Claude" — буквальный клон claude.ai: там фон статичный,
-          без анимации, поэтому для неё фон-компонент не рендерим вообще,
-          независимо от тумблера "Живой фон" (он для остальных тем). */}
-      {shaderEnabled && theme !== 'claude' && <ThemeBackground theme={theme} />}
+          без анимации, поэтому для неё фон-компонент не рендерим вообще.
+          Для остальных тем фон рендерится ВСЕГДА: тумблер "Живой фон"
+          выключает только движение, а не саму картинку — иначе тема
+          схлопывалась в пустую заливку и переставала быть собой. */}
+      {(theme !== 'claude' || customBackgroundUrl) && (
+        <ThemeBackground
+          theme={theme}
+          enabled={shaderEnabled}
+          variant={backgroundVariant}
+          customUrl={customBackgroundUrl}
+        />
+      )}
       {!isMobile ? (
-        <div className="app-sidebar relative z-10 h-full flex-shrink-0 border-r border-border/50 bg-background">
+        <div className="app-sidebar relative z-10 h-full flex-shrink-0 border-r border-border/50">
           <Sidebar {...sidebarSharedProps} />
         </div>
       ) : (

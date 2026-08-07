@@ -1,5 +1,6 @@
+import { backgroundFile } from '../../contexts/ThemeContext';
+
 import ShaderBackground from './ShaderBackground';
-import AetherShaderBackground from './AetherShaderBackground';
 
 /**
  * Per-theme full-viewport background, rendered behind the whole app at z-0.
@@ -12,7 +13,6 @@ import AetherShaderBackground from './AetherShaderBackground';
  * cheap; a real photographic still does not.
  */
 const PHOTO_THEMES = new Set([
-  'commandDeck',
   'neonCity',
   'synthwaveDrive',
   'nebulaFlow',
@@ -23,33 +23,66 @@ const PHOTO_THEMES = new Set([
   'zenParticles',
 ]);
 
-export default function ThemeBackground({ theme = 'default' }: { theme?: string }) {
-  if (theme === 'aether') {
-    return <AetherShaderBackground />;
+/**
+ * `enabled` = тумблер "Фон" в настройках. Выключенный гасит фон ЦЕЛИКОМ —
+ * остаются только цвета темы на плоской заливке. Раньше этот тумблер назывался
+ * "Движение фона" и гасил лишь анимацию, но движение к тому моменту осталось
+ * только у двух тем из тринадцати, так что тумблер выглядел неработающим.
+ * По явному запросу: нужна возможность убрать картинку, а не притормозить её.
+ */
+/**
+ * Темы, у которых фон — плоская заливка `--background` и ничего больше.
+ * Разбор референсов дал прямое требование «ноль декоративных градиентов»:
+ * такая тема разделяет поверхности линией и ступенью тона, а картинка или
+ * шейдер за ними эту работу ломают. Без этого списка любая новая тема
+ * молча проваливалась бы в WebGL-фон из ветки по умолчанию.
+ */
+const FLAT_THEMES = new Set(['ember', 'gt', 'editorial', 'glass']);
+
+export default function ThemeBackground({
+  theme = 'default',
+  enabled = true,
+  variant,
+  customUrl,
+}: {
+  theme?: string;
+  enabled?: boolean;
+  variant?: string;
+  customUrl?: string | null;
+}) {
+  if (!enabled) {
+    return null;
   }
 
-  if (theme === 'liquidGlass') {
+  // Своя картинка бьёт штатный фон темы в любой теме, а не только в
+  // стеклянной: пользователь, загрузивший фон, ожидает увидеть именно его.
+  // Скрим поверх обязателен — без него текст интерфейса тонет в чужом снимке.
+  if (customUrl) {
     return (
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        {/* Graded pastel base */}
-        <div className="lg-bg" />
-        {/* Soft drifting light — slow, GPU-composited */}
-        <div className="lg-aurora lg-aurora--violet" />
-        <div className="lg-aurora lg-aurora--cyan" />
-        <div className="lg-aurora lg-aurora--magenta" />
-        <div className="lg-aurora lg-aurora--emerald" />
-        {/* Sheen + vignette so frosted panels read as glass */}
-        <div className="lg-veil" />
+        <div
+          className="theme-photo-bg theme-photo-bg--static"
+          style={{ backgroundImage: `url(${customUrl})` }}
+        />
+        <div className="theme-photo-scrim" />
       </div>
     );
   }
+
+  if (FLAT_THEMES.has(theme)) {
+    return null;
+  }
+
+  // Анимацию оставляем включённой всегда: отдельного тумблера на неё больше
+  // нет, а темы, где движение есть, без него выглядят наполовину собранными.
+  const animated = true;
 
   if (PHOTO_THEMES.has(theme)) {
     return (
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div
-          className="theme-photo-bg"
-          style={{ backgroundImage: `url(/theme-bg/${theme}.jpg)` }}
+          className={animated ? 'theme-photo-bg' : 'theme-photo-bg theme-photo-bg--static'}
+          style={{ backgroundImage: `url(${backgroundFile(theme, variant)})` }}
         />
         <div className="theme-photo-scrim" />
       </div>
@@ -57,5 +90,5 @@ export default function ThemeBackground({ theme = 'default' }: { theme?: string 
   }
 
   // Default theme: original animated WebGL background.
-  return <ShaderBackground variant="default" />;
+  return <ShaderBackground variant="default" frozen={!animated} />;
 }

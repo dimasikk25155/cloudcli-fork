@@ -102,7 +102,11 @@
       "openPanel": "Open settings panel",
       "draggingStatus": "Dragging...",
       "toggleAndMove": "Click to toggle, drag to move"
-    }
+    },
+    "theme": "Theme",
+    "themeBackground": "Background image",
+    "showBackground": "Background",
+    "uiScale": "Interface scale"
   },
   "terminalShortcuts": {
     "title": "Terminal Shortcuts",
@@ -197,6 +201,52 @@
         "label": "Font Size",
         "description": "Editor font size in pixels"
       }
+    },
+    "theme": {
+      "title": "Theme",
+      "label": "Theme",
+      "description": "Changes the entire look of the app: colours, fonts and background."
+    },
+    "themeBackground": {
+      "label": "Background image",
+      "description": "Which of the theme's images to show behind the app"
+    },
+    "showBackground": {
+      "enable": {
+        "label": "Background",
+        "description": "Turn off to remove the image and keep only the theme colours"
+      }
+    },
+    "uiScale": {
+      "title": "Readability",
+      "label": "Interface scale",
+      "description": "Larger text and controls — for presentations and big screens"
+    },
+    "tweaks": {
+      "title": "Theme tuning",
+      "label": "Fine-tune — {{theme}}",
+      "description": "Sliders drive the active theme tokens live; the button below hands you ready-to-paste CSS",
+      "groupFonts": "Fonts",
+      "groupMaterial": "Material",
+      "groupRhythm": "Rhythm",
+      "fontUi": "Interface",
+      "fontDisplay": "Headings",
+      "fontSidebar": "Sidebar",
+      "fontChat": "Chat",
+      "fontMono": "Code and numbers",
+      "fromTheme": "From theme",
+      "radius": "Corner radius",
+      "density": "Density",
+      "duration": "Motion speed",
+      "tracking": "Letter spacing",
+      "blur": "Panel blur",
+      "panelAlpha": "Panel opacity",
+      "grain": "Background grain",
+      "shadows": "Shadows",
+      "shadowsHint": "Turn off when surfaces are separated by a line, not by depth",
+      "copyCss": "Copy CSS",
+      "copied": "Copied",
+      "reset": "Reset"
     }
   },
   "mcpForm": {
@@ -325,7 +375,10 @@
     },
     "loading": "Loading...",
     "version": {
-      "updateAvailable": "Update available: v{{version}}"
+      "updateAvailable": "Update available: v{{version}}",
+      "tagline": "Self-hosted workspace for AI coding agents",
+      "attribution": "Modified version, built on the open-source project CloudCLI UI (Siteboon AI B.V.), licensed under AGPL-3.0. This is not the original CloudCLI UI software.",
+      "license": "Licensed under AGPL-3.0"
     }
   },
   "agents": {
@@ -574,7 +627,8 @@
     "disable": "Disable",
     "installAriaLabel": "Plugin git repository URL",
     "tab": "tab",
-    "runningStatus": "running"
+    "runningStatus": "running",
+    "buildYourOwn": "Build your own plugin"
   },
   "admin": {
     "loading": "Loading admin panel...",

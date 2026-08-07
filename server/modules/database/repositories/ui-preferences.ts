@@ -16,6 +16,18 @@ export type UiPreferences = Record<string, UiPreferenceValue>;
 const ALLOWED_KEYS = new Set([
   'theme',
   'shaderEnabled',
+  // JSON-строка вида {"kineticType":"kinetic"} — какая картинка выбрана внутри
+  // темы. Хранится строкой, т.к. здесь только плоские значения.
+  'themeBackgrounds',
+  // Загружена ли своя картинка фона. Сам файл лежит на диске
+  // (`~/.cloudcli/theme-bg/<userId>.webp`), здесь только флаг — чтобы клиент
+  // знал, рисовать ли её, не дёргая картинку ради проверки существования.
+  'customBackground',
+  // JSON-строка вида {"glass":{"radius":16,"fontUi":"outfit"}} — ручная
+  // подстройка темы из панели твиков, по темам. Строкой по той же причине,
+  // что и themeBackgrounds: здесь хранятся только плоские значения.
+  'themeTweaks',
+  'uiScale',
   'showRawParameters',
   'showThinking',
   'sendByCtrlEnter',
