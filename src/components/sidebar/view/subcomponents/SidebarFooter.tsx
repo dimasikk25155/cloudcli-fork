@@ -1,8 +1,22 @@
 import { useState } from 'react';
-import { Settings, AlertTriangle, CalendarClock } from 'lucide-react';
+import { Settings, AlertTriangle, CalendarClock, Timer, Workflow, Send } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM } from '../../../../constants/config';
 import NightshiftModal from '../../../nightshift/NightshiftModal';
+import PanelModal from '../../../panels/PanelModal';
+import SchedulesPanel from '../../../schedules/SchedulesPanel';
+import PipelinesPanel from '../../../pipelines/PipelinesPanel';
+import TelegramSettingsPanel from '../../../telegram/TelegramSettingsPanel';
+
+// Entry points for the three unattended-work features. Labels are Russian in
+// place: these panels ship ahead of their translation namespaces.
+const FEATURE_PANELS = [
+  { key: 'schedules', label: 'Расписания', icon: Timer },
+  { key: 'pipelines', label: 'Сценарии', icon: Workflow },
+  { key: 'telegram', label: 'Telegram-бот', icon: Send },
+] as const;
+
+type FeaturePanelKey = (typeof FEATURE_PANELS)[number]['key'];
 
 type SidebarFooterProps = {
   restartRequired: boolean;
@@ -18,9 +32,10 @@ export default function SidebarFooter({
   t,
 }: SidebarFooterProps) {
   const [showNightshift, setShowNightshift] = useState(false);
+  const [openPanel, setOpenPanel] = useState<FeaturePanelKey | null>(null);
 
   return (
-    <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
+    <div className="sidebar-footer flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
       {/* Restart-required banner: the running server version differs from the
           installed/frontend version (updated but not restarted). */}
       {restartRequired && (
@@ -50,6 +65,19 @@ export default function SidebarFooter({
           <span className="text-sm">{t('nightshift.title')}</span>
         </button>
       </div>
+
+      {/* Desktop unattended-work panels */}
+      {FEATURE_PANELS.map(({ key, label, icon: Icon }) => (
+        <div key={key} className="hidden px-2 pt-1.5 md:block">
+          <button
+            className="sidebar-footer-item flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+            onClick={() => setOpenPanel(key)}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            <span className="text-sm">{label}</span>
+          </button>
+        </div>
+      ))}
 
       {/* Desktop settings */}
       <div className="hidden px-2 py-1.5 md:block">
@@ -84,6 +112,21 @@ export default function SidebarFooter({
         </button>
       </div>
 
+      {/* Mobile unattended-work panels */}
+      {FEATURE_PANELS.map(({ key, label, icon: Icon }) => (
+        <div key={key} className="px-3 pt-3 md:hidden">
+          <button
+            className="sidebar-footer-item flex h-10 w-full items-center gap-3 rounded-xl bg-muted/40 px-3.5 transition-all hover:bg-muted/60 active:scale-[0.98]"
+            onClick={() => setOpenPanel(key)}
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-background/80">
+              <Icon className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <span className="text-sm font-normal text-foreground">{label}</span>
+          </button>
+        </div>
+      ))}
+
       {/* Mobile settings */}
       <div className="px-3 pb-3 pt-2 md:hidden">
         <button
@@ -98,6 +141,22 @@ export default function SidebarFooter({
       </div>
 
       {showNightshift && <NightshiftModal onClose={() => setShowNightshift(false)} t={t} />}
+
+      {openPanel === 'schedules' && (
+        <PanelModal title="Расписания" icon={Timer} onClose={() => setOpenPanel(null)}>
+          <SchedulesPanel />
+        </PanelModal>
+      )}
+      {openPanel === 'pipelines' && (
+        <PanelModal title="Сценарии" icon={Workflow} onClose={() => setOpenPanel(null)}>
+          <PipelinesPanel />
+        </PanelModal>
+      )}
+      {openPanel === 'telegram' && (
+        <PanelModal title="Telegram-бот" icon={Send} onClose={() => setOpenPanel(null)}>
+          <TelegramSettingsPanel />
+        </PanelModal>
+      )}
     </div>
   );
 }

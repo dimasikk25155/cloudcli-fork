@@ -184,6 +184,110 @@ CREATE TABLE IF NOT EXISTS user_ui_preferences (
 );
 `;
 
+// A saved chain of steps. Each step is { name, projectPath, prompt } and runs
+// headlessly in its own project, so one chain can cross project boundaries.
+export const PIPELINES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS pipelines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    steps_json TEXT NOT NULL DEFAULT '[]',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
+export const PIPELINE_RUNS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pipeline_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    trigger TEXT NOT NULL DEFAULT 'manual',
+    artifacts_dir TEXT,
+    error TEXT,
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    finished_at DATETIME,
+    FOREIGN KEY (pipeline_id) REFERENCES pipelines(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
+export const PIPELINE_RUN_STEPS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS pipeline_run_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    step_index INTEGER NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    project_path TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    session_id TEXT,
+    output_preview TEXT NOT NULL DEFAULT '',
+    error TEXT,
+    started_at DATETIME,
+    finished_at DATETIME,
+    FOREIGN KEY (run_id) REFERENCES pipeline_runs(id) ON DELETE CASCADE
+);
+`;
+
+// A recurring run owned by the app itself. os_label ties the row to whatever the
+// host scheduler created (launchd label on macOS, systemd timer unit on Linux),
+// so the two can be reconciled after a crash or a manual deletion.
+export const SCHEDULES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'prompt',
+    project_path TEXT,
+    prompt TEXT NOT NULL DEFAULT '',
+    pipeline_id INTEGER,
+    hour INTEGER NOT NULL,
+    minute INTEGER NOT NULL,
+    weekdays TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    os_label TEXT,
+    last_run_at DATETIME,
+    last_status TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (pipeline_id) REFERENCES pipelines(id) ON DELETE SET NULL
+);
+`;
+
+// One Telegram chat bound to one app user. The binding is what grants access:
+// an unbound chat gets nothing, so a stranger who finds the bot cannot reach
+// any project.
+export const TELEGRAM_BINDINGS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS telegram_bindings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    chat_id TEXT NOT NULL UNIQUE,
+    telegram_username TEXT,
+    project_path TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
+// Short-lived codes a user pastes into the bot to prove the chat is theirs.
+export const TELEGRAM_LINK_CODES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS telegram_link_codes (
+    code TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -235,6 +339,27 @@ CREATE INDEX IF NOT EXISTS idx_user_provider_preferences_user_id ON user_provide
 
 ${USER_UI_PREFERENCES_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_user_ui_preferences_user_id ON user_ui_preferences(user_id);
+
+${PIPELINES_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_pipelines_user_id ON pipelines(user_id);
+
+${PIPELINE_RUNS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_pipeline_id ON pipeline_runs(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_user_id ON pipeline_runs(user_id);
+
+${PIPELINE_RUN_STEPS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_pipeline_run_steps_run_id ON pipeline_run_steps(run_id);
+
+${SCHEDULES_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_schedules_user_id ON schedules(user_id);
+CREATE INDEX IF NOT EXISTS idx_schedules_enabled ON schedules(enabled);
+
+${TELEGRAM_BINDINGS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_telegram_bindings_chat_id ON telegram_bindings(chat_id);
+CREATE INDEX IF NOT EXISTS idx_telegram_bindings_user_id ON telegram_bindings(user_id);
+
+${TELEGRAM_LINK_CODES_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_telegram_link_codes_user_id ON telegram_link_codes(user_id);
 
 ${LAST_SCANNED_AT_SQL}
 
