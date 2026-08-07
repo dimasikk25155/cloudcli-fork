@@ -1312,7 +1312,7 @@
 /* claude.ai's left nav is FLAT: plain text rows, no card chrome, no filled
    buttons, no logo/color spam. Same utility-targeting trick as
    .bg-background\/80 above, scoped to the sidebar only. */
-[data-theme='claude'] .app-sidebar .sidebar-crab {
+[data-theme='claude'] .app-sidebar .sidebar-logo {
   display: none;
 }
 [data-theme='claude'] .app-sidebar h1 {

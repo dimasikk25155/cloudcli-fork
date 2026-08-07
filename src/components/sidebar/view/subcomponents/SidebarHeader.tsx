@@ -7,7 +7,7 @@ import { IS_PLATFORM } from '../../../../constants/config';
 import { cn } from '../../../../lib/utils';
 import type { SidebarSearchMode } from '../../types/types';
 
-import AnimatedCrab from '../../../branding/AnimatedCrab';
+import Neo3Logo from '../../../branding/Neo3Logo';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -123,7 +123,7 @@ export default function SidebarHeader({
 
   const LogoBlock = () => (
     <div className="flex min-w-0 items-center gap-2.5">
-      <AnimatedCrab className="sidebar-crab h-7 w-7 flex-shrink-0" />
+      <Neo3Logo className="sidebar-logo h-7 w-7 flex-shrink-0" />
       <h1
         className="truncate text-sm font-bold tracking-tight text-foreground"
         style={{ fontFamily: CLOUDCLI_WORDMARK_FONT_FAMILY }}

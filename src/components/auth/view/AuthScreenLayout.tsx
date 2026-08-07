@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import AnimatedCrab from '../../branding/AnimatedCrab';
+
+import Neo3Logo from '../../branding/Neo3Logo';
 
 type AuthScreenLayoutProps = {
   title: string;
@@ -24,17 +25,17 @@ export default function AuthScreenLayout({
       <div aria-hidden className="pointer-events-none fixed inset-0">
         <div className="absolute -top-40 left-1/2 h-[36rem] w-[36rem] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -bottom-32 -left-24 h-[26rem] w-[26rem] rounded-full bg-primary/5 blur-3xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(hsl(var(--foreground)/0.04)_1px,transparent_1px)] [background-size:22px_22px] opacity-60" />
+        <div className="absolute inset-0 bg-[radial-gradient(hsl(var(--foreground)/0.04)_1px,transparent_1px)] opacity-60 [background-size:22px_22px]" />
       </div>
 
       <div className="relative mx-auto flex min-h-full w-full max-w-md items-center justify-center p-4 py-8">
         <div className="w-full rounded-2xl border border-border/70 bg-card/90 p-8 shadow-[0_24px_60px_-20px_hsl(var(--foreground)/0.18)] ring-1 ring-foreground/5 backdrop-blur-xl sm:p-10">
           <div className="text-center">
             <div className="mb-5 flex justify-center">
+              {/* Логотип круглый — квадратная плашка под ним оставляла бы
+                  пустые углы; тень и кольцо переехали на саму монету. */}
               {logo ?? (
-                <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 shadow-lg shadow-primary/20 ring-1 ring-inset ring-primary/15">
-                  <AnimatedCrab className="h-14 w-14" />
-                </div>
+                <Neo3Logo className="h-20 w-20 shadow-lg shadow-primary/20 ring-1 ring-inset ring-foreground/10" />
               )}
             </div>
             <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">{title}</h1>
