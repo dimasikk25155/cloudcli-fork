@@ -39,6 +39,13 @@ function isKimiModel(model: string | undefined): boolean {
   return (model ?? '').toLowerCase().includes('kimi');
 }
 
+/** Local models run on our own GPU and consume no subscription at all, so the
+ * badge must not show Claude's percentages next to them — that would read as
+ * "you are burning your Max limit" when nothing is being spent. */
+function isLocalModel(model: string | undefined): boolean {
+  return (model ?? '').startsWith('local-');
+}
+
 type Props = {
   /** Currently selected model id — decides which subscription's limits to show. */
   model?: string;
@@ -77,6 +84,21 @@ export default function UsageLimitsBadge({ model }: Props) {
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [open]);
+
+  if (isLocalModel(model)) {
+    return (
+      <span
+        className={CHIP_CLASS}
+        title="Локальная модель на своей видеокарте — подписка не расходуется"
+        aria-label="Локальная модель — лимиты подписки не расходуются"
+      >
+        <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary">
+          <GaugeIcon className="h-3.5 w-3.5" />
+        </span>
+        <span className="font-medium">Локально · без лимита</span>
+      </span>
+    );
+  }
 
   const kimi = isKimiModel(model);
 

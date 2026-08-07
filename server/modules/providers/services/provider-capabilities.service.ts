@@ -30,11 +30,18 @@ type ProviderCapabilities = {
  * - permission modes match the option sets accepted by each CLI/SDK.
  * - only the Claude SDK integration surfaces interactive permission requests.
  * - Cursor has no token usage endpoint support (its store.db has no usage rows).
+ *
+ * Only three modes are offered on purpose — default (ask), bypassPermissions
+ * (never ask) and plan (read-only). `acceptEdits` and `auto` were dropped:
+ * they sit between "ask me" and "don't ask me" and still interrupt an
+ * unattended run, which is the one thing the bypass mode exists to prevent.
+ * The runtimes still understand them (see the resolve*Permission* helpers), so
+ * re-adding a mode here is enough to bring it back.
  */
 const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   claude: {
     provider: 'claude',
-    permissionModes: ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'],
+    permissionModes: ['default', 'bypassPermissions', 'plan'],
     defaultPermissionMode: 'default',
     supportsImages: true,
     supportsAbort: true,
@@ -44,7 +51,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   },
   cursor: {
     provider: 'cursor',
-    permissionModes: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+    permissionModes: ['default', 'bypassPermissions', 'plan'],
     defaultPermissionMode: 'default',
     supportsImages: true,
     supportsAbort: true,
@@ -54,7 +61,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   },
   codex: {
     provider: 'codex',
-    permissionModes: ['default', 'acceptEdits', 'bypassPermissions'],
+    // No plan mode: the Codex CLI has no read-only agent to map it onto.
+    permissionModes: ['default', 'bypassPermissions'],
     defaultPermissionMode: 'default',
     supportsImages: true,
     supportsAbort: true,
@@ -64,10 +72,10 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   },
   opencode: {
     provider: 'opencode',
-    // Mapped by the runtime onto OpenCode's controls: `--agent plan` (plan),
-    // `--auto` (bypassPermissions) and the OPENCODE_PERMISSION env var
-    // (acceptEdits). See resolveOpenCodePermissionOptions in opencode-cli.js.
-    permissionModes: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+    // Mapped by the runtime onto OpenCode's controls: `--agent plan` (plan)
+    // and `--auto` (bypassPermissions).
+    // See resolveOpenCodePermissionOptions in opencode-cli.js.
+    permissionModes: ['default', 'bypassPermissions', 'plan'],
     defaultPermissionMode: 'default',
     supportsImages: true,
     supportsAbort: true,

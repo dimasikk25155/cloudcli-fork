@@ -5,6 +5,7 @@ import { Button } from '../../../../shared/view/ui';
 import type { SessionActivityMap } from '../../../../hooks/useSessionProtection';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
+import { useSessionReorderDrag } from '../../hooks/useSessionReorderDrag';
 
 import SidebarSessionItem from './SidebarSessionItem';
 
@@ -31,8 +32,14 @@ type SidebarProjectSessionsProps = {
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   onLoadMoreSessions: (projectId: string) => void;
   onNewSession: (project: Project) => void;
+  onReorderSessions: (projectId: string, orderedSessionIds: string[]) => void;
   t: TFunction;
 };
+
+/** Marks where a dragged card will land. */
+function SessionDropLine() {
+  return <div className="mx-3 my-0.5 h-0.5 rounded-full bg-primary md:mx-0" />;
+}
 
 function SessionListSkeleton() {
   return (
@@ -75,13 +82,23 @@ export default function SidebarProjectSessions({
   onSessionSelect,
   onLoadMoreSessions,
   onNewSession,
+  onReorderSessions,
   t,
 }: SidebarProjectSessionsProps) {
+  const { drag, handlePointerDown, shouldSuppressClick } = useSessionReorderDrag({
+    sessionIds: sessions.map((session) => String(session.id)),
+    onReorder: (orderedSessionIds) => onReorderSessions(project.projectId, orderedSessionIds),
+  });
+
   if (!isExpanded) {
     return null;
   }
 
   const hasSessions = sessions.length > 0;
+  // Hide the drop line while the card hovers over the gap it already occupies.
+  const dropIndex = drag && drag.insertionIndex !== drag.fromIndex && drag.insertionIndex !== drag.fromIndex + 1
+    ? drag.insertionIndex
+    : null;
 
   return (
     <div className="ml-3 space-y-1 border-l border-border pl-3">
@@ -118,12 +135,18 @@ export default function SidebarProjectSessions({
         </div>
       ) : (
         <>
+          <div data-session-list className="space-y-1">
           {sessions.map((session, index) => (
+            <div key={session.id}>
+              {dropIndex === index && <SessionDropLine />}
             <SidebarSessionItem
-              key={session.id}
               project={project}
               session={session}
               index={index}
+              isDragging={drag?.sessionId === String(session.id)}
+              dragOffsetY={drag?.sessionId === String(session.id) ? drag.offsetY : 0}
+              onDragPointerDown={(event) => handlePointerDown(event, index, String(session.id))}
+              shouldSuppressClick={shouldSuppressClick}
               selectedSession={selectedSession}
               isProcessing={activeSessions.has(session.id)}
               needsAttention={attentionSessionIds.has(session.id)}
@@ -140,7 +163,10 @@ export default function SidebarProjectSessions({
               onSessionSelect={onSessionSelect}
               t={t}
             />
+            </div>
           ))}
+          {dropIndex === sessions.length && <SessionDropLine />}
+          </div>
 
           {hasMoreSessions && (
             <Button

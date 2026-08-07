@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Lock, User } from 'lucide-react';
+import { APP_NAME } from '../../../constants/branding';
 import { useAuth } from '../context/AuthContext';
 import AuthErrorAlert from './AuthErrorAlert';
 import AuthInputField from './AuthInputField';
@@ -59,7 +60,7 @@ export default function LoginForm() {
     <AuthScreenLayout
       title={t('login.title')}
       description={t('login.description')}
-      footerText="Enter your credentials to access Claude CLI"
+      footerText={t('login.footer', { app: APP_NAME })}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <AuthInputField

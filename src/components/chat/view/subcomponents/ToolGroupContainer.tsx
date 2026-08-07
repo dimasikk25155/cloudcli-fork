@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 
 import type { ChatMessage, ClaudePermissionSuggestion, PermissionGrantResult, Provider } from '../../types/types';
@@ -72,14 +73,33 @@ export default function ToolGroupContainer({
   provider,
   isRunActive = true,
 }: ToolGroupContainerProps) {
+  const { t } = useTranslation('chat');
   const [isExpanded, setIsExpanded] = useState(false);
-  const config = getToolConfig(group.toolName).input;
-  const label = config.label || group.toolName;
-  const borderClass = config.colorScheme?.border || 'border-border';
-  const iconClass = config.colorScheme?.icon || 'text-muted-foreground';
-  const icon = getToolGroupIcon(config.icon, group.toolName);
+  const config = group.isMixed ? null : getToolConfig(group.toolName).input;
+  const label = group.isMixed
+    ? t('toolGroup.mixedLabel', { defaultValue: 'Tools' })
+    : config?.label || group.toolName;
+  const borderClass = config?.colorScheme?.border || 'border-border';
+  const iconClass = config?.colorScheme?.icon || 'text-muted-foreground';
+  const icon = group.isMixed ? '⚙' : getToolGroupIcon(config?.icon, group.toolName);
+
+  // A run that still has a resultless call is live; a failed call inside it is
+  // worth surfacing on the collapsed row, otherwise errors hide behind the chevron.
+  const isRunning = isRunActive && group.messages.some((message) => !message.toolResult);
+  const hasError = group.messages.some((message) => message.toolResult?.isError);
 
   const preview = useMemo(() => {
+    // Mixed runs read better as a list of tool names; same-tool runs as their inputs.
+    if (group.isMixed) {
+      const names: string[] = [];
+      for (const message of group.messages) {
+        const name = message.toolName || '';
+        if (name && !names.includes(name)) names.push(name);
+      }
+      const shown = names.slice(0, 3).join(', ');
+      return names.length > 3 ? `${shown}, +${names.length - 3}` : shown;
+    }
+
     const visiblePreviews = group.messages
       .slice(0, 2)
       .map(getToolInputPreview)
@@ -93,7 +113,7 @@ export default function ToolGroupContainer({
     }
 
     return extraCount > 0 ? `${previewText}, +${extraCount} more` : previewText;
-  }, [group.messages]);
+  }, [group.isMixed, group.messages]);
 
   return (
     <div className="chat-message tool px-3 sm:px-0" data-message-timestamp={group.timestamp || undefined}>
@@ -111,14 +131,24 @@ export default function ToolGroupContainer({
           {icon}
         </span>
         <span className="min-w-0 flex-shrink-0 text-xs font-medium text-foreground">{label}</span>
-        <span className="flex-shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-          x{group.messages.length}
-        </span>
+        {group.messages.length > 1 && (
+          <span className="flex-shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            x{group.messages.length}
+          </span>
+        )}
         {preview && (
           <>
             <span className="text-[10px] text-muted-foreground/40">/</span>
             <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{preview}</span>
           </>
+        )}
+        {isRunning && (
+          <span className="ml-auto h-2.5 w-2.5 flex-shrink-0 animate-spin rounded-full border-[1.5px] border-muted-foreground/30 border-t-emerald-400" />
+        )}
+        {hasError && !isRunning && (
+          <span className="ml-auto flex-shrink-0 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-500 dark:text-red-400">
+            {t('messageTypes.error')}
+          </span>
         )}
       </button>
 

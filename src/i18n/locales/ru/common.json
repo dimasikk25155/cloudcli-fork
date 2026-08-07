@@ -22,7 +22,7 @@
     "shell": "Терминал",
     "files": "Файлы",
     "git": "Система контроля версий",
-    "browser": "Browser",
+    "browser": "Браузер",
     "computer": "Компьютер"
   },
   "status": {
@@ -243,6 +243,36 @@
       "settings": "Настройки",
       "updateAvailable": "Доступно обновление",
       "closeSidebar": "Закрыть боковую панель"
+    }
+  },
+  "notifications": {
+    "genericTool": "инструмент",
+    "codes": {
+      "generic": {
+        "info": {
+          "title": "Уведомление"
+        }
+      },
+      "permission": {
+        "required": {
+          "title": "Нужно решение",
+          "body": "{{toolName}} ждёт твоего решения."
+        }
+      },
+      "run": {
+        "stopped": {
+          "title": "Работа остановлена",
+          "body": "Причина: {{reason}}"
+        },
+        "failed": {
+          "title": "Работа завершилась ошибкой"
+        }
+      },
+      "agent": {
+        "notification": {
+          "title": "Сообщение от агента"
+        }
+      }
     }
   }
 }

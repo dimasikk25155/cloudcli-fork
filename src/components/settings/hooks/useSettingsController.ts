@@ -4,6 +4,7 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { authenticatedFetch } from '../../../utils/api';
 import { setNotificationSoundEnabled } from '../../../utils/notificationSound';
 import { useProviderAuthStatus } from '../../provider-auth/hooks/useProviderAuthStatus';
+import { mergePermissionListOnSave } from '../utils/mergePermissionLists';
 import {
   DEFAULT_CODE_EDITOR_SETTINGS,
   DEFAULT_CURSOR_PERMISSIONS,
@@ -151,6 +152,13 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
   const [claudePermissions, setClaudePermissions] = useState<ClaudePermissionsState>(() => (
     createEmptyClaudePermissions()
   ));
+  // What the permission lists looked like when this page loaded them. Saving
+  // (which also happens on a 500 ms auto-save) merges against it, so a rule
+  // remembered in a chat meanwhile is kept while a rule deleted here is not.
+  const loadedClaudePermissionsRef = useRef<{ allowedTools: string[]; disallowedTools: string[] }>({
+    allowedTools: [],
+    disallowedTools: [],
+  });
   const [cursorPermissions, setCursorPermissions] = useState<CursorPermissionsState>(() => (
     createEmptyCursorPermissions()
   ));
@@ -173,6 +181,10 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
         localStorage.getItem('claude-settings'),
         {},
       );
+      loadedClaudePermissionsRef.current = {
+        allowedTools: savedClaudeSettings.allowedTools || [],
+        disallowedTools: savedClaudeSettings.disallowedTools || [],
+      };
       setClaudePermissions({
         allowedTools: savedClaudeSettings.allowedTools || [],
         disallowedTools: savedClaudeSettings.disallowedTools || [],
@@ -248,9 +260,25 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
 
     try {
       const now = new Date().toISOString();
+      // Re-read at save time: "Allow & remember" in a chat writes this very key,
+      // and this page (auto-)saves from a snapshot taken when it opened. Blindly
+      // overwriting made every remembered rule vanish, so the button looked dead.
+      const onDiskClaudeSettings = parseJson<ClaudeSettingsStorage>(
+        localStorage.getItem('claude-settings'),
+        {},
+      );
+      const loadedClaudePermissions = loadedClaudePermissionsRef.current;
       localStorage.setItem('claude-settings', JSON.stringify({
-        allowedTools: claudePermissions.allowedTools,
-        disallowedTools: claudePermissions.disallowedTools,
+        allowedTools: mergePermissionListOnSave(
+          loadedClaudePermissions.allowedTools,
+          claudePermissions.allowedTools,
+          onDiskClaudeSettings.allowedTools || [],
+        ),
+        disallowedTools: mergePermissionListOnSave(
+          loadedClaudePermissions.disallowedTools,
+          claudePermissions.disallowedTools,
+          onDiskClaudeSettings.disallowedTools || [],
+        ),
         skipPermissions: claudePermissions.skipPermissions,
         projectSortOrder,
         lastUpdated: now,

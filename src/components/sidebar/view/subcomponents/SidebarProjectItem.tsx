@@ -42,6 +42,7 @@ type SidebarProjectItemProps = {
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
   onDeleteSession: (session: SessionWithProvider, sessionName: string) => void;
+  onReorderSessions: (projectId: string, orderedSessionIds: string[]) => void;
   t: TFunction;
 };
 
@@ -78,6 +79,7 @@ export default function SidebarProjectItem({
   onCancelEditingSession,
   onSaveEditingSession,
   onDeleteSession,
+  onReorderSessions,
   t,
 }: SidebarProjectItemProps) {
   // Project identity is tracked by the DB-assigned `projectId` everywhere
@@ -110,7 +112,7 @@ export default function SidebarProjectItem({
               isStarred &&
                 !isSelected &&
                 !isRecentView &&
-                'bg-yellow-50/50 dark:bg-yellow-900/5 border-yellow-200/30 dark:border-yellow-800/30',
+                'bg-warning/5 border-warning/20',
             )}
             onClick={toggleProject}
           >
@@ -121,8 +123,8 @@ export default function SidebarProjectItem({
                     className={cn(
                       'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
                       isStarred
-                        ? 'bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800'
-                        : 'bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800',
+                        ? 'bg-warning/10 border-warning/30'
+                        : 'bg-muted border-border',
                     )}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -134,8 +136,8 @@ export default function SidebarProjectItem({
                       className={cn(
                         'w-4 h-4 transition-colors',
                         isStarred
-                          ? 'text-yellow-600 dark:text-yellow-400 fill-current'
-                          : 'text-gray-600 dark:text-gray-400',
+                          ? 'text-warning fill-current'
+                          : 'text-muted-foreground',
                       )}
                     />
                   </button>
@@ -181,22 +183,22 @@ export default function SidebarProjectItem({
                 {isEditing ? (
                   <>
                     <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-green-600"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-success text-success-foreground shadow-sm transition-all duration-150 active:scale-90 active:shadow-none"
                       onClick={(event) => {
                         event.stopPropagation();
                         saveProjectName();
                       }}
                     >
-                      <Check className="h-4 w-4 text-white" />
+                      <Check className="h-4 w-4" />
                     </button>
                     <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-500 shadow-sm transition-all duration-150 active:scale-90 active:shadow-none dark:bg-gray-600"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground shadow-sm transition-all duration-150 active:scale-90 active:shadow-none"
                       onClick={(event) => {
                         event.stopPropagation();
                         onCancelEditingProject();
                       }}
                     >
-                      <X className="h-4 w-4 text-white" />
+                      <X className="h-4 w-4" />
                     </button>
                   </>
                 ) : !isRecentView ? (
@@ -221,7 +223,7 @@ export default function SidebarProjectItem({
             isStarred &&
               !isSelected &&
               !isRecentView &&
-              'bg-yellow-50/50 dark:bg-yellow-900/10 hover:bg-yellow-100/50 dark:hover:bg-yellow-900/20',
+              'bg-warning/5 hover:bg-warning/10',
           )}
           onClick={selectAndToggleProject}
         >
@@ -231,7 +233,7 @@ export default function SidebarProjectItem({
                 className={cn(
                   'w-6 h-6 flex items-center justify-center rounded cursor-pointer transition-all duration-200',
                   isStarred
-                    ? 'hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
+                    ? 'hover:bg-warning/10'
                     : 'opacity-40 hover:opacity-100 hover:bg-accent',
                 )}
                 onClick={(event) => {
@@ -244,7 +246,7 @@ export default function SidebarProjectItem({
                   className={cn(
                     'w-3 h-3 transition-colors',
                     isStarred
-                      ? 'text-yellow-600 dark:text-yellow-400 fill-current'
+                      ? 'text-warning fill-current'
                       : 'text-muted-foreground',
                   )}
                 />
@@ -285,7 +287,7 @@ export default function SidebarProjectItem({
             {isEditing ? (
               <>
                 <div
-                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-green-600 transition-colors hover:bg-green-50 hover:text-green-700 dark:hover:bg-green-900/20"
+                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-success transition-colors duration-fast ease-ui hover:bg-success/10"
                   onClick={(event) => {
                     event.stopPropagation();
                     saveProjectName();
@@ -294,7 +296,7 @@ export default function SidebarProjectItem({
                   <Check className="h-3 w-3" />
                 </div>
                 <div
-                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 dark:hover:bg-gray-800"
+                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors duration-fast ease-ui hover:bg-muted hover:text-foreground"
                   onClick={(event) => {
                     event.stopPropagation();
                     onCancelEditingProject();
@@ -337,6 +339,7 @@ export default function SidebarProjectItem({
         onSessionSelect={onSessionSelect}
         onLoadMoreSessions={onLoadMoreSessions}
         onNewSession={onNewSession}
+        onReorderSessions={onReorderSessions}
         t={t}
       />
     </div>

@@ -71,6 +71,7 @@ function Sidebar({
     archivedSessionsCount,
     isArchivedSessionsLoading,
     toggleProject,
+    reorderProjectSessions,
     handleSessionClick,
     toggleStarProject,
     isProjectStarred,
@@ -161,6 +162,7 @@ function Sidebar({
       void saveProjectName(projectName);
     },
     onSessionSelect: handleSessionClick,
+    onReorderSessions: reorderProjectSessions,
     onLoadMoreSessions: loadMoreSessionsForProject,
     onNewSession,
     onEditingSessionNameChange: setEditingSessionName,

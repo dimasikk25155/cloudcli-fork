@@ -10,7 +10,13 @@ import { createCachedDiffCalculator, type DiffCalculator } from '../utils/messag
 
 import { normalizedToChatMessages } from './useChatMessages';
 
-const MESSAGES_PER_PAGE = 20;
+// Opening a session stays cheap, scrolling up grabs a big chunk on purpose:
+// what hurts when reading back through a long chat is the wait, not the bytes
+// (a message averages 2-8 KB, so one page of older history is well under 1 MB).
+// A tool call is its own message here, so an hour of work is hundreds of rows —
+// paging that 20 at a time meant a spinner every few flicks of the wheel.
+const INITIAL_MESSAGES = 50;
+const MESSAGES_PER_PAGE = 150;
 const INITIAL_VISIBLE_MESSAGES = 100;
 
 interface UseChatSessionStateArgs {
@@ -432,6 +438,16 @@ export function useChatSessionState({
       wasNearTopRef.current = false;
     }
 
+    // The render window can clip messages that are already in memory: a long
+    // live run appends far past it, and only a server page used to widen it —
+    // so scrolling up hit a ceiling and just sat there. Widening it locally
+    // costs nothing and needs no round trip, so it goes first.
+    if (scrolledNearTop && visibleMessageCount < chatMessages.length) {
+      pendingScrollRestoreRef.current = { height: container.scrollHeight, top: container.scrollTop };
+      setVisibleMessageCount((prev) => prev + MESSAGES_PER_PAGE);
+      return;
+    }
+
     if (!allMessagesLoadedRef.current) {
       if (!scrolledNearTop) { topLoadLockRef.current = false; return; }
       if (topLoadLockRef.current) {
@@ -441,7 +457,7 @@ export function useChatSessionState({
       const didLoad = await loadOlderMessages(container);
       if (didLoad) topLoadLockRef.current = true;
     }
-  }, [hasMoreMessages, isNearBottom, loadOlderMessages]);
+  }, [chatMessages.length, hasMoreMessages, isNearBottom, loadOlderMessages, visibleMessageCount]);
 
   useLayoutEffect(() => {
     if (!pendingScrollRestoreRef.current || !scrollContainerRef.current) return;
@@ -450,7 +466,9 @@ export function useChatSessionState({
     const newScrollHeight = container.scrollHeight;
     container.scrollTop = top + Math.max(newScrollHeight - height, 0);
     pendingScrollRestoreRef.current = null;
-  }, [chatMessages.length]);
+    // `visibleMessageCount` too: widening the window adds height without
+    // changing the message count, and the view would otherwise jump.
+  }, [chatMessages.length, visibleMessageCount]);
 
   // Reset scroll/pagination state on session change
   useEffect(() => {
@@ -591,7 +609,7 @@ export function useChatSessionState({
     // Fetch from server → store updates → chatMessages re-derives automatically
     setIsLoadingSessionMessages(true);
     sessionStore.fetchFromServer(selectedSessionId, {
-      limit: MESSAGES_PER_PAGE,
+      limit: INITIAL_MESSAGES,
       offset: 0,
     }).then(slot => {
       if (slot) {
@@ -801,8 +819,18 @@ export function useChatSessionState({
     }
 
     if (!isUserScrolledUp) {
-      setTimeout(() => scrollToBottom(), 50);
-      return;
+      // Two frames instead of a 50ms timer: the first lands after React commits
+      // this render, the second after the browser has laid the new content out,
+      // so scrollTop is set against the final scrollHeight. The timer fired at an
+      // arbitrary point in that window and produced a visible jump.
+      let innerFrame = 0;
+      const outerFrame = requestAnimationFrame(() => {
+        innerFrame = requestAnimationFrame(() => scrollToBottom());
+      });
+      return () => {
+        cancelAnimationFrame(outerFrame);
+        if (innerFrame) cancelAnimationFrame(innerFrame);
+      };
     }
 
     const container = scrollContainerRef.current;

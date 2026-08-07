@@ -1,15 +1,21 @@
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+
 import type { CodeEditorSettingsState, ProjectSortOrder } from '../../types/types';
 import LanguageSelector from '../../../../shared/view/ui/LanguageSelector';
 import {
   useTheme,
   THEMES,
   THEME_LABELS,
+  UI_SCALES,
+  backgroundsForTheme,
 } from '../../../../contexts/ThemeContext';
 import SettingsCard from '../SettingsCard';
 import SettingsRow from '../SettingsRow';
 import SettingsSection from '../SettingsSection';
 import SettingsToggle from '../SettingsToggle';
+
+import ThemeTweakPanel from './ThemeTweakPanel';
 
 type AppearanceSettingsTabProps = {
   projectSortOrder: ProjectSortOrder;
@@ -31,18 +37,46 @@ export default function AppearanceSettingsTab({
   onCodeEditorFontSizeChange,
 }: AppearanceSettingsTabProps) {
   const { t } = useTranslation('settings');
-  const { shaderEnabled, setShaderEnabled, theme, setTheme } = useTheme();
+  const {
+    shaderEnabled,
+    setShaderEnabled,
+    theme,
+    setTheme,
+    uiScale,
+    setUiScale,
+    backgroundVariant,
+    setThemeBackground,
+    customBackground,
+    uploadCustomBackground,
+    clearCustomBackground,
+  } = useTheme();
+  const backgroundVariants = shaderEnabled ? backgroundsForTheme(theme) : [];
+  const backgroundInputRef = useRef<HTMLInputElement>(null);
+  const [backgroundBusy, setBackgroundBusy] = useState(false);
+  const [backgroundError, setBackgroundError] = useState<string | null>(null);
+
+  const handleBackgroundFile = async (file: File | undefined) => {
+    if (!file) {
+      return;
+    }
+    setBackgroundBusy(true);
+    setBackgroundError(null);
+    try {
+      await uploadCustomBackground(file);
+    } catch (error) {
+      setBackgroundError(error instanceof Error ? error.message : 'Не удалось загрузить фон');
+    } finally {
+      setBackgroundBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-8">
-      <SettingsSection title={t('appearanceSettings.theme.title', 'Тема оформления')}>
+      <SettingsSection title={t('appearanceSettings.theme.title')}>
         <SettingsCard divided>
           <SettingsRow
-            label={t('appearanceSettings.theme.label', 'Тема')}
-            description={t(
-              'appearanceSettings.theme.description',
-              'Полностью меняет вид приложения: цвета, шрифты и фон.',
-            )}
+            label={t('appearanceSettings.theme.label')}
+            description={t('appearanceSettings.theme.description')}
           >
             <select
               value={theme}
@@ -57,24 +91,104 @@ export default function AppearanceSettingsTab({
             </select>
           </SettingsRow>
 
+          {backgroundVariants.length > 1 && (
+            <SettingsRow
+              label={t('appearanceSettings.themeBackground.label')}
+              description={t('appearanceSettings.themeBackground.description')}
+            >
+              <select
+                value={backgroundVariant}
+                onChange={(event) => setThemeBackground(theme, event.target.value)}
+                className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44"
+              >
+                {backgroundVariants.map((variant: { id: string; label: string }) => (
+                  <option key={variant.id} value={variant.id}>
+                    {variant.label}
+                  </option>
+                ))}
+              </select>
+            </SettingsRow>
+          )}
+
           <SettingsRow
-            label={t('appearanceSettings.animatedBackground.enable.label', 'Живой фон')}
-            description={t(
-              'appearanceSettings.animatedBackground.enable.description',
-              'Анимированный фон за интерфейсом',
-            )}
+            label={t('appearanceSettings.showBackground.enable.label')}
+            description={t('appearanceSettings.showBackground.enable.description')}
           >
             <SettingsToggle
               checked={shaderEnabled}
               onChange={setShaderEnabled}
-              ariaLabel={t('appearanceSettings.animatedBackground.enable.label', 'Живой фон')}
+              ariaLabel={t('appearanceSettings.showBackground.enable.label')}
             />
+          </SettingsRow>
+
+          <SettingsRow
+            label={t('appearanceSettings.customBackground.label', { defaultValue: 'Your own background' })}
+            description={t('appearanceSettings.customBackground.description', {
+              defaultValue: 'A picture from your device, shared across all your devices. Replaces the theme backdrop.',
+            })}
+          >
+            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+              <input
+                ref={backgroundInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  void handleBackgroundFile(event.target.files?.[0]);
+                  event.target.value = '';
+                }}
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={backgroundBusy}
+                  onClick={() => backgroundInputRef.current?.click()}
+                  className="rounded-ui-lg border border-input bg-card px-3 py-2 text-sm text-foreground transition-colors duration-fast ease-ui hover:bg-muted disabled:opacity-50"
+                >
+                  {backgroundBusy
+                    ? t('appearanceSettings.customBackground.uploading', { defaultValue: 'Uploading…' })
+                    : t('appearanceSettings.customBackground.choose', { defaultValue: 'Choose picture' })}
+                </button>
+                {customBackground && (
+                  <button
+                    type="button"
+                    disabled={backgroundBusy}
+                    onClick={() => void clearCustomBackground()}
+                    className="rounded-ui-lg border border-input px-3 py-2 text-sm text-muted-foreground transition-colors duration-fast ease-ui hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  >
+                    {t('appearanceSettings.customBackground.reset', { defaultValue: 'Restore default' })}
+                  </button>
+                )}
+              </div>
+              {backgroundError && (
+                <span className="text-xs text-destructive sm:text-right">{backgroundError}</span>
+              )}
+            </div>
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection title={t('mainTabs.appearance')}>
-        <SettingsCard>
+      <ThemeTweakPanel />
+
+      <SettingsSection title={t('appearanceSettings.uiScale.title')}>
+        <SettingsCard divided>
+          <SettingsRow
+            label={t('appearanceSettings.uiScale.label')}
+            description={t('appearanceSettings.uiScale.description')}
+          >
+            <select
+              value={uiScale}
+              onChange={(event) => setUiScale(Number(event.target.value))}
+              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-28"
+            >
+              {UI_SCALES.map((scale) => (
+                <option key={scale} value={scale}>
+                  {scale}%
+                </option>
+              ))}
+            </select>
+          </SettingsRow>
+
           <LanguageSelector />
         </SettingsCard>
       </SettingsSection>

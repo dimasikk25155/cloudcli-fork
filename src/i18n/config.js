@@ -186,10 +186,11 @@ i18n
     // Default language
     lng: getSavedLanguage(),
 
-    // Russian is the default; missing ru keys fall back to English text.
-    // With the detector present, an empty localStorage resolves to the first
-    // fallback language — so a cookie reset lands on Russian, not English.
-    fallbackLng: ['ru', 'en'],
+    // Русский по умолчанию задаётся в getSavedLanguage() выше, а НЕ здесь.
+    // Фолбэк обязан быть английским: со списком ['ru','en'] любой ключ,
+    // которого нет в текущем языке, подставлял русский текст — и английский
+    // интерфейс выдавал вперемешку "Projects" и "Недавние".
+    fallbackLng: 'en',
 
     // Enable debug mode in development (logs missing keys to console)
     debug: false,

@@ -66,6 +66,10 @@ import agentRoutes from './routes/agent.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
 import nightshiftRoutes from './modules/nightshift/nightshift.routes.js';
+import pipelinesRoutes from './modules/pipelines/pipelines.routes.js';
+import schedulesRoutes from './modules/schedules/schedules.routes.js';
+import telegramRoutes from './modules/telegram/telegram.routes.js';
+import telegramWebhookRoutes from './modules/telegram/telegram-webhook.routes.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -214,6 +218,20 @@ app.use('/api/usage', authenticateToken, usageRoutes);
 app.use('/api/notifications', authenticateToken, notificationRoutes);
 
 app.use('/api/nightshift', authenticateToken, nightshiftRoutes);
+
+// Saved step chains and their run history (protected)
+app.use('/api/pipelines', authenticateToken, pipelinesRoutes);
+
+// Recurring runs owned by the app itself (protected)
+app.use('/api/schedules', authenticateToken, schedulesRoutes);
+
+// Telegram binding management (protected)
+app.use('/api/telegram', authenticateToken, telegramRoutes);
+
+// Telegram webhook. Public by necessity — Telegram cannot carry our session
+// cookie — so the router authenticates the caller by the secret token header
+// instead. Mounted before no other auth middleware on purpose.
+app.use('/api/telegram-webhook', telegramWebhookRoutes);
 
 // User API Routes (protected)
 app.use('/api/user', authenticateToken, userRoutes);
@@ -1675,6 +1693,15 @@ async function startServer() {
 
         // Configure Web Push (VAPID keys)
         configureWebPush();
+
+        // Pipeline runs live in this process, so anything still marked running
+        // belongs to a previous one and will never finish on its own.
+        try {
+            const { pipelinesService } = await import('./modules/pipelines/pipelines.service.js');
+            pipelinesService.recoverInterruptedRuns();
+        } catch (error) {
+            console.warn('[pipelines] could not close interrupted runs:', error?.message || error);
+        }
 
         // Check if running in production mode (dist folder exists)
         const distIndexPath = path.join(APP_ROOT, 'dist', 'index.html');

@@ -76,7 +76,13 @@ function compile(gl: WebGLRenderingContext, type: number, src: string) {
   return sh;
 }
 
-export default function ShaderBackground({ variant = 'default' }: { variant?: string }) {
+export default function ShaderBackground({
+  variant = 'default',
+  frozen = false,
+}: {
+  variant?: string;
+  frozen?: boolean;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -143,8 +149,11 @@ export default function ShaderBackground({ variant = 'default' }: { variant?: st
     window.addEventListener('pointermove', onMove, { passive: true });
     window.addEventListener('pointerdown', onDown, { passive: true });
 
+    // Один кадр вместо анимации: либо система просит меньше движения, либо
+    // пользователь выключил "Живой фон" — картинка остаётся, движение нет.
     const reduce =
-      window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      frozen ||
+      (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
     const start = performance.now();
     let raf = 0;
@@ -187,7 +196,7 @@ export default function ShaderBackground({ variant = 'default' }: { variant?: st
       const ext = gl.getExtension('WEBGL_lose_context');
       if (ext) ext.loseContext();
     };
-  }, [variant]);
+  }, [variant, frozen]);
 
   return (
     <canvas

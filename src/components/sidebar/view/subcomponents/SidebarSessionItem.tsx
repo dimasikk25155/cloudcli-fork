@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, Loader2, MessageSquare, Trash2, X } from 'lucide-react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
+import { Check, Edit2, Loader2, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Tooltip, buttonVariants } from '../../../../shared/view/ui';
@@ -11,8 +12,12 @@ import { createSessionViewModel } from '../../utils/utils';
 type SidebarSessionItemProps = {
   project: Project;
   session: SessionWithProvider;
-  /** Position in the list — drives the claude.ai-style 1..9 rank badge. */
+  /** Pinned position in the list — shown as the rank badge. */
   index: number;
+  isDragging: boolean;
+  dragOffsetY: number;
+  onDragPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  shouldSuppressClick: () => boolean;
   selectedSession: ProjectSession | null;
   isProcessing: boolean;
   needsAttention: boolean;
@@ -62,6 +67,10 @@ export default function SidebarSessionItem({
   project,
   session,
   index,
+  isDragging,
+  dragOffsetY,
+  onDragPointerDown,
+  shouldSuppressClick,
   selectedSession,
   isProcessing,
   needsAttention,
@@ -91,16 +100,12 @@ export default function SidebarSessionItem({
     onSaveEditingSession(project.projectId, session.id, editingSessionName, session.__provider);
   };
 
-  // claude.ai marks the first nine recents with a small ranked square and
-  // falls back to a chat bubble for the rest.
+  // The rank is the card's pinned position, not a live activity ranking — it
+  // only moves when a session is created or the user drags the card.
   const RankMark = () => (
-    index < 9 ? (
-      <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[3px] border border-muted-foreground/30 text-[10px] leading-none text-muted-foreground">
-        {index + 1}
-      </span>
-    ) : (
-      <MessageSquare className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-    )
+    <span className="flex h-4 min-w-4 flex-shrink-0 items-center justify-center rounded-[3px] border border-muted-foreground/30 px-0.5 text-[10px] leading-none text-muted-foreground">
+      {index + 1}
+    </span>
   );
 
   // While editing, a tap/click outside the rename panel SAVES the typed name
@@ -142,7 +147,27 @@ export default function SidebarSessionItem({
   };
 
   return (
-    <div className="group relative">
+    <div
+      data-session-row
+      className={cn(
+        // `touch-pan-y` keeps the sidebar scrollable while reserving horizontal
+        // gestures; the callout reset stops iOS from popping its link preview
+        // on the press-and-hold that starts a reorder.
+        'group relative select-none touch-pan-y [-webkit-touch-callout:none]',
+        isDragging && 'z-20 opacity-90 shadow-3',
+        // While a card is carried, the browser must not also scroll or start a
+        // native text/link drag under the finger.
+        isDragging && 'touch-none select-none',
+      )}
+      style={isDragging ? { transform: `translateY(${dragOffsetY}px)` } : undefined}
+      onPointerDown={onDragPointerDown}
+      onClickCapture={(event) => {
+        if (shouldSuppressClick()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+    >
       {(showAttentionIndicator || showRecentIndicator) && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
           <Tooltip
@@ -158,7 +183,7 @@ export default function SidebarSessionItem({
                 : t('tooltips.activeSessionIndicator')}
               className={cn(
                 'h-2 w-2 animate-pulse rounded-full',
-                showAttentionIndicator ? 'bg-amber-500' : 'bg-green-500',
+                showAttentionIndicator ? 'bg-warning' : 'bg-success',
               )}
             />
           </Tooltip>
@@ -168,12 +193,12 @@ export default function SidebarSessionItem({
       <div className="md:hidden">
         <div
           className={cn(
-            'p-2 mx-3 my-0.5 rounded-md bg-card border active:scale-[0.98] transition-all duration-150 relative',
+            'p-2 mx-3 my-0.5 rounded-ui-md bg-card border active:scale-[0.98] transition-all duration-fast ease-ui relative',
             isSelected ? 'bg-primary/5 border-primary/20' : '',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20'
               : !isSelected && sessionView.isActive
-              ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
+              ? 'border-success/30 bg-success/5'
               : 'border-border/30',
           )}
           onClick={selectMobileSession}
@@ -199,28 +224,28 @@ export default function SidebarSessionItem({
                       onCancelEditingSession();
                     }
                   }}
-                  className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="min-w-0 flex-1 rounded-ui-sm border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                   autoFocus
                 />
                 <button
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-green-50 active:scale-95 dark:bg-green-900/20"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-ui-sm bg-success/10 active:scale-95"
                   onClick={(event) => {
                     event.stopPropagation();
                     saveEditedSession();
                   }}
                   title={t('tooltips.save')}
                 >
-                  <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                  <Check className="h-3.5 w-3.5 text-success" />
                 </button>
                 <button
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-gray-50 active:scale-95 dark:bg-gray-900/20"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-ui-sm bg-secondary active:scale-95"
                   onClick={(event) => {
                     event.stopPropagation();
                     onCancelEditingSession();
                   }}
                   title={t('tooltips.cancel')}
                 >
-                  <X className="h-3.5 w-3.5 text-gray-600 dark:text-gray-400" />
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </div>
             ) : (
@@ -250,7 +275,7 @@ export default function SidebarSessionItem({
                 </div>
 
                 <button
-                  className="ml-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-muted/50 opacity-70 transition-transform active:scale-95"
+                  className="ml-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-ui-md bg-muted/50 opacity-70 transition-transform active:scale-95"
                   onClick={(event) => {
                     event.stopPropagation();
                     onStartEditingSession(session.id, sessionView.sessionName);
@@ -261,7 +286,7 @@ export default function SidebarSessionItem({
                 </button>
 
                 <button
-                  className="ml-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-muted/50 opacity-70 transition-transform active:scale-95"
+                  className="ml-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-ui-md bg-muted/50 opacity-70 transition-transform active:scale-95"
                   onClick={(event) => {
                     event.stopPropagation();
                     onDeleteSession(session, sessionView.sessionName);
@@ -271,7 +296,7 @@ export default function SidebarSessionItem({
                   {isRecentView ? (
                     <X className="h-3 w-3 text-muted-foreground" />
                   ) : (
-                    <Trash2 className="h-3 w-3 text-red-500 dark:text-red-400" />
+                    <Trash2 className="h-3 w-3 text-destructive" />
                   )}
                 </button>
               </>
@@ -283,14 +308,16 @@ export default function SidebarSessionItem({
       <div className="hidden md:block">
         <a
           href={`/session/${session.id}`}
+          // Native link dragging would hijack the reorder gesture.
+          draggable={false}
           className={cn(
             buttonVariants({ variant: 'ghost' }),
-            'h-auto w-full justify-start rounded-md border bg-card p-2 text-left font-normal transition-all duration-150',
+            'h-auto w-full justify-start rounded-ui-md border bg-card p-2 text-left font-normal transition-all duration-fast ease-ui',
             isSelected ? 'border-primary/20 bg-primary/5' : 'border-border/30',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
               : !isSelected && sessionView.isActive
-                ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
+                ? 'border-success/30 bg-success/5 hover:bg-success/10'
                 : 'hover:bg-accent/50',
           )}
           // Left-click keeps in-app navigation; Ctrl/Cmd/middle-click and the
@@ -359,48 +386,48 @@ export default function SidebarSessionItem({
                     }
                   }}
                   onClick={(event) => event.stopPropagation()}
-                  className="w-32 rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-32 rounded-ui-sm border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                   autoFocus
                 />
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/40"
+                  className="flex h-6 w-6 items-center justify-center rounded-ui-sm bg-success/10 transition-colors duration-fast ease-ui hover:bg-success/20"
                   onClick={(event) => {
                     event.stopPropagation();
                     saveEditedSession();
                   }}
                   title={t('tooltips.save')}
                 >
-                  <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+                  <Check className="h-3 w-3 text-success" />
                 </button>
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
+                  className="flex h-6 w-6 items-center justify-center rounded-ui-sm bg-secondary transition-colors duration-fast ease-ui hover:bg-secondary/70"
                   onClick={(event) => {
                     event.stopPropagation();
                     onCancelEditingSession();
                   }}
                   title={t('tooltips.cancel')}
                 >
-                  <X className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                  <X className="h-3 w-3 text-muted-foreground" />
                 </button>
               </>
             ) : (
               <>
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
+                  className="flex h-6 w-6 items-center justify-center rounded-ui-sm bg-secondary transition-colors duration-fast ease-ui hover:bg-secondary/70"
                   onClick={(event) => {
                     event.stopPropagation();
                     onStartEditingSession(session.id, sessionView.sessionName);
                   }}
                   title={t('tooltips.editSessionName')}
                 >
-                  <Edit2 className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                  <Edit2 className="h-3 w-3 text-muted-foreground" />
                 </button>
                 <button
                   className={cn(
-                    'flex h-6 w-6 items-center justify-center rounded',
+                    'flex h-6 w-6 items-center justify-center rounded-ui-sm transition-colors duration-fast ease-ui',
                     isRecentView
-                      ? 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40'
-                      : 'bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40',
+                      ? 'bg-secondary hover:bg-secondary/70'
+                      : 'bg-destructive/10 hover:bg-destructive/20',
                   )}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -409,9 +436,9 @@ export default function SidebarSessionItem({
                   title={isRecentView ? t('tooltips.hideFromRecent', 'Remove from journal') : t('tooltips.deleteSession')}
                 >
                   {isRecentView ? (
-                    <X className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                    <X className="h-3 w-3 text-muted-foreground" />
                   ) : (
-                    <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <Trash2 className="h-3 w-3 text-destructive" />
                   )}
                 </button>
               </>

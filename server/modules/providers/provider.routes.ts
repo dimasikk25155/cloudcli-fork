@@ -658,6 +658,85 @@ router.put(
   }),
 );
 
+// Manual session order. Sidebar lists used to re-sort themselves by last
+// activity, so cards jumped around while several sessions ran in parallel.
+// The order is now pinned per project and only changes when the user drags a
+// card (or a brand-new session arrives and takes the top slot). Stored as a
+// single JSON blob in app_config so the layout follows the user across devices.
+const SESSION_ORDER_CONFIG_KEY = 'session_manual_order';
+
+// Guards the blob against unbounded growth on projects with a long history.
+const MAX_PINNED_SESSIONS_PER_PROJECT = 100;
+
+const sanitizeSessionOrderMap = (value: unknown): Record<string, string[]> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const result: Record<string, string[]> = {};
+  for (const [projectId, sessionIds] of Object.entries(value as Record<string, unknown>)) {
+    if (!projectId || !Array.isArray(sessionIds)) {
+      continue;
+    }
+
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const sessionId of sessionIds) {
+      if (typeof sessionId !== 'string' || !sessionId || seen.has(sessionId)) {
+        continue;
+      }
+      seen.add(sessionId);
+      ordered.push(sessionId);
+      if (ordered.length >= MAX_PINNED_SESSIONS_PER_PROJECT) {
+        break;
+      }
+    }
+
+    if (ordered.length > 0) {
+      result[projectId] = ordered;
+    }
+  }
+
+  return result;
+};
+
+const readSessionOrderMap = (): Record<string, string[]> => {
+  const raw = appConfigDb.get(SESSION_ORDER_CONFIG_KEY);
+  if (!raw) {
+    return {};
+  }
+  try {
+    return sanitizeSessionOrderMap(JSON.parse(raw) as unknown);
+  } catch {
+    return {};
+  }
+};
+
+router.get(
+  '/session-order',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json(createApiSuccessResponse({ order: readSessionOrderMap() }));
+  }),
+);
+
+router.put(
+  '/session-order',
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { order?: unknown };
+    const order = body.order;
+    if (!order || typeof order !== 'object' || Array.isArray(order)) {
+      throw new AppError('order must be an object map of projectId -> sessionId[].', {
+        code: 'INVALID_BODY',
+        statusCode: 400,
+      });
+    }
+
+    const sanitized = sanitizeSessionOrderMap(order);
+    appConfigDb.set(SESSION_ORDER_CONFIG_KEY, JSON.stringify(sanitized));
+    res.json(createApiSuccessResponse({ order: sanitized }));
+  }),
+);
+
 router.delete(
   '/sessions/:sessionId',
   asyncHandler(async (req: Request, res: Response) => {

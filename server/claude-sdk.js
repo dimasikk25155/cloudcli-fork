@@ -80,6 +80,8 @@ const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEO
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
+const isExitPlanModeTool = (toolName) => toolName === 'ExitPlanMode' || toolName === 'exit_plan_mode';
+
 // The Claude Code CLI (>=2.1.x) already defers MCP tools behind a ToolSearch
 // tool by default: telegram/playwright/windows/ollama schemas (~30k tokens,
 // telegram alone is 101 tools) are pulled in on demand instead of bloating the
@@ -114,6 +116,16 @@ const KIMI_MODEL_MAP = {
 };
 const isKimiModel = (model) =>
   typeof model === 'string' && Object.prototype.hasOwnProperty.call(KIMI_MODEL_MAP, model);
+
+// UI model ids that route to Ollama on the Windows box (RTX 5070), reached over
+// the persistent launchd SSH tunnel com.dimasik.ollama-tunnel (11435 -> 11434).
+// Ollama serves the native Anthropic Messages API since 0.14, so the SAME Claude
+// Code engine runs against it with no proxy or shim — only the base URL and the
+// model id change. Free, and it does not touch the Claude Max limit.
+const LOCAL_MODEL_MAP = {
+  'local-ornith-9b': 'ornith-agent',
+  'local-qwen35-9b': 'qwen35-agent',
+};
 
 // Anthropic-style effort levels that a given Kimi model actually understands
 // when translated to Kimi's native vocabulary (low/high/max). The SDK only
@@ -316,9 +328,12 @@ function mapCliOptionsToSDK(options = {}) {
     skipPermissions: false
   };
 
-  if (settings.skipPermissions && permissionMode !== 'plan') {
-    sdkOptions.permissionMode = 'bypassPermissions';
-  }
+  // NOTE: `settings.skipPermissions` deliberately does NOT override
+  // permissionMode here any more. It now decides which mode a chat STARTS in
+  // (see getDefaultPermissionModeForProvider in useChatProviderState.ts), so
+  // the mode the client sends is always the mode that runs. Overriding it
+  // here made the composer's mode chip lie: a user who switched a chat back
+  // to "default" to be asked again still got a silent full-access run.
 
   let allowedTools = [...(settings.allowedTools || [])];
 
@@ -380,6 +395,26 @@ function mapCliOptionsToSDK(options = {}) {
     } else {
       delete sdkOptions.effort;
     }
+  }
+
+  // Local models: same shape as the Kimi branch above, pointed at Ollama's
+  // Anthropic-compatible endpoint instead. The tunnel host is overridable so a
+  // client install can point at its own box (or at Ollama running locally).
+  // The mapped ids are derived models carrying num_ctx 64k — stock Ollama tags
+  // default to 4096, which cannot even hold the Claude Code system prompt.
+  const localModel = typeof sdkOptions.model === 'string' ? LOCAL_MODEL_MAP[sdkOptions.model] : undefined;
+  if (localModel) {
+    sdkOptions.model = localModel;
+    sdkOptions.env = {
+      ...sdkOptions.env,
+      ANTHROPIC_BASE_URL: process.env.LOCAL_LLM_BASE_URL || 'http://127.0.0.1:11435',
+      ANTHROPIC_API_KEY: 'ollama',
+      ANTHROPIC_AUTH_TOKEN: 'ollama',
+      ANTHROPIC_MODEL: localModel,
+      ANTHROPIC_SMALL_FAST_MODEL: process.env.LOCAL_LLM_SMALL_MODEL || localModel,
+    };
+    // Ollama exposes no effort control, and an unknown level is a hard error.
+    delete sdkOptions.effort;
   }
 
   sdkOptions.systemPrompt = {
@@ -880,6 +915,24 @@ async function queryClaudeSDK(command, options = {}, ws) {
             sdkOptions.disallowedTools = sdkOptions.disallowedTools.filter(entry => entry !== decision.rememberEntry);
           }
         }
+        // Approving the plan must also drop the read-only mode for the rest of
+        // this run — otherwise the CLI keeps refusing every edit the plan it
+        // just got approved asks for. It goes to `bypassPermissions`, not
+        // `default`: approving the plan is the consent, and stopping to ask on
+        // every step of an approved plan defeats the point of writing one.
+        // The UI mirrors this on its own mode chip (see ChatInterface).
+        if (isExitPlanModeTool(toolName)) {
+          // Mirror it on our own copy too: `sdkOptions` is per-run, and this is
+          // what the fast path above reads. Without it the callback would keep
+          // asking for the rest of the run if the CLI still routes through it.
+          sdkOptions.permissionMode = 'bypassPermissions';
+          return {
+            behavior: 'allow',
+            updatedInput: decision.updatedInput ?? input,
+            updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions', destination: 'session' }],
+          };
+        }
+
         return { behavior: 'allow', updatedInput: decision.updatedInput ?? input };
       }
 
@@ -1374,6 +1427,7 @@ function reconnectSessionWriter(sessionId, newRawWs) {
 
 // Export public API
 export {
+  matchesToolPermission,
   queryClaudeSDK,
   abortClaudeSDKSession,
   abortAllActiveClaudeSDKSessions,

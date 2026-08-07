@@ -60,6 +60,21 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
         ],
       },
     },
+    // Local models on the RTX 5070 (see LOCAL_MODEL_MAP in claude-sdk.js).
+    // Free and independent of the Claude Max limit, but no prompt caching:
+    // every turn reprocesses the whole history, so keep sessions short.
+    // No `effort` block — Ollama has no effort control, and omitting it makes
+    // resolveClaudeEffort strip whatever the UI sends.
+    {
+      value: 'local-ornith-9b',
+      label: 'Local · Ornith 9B',
+      description: 'Runs on your RTX 5070 · free, no Claude limit · best local tool-calling · short tasks',
+    },
+    {
+      value: 'local-qwen35-9b',
+      label: 'Local · Qwen3.5 9B',
+      description: 'Runs on your RTX 5070 · free, no Claude limit · strong Russian · fallback if Ornith misbehaves',
+    },
   ],
   DEFAULT: 'opus[1m]',
 };

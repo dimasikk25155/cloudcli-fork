@@ -1,3 +1,7 @@
+import fsSync, { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import express from 'express';
 
 import {
@@ -352,6 +356,125 @@ router.put('/ui-preferences', async (req, res) => {
     console.error('Error saving UI preferences:', error);
     res.status(500).json({ error: 'Failed to save UI preferences' });
   }
+});
+
+// ===============================
+// Свой фон темы (картинка с устройства пользователя)
+// ===============================
+
+/**
+ * Один файл на пользователя в `~/.cloudcli/theme-bg/<userId>.webp`. Отдельная
+ * папка, а не общая `assets`: та глобальная и растёт от вложений в чате, а фон
+ * — ровно одна картинка на аккаунт, которую перезапись должна затирать.
+ */
+const THEME_BG_DIR = path.join(os.homedir(), '.cloudcli', 'theme-bg');
+/** Принимаем до 15 МБ на входе — снимок с телефона легко весит 8-12 МБ. */
+const THEME_BG_MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+/** Больше 2560px по ширине не нужно даже на 4K: фон всё равно под скримом. */
+const THEME_BG_MAX_WIDTH = 2560;
+
+/**
+ * Путь к файлу фона пользователя. id приходит из авторизации, но в имя файла
+ * он всё равно попадает только после проверки — иначе `../` в id увёл бы
+ * запись за пределы папки.
+ */
+function themeBackgroundPath(userId) {
+  const safeId = String(userId);
+  return /^[A-Za-z0-9_-]+$/.test(safeId) ? path.join(THEME_BG_DIR, `${safeId}.webp`) : null;
+}
+
+let _themeBgUpload = null;
+/** multer и sharp грузим лениво: без загрузки фона они не нужны вовсе. */
+async function getThemeBackgroundUpload() {
+  if (!_themeBgUpload) {
+    const multer = (await import('multer')).default;
+    _themeBgUpload = multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: THEME_BG_MAX_UPLOAD_BYTES, files: 1 },
+    });
+  }
+  return _themeBgUpload;
+}
+
+router.post('/ui-preferences/background', async (req, res) => {
+  const filePath = themeBackgroundPath(req.user.id);
+  if (!filePath) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+
+  try {
+    const upload = await getThemeBackgroundUpload();
+    upload.single('background')(req, res, async (err) => {
+      if (err) {
+        const tooBig = err.code === 'LIMIT_FILE_SIZE';
+        return res.status(400).json({
+          error: tooBig
+            ? 'Файл больше 15 МБ — выберите картинку поменьше'
+            : (err.message || 'Upload failed'),
+        });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file provided' });
+      }
+
+      try {
+        const sharp = (await import('sharp')).default;
+        // Пережимаем всегда: заливаем webp, чтобы 12-мегабайтный снимок с
+        // телефона не тянулся с сервера при каждой загрузке страницы.
+        const webp = await sharp(req.file.buffer)
+          .rotate()
+          .resize({ width: THEME_BG_MAX_WIDTH, withoutEnlargement: true })
+          .webp({ quality: 82 })
+          .toBuffer();
+        await fs.mkdir(THEME_BG_DIR, { recursive: true });
+        await fs.writeFile(filePath, webp);
+        res.json({ success: true, bytes: webp.length });
+      } catch (error) {
+        console.error('Error storing theme background:', error);
+        res.status(400).json({ error: 'Не удалось прочитать картинку — нужен PNG, JPEG или WebP' });
+      }
+    });
+  } catch (error) {
+    console.error('Error preparing theme background upload:', error);
+    res.status(500).json({ error: 'Failed to store background' });
+  }
+});
+
+router.get('/ui-preferences/background', async (req, res) => {
+  const filePath = themeBackgroundPath(req.user.id);
+  if (!filePath) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+
+  try {
+    await fs.access(filePath);
+  } catch {
+    return res.status(404).json({ error: 'No custom background' });
+  }
+
+  res.setHeader('Content-Type', 'image/webp');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Приватная картинка одного аккаунта — общим кэшам её видеть нечего.
+  res.setHeader('Cache-Control', 'private, max-age=60');
+  const stream = fsSync.createReadStream(filePath);
+  stream.pipe(res);
+  stream.on('error', (error) => {
+    console.error('Error streaming theme background:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Error reading background' });
+    }
+  });
+});
+
+router.delete('/ui-preferences/background', async (req, res) => {
+  const filePath = themeBackgroundPath(req.user.id);
+  if (!filePath) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+  // Удаление того, чего нет, — это успех: кнопка «вернуть штатный фон» не
+  // должна падать, если файл уже убрали с другого устройства.
+  await fs.unlink(filePath).catch(() => undefined);
+  res.json({ success: true });
 });
 
 export default router;

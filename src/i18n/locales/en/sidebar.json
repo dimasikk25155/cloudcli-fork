@@ -50,7 +50,8 @@
     "cancel": "Cancel",
     "clearSearch": "Clear search",
     "openCommandPalette": "Open command palette",
-    "attentionRequiredIndicator": "Session needs attention"
+    "attentionRequiredIndicator": "Session needs attention",
+    "hideFromRecent": "Hide from the journal"
   },
   "navigation": {
     "chat": "Chat",
@@ -124,7 +125,10 @@
     "matches_one": "{{count}} match",
     "matches_other": "{{count}} matches",
     "projectsScanned_one": "{{count}} project scanned",
-    "projectsScanned_other": "{{count}} projects scanned"
+    "projectsScanned_other": "{{count}} projects scanned",
+    "modeRecent": "Recent",
+    "recentTooltip": "Recent sessions",
+    "recentPlaceholder": "Search recent sessions..."
   },
   "deleteConfirmation": {
     "deleteProject": "Remove Project",
@@ -138,12 +142,22 @@
     "cannotUndo": "You can re-add the project later."
   },
   "nightshift": {
-    "title": "Runs",
+    "title": "System tasks",
     "scheduled": "Scheduled",
     "history": "History",
     "empty": "Nothing here yet",
     "close": "Close",
     "loading": "Loading…",
-    "error": "Failed to load runs data"
+    "error": "Failed to load runs data",
+    "everySeconds": "every {{n}}s",
+    "everyMinutes": "every {{n}} min",
+    "everyHours": "every {{n}}h",
+    "noSchedule": "on demand"
+  },
+  "recent": {
+    "title": "Recent",
+    "emptyTitle": "The journal is empty",
+    "emptyDescription": "Sessions you work in show up here and stay until you hide them with the ✕.",
+    "noMatchingSessions": "Nothing found among recent sessions."
   }
 }

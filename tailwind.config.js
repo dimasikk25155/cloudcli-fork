@@ -1,3 +1,18 @@
+import defaultTheme from 'tailwindcss/defaultTheme';
+
+// Плотность интерфейса: отступы едут от токена --density, который задаёт тема.
+// Ключи шкалы остаются теми же, что у Tailwind, поэтому все существующие
+// классы (p-4, gap-2, space-y-3) продолжают работать, а при --density: 1
+// вычисленное значение совпадает с прежним до пикселя.
+// Ширины, высоты и inset НЕ трогаем: размеры иконок и раскладка не должны
+// ползти от плотности — за общий размер отвечает масштаб интерфейса.
+const scaledByDensity = Object.fromEntries(
+  Object.entries(defaultTheme.spacing).map(([key, value]) => [
+    key,
+    value === '0px' ? value : `calc(${value} * var(--density))`,
+  ])
+);
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
@@ -14,10 +29,18 @@ export default {
       },
     },
     extend: {
+      // Шрифты берём из токенов темы (см. :root в index.css) — стек живёт
+      // в одном месте, тема подменяет его целиком.
       fontFamily: {
-        sans: ['"Encode Sans"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
-        serif: ['Merriweather', 'Georgia', 'Cambria', '"Times New Roman"', 'serif'],
+        sans: ['var(--font-ui)'],
+        serif: ['var(--font-chat)'],
+        mono: ['var(--font-mono)'],
       },
+      // Отступы уважают плотность; margin сохраняет `auto` (mx-auto).
+      padding: scaledByDensity,
+      gap: scaledByDensity,
+      space: scaledByDensity,
+      margin: { auto: 'auto', ...scaledByDensity },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -35,6 +58,20 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+        },
+        // Статусы: успех / предупреждение / информация. Раньше жили хардкодом
+        // (green-500, amber-500, blue-600) и не слушались темы.
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",
@@ -57,6 +94,29 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Шкала темы под отдельными именами: встроенные rounded-xl/2xl не
+        // трогаем, чтобы существующие экраны не поехали. На них переезжают
+        // компоненты по мере миграции (Этап 3).
+        'ui-sm': 'var(--radius-sm)',
+        'ui-md': 'var(--radius-md)',
+        'ui-lg': 'var(--radius-lg)',
+        'ui-xl': 'var(--radius-xl)',
+        'ui-2xl': 'var(--radius-2xl)',
+      },
+      // Тени темы отдельными именами по той же причине.
+      boxShadow: {
+        1: 'var(--shadow-1)',
+        2: 'var(--shadow-2)',
+        3: 'var(--shadow-3)',
+      },
+      transitionDuration: {
+        fast: 'var(--duration-fast)',
+        base: 'var(--duration-base)',
+        slow: 'var(--duration-slow)',
+      },
+      transitionTimingFunction: {
+        ui: 'var(--ease-ui)',
+        'ui-inout': 'var(--ease-ui-inout)',
       },
       spacing: {
         'safe-area-inset-bottom': 'env(safe-area-inset-bottom)',

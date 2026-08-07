@@ -18,10 +18,13 @@ export const FILE_STATUS_LABELS: Record<FileStatusCode, string> = {
   U: 'Untracked',
 };
 
+// Статус файла — это роль, а не опознавательный цвет: изменён/добавлен/удалён
+// красит тема. Текст держим на --foreground: заливка и рамка уже несут цвет,
+// а жёлтый/зелёный текст на светлой теме читается плохо.
 export const FILE_STATUS_BADGE_CLASSES: Record<FileStatusCode, string> = {
-  M: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800/50',
-  A: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-800/50',
-  D: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800/50',
+  M: 'bg-warning/20 text-foreground border-warning/40',
+  A: 'bg-success/20 text-foreground border-success/40',
+  D: 'bg-destructive/20 text-foreground border-destructive/40',
   U: 'bg-muted text-muted-foreground border-border',
 };
 
@@ -47,35 +50,40 @@ export const CONFIRMATION_ACTION_LABELS: Record<ConfirmActionType, string> = {
   deleteBranch: 'Delete',
 };
 
+// Кнопка подтверждения красится по риску действия, а не по фантазии:
+// необратимое → destructive, приносящее извне → success, отправка → primary,
+// публикация → info, откат → warning.
 export const CONFIRMATION_BUTTON_CLASSES: Record<ConfirmActionType, string> = {
-  discard: 'bg-red-600 hover:bg-red-700',
-  delete: 'bg-red-600 hover:bg-red-700',
-  commit: 'bg-primary hover:bg-primary/90',
-  pull: 'bg-green-600 hover:bg-green-700',
-  push: 'bg-orange-600 hover:bg-orange-700',
-  publish: 'bg-purple-600 hover:bg-purple-700',
-  revertLocalCommit: 'bg-yellow-600 hover:bg-yellow-700',
-  deleteBranch: 'bg-red-600 hover:bg-red-700',
+// Цвет текста едет вместе с заливкой: белый на светлом success/warning
+// не читался, а тема вправе сделать заливку какой угодно светлой.
+  discard: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+  delete: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+  commit: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  pull: 'bg-success text-success-foreground hover:bg-success/90',
+  push: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  publish: 'bg-info text-info-foreground hover:bg-info/90',
+  revertLocalCommit: 'bg-warning text-warning-foreground hover:bg-warning/90',
+  deleteBranch: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
 };
 
 export const CONFIRMATION_ICON_CONTAINER_CLASSES: Record<ConfirmActionType, string> = {
-  discard: 'bg-red-100 dark:bg-red-900/30',
-  delete: 'bg-red-100 dark:bg-red-900/30',
-  commit: 'bg-yellow-100 dark:bg-yellow-900/30',
-  pull: 'bg-yellow-100 dark:bg-yellow-900/30',
-  push: 'bg-yellow-100 dark:bg-yellow-900/30',
-  publish: 'bg-yellow-100 dark:bg-yellow-900/30',
-  revertLocalCommit: 'bg-yellow-100 dark:bg-yellow-900/30',
-  deleteBranch: 'bg-red-100 dark:bg-red-900/30',
+  discard: 'bg-destructive/15',
+  delete: 'bg-destructive/15',
+  commit: 'bg-warning/15',
+  pull: 'bg-warning/15',
+  push: 'bg-warning/15',
+  publish: 'bg-warning/15',
+  revertLocalCommit: 'bg-warning/15',
+  deleteBranch: 'bg-destructive/15',
 };
 
 export const CONFIRMATION_ICON_CLASSES: Record<ConfirmActionType, string> = {
-  discard: 'text-red-600 dark:text-red-400',
-  delete: 'text-red-600 dark:text-red-400',
-  commit: 'text-yellow-600 dark:text-yellow-400',
-  pull: 'text-yellow-600 dark:text-yellow-400',
-  push: 'text-yellow-600 dark:text-yellow-400',
-  publish: 'text-yellow-600 dark:text-yellow-400',
-  revertLocalCommit: 'text-yellow-600 dark:text-yellow-400',
-  deleteBranch: 'text-red-600 dark:text-red-400',
+  discard: 'text-destructive',
+  delete: 'text-destructive',
+  commit: 'text-warning',
+  pull: 'text-warning',
+  push: 'text-warning',
+  publish: 'text-warning',
+  revertLocalCommit: 'text-warning',
+  deleteBranch: 'text-destructive',
 };

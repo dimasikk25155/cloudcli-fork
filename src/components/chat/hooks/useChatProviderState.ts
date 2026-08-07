@@ -15,6 +15,7 @@ import {
   FALLBACK_PROVIDER_EFFORT_VALUES,
   toProviderEffortOptions,
 } from '../constants/providerEffort';
+import { skipPermissionsDefaultMode } from '../utils/permissionDefaults';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   claude: 'default',
@@ -49,10 +50,11 @@ const readStoredProvider = (): LLMProvider => {
  * first paint and when the capabilities request fails.
  */
 const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
-  claude: ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'],
-  cursor: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
-  codex: ['default', 'acceptEdits', 'bypassPermissions'],
-  opencode: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+  claude: ['default', 'bypassPermissions', 'plan'],
+  cursor: ['default', 'bypassPermissions', 'plan'],
+  // No plan mode: the Codex CLI has no read-only agent to map it onto.
+  codex: ['default', 'bypassPermissions'],
+  opencode: ['default', 'bypassPermissions', 'plan'],
   // Headless `kimi -p` is always fully autonomous; there is no mode to pick.
   kimi: ['default'],
   // Gemini's own interactive `default` prompts for approval, which would
@@ -371,6 +373,11 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
 
   const getDefaultPermissionModeForProvider = useCallback((targetProvider: LLMProvider): PermissionMode => {
     const modes = getPermissionModesForProvider(targetProvider);
+    // Global "skip permissions" switch, if on, decides the starting mode.
+    const skipDefault = skipPermissionsDefaultMode(targetProvider, modes);
+    if (skipDefault) {
+      return skipDefault;
+    }
     const capabilityDefault = providerCapabilities?.[targetProvider]?.defaultPermissionMode as PermissionMode | undefined;
     if (capabilityDefault && modes.includes(capabilityDefault)) {
       return capabilityDefault;

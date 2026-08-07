@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import type { LoadingProgress, Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionActivityMap } from '../../../../hooks/useSessionProtection';
 import type { SessionWithProvider } from '../../types/types';
+import { APP_NAME } from '../../../../constants/branding';
 
 import SidebarProjectItem from './SidebarProjectItem';
 import SidebarProjectsState from './SidebarProjectsState';
@@ -45,6 +46,7 @@ export type SidebarProjectListProps = {
   onCancelEditingSession: () => void;
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
   onDeleteSession: (session: SessionWithProvider, sessionName: string) => void;
+  onReorderSessions: (projectId: string, orderedSessionIds: string[]) => void;
   t: TFunction;
 };
 
@@ -85,6 +87,7 @@ export default function SidebarProjectList({
   onCancelEditingSession,
   onSaveEditingSession,
   onDeleteSession,
+  onReorderSessions,
   t,
 }: SidebarProjectListProps) {
   const state = (
@@ -97,11 +100,13 @@ export default function SidebarProjectList({
     />
   );
 
+  // Имя продукта — из общей константы, а не хардкодом: иначе во вкладке
+  // браузера и в заголовке TWA-приложения светился бренд апстрима.
   useEffect(() => {
-    let baseTitle = 'Claude CLI';
+    let baseTitle = APP_NAME;
     const displayName = selectedProject?.displayName?.trim();
     if (displayName) {
-      baseTitle = `${displayName} - ${baseTitle}`;
+      baseTitle = `${displayName} — ${baseTitle}`;
     }
     document.title = baseTitle;
   }, [selectedProject]);
@@ -149,6 +154,7 @@ export default function SidebarProjectList({
               onCancelEditingSession={onCancelEditingSession}
               onSaveEditingSession={onSaveEditingSession}
               onDeleteSession={onDeleteSession}
+              onReorderSessions={onReorderSessions}
               t={t}
             />
           ))}

@@ -117,6 +117,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ hidden }),
     }),
+  // Pinned sidebar order: { projectId -> sessionId[] }, synced across devices.
+  getSessionOrder: () =>
+    authenticatedFetch('/api/providers/session-order'),
+  setSessionOrder: (order) =>
+    authenticatedFetch('/api/providers/session-order', {
+      method: 'PUT',
+      body: JSON.stringify({ order }),
+    }),
   restoreSession: (sessionId) =>
     authenticatedFetch(`/api/providers/sessions/${sessionId}/restore`, {
       method: 'POST',

@@ -122,14 +122,10 @@ interface ChatComposerProps {
 // the dropdown items so the color legend stays consistent.
 const MODE_DOT_CLASS: Record<string, string> = {
   default: 'bg-muted-foreground',
-  acceptEdits: 'bg-green-500',
-  auto: 'bg-blue-500',
   bypassPermissions: 'bg-orange-500',
 };
 const MODE_BUTTON_CLASS: Record<string, string> = {
   default: 'border-border/60 bg-muted/50 hover:bg-muted',
-  acceptEdits: 'border-green-300/60 bg-green-50 hover:bg-green-100 dark:border-green-600/40 dark:bg-green-900/15 dark:hover:bg-green-900/25',
-  auto: 'border-blue-300/60 bg-blue-50 hover:bg-blue-100 dark:border-blue-600/40 dark:bg-blue-900/15 dark:hover:bg-blue-900/25',
   bypassPermissions: 'border-orange-300/60 bg-orange-50 hover:bg-orange-100 dark:border-orange-600/40 dark:bg-orange-900/15 dark:hover:bg-orange-900/25',
 };
 const modeDotClass = (mode: string) => MODE_DOT_CLASS[mode] ?? 'bg-primary';

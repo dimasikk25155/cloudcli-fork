@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Loader2, Lock, ShieldCheck, User } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { APP_NAME } from '../../../constants/branding';
 import { useAuth } from '../context/AuthContext';
 import AuthErrorAlert from './AuthErrorAlert';
 import AuthInputField from './AuthInputField';
@@ -20,24 +22,25 @@ const initialState: SetupFormState = {
 
 /**
  * Validates the account-setup form state.
- * @returns An error message string if validation fails, or `null` when the
- *   form is valid.
+ * @returns A translation key for the failed rule, or `null` when the form is
+ *   valid. Возвращаем ключ, а не готовый текст, чтобы экран установки говорил
+ *   на языке пользователя — раньше он был целиком на английском.
  */
 function validateSetupForm(formState: SetupFormState): string | null {
   if (!formState.username.trim() || !formState.password || !formState.confirmPassword) {
-    return 'Please fill in all fields.';
+    return 'setup.errors.requiredFields';
   }
 
   if (formState.username.trim().length < 3) {
-    return 'Username must be at least 3 characters long.';
+    return 'setup.errors.usernameTooShort';
   }
 
   if (formState.password.length < 6) {
-    return 'Password must be at least 6 characters long.';
+    return 'setup.errors.passwordTooShort';
   }
 
   if (formState.password !== formState.confirmPassword) {
-    return 'Passwords do not match.';
+    return 'setup.errors.passwordsMismatch';
   }
 
   return null;
@@ -51,6 +54,7 @@ function validateSetupForm(formState: SetupFormState): string | null {
  */
 export default function SetupForm() {
   const { register } = useAuth();
+  const { t } = useTranslation('auth');
 
   const [formState, setFormState] = useState<SetupFormState>(initialState);
   const [errorMessage, setErrorMessage] = useState('');
@@ -65,9 +69,9 @@ export default function SetupForm() {
       event.preventDefault();
       setErrorMessage('');
 
-      const validationError = validateSetupForm(formState);
-      if (validationError) {
-        setErrorMessage(validationError);
+      const validationErrorKey = validateSetupForm(formState);
+      if (validationErrorKey) {
+        setErrorMessage(t(validationErrorKey));
         return;
       }
 
@@ -78,23 +82,23 @@ export default function SetupForm() {
       }
       setIsSubmitting(false);
     },
-    [formState, register],
+    [formState, register, t],
   );
 
   return (
     <AuthScreenLayout
-      title="Welcome to Claude CLI"
-      description="Set up your account to get started"
-      footerText="This is a single-user system. Only one account can be created."
+      title={t('setup.title', { app: APP_NAME })}
+      description={t('setup.description')}
+      footerText={t('setup.footer')}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <AuthInputField
           id="username"
           name="username"
-          label="Username"
+          label={t('setup.username')}
           value={formState.username}
           onChange={(value) => updateField('username', value)}
-          placeholder="Choose a username"
+          placeholder={t('setup.placeholders.username')}
           isDisabled={isSubmitting}
           autoComplete="username"
           icon={User}
@@ -103,10 +107,10 @@ export default function SetupForm() {
         <AuthInputField
           id="password"
           name="password"
-          label="Password"
+          label={t('setup.password')}
           value={formState.password}
           onChange={(value) => updateField('password', value)}
-          placeholder="Create a password"
+          placeholder={t('setup.placeholders.password')}
           isDisabled={isSubmitting}
           type="password"
           autoComplete="new-password"
@@ -116,10 +120,10 @@ export default function SetupForm() {
         <AuthInputField
           id="confirmPassword"
           name="confirmPassword"
-          label="Confirm Password"
+          label={t('setup.confirmPassword')}
           value={formState.confirmPassword}
           onChange={(value) => updateField('confirmPassword', value)}
-          placeholder="Re-enter your password"
+          placeholder={t('setup.placeholders.confirmPassword')}
           isDisabled={isSubmitting}
           type="password"
           autoComplete="new-password"
@@ -128,7 +132,7 @@ export default function SetupForm() {
 
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5" />
-          At least 3 characters for username, 6 for password.
+          {t('setup.hint')}
         </p>
 
         <AuthErrorAlert errorMessage={errorMessage} />
@@ -141,10 +145,10 @@ export default function SetupForm() {
           {isSubmitting ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Setting up...
+              {t('setup.loading')}
             </>
           ) : (
-            'Create Account'
+            t('setup.submit')
           )}
         </button>
       </form>

@@ -506,8 +506,11 @@ function sendMessage(ws, data) {
   }
 }
 
-// Clean up old completed sessions periodically
-setInterval(() => {
+// Clean up old completed sessions periodically.
+// unref'd on purpose: this timer must not be the reason the process stays alive.
+// Anything that merely imports this module — a test file, a scheduled run, the
+// pipeline runner — would otherwise never exit on its own.
+const codexSessionCleanupTimer = setInterval(() => {
   const now = Date.now();
   const maxAge = 30 * 60 * 1000; // 30 minutes
 
@@ -520,3 +523,5 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000); // Every 5 minutes
+
+codexSessionCleanupTimer.unref();

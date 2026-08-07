@@ -7,7 +7,12 @@ import type {
 
 export type Provider = LLMProvider;
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions' | 'plan';
+/**
+ * Three modes on purpose: ask (default), never ask (bypassPermissions) and
+ * read-only (plan). See PROVIDER_CAPABILITIES in
+ * server/modules/providers/services/provider-capabilities.service.ts.
+ */
+export type PermissionMode = 'default' | 'bypassPermissions' | 'plan';
 
 export interface ChatImage {
   /** Inline data URL (Claude history stores attachments as base64). */

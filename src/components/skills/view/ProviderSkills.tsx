@@ -622,8 +622,8 @@ export default function ProviderSkills({ selectedProvider, currentProjects }: Pr
                 <div className={cn(
                   'max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg border px-3 py-2 text-sm',
                   submitError || loadError
-                    ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800/60 dark:bg-red-900/20 dark:text-red-200'
-                    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+                    ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                    : 'border-success/30 bg-success/10 text-success',
                 )}>
                   {submitError || loadError || 'Skills saved successfully.'}
                 </div>
@@ -666,7 +666,7 @@ export default function ProviderSkills({ selectedProvider, currentProjects }: Pr
       )}
 
       {justInstalled && saveStatus === 'success' && !isAddDialogOpen && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+        <div className="inline-flex items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs font-medium text-success">
           <CheckCircle2 className="h-4 w-4" />
           Skills saved successfully.
         </div>

@@ -15,11 +15,14 @@ import type {
   SessionWithProvider,
 } from '../types/types';
 import {
+  applyManualSessionOrder,
   clearLegacyStarredProjectIds,
   filterProjects,
   getAllSessions,
+  getSessionCreatedDate,
   getSessionDate,
   getSessionTime,
+  isScratchProject,
   readLegacyStarredProjectIds,
   readProjectSortOrder,
   sortProjects,
@@ -65,7 +68,7 @@ type UseSidebarControllerArgs = {
 export function useSidebarController({
   projects,
   selectedProject,
-  selectedSession: _selectedSession,
+  selectedSession,
   activeSessions,
   isLoading,
   isMobile,
@@ -102,6 +105,9 @@ export function useSidebarController({
   // the Recent journal. Synced to the server so the choice applies on every
   // device. A session re-appears once its activity is newer than its marker.
   const [hiddenRecentSessions, setHiddenRecentSessions] = useState<Record<string, string>>({});
+  // Pinned card order per project ({ projectId -> sessionId[] }), also synced to
+  // the server so the arrangement is the same on desktop and phone.
+  const [sessionOrderByProject, setSessionOrderByProject] = useState<Record<string, string[]>>({});
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, boolean>>(new Map());
   const [loadingMoreProjects, setLoadingMoreProjects] = useState<Set<string>>(new Set());
@@ -125,12 +131,22 @@ export function useSidebarController({
     setInitialSessionsLoaded(new Set());
   }, [projects]);
 
+  const hasSelectedSession = Boolean(selectedSession);
+
   useEffect(() => {
     // Auto-expand only when the selected project identity changes.
     // Depending on the full `selectedProject` object (or `selectedSession`) causes
     // websocket-driven list refreshes to re-open projects users manually collapsed.
     const selectedProjectId = selectedProject?.projectId;
     if (!selectedProjectId) {
+      return;
+    }
+
+    // A project alone is not a reason to unfold its sessions: on a cold start
+    // (fresh login, cleared cookies) the sidebar must show projects only. The
+    // list opens when an actual conversation is on screen, or when the user
+    // taps the project themselves (see `toggleProject`).
+    if (!hasSelectedSession) {
       return;
     }
 
@@ -142,7 +158,7 @@ export function useSidebarController({
       next.add(selectedProjectId);
       return next;
     });
-  }, [selectedProject?.projectId]);
+  }, [hasSelectedSession, selectedProject?.projectId]);
 
   useEffect(() => {
     if (projects.length > 0 && !isLoading) {
@@ -276,6 +292,55 @@ export function useSidebarController({
     },
     [persistHiddenRecentSessions],
   );
+
+  const fetchSessionOrder = useCallback(async () => {
+    try {
+      const response = await api.getSessionOrder();
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { data?: { order?: Record<string, string[]> } };
+      const order = payload.data?.order;
+      if (order && typeof order === 'object') {
+        setSessionOrderByProject(order);
+      }
+    } catch (error) {
+      console.error('[Sidebar] Failed to load pinned session order:', error);
+    }
+  }, []);
+
+  const persistSessionOrder = useCallback(async (nextOrder: Record<string, string[]>) => {
+    try {
+      await api.setSessionOrder(nextOrder);
+    } catch (error) {
+      console.error('[Sidebar] Failed to persist pinned session order:', error);
+    }
+  }, []);
+
+  /**
+   * Commits a drag: `orderedSessionIds` is the visible list of a project after
+   * the card was dropped. Previously pinned sessions that are not currently
+   * visible (collapsed pagination, or a filtered Recent view) keep their
+   * relative order and follow behind, so dragging in one view never scrambles
+   * the other.
+   */
+  const reorderProjectSessions = useCallback(
+    (projectId: string, orderedSessionIds: string[]) => {
+      setSessionOrderByProject((previous) => {
+        const visible = orderedSessionIds.map(String);
+        const visibleSet = new Set(visible);
+        const carriedOver = (previous[projectId] ?? []).filter((sessionId) => !visibleSet.has(sessionId));
+        const next = { ...previous, [projectId]: [...visible, ...carriedOver] };
+        void persistSessionOrder(next);
+        return next;
+      });
+    },
+    [persistSessionOrder],
+  );
+
+  useEffect(() => {
+    void fetchSessionOrder();
+  }, [fetchSessionOrder]);
 
   useEffect(() => {
     if (migrationStartedRef.current) {
@@ -464,7 +529,10 @@ export function useSidebarController({
     [resolveProjectStarState],
   );
 
-  const getProjectSessions = useCallback((project: Project) => getAllSessions(project), []);
+  const getProjectSessions = useCallback(
+    (project: Project) => applyManualSessionOrder(getAllSessions(project), sessionOrderByProject[project.projectId]),
+    [sessionOrderByProject],
+  );
 
   const loadMoreSessionsForProject = useCallback(async (projectId: string) => {
     if (!onLoadMoreSessions) {
@@ -501,12 +569,17 @@ export function useSidebarController({
     }
   }, [onLoadMoreSessions, t]);
 
+  // Служебные каталоги агента (/tmp, .repro-tmp, scratchpad, пробники) в список
+  // проектов не попадают: это не проекты, а следы работы, и они засоряли сайдбар
+  // вперемешку с настоящими проектами.
+  const visibleProjects = useMemo(() => projects.filter((project) => !isScratchProject(project)), [projects]);
+
   const projectsWithResolvedStarState = useMemo(() => {
     if (optimisticStarByProjectId.size === 0) {
-      return projects;
+      return visibleProjects;
     }
 
-    return projects.map((project) => {
+    return visibleProjects.map((project) => {
       const optimisticStarState = optimisticStarByProjectId.get(project.projectId);
       if (optimisticStarState === undefined) {
         return project;
@@ -522,7 +595,7 @@ export function useSidebarController({
         isStarred: optimisticStarState,
       };
     });
-  }, [optimisticStarByProjectId, projects]);
+  }, [optimisticStarByProjectId, visibleProjects]);
 
   const sortedProjects = useMemo(
     () => sortProjects(projectsWithResolvedStarState, projectSortOrder),
@@ -594,15 +667,26 @@ export function useSidebarController({
       });
     }
 
-    return [...byProjectId.values()].map((project) => ({
-      ...project,
-      sessionMeta: {
-        ...project.sessionMeta,
-        total: project.sessions?.length ?? 0,
-        hasMore: false,
-      },
-    }));
-  }, [sortedProjects, activeSessionIds, isSessionHiddenFromRecent]);
+    // Which sessions make the journal is decided by activity above; how they are
+    // *stacked* is the pinned order, so a running session never pushes the cards
+    // below it around.
+    return [...byProjectId.values()].map((project) => {
+      const sessions = [...(project.sessions ?? [])].sort(
+        (a, b) => getSessionCreatedDate(b as SessionWithProvider).getTime()
+          - getSessionCreatedDate(a as SessionWithProvider).getTime(),
+      ) as SessionWithProvider[];
+
+      return {
+        ...project,
+        sessions: applyManualSessionOrder(sessions, sessionOrderByProject[project.projectId]),
+        sessionMeta: {
+          ...project.sessionMeta,
+          total: sessions.length,
+          hasMore: false,
+        },
+      };
+    });
+  }, [sortedProjects, activeSessionIds, isSessionHiddenFromRecent, sessionOrderByProject]);
 
   const recentSessionsCount = useMemo(
     () => recentProjects.reduce((count, project) => count + (project.sessions?.length ?? 0), 0),
@@ -952,6 +1036,7 @@ export function useSidebarController({
     archivedSessionsCount: archivedProjects.length + archivedSessions.length,
     isArchivedSessionsLoading,
     toggleProject,
+    reorderProjectSessions,
     handleSessionClick,
     toggleStarProject,
     isProjectStarred,

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
 import { useWebSocket } from '../../../contexts/WebSocketContext';
-import PermissionContext from '../../../contexts/PermissionContext';
+import PermissionContext, { type PermissionContextValue } from '../../../contexts/PermissionContext';
 import { QuickSettingsPanel } from '../../quick-settings-panel';
 import type { ChatInterfaceProps, Provider  } from '../types/types';
 import { useChatProviderState } from '../hooks/useChatProviderState';
@@ -12,6 +12,7 @@ import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useConnectionWatchdog } from '../hooks/useConnectionWatchdog';
 import { useSessionStore } from '../../../stores/useSessionStore';
+import { decisionExitsPlanMode, permissionModeAfterPlanApproval } from '../utils/planMode';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
@@ -197,7 +198,7 @@ function ChatInterface({
     handleAbortSession,
     handleAppendNow,
     isAppendPending,
-    handlePermissionDecision,
+    handlePermissionDecision: sendPermissionDecision,
     handleGrantToolPermission,
     handleInputFocusChange,
     isInputFocused,
@@ -347,6 +348,28 @@ function ChatInterface({
       resetStreamingState();
     };
   }, [resetStreamingState]);
+
+  // Approving the plan leaves plan mode behind and hands the agent the rights
+  // to actually carry it out: the SDK gets an explicit setMode on approval (see
+  // claude-sdk.js) and the chip follows it, or the NEXT message would be sent
+  // read-only again — or worse, land in "ask" and stop on every step of a plan
+  // the user just approved. Denying ("revise") keeps plan mode.
+  const handlePermissionDecision = useCallback<PermissionContextValue['handlePermissionDecision']>(
+    (requestIds, decision) => {
+      if (decisionExitsPlanMode(permissionMode, pendingPermissionRequests, requestIds, decision?.allow)) {
+        selectPermissionMode(permissionModeAfterPlanApproval(availablePermissionModes));
+      }
+
+      sendPermissionDecision(requestIds, decision);
+    },
+    [
+      permissionMode,
+      pendingPermissionRequests,
+      availablePermissionModes,
+      selectPermissionMode,
+      sendPermissionDecision,
+    ],
+  );
 
   const permissionContextValue = useMemo(() => ({
     pendingPermissionRequests,

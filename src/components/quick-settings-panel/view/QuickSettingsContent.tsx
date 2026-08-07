@@ -1,7 +1,12 @@
-import { Sparkles, Palette } from 'lucide-react';
+import { Image as ImageIcon, Palette } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { useTheme, THEMES, THEME_LABELS } from '../../../contexts/ThemeContext';
+import {
+  useTheme,
+  THEMES,
+  THEME_LABELS,
+  backgroundsForTheme,
+} from '../../../contexts/ThemeContext';
 import LanguageSelector from '../../../shared/view/ui/LanguageSelector';
 import {
   INPUT_SETTING_TOGGLES,
@@ -29,7 +34,16 @@ export default function QuickSettingsContent({
   onPreferenceChange,
 }: QuickSettingsContentProps) {
   const { t } = useTranslation('settings');
-  const { shaderEnabled, setShaderEnabled, theme, setTheme } = useTheme();
+  const {
+    shaderEnabled,
+    setShaderEnabled,
+    theme,
+    setTheme,
+    backgroundVariant,
+    setThemeBackground,
+  } = useTheme();
+  // Селектор картинки показываем только там, где есть из чего выбирать.
+  const backgroundVariants = shaderEnabled ? backgroundsForTheme(theme) : [];
   const inputSettingToggles = preferences.voiceEnabled
     ? INPUT_SETTING_TOGGLES
     : INPUT_SETTING_TOGGLES.filter(({ key }) => key !== 'voiceEnabled');
@@ -52,7 +66,7 @@ export default function QuickSettingsContent({
         <div className={SETTING_ROW_CLASS}>
           <span className="flex items-center gap-2 text-sm text-foreground">
             <Palette className="h-4 w-4 text-muted-foreground" />
-            {t('quickSettings.theme', 'Тема')}
+            {t('quickSettings.theme')}
           </span>
           <select
             value={theme}
@@ -66,9 +80,28 @@ export default function QuickSettingsContent({
             ))}
           </select>
         </div>
+        {backgroundVariants.length > 1 && (
+          <div className={SETTING_ROW_CLASS}>
+            <span className="flex items-center gap-2 text-sm text-foreground">
+              <ImageIcon className="h-4 w-4 text-muted-foreground" />
+              {t('quickSettings.themeBackground')}
+            </span>
+            <select
+              value={backgroundVariant}
+              onChange={(event) => setThemeBackground(theme, event.target.value)}
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {backgroundVariants.map((variant: { id: string; label: string }) => (
+                <option key={variant.id} value={variant.id}>
+                  {variant.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <QuickSettingsToggleRow
-          label={t('quickSettings.animatedBackground', 'Живой фон')}
-          icon={Sparkles}
+          label={t('quickSettings.showBackground')}
+          icon={ImageIcon}
           checked={shaderEnabled}
           onCheckedChange={setShaderEnabled}
         />

@@ -96,13 +96,71 @@ export const createSessionViewModel = (
   };
 };
 
+/**
+ * Creation time drives the *default* sidebar order. Sorting by last activity
+ * (the old behaviour) made cards swap places every time a message landed, so
+ * running several sessions at once turned the list into a slot machine.
+ */
+export const getSessionCreatedDate = (session: SessionWithProvider): Date => {
+  return new Date(getCreatedTimestamp(session) || getUpdatedTimestamp(session) || 0);
+};
+
 export const getAllSessions = (project: Project): SessionWithProvider[] => {
   return (project.sessions || []).map((session) => ({
     ...session,
     __provider: getSessionProvider(session),
-  })).sort(
-    (a, b) => getSessionDate(b).getTime() - getSessionDate(a).getTime(),
+  })).sort((a, b) => {
+    const byCreation = getSessionCreatedDate(b).getTime() - getSessionCreatedDate(a).getTime();
+    // Identical timestamps (or none at all) must still yield a deterministic
+    // order, otherwise the list can reshuffle between renders.
+    return byCreation !== 0 ? byCreation : String(a.id).localeCompare(String(b.id));
+  });
+};
+
+/**
+ * Applies the user's drag-and-drop order on top of the creation-time default.
+ *
+ * `pinnedIds` holds the exact sequence the user arranged. Sessions missing from
+ * it are newcomers (created after the arrangement — they belong on top, so a
+ * fresh session becomes #1) or older ones that arrived via "load more" — those
+ * go to the tail. `sessions` must already be sorted newest-first.
+ */
+export const applyManualSessionOrder = (
+  sessions: SessionWithProvider[],
+  pinnedIds: readonly string[] | undefined,
+): SessionWithProvider[] => {
+  if (!pinnedIds || pinnedIds.length === 0 || sessions.length === 0) {
+    return sessions;
+  }
+
+  const rankById = new Map<string, number>();
+  pinnedIds.forEach((sessionId, rank) => {
+    rankById.set(sessionId, rank);
+  });
+
+  const pinned: SessionWithProvider[] = [];
+  const unpinned: SessionWithProvider[] = [];
+  for (const session of sessions) {
+    (rankById.has(String(session.id)) ? pinned : unpinned).push(session);
+  }
+
+  if (pinned.length === 0) {
+    return sessions;
+  }
+
+  pinned.sort((a, b) => (rankById.get(String(a.id)) ?? 0) - (rankById.get(String(b.id)) ?? 0));
+
+  // Newest pinned card marks the cut-off between "created after the user
+  // arranged the list" and "old session pulled in later".
+  const newestPinnedTime = pinned.reduce(
+    (newest, session) => Math.max(newest, getSessionCreatedDate(session).getTime()),
+    0,
   );
+
+  const newcomers = unpinned.filter((session) => getSessionCreatedDate(session).getTime() > newestPinnedTime);
+  const older = unpinned.filter((session) => getSessionCreatedDate(session).getTime() <= newestPinnedTime);
+
+  return [...newcomers, ...pinned, ...older];
 };
 
 export const getProjectLastActivity = (project: Project): Date => {
@@ -144,6 +202,31 @@ export const sortProjects = (
   });
 
   return byName;
+};
+
+/**
+ * Служебные каталоги, которые агент создаёт сам: временные песочницы, репро-папки
+ * под баги, пробники. Проектами они не являются, но попадали в общий список и
+ * висели в сайдбаре вперемешку с рабочими проектами (иногда по два раза — /tmp и
+ * его же реальный путь /private/tmp).
+ */
+const SCRATCH_PATH_PATTERNS = [
+  /^\/tmp\//,
+  /^\/private\/tmp\//,
+  /^\/private\/var\/folders\//,
+  /^\/var\/folders\//,
+  /\/\.repro-tmp\d*\//,
+  /\/scratchpad(\/|$)/,
+  /\/memtest\.[^/]+$/,
+  /\/probe-[^/]+$/,
+];
+
+export const isScratchProject = (project: Project): boolean => {
+  const projectPath = project.path || project.fullPath || '';
+  if (!projectPath) {
+    return false;
+  }
+  return SCRATCH_PATH_PATTERNS.some((pattern) => pattern.test(projectPath));
 };
 
 export const filterProjects = (projects: Project[], searchFilter: string): Project[] => {

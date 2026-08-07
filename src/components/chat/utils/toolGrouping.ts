@@ -1,10 +1,15 @@
 import type { ChatMessage } from '../types/types';
 
-export const TOOL_GROUP_THRESHOLD = 2;
+// Every consecutive run of tool calls collapses behind one chevron — including
+// a run of a single call, and runs that mix different tools. The transcript
+// should read as prose; the machinery stays one click away.
+export const TOOL_GROUP_THRESHOLD = 1;
 
 export interface ToolGroupItem {
   _isGroup: true;
+  /** Tool name when the whole run is one tool, empty string when the run mixes tools. */
   toolName: string;
+  isMixed: boolean;
   messages: ChatMessage[];
   timestamp: ChatMessage['timestamp'];
 }
@@ -54,7 +59,7 @@ export function groupConsecutiveTools(
         continue;
       }
 
-      if (isGroupableToolMessage(candidate) && candidate.toolName === message.toolName) {
+      if (isGroupableToolMessage(candidate)) {
         run.push(candidate);
         nextIndex += 1;
         continue;
@@ -64,9 +69,11 @@ export function groupConsecutiveTools(
     }
 
     if (run.length >= TOOL_GROUP_THRESHOLD) {
+      const isMixed = run.some((item) => item.toolName !== message.toolName);
       items.push({
         _isGroup: true,
-        toolName: message.toolName,
+        toolName: isMixed ? '' : message.toolName,
+        isMixed,
         messages: run,
         timestamp: message.timestamp,
       });

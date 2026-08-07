@@ -22,6 +22,9 @@
     "gemini": "Gemini",
     "opencode": "OpenCode"
   },
+  "toolGroup": {
+    "mixedLabel": "Tools"
+  },
   "tools": {
     "settings": "Tool Settings",
     "error": "Tool Error",
@@ -148,7 +151,8 @@
       "delete": "Delete queued message",
       "imagesAttached_one": "{{count}} image attached",
       "imagesAttached_other": "{{count}} images attached"
-    }
+    },
+    "pressEscAgainToStop": "Press Esc again to stop"
   },
   "providerSelection": {
     "title": "Choose Your AI Assistant",
