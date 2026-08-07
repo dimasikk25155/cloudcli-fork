@@ -254,5 +254,18 @@
   },
   "tasks": {
     "nextTaskPrompt": "Start the next task"
+  },
+  "workMode": {
+    "title": "Work mode",
+    "modes": {
+      "autopilot": "Standard",
+      "checkpoints": "Briefings",
+      "interrogate": "Ask first"
+    },
+    "descriptions": {
+      "autopilot": "Runs the task to the end on its own, asking only when it genuinely cannot proceed.",
+      "checkpoints": "Plans the work in stages, briefs you after each one and waits for your go-ahead.",
+      "interrogate": "Asks clarifying questions before every step and never assumes anything."
+    }
   }
 }

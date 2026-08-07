@@ -84,7 +84,16 @@ const ghostButtonClass =
 const inputClass =
   'min-w-0 flex-1 rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary/60';
 
-export default function TelegramSettingsPanel() {
+type TelegramSettingsPanelProps = {
+  /**
+   * Rendered inside the Settings tab rather than the sidebar's PanelModal:
+   * the tab container brings its own padding, so the panel must not add a
+   * second one.
+   */
+  embedded?: boolean;
+};
+
+export default function TelegramSettingsPanel({ embedded = false }: TelegramSettingsPanelProps) {
   const [status, setStatus] = useState<TelegramStatus | null>(null);
   const [projects, setProjects] = useState<ProjectChoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -250,7 +259,7 @@ export default function TelegramSettingsPanel() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+      <div className={`flex items-center gap-2 text-sm text-muted-foreground ${embedded ? '' : 'p-4'}`}>
         <Loader2 className="h-4 w-4 animate-spin" />
         Загружаю настройки Telegram...
       </div>
@@ -265,8 +274,9 @@ export default function TelegramSettingsPanel() {
   const busy = pending !== null;
 
   return (
-    <div className="space-y-4 p-4">
-      {/* Title lives in the modal chrome; only the tagline and reload stay here. */}
+    <div className={`space-y-4 ${embedded ? '' : 'p-4'}`}>
+      {/* Title lives in the modal chrome (or the settings section heading);
+          only the tagline and reload stay here. */}
       <header className="flex items-start justify-between gap-3">
         <p className="text-xs text-muted-foreground">
           Пишите агенту прямо в Telegram — ответы приходят в тот же чат.

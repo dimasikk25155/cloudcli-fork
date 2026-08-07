@@ -167,6 +167,10 @@ CREATE TABLE IF NOT EXISTS user_provider_preferences (
     user_id INTEGER PRIMARY KEY,
     models_json TEXT NOT NULL DEFAULT '{}',
     efforts_json TEXT NOT NULL DEFAULT '{}',
+    -- Work mode a new chat starts in (see server/shared/work-mode.ts). Not
+    -- per-provider: only the Claude runtime carries it, and it describes how
+    -- the user wants to be talked to rather than a property of an engine.
+    work_mode TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

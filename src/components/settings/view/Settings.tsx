@@ -15,6 +15,8 @@ import NotificationsSettingsTab from '../view/tabs/NotificationsSettingsTab';
 import PluginSettingsTab from '../../plugins/view/PluginSettingsTab';
 import AdminSettingsTab from '../view/tabs/admin-settings/AdminSettingsTab';
 import AboutTab from '../view/tabs/AboutTab';
+import SettingsSection from '../view/SettingsSection';
+import TelegramSettingsPanel from '../../telegram/TelegramSettingsPanel';
 import { useSettingsController } from '../hooks/useSettingsController';
 import { useWebPush } from '../../../hooks/useWebPush';
 import type { SettingsProps } from '../types/types';
@@ -206,6 +208,12 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                   onEnableDesktopNotifications={handleEnableDesktopNotifications}
                   onDisableDesktopNotifications={handleDisableDesktopNotifications}
                 />
+              )}
+
+              {activeTab === 'telegram' && (
+                <SettingsSection title={t('mainTabs.telegram', { defaultValue: 'Telegram bot' })}>
+                  <TelegramSettingsPanel embedded />
+                </SettingsSection>
               )}
 
               {activeTab === 'api' && <CredentialsSettingsTab />}

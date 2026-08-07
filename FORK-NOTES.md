@@ -51,6 +51,14 @@ The old `/api/projects/:id/upload-images` endpoint is gone — chat image upload
 moved upstream to `POST /api/assets/images` (`server/modules/assets`).
 
 ### Merge history
+- **2026-08-07**: upstream shipped **v1.37.0**; we did *not* merge it. The release is
+  mostly a module-layout refactor (`server/modules/file-tree/*`) plus es/ko/zh-CN
+  translations, and none of its small fixes apply to this fork any more: the
+  "Sonnet 4.6 → Sonnet 5" label fix is already ours, the clock-skew token fix targets
+  an `isAuthTokenExpired` we never took, and the `/proc` file-tree guard needs the
+  refactored service we don't have. Only `version` was bumped to `1.37.0` so the
+  About screen and the upstream release check stop reporting us as behind.
+  A real merge is still a from-scratch job via the runbook above.
 - **2026-07-11**: merged origin/main → **v1.36.1**. Brought upstream's queued-message
   feature (type while a turn runs → message is stashed and auto-sent when it finishes,
   instead of only offering Stop). Fork's temp-file image work was superseded by
@@ -66,6 +74,11 @@ moved upstream to `POST /api/assets/images` (`server/modules/assets`).
 - Session rename fixes (web UI + custom-title sync from jsonl)
 - Sidebar search across session names/summaries
 - Image upload MIME fallback by extension (Android WebView)
+- Cross-browser clipboard paste (`utils/clipboardPaste.ts`): take every file the
+  clipboard offers (Safari reports Telegram images as `kind: 'file'` with an empty
+  MIME type and keeps `items` non-empty) and suppress the pasted text when it is
+  just the file's on-disk path — upstream leaves it, so a Telegram paste in Safari
+  fills the composer with `/Users/…/telegram-cloud-photo-….jpg`
 - Nightshift module: `/api/nightshift` + "Запуски" modal (launchd runs history)
 - TWA: Digital Asset Links served for the Android app
 - Composer model switcher + per-session override keyed by provider-native id

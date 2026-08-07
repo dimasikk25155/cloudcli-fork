@@ -27,9 +27,11 @@ import type {
   PendingPermissionRequest,
   PermissionMode,
   SessionEstablishedContext,
+  WorkMode,
 } from '../types/types';
 import type { Project, ProjectSession, LLMProvider, ProviderModelsCacheInfo } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
+import { collectPastedFiles, isRedundantPastedText } from '../utils/clipboardPaste';
 import { downscaleImageFile } from '../utils/imageDownscale';
 
 import { useFileMentions } from './useFileMentions';
@@ -46,6 +48,7 @@ interface UseChatComposerStateArgs {
   currentSessionId: string | null;
   provider: LLMProvider;
   permissionMode: PermissionMode | string;
+  workMode: WorkMode;
   cyclePermissionMode: () => void;
   resolvePermissionModeForProvider: (provider: LLMProvider, requestedMode: PermissionMode | string) => PermissionMode;
   cursorModel: string;
@@ -227,6 +230,7 @@ export function useChatComposerState({
   currentSessionId,
   provider,
   permissionMode,
+  workMode,
   cyclePermissionMode,
   resolvePermissionModeForProvider,
   cursorModel,
@@ -610,24 +614,19 @@ export function useChatComposerState({
 
   const handlePaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
-      const items = Array.from(event.clipboardData.items);
+      const clipboard = event.clipboardData;
+      const files = collectPastedFiles(clipboard);
+      if (files.length === 0) {
+        return;
+      }
 
-      items.forEach((item) => {
-        if (!item.type.startsWith('image/')) {
-          return;
-        }
-        const file = item.getAsFile();
-        if (file) {
-          handleImageFiles([file]);
-        }
-      });
+      handleImageFiles(files);
 
-      if (items.length === 0 && event.clipboardData.files.length > 0) {
-        const files = Array.from(event.clipboardData.files);
-        const imageFiles = files.filter((file) => file.type.startsWith('image/'));
-        if (imageFiles.length > 0) {
-          handleImageFiles(imageFiles);
-        }
+      // Safari hands over the image *and* its on-disk path as text. Keep the
+      // attachment, drop the path — otherwise the composer fills with
+      // `/Users/…/telegram-cloud-photo-….jpg` on every Telegram paste.
+      if (isRedundantPastedText(clipboard?.getData('text/plain') ?? '', files)) {
+        event.preventDefault();
       }
     },
     [handleImageFiles],
@@ -693,6 +692,7 @@ export function useChatComposerState({
       model,
       effort: currentProviderEffort,
       permissionMode: resolvePermissionModeForProvider(provider, permissionMode),
+      workMode,
       toolsSettings,
       skipPermissions: toolsSettings?.skipPermissions || false,
       sessionSummary: getNotificationSessionSummary(selectedSession, currentInput),
@@ -706,6 +706,7 @@ export function useChatComposerState({
     geminiModel,
     opencodeModel,
     permissionMode,
+    workMode,
     provider,
     resolvePermissionModeForProvider,
     selectedSession,

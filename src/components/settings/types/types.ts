@@ -3,9 +3,9 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { LLMProvider } from '../../../types/app';
 import type { ProviderAuthStatus } from '../../provider-auth/types';
 
-export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' | 'browser' | 'notifications' | 'plugins' | 'admin' | 'about';
+export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' | 'browser' | 'notifications' | 'telegram' | 'plugins' | 'admin' | 'about';
 export type AgentProvider = LLMProvider;
-export type AgentCategory = 'account' | 'permissions' | 'mcp' | 'skills';
+export type AgentCategory = 'account' | 'defaults' | 'permissions' | 'mcp' | 'skills';
 export type ProjectSortOrder = 'name' | 'date';
 export type SaveStatus = 'success' | 'error' | null;
 export type CodexPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';

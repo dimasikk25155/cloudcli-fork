@@ -5,6 +5,7 @@ import type { SkillsProject } from '../../../../../skills/types';
 import { ProviderSkills } from '../../../../../skills';
 
 import AccountContent from './content/AccountContent';
+import NewChatDefaultsContent from './content/NewChatDefaultsContent';
 import PermissionsContent from './content/PermissionsContent';
 
 export default function AgentCategoryContentSection({
@@ -28,6 +29,8 @@ export default function AgentCategoryContentSection({
           onLogin={agentContextById[selectedAgent].onLogin}
         />
       )}
+
+      {selectedCategory === 'defaults' && <NewChatDefaultsContent agent={selectedAgent} />}
 
       {selectedCategory === 'permissions' && selectedAgent === 'claude' && (
         <PermissionsContent

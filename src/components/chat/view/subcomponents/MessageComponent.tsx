@@ -114,11 +114,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
               </div>
             )}
           </div>
-          {!isGrouped && (
-            <div className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm text-foreground sm:flex">
-              U
-            </div>
-          )}
         </div>
       ) : message.isTaskNotification ? (
         /* Compact task notification on the left */

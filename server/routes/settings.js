@@ -12,6 +12,7 @@ import {
   pushSubscriptionsDb,
   uiPreferencesDb,
 } from '../modules/database/index.js';
+import { WORK_MODES } from '../shared/work-mode.js';
 import { getPublicKey } from '../services/vapid-keys.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '../services/notification-orchestrator.js';
 
@@ -327,6 +328,22 @@ router.put('/provider-preferences/effort', async (req, res) => {
   } catch (error) {
     console.error('Error saving provider effort preference:', error);
     res.status(500).json({ error: 'Failed to save provider effort preference' });
+  }
+});
+
+router.put('/provider-preferences/work-mode', async (req, res) => {
+  try {
+    const { workMode } = req.body;
+    // Validated against the runtime's own list so an unknown value can never
+    // be stored and later handed to the agent as an instruction.
+    if (!WORK_MODES.includes(workMode)) {
+      return res.status(400).json({ error: `workMode must be one of: ${WORK_MODES.join(', ')}` });
+    }
+    const preferences = providerPreferencesDb.setWorkMode(req.user.id, workMode);
+    res.json({ success: true, ...preferences });
+  } catch (error) {
+    console.error('Error saving work mode preference:', error);
+    res.status(500).json({ error: 'Failed to save work mode preference' });
   }
 });
 

@@ -40,23 +40,24 @@ export const THEMES = [
 export const DEFAULT_THEME = 'glass';
 
 // Human-readable labels for the theme picker in Settings → Appearance.
-// Названия по-русски и по материалу, а не по коду: пользователь выбирает
-// глазами, и «Стекло» говорит ему больше, чем `glass`. Ключи менять нельзя —
-// они лежат в аккаунтах и в именах CSS-блоков и файлов фонов.
+// Названия по ЦВЕТУ АКЦЕНТА, а не по образу: «Стекло» и «Гонка» ничего не
+// говорили о том, как тема выглядит, и выбирать приходилось перебором. Теперь
+// подпись = цвет кнопок и ссылок, у двух светлых тем это помечено отдельно.
+// Ключи менять нельзя — они лежат в аккаунтах и в именах CSS-блоков и фонов.
 export const THEME_LABELS = {
-  glass: 'Стекло',
-  ember: 'Уголь',
-  gt: 'Гонка',
-  editorial: 'Бумага',
-  kineticType: 'Терминал',
-  claude: 'Claude',
-  neonCity: 'Неон',
-  synthwaveDrive: 'Аврора',
-  nebulaFlow: 'Туманность',
-  missionControl: 'Центр управления',
-  bento3d: 'Космос',
-  liquidChrome: 'Чернила',
-  zenParticles: 'Свечение',
+  glass: 'Бирюзовая светлая',
+  ember: 'Оранжевая',
+  gt: 'Красная',
+  editorial: 'Бежевая светлая',
+  kineticType: 'Лаймовая',
+  claude: 'Терракотовая',
+  neonCity: 'Голубая',
+  synthwaveDrive: 'Розовая',
+  nebulaFlow: 'Мятная',
+  missionControl: 'Синяя',
+  bento3d: 'Зелёная',
+  liquidChrome: 'Сиреневая',
+  zenParticles: 'Янтарная',
 };
 
 // Themes that are light (bright) rather than dark. Each theme decides whether

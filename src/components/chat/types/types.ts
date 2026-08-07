@@ -14,6 +14,15 @@ export type Provider = LLMProvider;
  */
 export type PermissionMode = 'default' | 'bypassPermissions' | 'plan';
 
+/**
+ * How much the agent checks in while it works — a different axis from
+ * PermissionMode, which only decides whether a tool call needs an OK.
+ * Mirrors WORK_MODES in server/shared/work-mode.ts.
+ */
+export type WorkMode = 'autopilot' | 'checkpoints' | 'interrogate';
+
+export const WORK_MODES: WorkMode[] = ['autopilot', 'checkpoints', 'interrogate'];
+
 export interface ChatImage {
   /** Inline data URL (Claude history stores attachments as base64). */
   data?: string;

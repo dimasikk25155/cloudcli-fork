@@ -81,6 +81,9 @@ function ChatInterface({
     setPendingPermissionRequests,
     cyclePermissionMode,
     selectPermissionMode,
+    workMode,
+    selectWorkMode,
+    commitWorkModeToSession,
     availablePermissionModes,
     providerModels,
     providerModelCatalog,
@@ -90,10 +93,9 @@ function ChatInterface({
     hardRefreshProviderModels,
     selectProviderModel,
     selectProviderEffort,
-    setStoredProviderModel,
-    setStoredProviderEffort,
     resolvePermissionModeForProvider,
     commitPermissionModeToSession,
+    commitSessionModelAndEffort,
   } = useChatProviderState({
     selectedSession,
     selectedProject,
@@ -153,9 +155,13 @@ function ChatInterface({
     // commitPermissionModeToSession for why this must happen at this exact
     // moment rather than through any shared/global fallback.
     commitPermissionModeToSession(sessionId);
+    commitWorkModeToSession(sessionId);
+    // Same story for the model and thinking level picked on the empty screen:
+    // in-chat picks are session-scoped now, so they need a session to land on.
+    commitSessionModelAndEffort(sessionId);
     onSessionEstablished?.(sessionId, context);
     onNavigateToSession?.(sessionId);
-  }, [setCurrentSessionId, commitPermissionModeToSession, onSessionEstablished, onNavigateToSession]);
+  }, [setCurrentSessionId, commitPermissionModeToSession, commitWorkModeToSession, commitSessionModelAndEffort, onSessionEstablished, onNavigateToSession]);
 
   const {
     input,
@@ -211,6 +217,7 @@ function ChatInterface({
     currentSessionId,
     provider,
     permissionMode,
+    workMode,
     cyclePermissionMode,
     cursorModel,
     claudeModel,
@@ -492,32 +499,32 @@ function ChatInterface({
           permissionMode={permissionMode}
           availablePermissionModes={availablePermissionModes}
           onSelectPermissionMode={selectPermissionMode}
+          workMode={workMode}
+          onSelectWorkMode={selectWorkMode}
+          // Work modes ride on the Claude system prompt (see
+          // server/shared/work-mode.ts); the other CLIs have no equivalent
+          // hook, so the chip says so instead of pretending to apply.
+          isWorkModeSupported={provider === 'claude'}
           model={providerModels[provider]}
           availableModelOptions={providerModelCatalog[provider]?.OPTIONS ?? []}
           onSelectModel={(nextModel) => {
-            // Local default keeps the label and the next chat.send in sync;
-            // the backend override makes the change stick for this session.
-            setStoredProviderModel(provider, nextModel);
+            // Scoped to this chat: selectProviderModel moves the chip and,
+            // once there is a session id, records the choice on that session.
+            // The starting model for NEW chats is a separate Settings value
+            // and is deliberately left alone here.
             const sessionIdForOverride = currentSessionId || selectedSession?.id || null;
-            if (sessionIdForOverride) {
-              selectProviderModel(provider, nextModel, sessionIdForOverride).catch((error) => {
-                console.error('Failed to persist the session model override:', error);
-              });
-            }
+            selectProviderModel(provider, nextModel, sessionIdForOverride).catch((error) => {
+              console.error('Failed to persist the session model override:', error);
+            });
           }}
           effort={currentProviderEffort}
           availableEffortOptions={currentProviderEffortOptions}
           onSelectEffort={(nextEffort) => {
-            // Local default keeps the label and the next chat.send in sync;
-            // the backend override makes the change stick for this session
-            // (mirrors onSelectModel above).
-            setStoredProviderEffort(provider, nextEffort);
+            // Session-scoped, mirroring onSelectModel above.
             const sessionIdForOverride = currentSessionId || selectedSession?.id || null;
-            if (sessionIdForOverride) {
-              selectProviderEffort(provider, nextEffort, sessionIdForOverride).catch((error) => {
-                console.error('Failed to persist the session effort override:', error);
-              });
-            }
+            selectProviderEffort(provider, nextEffort, sessionIdForOverride).catch((error) => {
+              console.error('Failed to persist the session effort override:', error);
+            });
           }}
           tokenBudget={tokenBudget}
           onShowTokenUsage={showCostModal}

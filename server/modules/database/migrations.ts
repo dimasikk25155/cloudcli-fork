@@ -506,6 +506,14 @@ export const runMigrations = (db: Database) => {
       db.exec('DROP TABLE workspace_original_paths');
     }
 
+    // Work mode a new chat starts in. The table itself is created by
+    // INIT_SCHEMA_SQL with `IF NOT EXISTS`, so databases predating this column
+    // would never gain it without an explicit ALTER.
+    if (tableExists(db, 'user_provider_preferences')) {
+      const preferencesColumnNames = getTableInfo(db, 'user_provider_preferences').map((column) => column.name);
+      addColumnToTableIfNotExists(db, 'user_provider_preferences', preferencesColumnNames, 'work_mode', 'TEXT');
+    }
+
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');
   } catch (error: any) {

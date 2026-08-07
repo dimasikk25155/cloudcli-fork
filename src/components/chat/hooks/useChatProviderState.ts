@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { authenticatedFetch } from '../../../utils/api';
-import type { PendingPermissionRequest, PermissionMode } from '../types/types';
+import { WORK_MODES } from '../types/types';
+import type { PendingPermissionRequest, PermissionMode, WorkMode } from '../types/types';
 import type {
   ProjectSession,
   LLMProvider,
@@ -16,6 +17,12 @@ import {
   toProviderEffortOptions,
 } from '../constants/providerEffort';
 import { skipPermissionsDefaultMode } from '../utils/permissionDefaults';
+import {
+  WORK_MODE_DEFAULT_KEY,
+  readDefaultWorkMode,
+  readSessionWorkMode,
+  workModeStorageKey,
+} from '../utils/workModeStorage';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   claude: 'default',
@@ -118,6 +125,10 @@ type ChangeActiveEffortApiResponse = {
 
 export function useChatProviderState({ selectedSession, selectedProject: _selectedProject }: UseChatProviderStateArgs) {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+  // Per chat, exactly like permissionMode: one conversation can run on
+  // briefings while another is left to get on with it. New chats start from
+  // the account default set in Settings (WORK_MODE_DEFAULT_KEY).
+  const [workMode, setWorkMode] = useState<WorkMode>(readDefaultWorkMode);
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
   const [provider, setProvider] = useState<LLMProvider>(readStoredProvider);
   const [cursorModel, setCursorModel] = useState<string>(() => {
@@ -178,6 +189,14 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   // hook isn't remounted when `selectedSession` changes (no key prop upstream).
   const sessionOverridesRef = useRef<Record<string, { model?: string; effort?: string }>>({});
 
+  // Readable from inside promise callbacks that must not re-run per session
+  // (the account-defaults fetch below), where `selectedSession` would be the
+  // stale value captured when the request started.
+  const selectedSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSession?.id ?? null;
+  }, [selectedSession?.id]);
+
   // Fire-and-forget: push the new default to the account so every other
   // device (phone, another Mac session) picks it up on its next load. Local
   // state/localStorage above already made the change feel instant on this
@@ -201,57 +220,92 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     });
   }, []);
 
-  const setStoredProviderModel = useCallback((targetProvider: LLMProvider, model: string) => {
+  /**
+   * Points the composer's Model chip at a value for the CURRENT chat only —
+   * React state, nothing else. What a brand-new chat starts with is a separate
+   * setting (setStoredProviderModel, written from Settings), so experimenting
+   * with a cheaper model inside one conversation no longer silently reprograms
+   * every future one. The value is persisted against the session row by
+   * selectProviderModel / commitSessionModelAndEffort.
+   */
+  const setActiveProviderModel = useCallback((targetProvider: LLMProvider, model: string) => {
     if (targetProvider === 'claude') {
       setClaudeModel(model);
-      localStorage.setItem('claude-model', model);
     } else if (targetProvider === 'cursor') {
       setCursorModel(model);
-      localStorage.setItem('cursor-model', model);
     } else if (targetProvider === 'codex') {
       setCodexModel(model);
-      localStorage.setItem('codex-model', model);
     } else if (targetProvider === 'opencode') {
       setOpenCodeModel(model);
-      localStorage.setItem('opencode-model', model);
     } else if (targetProvider === 'gemini') {
       setGeminiModel(model);
-      localStorage.setItem('gemini-model', model);
     } else {
       setKimiModel(model);
-      localStorage.setItem('kimi-model', model);
     }
-    syncProviderModelToServer(targetProvider, model);
-  }, [syncProviderModelToServer]);
+  }, []);
 
-  // Account-wide model/effort defaults, loaded once on mount and applied on
-  // top of whatever localStorage had (server is the cross-device source of
-  // truth; localStorage is just this browser's instant-paint cache).
+  const setActiveProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
+    setProviderEfforts((previous) => (
+      previous[targetProvider] === effort ? previous : { ...previous, [targetProvider]: effort }
+    ));
+  }, []);
+
+  /**
+   * Sets the default every NEW chat starts with (Settings-only writer).
+   * A chat already open keeps whatever it was started with — only a
+   * not-yet-created one follows the new default immediately.
+   */
+  const setStoredProviderModel = useCallback((targetProvider: LLMProvider, model: string) => {
+    localStorage.setItem(`${targetProvider}-model`, model);
+    syncProviderModelToServer(targetProvider, model);
+    if (!selectedSession?.id) {
+      setActiveProviderModel(targetProvider, model);
+    }
+  }, [selectedSession?.id, setActiveProviderModel, syncProviderModelToServer]);
+
+  // Account-wide new-chat defaults, loaded once on mount and applied on top of
+  // whatever localStorage had (server is the cross-device source of truth;
+  // localStorage is just this browser's instant-paint cache).
+  //
+  // The stored values are ALWAYS refreshed, but they only touch the composer's
+  // live state when no chat is open: a conversation already running on its own
+  // model must not be yanked onto the account default by a request that
+  // happens to resolve a second after the page loaded.
   useEffect(() => {
     let cancelled = false;
     authenticatedFetch('/api/settings/provider-preferences')
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: { models?: Record<string, string>; efforts?: Record<string, string> } | null) => {
+      .then((data: {
+        models?: Record<string, string>;
+        efforts?: Record<string, string>;
+        workMode?: string | null;
+      } | null) => {
         if (cancelled || !data) {
           return;
+        }
+        const hasOpenSession = Boolean(selectedSessionIdRef.current);
+        if (data.workMode && WORK_MODES.includes(data.workMode as WorkMode)) {
+          localStorage.setItem(WORK_MODE_DEFAULT_KEY, data.workMode);
+          // Same rule as the model above: an open chat keeps its own mode,
+          // only a chat that has not started yet follows the fresh default.
+          if (!hasOpenSession && !draftWorkModePickedRef.current) {
+            setWorkMode(data.workMode as WorkMode);
+          }
         }
         for (const targetProvider of PROVIDERS) {
           const model = data.models?.[targetProvider];
           if (model) {
-            if (targetProvider === 'claude') setClaudeModel(model);
-            else if (targetProvider === 'cursor') setCursorModel(model);
-            else if (targetProvider === 'codex') setCodexModel(model);
-            else if (targetProvider === 'opencode') setOpenCodeModel(model);
-            else if (targetProvider === 'gemini') setGeminiModel(model);
-            else setKimiModel(model);
             localStorage.setItem(`${targetProvider}-model`, model);
+            if (!hasOpenSession) {
+              setActiveProviderModel(targetProvider, model);
+            }
           }
           const effort = data.efforts?.[targetProvider];
           if (effort) {
             localStorage.setItem(`${targetProvider}-effort`, effort);
           }
         }
-        if (data.efforts) {
+        if (data.efforts && !hasOpenSession) {
           setProviderEfforts((previous) => ({ ...previous, ...data.efforts }));
         }
       })
@@ -261,17 +315,16 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setActiveProviderModel]);
 
+  /** Mirrors setStoredProviderModel for the thinking level. */
   const setStoredProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
-    setProviderEfforts((previous) => (
-      previous[targetProvider] === effort
-        ? previous
-        : { ...previous, [targetProvider]: effort }
-    ));
     localStorage.setItem(`${targetProvider}-effort`, effort);
     syncProviderEffortToServer(targetProvider, effort);
-  }, [syncProviderEffortToServer]);
+    if (!selectedSession?.id) {
+      setActiveProviderEffort(targetProvider, effort);
+    }
+  }, [selectedSession?.id, setActiveProviderEffort, syncProviderEffortToServer]);
 
   const loadProviderModels = useCallback(async (options: { bypassCache?: boolean } = {}) => {
     const requestId = providerModelsRequestIdRef.current + 1;
@@ -393,14 +446,19 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     return Boolean(FALLBACK_PROVIDER_EFFORT_VALUES[targetProvider]?.length);
   }, [providerCapabilities]);
 
-  // `current` (React state) must win over `storageKey` (the global last-used
-  // default) whenever both are valid: `current` is what the hydration effect
-  // below just set for this session, and re-reading localStorage first would
-  // silently snap it back to the global default on every render — exactly
-  // the bug that made per-session model memory look like it "didn't stick".
+  // `current` (React state) must win over `storageKey` (the new-chat default)
+  // whenever both are valid: `current` is what the hydration effect below just
+  // set for this session, and re-reading localStorage first would silently
+  // snap it back to the default on every render — exactly the bug that made
+  // per-session model memory look like it "didn't stick".
   // localStorage is only a fallback for the cases this function actually
   // exists for: first paint before `current` is set, or `current` holding a
   // model the catalog no longer lists.
+  //
+  // The reconcile effects below deliberately do NOT write back to localStorage:
+  // that key is the "what new chats start with" setting owned by Settings, and
+  // mirroring a session's own model into it is what used to turn every
+  // in-chat model pick into a global default.
   const pickStoredOrCurrent = (
     storageKey: string,
     current: string,
@@ -488,9 +546,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       if (next !== claudeModel) {
         setClaudeModel(next);
       }
-      if (localStorage.getItem('claude-model') !== next) {
-        localStorage.setItem('claude-model', next);
-      }
     }
   }, [providerModelCatalog.claude, claudeModel]);
 
@@ -500,9 +555,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       const next = pickStoredOrCurrent('cursor-model', cursorModel, cursor);
       if (next !== cursorModel) {
         setCursorModel(next);
-      }
-      if (localStorage.getItem('cursor-model') !== next) {
-        localStorage.setItem('cursor-model', next);
       }
     }
   }, [providerModelCatalog.cursor, cursorModel]);
@@ -514,9 +566,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       if (next !== codexModel) {
         setCodexModel(next);
       }
-      if (localStorage.getItem('codex-model') !== next) {
-        localStorage.setItem('codex-model', next);
-      }
     }
   }, [providerModelCatalog.codex, codexModel]);
 
@@ -526,9 +575,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       const next = pickStoredOrCurrent('opencode-model', opencodeModel, opencode);
       if (next !== opencodeModel) {
         setOpenCodeModel(next);
-      }
-      if (localStorage.getItem('opencode-model') !== next) {
-        localStorage.setItem('opencode-model', next);
       }
     }
   }, [providerModelCatalog.opencode, opencodeModel]);
@@ -540,9 +586,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       if (next !== kimiModel) {
         setKimiModel(next);
       }
-      if (localStorage.getItem('kimi-model') !== next) {
-        localStorage.setItem('kimi-model', next);
-      }
     }
   }, [providerModelCatalog.kimi, kimiModel]);
 
@@ -552,9 +595,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       const next = pickStoredOrCurrent('gemini-model', geminiModel, gemini);
       if (next !== geminiModel) {
         setGeminiModel(next);
-      }
-      if (localStorage.getItem('gemini-model') !== next) {
-        localStorage.setItem('gemini-model', next);
       }
     }
   }, [providerModelCatalog.gemini, geminiModel]);
@@ -571,7 +611,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       }
 
       nextEfforts[targetProvider] = nextEffort;
-      localStorage.setItem(`${targetProvider}-effort`, nextEffort);
       hasUpdates = true;
     }
 
@@ -619,6 +658,28 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
 
     setPermissionMode(getDefaultPermissionModeForProvider(provider));
   }, [selectedSession?.id, provider, getDefaultPermissionModeForProvider, getPermissionModesForProvider]);
+
+  // Same shape for the work mode, minus the provider dimension: it is stored
+  // per chat and falls back to the account default, never to another chat's
+  // choice. Not keyed on `provider` because the mode describes how the user
+  // wants to be talked to, not what the engine can do.
+  const draftWorkModePickedRef = useRef(false);
+  useEffect(() => {
+    draftWorkModePickedRef.current = false;
+  }, [selectedSession?.id]);
+
+  useEffect(() => {
+    if (selectedSession?.id) {
+      setWorkMode(readSessionWorkMode(selectedSession.id));
+      return;
+    }
+
+    if (draftWorkModePickedRef.current) {
+      return;
+    }
+
+    setWorkMode(readDefaultWorkMode());
+  }, [selectedSession?.id]);
 
   // Mirrors the permissionMode effect above: a session with its own saved
   // model/effort shows that; a session with none (or a brand-new chat) falls
@@ -715,6 +776,33 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
   }, [selectedSession?.id]);
 
+  // Work mode and permission mode are separate axes, but two of the nine
+  // combinations defeat themselves: an "autopilot" run that stops at every
+  // permission prompt never finishes unattended, and a "confirm everything"
+  // run that silently bypasses prompts contradicts its own point. So picking
+  // a work mode also moves the permission chip — visibly, and only from the
+  // opposite extreme, so a deliberate combination is never overwritten.
+  const selectWorkMode = useCallback((nextMode: WorkMode) => {
+    setWorkMode(nextMode);
+
+    if (selectedSession?.id) {
+      localStorage.setItem(workModeStorageKey(selectedSession.id), nextMode);
+    } else {
+      // Draft chat: the pick lives in state until commitWorkModeToSession
+      // writes it against the real id (mirrors the permission-mode draft ref).
+      draftWorkModePickedRef.current = true;
+    }
+
+    const modes = getPermissionModesForProvider(provider);
+    if (nextMode === 'autopilot' && permissionMode === 'default' && modes.includes('bypassPermissions')) {
+      selectPermissionMode('bypassPermissions');
+      return;
+    }
+    if (nextMode === 'interrogate' && permissionMode === 'bypassPermissions' && modes.includes('default')) {
+      selectPermissionMode('default');
+    }
+  }, [getPermissionModesForProvider, permissionMode, provider, selectedSession?.id, selectPermissionMode]);
+
   // Called once, exactly when a brand-new chat's session id becomes real
   // (see ChatInterface's onSessionEstablished). Whatever mode is active
   // RIGHT NOW becomes this session's own permanent record — the only way a
@@ -727,6 +815,15 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
     localStorage.setItem(`permissionMode-${normalizedSessionId}`, permissionMode);
   }, [permissionMode]);
+
+  /** Twin of commitPermissionModeToSession for the work mode. */
+  const commitWorkModeToSession = useCallback((sessionId: string) => {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    localStorage.setItem(workModeStorageKey(normalizedSessionId), workMode);
+  }, [workMode]);
 
   const cyclePermissionMode = useCallback(() => {
     const modes = getPermissionModesForProvider(provider);
@@ -753,7 +850,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   ) => {
     const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
     if (!normalizedSessionId) {
-      setStoredProviderModel(targetProvider, model);
+      // Brand-new chat with no id yet: the pick lives in state until
+      // commitSessionModelAndEffort writes it against the real session id.
+      setActiveProviderModel(targetProvider, model);
       return {
         scope: 'default' as const,
         changed: false,
@@ -775,11 +874,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
 
     const resolvedModel = body.data.model || model;
-    // A model pick made from inside a live session used to be scoped to just
-    // that session, leaving every other chat on the old default. Dima wants
-    // one global switch: persist it as the default too, so every new session
-    // (and every session started after this one) picks it up automatically.
-    setStoredProviderModel(targetProvider, resolvedModel);
+    // Session-scoped on purpose (reversal of the earlier "one global switch"
+    // behaviour, 2026-08-07): the chip moves this chat only. The starting
+    // point for new chats is set in Settings and stays put.
+    setActiveProviderModel(targetProvider, resolvedModel);
     sessionOverridesRef.current[normalizedSessionId] = {
       ...sessionOverridesRef.current[normalizedSessionId],
       model: resolvedModel,
@@ -790,7 +888,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       changed: body.data.changed === true,
       model: resolvedModel,
     };
-  }, [setStoredProviderModel]);
+  }, [setActiveProviderModel]);
 
   const selectProviderEffort = useCallback(async (
     targetProvider: LLMProvider,
@@ -799,7 +897,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   ) => {
     const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
     if (!normalizedSessionId) {
-      setStoredProviderEffort(targetProvider, effort);
+      setActiveProviderEffort(targetProvider, effort);
       return {
         scope: 'default' as const,
         changed: false,
@@ -821,9 +919,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
 
     const resolvedEffort = body.data.effort || effort;
-    // Same "also becomes the new global default" behavior as selectProviderModel,
-    // so a brand-new chat inherits whatever effort was picked most recently.
-    setStoredProviderEffort(targetProvider, resolvedEffort);
+    // Session-scoped, mirroring selectProviderModel above.
+    setActiveProviderEffort(targetProvider, resolvedEffort);
     sessionOverridesRef.current[normalizedSessionId] = {
       ...sessionOverridesRef.current[normalizedSessionId],
       effort: resolvedEffort,
@@ -834,7 +931,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       changed: body.data.changed === true,
       effort: resolvedEffort,
     };
-  }, [setStoredProviderEffort]);
+  }, [setActiveProviderEffort]);
 
   const currentProviderEffortOptions = useMemo(() => {
     return getEffortOptionsForModel(provider, providerModels[provider]);
@@ -846,6 +943,27 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       providerEfforts[provider] ?? DEFAULT_EFFORT_VALUE,
     );
   }, [provider, providerEfforts, providerModels, reconcileStoredEffort]);
+
+  // Twin of commitPermissionModeToSession: a chat composed before it had an id
+  // (model and level picked on the empty screen) records those choices against
+  // the real session the moment it exists. Without this the picks would live
+  // only in state and the chat would show the account default again when
+  // reopened, since in-chat picks no longer touch that default.
+  const commitSessionModelAndEffort = useCallback((sessionId: string) => {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+
+    void selectProviderModel(provider, providerModels[provider], normalizedSessionId)
+      .catch((error) => {
+        console.warn('Failed to record the new session model:', error);
+      });
+    void selectProviderEffort(provider, currentProviderEffort, normalizedSessionId)
+      .catch((error) => {
+        console.warn('Failed to record the new session effort:', error);
+      });
+  }, [currentProviderEffort, provider, providerModels, selectProviderEffort, selectProviderModel]);
 
   return {
     provider,
@@ -871,6 +989,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     cyclePermissionMode,
     selectPermissionMode,
     commitPermissionModeToSession,
+    commitSessionModelAndEffort,
+    workMode,
+    selectWorkMode,
+    commitWorkModeToSession,
     availablePermissionModes: getPermissionModesForProvider(provider),
     providerModels,
     providerModelCatalog,

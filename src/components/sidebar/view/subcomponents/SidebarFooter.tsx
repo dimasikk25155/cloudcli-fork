@@ -1,19 +1,19 @@
 import { useState } from 'react';
-import { Settings, AlertTriangle, CalendarClock, Timer, Workflow, Send } from 'lucide-react';
+import { Settings, AlertTriangle, CalendarClock, Timer, Workflow } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM } from '../../../../constants/config';
 import NightshiftModal from '../../../nightshift/NightshiftModal';
 import PanelModal from '../../../panels/PanelModal';
 import SchedulesPanel from '../../../schedules/SchedulesPanel';
 import PipelinesPanel from '../../../pipelines/PipelinesPanel';
-import TelegramSettingsPanel from '../../../telegram/TelegramSettingsPanel';
 
-// Entry points for the three unattended-work features. Labels are Russian in
-// place: these panels ship ahead of their translation namespaces.
+// Entry points for the unattended-work features. Labels are Russian in place:
+// these panels ship ahead of their translation namespaces. The Telegram bot
+// setup used to sit here too — it moved into Settings (a one-off setup does
+// not belong next to everyday actions).
 const FEATURE_PANELS = [
   { key: 'schedules', label: 'Расписания', icon: Timer },
   { key: 'pipelines', label: 'Сценарии', icon: Workflow },
-  { key: 'telegram', label: 'Telegram-бот', icon: Send },
 ] as const;
 
 type FeaturePanelKey = (typeof FEATURE_PANELS)[number]['key'];
@@ -150,11 +150,6 @@ export default function SidebarFooter({
       {openPanel === 'pipelines' && (
         <PanelModal title="Сценарии" icon={Workflow} onClose={() => setOpenPanel(null)}>
           <PipelinesPanel />
-        </PanelModal>
-      )}
-      {openPanel === 'telegram' && (
-        <PanelModal title="Telegram-бот" icon={Send} onClose={() => setOpenPanel(null)}>
-          <TelegramSettingsPanel />
         </PanelModal>
       )}
     </div>

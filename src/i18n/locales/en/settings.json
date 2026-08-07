@@ -5,7 +5,8 @@
     "permissions": "Permissions",
     "mcpServers": "MCP Servers",
     "skills": "Skills",
-    "appearance": "Appearance"
+    "appearance": "Appearance",
+    "newChatDefaults": "New chats"
   },
   "account": {
     "title": "Account",
@@ -134,7 +135,8 @@
     "notifications": "Notifications",
     "plugins": "Plugins",
     "admin": "Admin",
-    "about": "About"
+    "about": "About",
+    "telegram": "Telegram bot"
   },
   "notifications": {
     "title": "Notifications",
@@ -720,5 +722,23 @@
       "cancelButton": "Cancel",
       "saveButton": "Save access"
     }
+  },
+  "newChatDefaults": {
+    "title": "New chats",
+    "description": "Every new chat starts with these. Changing them inside a chat affects that chat only.",
+    "model": {
+      "label": "Model",
+      "description": "The model a new chat opens on."
+    },
+    "effort": {
+      "label": "Thinking level",
+      "description": "Pick a level explicitly — \"model default\" is whatever the model ships with.",
+      "modelDefault": "Model default"
+    },
+    "workMode": {
+      "description": "How much the agent checks in with you while it works."
+    },
+    "loadError": "Could not load the defaults.",
+    "saveError": "Could not save. Try again."
   }
 }

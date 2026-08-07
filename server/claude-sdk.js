@@ -23,6 +23,7 @@ import { buildClaudeUserContent, normalizeImageDescriptors } from './shared/imag
 import { CLAUDE_FALLBACK_MODELS } from './modules/providers/list/claude/claude-models.provider.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
+import { workModeInstruction } from './shared/work-mode.js';
 import {
   createNotificationEvent,
   notifyRunFailed,
@@ -426,8 +427,21 @@ function mapCliOptionsToSDK(options = {}) {
   // ToolSearch for deferred MCP servers, so telegram/windows/etc. look present
   // but uncallable. Append a short hint for Kimi only (Claude does this
   // unprompted). Far cheaper than un-deferring the schemas via alwaysLoad.
+  const appendedSystemPrompt = [];
   if (kimiModel) {
-    sdkOptions.systemPrompt.append = MCP_DEFERRED_TOOLS_HINT;
+    appendedSystemPrompt.push(MCP_DEFERRED_TOOLS_HINT);
+  }
+
+  // How chatty the run is with the user (composer's work-mode chip). Appended
+  // to the system prompt rather than to the message so it never shows up in
+  // the chat history the user reads back. Autopilot appends nothing.
+  const workModeText = workModeInstruction(options.workMode);
+  if (workModeText) {
+    appendedSystemPrompt.push(workModeText);
+  }
+
+  if (appendedSystemPrompt.length > 0) {
+    sdkOptions.systemPrompt.append = appendedSystemPrompt.join('\n\n');
   }
 
   sdkOptions.settingSources = ['project', 'user', 'local'];

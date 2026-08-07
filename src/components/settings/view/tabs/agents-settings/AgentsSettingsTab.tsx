@@ -27,17 +27,17 @@ export default function AgentsSettingsTab({
   // approves — there is no permission mode to pick), hence no Permissions tab.
   const visibleCategories = useMemo<AgentCategory[]>(() => {
     if (selectedAgent === 'opencode') {
-      return ['account', 'mcp'];
+      return ['account', 'defaults', 'mcp'];
     }
     if (selectedAgent === 'kimi') {
-      return ['account', 'mcp', 'skills'];
+      return ['account', 'defaults', 'mcp', 'skills'];
     }
     // Gemini: MCP is fully implemented (settings.json), but its skills reader
     // is still a stub and headless runs have no pickable permission mode.
     if (selectedAgent === 'gemini') {
-      return ['account', 'mcp'];
+      return ['account', 'defaults', 'mcp'];
     }
-    return ['account', 'permissions', 'mcp', 'skills'];
+    return ['account', 'defaults', 'permissions', 'mcp', 'skills'];
   }, [selectedAgent]);
 
   const visibleAgents = useMemo<AgentProvider[]>(() => {

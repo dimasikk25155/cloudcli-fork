@@ -1,4 +1,4 @@
-import { Bell, Bot, GitBranch, Info, Key, Mic, Palette, Puzzle, ShieldCheck } from 'lucide-react';
+import { Bell, Bot, GitBranch, Info, Key, Mic, Palette, Puzzle, Send, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../../lib/utils';
@@ -26,6 +26,7 @@ const BASE_NAV_ITEMS: NavItem[] = [
   { id: 'api', labelKey: 'mainTabs.apiTokens', icon: Key },
   { id: 'plugins', labelKey: 'mainTabs.plugins', icon: Puzzle },
   { id: 'notifications', labelKey: 'mainTabs.notifications', icon: Bell },
+  { id: 'telegram', labelKey: 'mainTabs.telegram', icon: Send },
   { id: 'about', labelKey: 'mainTabs.about', icon: Info },
 ];
 

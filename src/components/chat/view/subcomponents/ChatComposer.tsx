@@ -11,13 +11,14 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { Plus, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
+import { Plus, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon, Rocket, ListChecks, HelpCircle } from 'lucide-react';
 
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useVoiceAvailable } from '../../hooks/useVoiceAvailable';
 import type { QueuedDraft } from '../../hooks/useChatComposerState';
 import type { SessionActivity } from '../../../../hooks/useSessionProtection';
-import type { PendingPermissionRequest, PermissionMode } from '../../types/types';
+import { WORK_MODES } from '../../types/types';
+import type { PendingPermissionRequest, PermissionMode, WorkMode } from '../../types/types';
 import type { ProviderModelOption } from '../../../../types/app';
 import {
   PromptInput,
@@ -69,6 +70,10 @@ interface ChatComposerProps {
   permissionMode: PermissionMode | string;
   availablePermissionModes: PermissionMode[];
   onSelectPermissionMode: (mode: PermissionMode) => void;
+  workMode: WorkMode;
+  onSelectWorkMode: (mode: WorkMode) => void;
+  /** False for providers whose runtime has no system-prompt hook to carry the mode. */
+  isWorkModeSupported: boolean;
   model: string;
   availableModelOptions: ProviderModelOption[];
   onSelectModel: (model: string) => void;
@@ -131,6 +136,14 @@ const MODE_BUTTON_CLASS: Record<string, string> = {
 const modeDotClass = (mode: string) => MODE_DOT_CLASS[mode] ?? 'bg-primary';
 const modeButtonClass = (mode: string) => MODE_BUTTON_CLASS[mode] ?? 'border-primary/20 bg-primary/5 hover:bg-primary/10';
 
+// Work mode is a behaviour switch, not a risk level, so it gets an icon
+// instead of the permission chip's colour-coded dot.
+const WORK_MODE_ICON: Record<WorkMode, typeof Rocket> = {
+  autopilot: Rocket,
+  checkpoints: ListChecks,
+  interrogate: HelpCircle,
+};
+
 export default function ChatComposer({
   pendingPermissionRequests,
   handlePermissionDecision,
@@ -143,6 +156,9 @@ export default function ChatComposer({
   permissionMode,
   availablePermissionModes,
   onSelectPermissionMode,
+  workMode,
+  onSelectWorkMode,
+  isWorkModeSupported,
   model,
   availableModelOptions,
   onSelectModel,
@@ -250,6 +266,15 @@ export default function ChatComposer({
   const modeDropdownMenuRef = useRef<HTMLDivElement | null>(null);
   const modeDropdownButtonRef = useRef<HTMLButtonElement | null>(null);
   const [modeDropdownPosition, setModeDropdownPosition] = useState<{
+    left: number;
+    top: number;
+    maxHeight: number;
+  } | null>(null);
+  const [isWorkModeDropdownOpen, setIsWorkModeDropdownOpen] = useState(false);
+  const workModeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const workModeDropdownMenuRef = useRef<HTMLDivElement | null>(null);
+  const workModeDropdownButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [workModeDropdownPosition, setWorkModeDropdownPosition] = useState<{
     left: number;
     top: number;
     maxHeight: number;
@@ -388,6 +413,54 @@ export default function ChatComposer({
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
   }, [isModeDropdownOpen, updateModeDropdownPosition]);
+
+  const updateWorkModeDropdownPosition = useCallback(() => {
+    const rect = workModeDropdownButtonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    setWorkModeDropdownPosition({
+      left: rect.left,
+      top: rect.top - 8,
+      maxHeight: Math.max(96, rect.top - 16),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isWorkModeDropdownOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        !workModeDropdownRef.current?.contains(target)
+        && !workModeDropdownMenuRef.current?.contains(target)
+      ) {
+        setIsWorkModeDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsWorkModeDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('resize', updateWorkModeDropdownPosition);
+    window.addEventListener('scroll', updateWorkModeDropdownPosition, true);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    updateWorkModeDropdownPosition();
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('resize', updateWorkModeDropdownPosition);
+      window.removeEventListener('scroll', updateWorkModeDropdownPosition, true);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    };
+  }, [isWorkModeDropdownOpen, updateWorkModeDropdownPosition]);
 
   useEffect(() => {
     if (!isModelDropdownOpen) return;
@@ -676,6 +749,80 @@ export default function ChatComposer({
                 document.body,
               )}
             </div>
+
+            {isWorkModeSupported && (
+              <div ref={workModeDropdownRef} className="relative">
+                <button
+                  ref={workModeDropdownButtonRef}
+                  type="button"
+                  onClick={() => {
+                    updateWorkModeDropdownPosition();
+                    setIsWorkModeDropdownOpen((current) => !current);
+                  }}
+                  className="composer-chip flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
+                  aria-haspopup="menu"
+                  aria-expanded={isWorkModeDropdownOpen}
+                  title={t('workMode.title', { defaultValue: 'Work mode' })}
+                  aria-label={t('workMode.title', { defaultValue: 'Work mode' })}
+                >
+                  {(() => {
+                    const WorkModeIcon = WORK_MODE_ICON[workMode];
+                    return <WorkModeIcon className="h-3.5 w-3.5 text-muted-foreground" />;
+                  })()}
+                  <span>{t(`workMode.modes.${workMode}`, { defaultValue: workMode })}</span>
+                </button>
+
+                {isWorkModeDropdownOpen && workModeDropdownPosition && createPortal(
+                  <div
+                    ref={workModeDropdownMenuRef}
+                    className="fixed z-[100] w-64 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+                    style={{
+                      left: workModeDropdownPosition.left,
+                      top: workModeDropdownPosition.top,
+                      maxHeight: workModeDropdownPosition.maxHeight,
+                      transform: 'translateY(-100%)',
+                    }}
+                    role="menu"
+                  >
+                    {WORK_MODES.map((mode) => {
+                      const isSelected = mode === workMode;
+                      const WorkModeIcon = WORK_MODE_ICON[mode];
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={isSelected}
+                          {...tapSelect(() => {
+                            onSelectWorkMode(mode);
+                            setIsWorkModeDropdownOpen(false);
+                          })}
+                          className={`flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
+                            isSelected
+                              ? 'bg-accent text-foreground'
+                              : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
+                          }`}
+                        >
+                          <WorkModeIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-medium">
+                              {t(`workMode.modes.${mode}`, { defaultValue: mode })}
+                            </span>
+                            <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                              {t(`workMode.descriptions.${mode}`, { defaultValue: '' })}
+                            </span>
+                          </span>
+                          <span className="mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center">
+                            {isSelected && <Check className="h-3 w-3 text-primary" />}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>,
+                  document.body,
+                )}
+              </div>
+            )}
 
             {availableModelOptions.length > 0 && (
               <div ref={modelDropdownRef} className="relative">
