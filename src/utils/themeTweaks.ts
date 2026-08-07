@@ -28,9 +28,9 @@ export const FONT_STACKS = [
     value: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif',
   },
   {
-    id: 'spaceGrotesk',
-    label: 'Space Grotesk',
-    value: "'Space Grotesk', 'Encode Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    id: 'geologica',
+    label: 'Geologica',
+    value: "Geologica, 'Encode Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   },
   {
     id: 'barlow',
