@@ -246,7 +246,60 @@
       "shadowsHint": "Turn off when surfaces are separated by a line, not by depth",
       "copyCss": "Copy CSS",
       "copied": "Copied",
-      "reset": "Reset"
+      "reset": "Reset",
+      "resetOne": "Back to theme value",
+      "preview": {
+        "heading": "This is a panel",
+        "body": "Material, corners, shadows and type — everything the sliders below move.",
+        "action": "Done",
+        "secondary": "Cancel",
+        "chip": "Sample"
+      },
+      "presets": {
+        "themeDefault": "From theme",
+        "glassy": "More glass",
+        "dense": "Denser",
+        "soft": "Softer",
+        "flat": "No effects"
+      },
+      "hints": {
+        "radius": {
+          "low": "sharp",
+          "mid": "moderate",
+          "high": "round"
+        },
+        "density": {
+          "low": "tight",
+          "mid": "normal",
+          "high": "roomy"
+        },
+        "duration": {
+          "low": "snappy",
+          "mid": "normal",
+          "high": "smooth"
+        },
+        "tracking": {
+          "low": "tight",
+          "mid": "normal",
+          "high": "airy"
+        },
+        "blur": {
+          "low": "crisp",
+          "mid": "light",
+          "high": "heavy"
+        },
+        "panelAlpha": {
+          "low": "see-through",
+          "mid": "translucent",
+          "high": "solid"
+        },
+        "grain": {
+          "low": "smooth",
+          "mid": "light",
+          "high": "visible"
+        }
+      },
+      "wasValue": "was {{value}}"
     }
   },
   "mcpForm": {

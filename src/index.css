@@ -2486,3 +2486,61 @@
     backdrop-filter: blur(14px) saturate(1.5);
   }
 }
+
+/* =========================================================================
+   Превью подстройки темы (настройки → внешний вид)
+   Сцена показывает ровно то, что крутят ползунки: материал корпуса, зерно,
+   стеклянную панель, кнопку и текст — теми же токенами, что и приложение.
+   Без неё ручки «Размытие» и «Прозрачность» невозможно оценить: их эффект
+   закрыт модалкой настроек.
+   ========================================================================= */
+.tweak-stage {
+  background-color: var(--shell-bg);
+  background-image: var(--shell-material);
+  background-size: cover;
+}
+/* Зерно — отдельным слоем поверх материала, как в корпусе приложения:
+   в одном background-image повторяющаяся текстура растянулась бы вместе
+   с радиальными пятнами. */
+.tweak-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--shell-grain);
+  opacity: var(--shell-grain-opacity, 0);
+}
+
+/* Короткая вспышка кромки, когда значение изменилось: подтверждение, что
+   ручка что-то сделала, даже если эффект тонкий (зерно, разрядка). */
+@media (prefers-reduced-motion: no-preference) {
+  .tweak-stage-pulse {
+    animation: tweak-stage-pulse 420ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+@keyframes tweak-stage-pulse {
+  from { box-shadow: 0 0 0 2px hsl(var(--ring) / 0.55); }
+  to { box-shadow: 0 0 0 2px hsl(var(--ring) / 0); }
+}
+
+/* Ползунок со ЗНАЧЕНИЕМ ТЕМЫ на дорожке: риска показывает, откуда ушла
+   ручка, и куда вернёт «как в теме». Позиция приезжает переменной из React. */
+.tweak-slider {
+  position: relative;
+}
+.tweak-slider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: var(--tweak-origin, 0%);
+  width: 2px;
+  height: 10px;
+  transform: translate(-1px, -50%);
+  border-radius: 1px;
+  background-color: hsl(var(--foreground) / 0.35);
+  pointer-events: none;
+}
+.tweak-slider-input {
+  position: relative;
+  z-index: 1;
+}

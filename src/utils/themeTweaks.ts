@@ -204,6 +204,62 @@ export const applyTweaks = (themeKey: string, map: TweakMap): void => {
   cssVars(map[themeKey] || {}).forEach(([name, value]) => style.setProperty(name, value));
 };
 
+/**
+ * Где стоит САМА тема по каждой ручке.
+ *
+ * Без этого панель врала: ручка без твика прижималась к минимуму шкалы и
+ * показывала прочерк, хотя тема объявляет, скажем, размытие 34px. Человек
+ * видел «выключено», трогал ползунок — и картинка прыгала с 34 на 0.
+ *
+ * Читаем вычисленные токены с <html>, предварительно сняв инлайновые твики:
+ * они лежат на том же элементе и перебили бы значение темы. Снятие и возврат
+ * происходят в одном синхронном куске — браузер не успевает перерисовать.
+ *
+ * Кастомные свойства не резолвятся в пиксели, поэтому rem/em считаем сами от
+ * реального размера шрифта корня (его двигает масштаб интерфейса).
+ */
+export type ThemeDefaults = Partial<Record<(typeof SLIDERS)[number]['key'], number>> & {
+  shadows: boolean;
+};
+
+const toNumber = (raw: string, rootFontSize: number): number | undefined => {
+  const value = raw.trim();
+  if (!value || value === 'none' || value === 'normal') return 0;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  if (value.endsWith('rem') || value.endsWith('em')) return parsed * rootFontSize;
+  return parsed;
+};
+
+export const readThemeDefaults = (): ThemeDefaults => {
+  const root = document.documentElement;
+  const style = root.style;
+  const saved = ALL_VARS.map((name) => [name, style.getPropertyValue(name)] as const);
+  saved.forEach(([name]) => style.removeProperty(name));
+
+  const computed = getComputedStyle(root);
+  const rootFontSize = Number.parseFloat(computed.fontSize) || 16;
+  const read = (name: string) => toNumber(computed.getPropertyValue(name), rootFontSize);
+
+  const defaults: ThemeDefaults = {
+    radius: read('--radius'),
+    density: read('--density'),
+    duration: read('--duration-base'),
+    blur: read('--panel-blur-radius'),
+    panelAlpha: read('--panel-alpha'),
+    grain: read('--shell-grain-opacity'),
+    // Разрядка задаётся в em и считается от размера текста, а не корня —
+    // делить обратно на rootFontSize нельзя, иначе получим 0.0006 вместо 0.01.
+    tracking: toNumber(computed.getPropertyValue('--tracking-ui').trim() || '0', 1),
+    shadows: computed.getPropertyValue('--shadow-1').trim() !== 'none',
+  };
+
+  saved.forEach(([name, value]) => {
+    if (value) style.setProperty(name, value);
+  });
+  return defaults;
+};
+
 /** Готовый блок для вклейки в index.css — то, ради чего панель и нужна. */
 export const tweaksToCss = (themeKey: string, tweaks: ThemeTweaks): string => {
   const vars = cssVars(tweaks);

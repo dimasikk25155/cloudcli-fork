@@ -10,11 +10,21 @@ const props = new Map<string, string>();
     style: {
       setProperty: (name: string, value: string) => void props.set(name, value),
       removeProperty: (name: string) => void props.delete(name),
+      getPropertyValue: (name: string) => props.get(name) ?? '',
     },
   },
 } as unknown as Document;
 
-const { applyTweaks, parseTweakMap, tweaksToCss } = await import('./themeTweaks.js');
+// Что объявляет САМА тема. Инлайновые твики (`props`) обязаны перебивать эти
+// значения в приложении и НЕ попадать в чтение значений темы.
+const themeVars = new Map<string, string>();
+
+(globalThis as unknown as { getComputedStyle: typeof getComputedStyle }).getComputedStyle = (() => ({
+  fontSize: '16px',
+  getPropertyValue: (name: string) => props.get(name) ?? themeVars.get(name) ?? '',
+})) as unknown as typeof getComputedStyle;
+
+const { applyTweaks, parseTweakMap, readThemeDefaults, tweaksToCss } = await import('./themeTweaks.js');
 
 describe('themeTweaks', () => {
   beforeEach(() => {
@@ -119,5 +129,55 @@ describe('themeTweaks', () => {
     assert.deepEqual(map, { glass: { radius: 12 } });
     assert.deepEqual(parseTweakMap('не json'), {});
     assert.deepEqual(parseTweakMap(undefined), {});
+  });
+
+  describe('значения самой темы', () => {
+    beforeEach(() => {
+      themeVars.clear();
+      themeVars.set('--radius', '1rem');
+      themeVars.set('--density', '1.05');
+      themeVars.set('--duration-base', '260ms');
+      themeVars.set('--panel-blur-radius', '34px');
+      themeVars.set('--panel-alpha', '0.42');
+      themeVars.set('--tracking-ui', '-0.01em');
+      themeVars.set('--shadow-1', '0 2px 8px rgba(0,0,0,.06)');
+    });
+
+    it('переводит rem в пиксели и читает единицы', () => {
+      const defaults = readThemeDefaults();
+
+      assert.equal(defaults.radius, 16);
+      assert.equal(defaults.density, 1.05);
+      assert.equal(defaults.duration, 260);
+      assert.equal(defaults.blur, 34);
+      assert.equal(defaults.panelAlpha, 0.42);
+      assert.equal(defaults.shadows, true);
+    });
+
+    it('разрядка не делится на размер шрифта — em тут считается от текста', () => {
+      assert.equal(readThemeDefaults().tracking, -0.01);
+    });
+
+    it('инлайновый твик не подменяет значение темы и остаётся на месте', () => {
+      applyTweaks('glass', { glass: { radius: 4 } });
+      assert.equal(props.get('--radius'), '4px');
+
+      // Ползунку нужна точка отсчёта темы (16px), а не текущий твик (4px).
+      assert.equal(readThemeDefaults().radius, 16);
+      // И сам твик обязан пережить чтение: иначе экран моргнёт темой.
+      assert.equal(props.get('--radius'), '4px');
+    });
+
+    it('отсутствующие и none-значения читаются нулём, а тени — выключенными', () => {
+      themeVars.set('--tracking-ui', 'normal');
+      themeVars.set('--shadow-1', 'none');
+      themeVars.delete('--shell-grain-opacity');
+
+      const defaults = readThemeDefaults();
+
+      assert.equal(defaults.tracking, 0);
+      assert.equal(defaults.grain, 0);
+      assert.equal(defaults.shadows, false);
+    });
   });
 });

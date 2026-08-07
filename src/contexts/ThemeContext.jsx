@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 
 import { authenticatedFetch } from '../utils/api';
 import { applyTweaks, parseTweakMap } from '../utils/themeTweaks';
@@ -311,6 +311,7 @@ export const ThemeProvider = ({ children }) => {
 
   // Подстройка одной темы. Пустой объект убирает тему из карты целиком, иначе
   // «сброс» оставлял бы за собой мусор вида {"glass":{}} и синкал его.
+  const tweakSyncTimer = useRef(null);
   const setThemeTweaks = (themeKey, tweaks) => {
     const next = { ...themeTweaks };
     if (!tweaks || Object.keys(tweaks).length === 0) {
@@ -321,13 +322,23 @@ export const ThemeProvider = ({ children }) => {
     setThemeTweaksRaw(next);
     const serialized = JSON.stringify(next);
     localStorage.setItem('themeTweaks', serialized);
-    authenticatedFetch('/api/settings/ui-preferences', {
-      method: 'PUT',
-      // Карта уезжает строкой: сервер хранит только плоские значения.
-      body: JSON.stringify({ themeTweaks: serialized }),
-    }).catch((error) => {
-      console.warn('Failed to sync theme tweaks to account:', error);
-    });
+    // Ползунок отдаёт значение на КАЖДЫЙ кадр перетаскивания, а пресет —
+    // ещё и на каждый кадр анимации. Без задержки это десятки PUT в секунду;
+    // аккаунту нужно только то значение, на котором палец остановился.
+    // Локальное состояние и localStorage при этом обновляются сразу, поэтому
+    // картинка не ждёт сеть.
+    if (tweakSyncTimer.current) {
+      clearTimeout(tweakSyncTimer.current);
+    }
+    tweakSyncTimer.current = setTimeout(() => {
+      authenticatedFetch('/api/settings/ui-preferences', {
+        method: 'PUT',
+        // Карта уезжает строкой: сервер хранит только плоские значения.
+        body: JSON.stringify({ themeTweaks: serialized }),
+      }).catch((error) => {
+        console.warn('Failed to sync theme tweaks to account:', error);
+      });
+    }, 400);
   };
 
   const setThemeBackground = (themeKey, variantId) => {
