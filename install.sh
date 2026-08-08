@@ -4,24 +4,21 @@
 #
 # Three ways to get the code onto this box — pick one for the 2nd argument:
 #
-#   install.sh <domain> --download [--enable-terminal]
-#     RECOMMENDED for self-service (friend/client installs it themselves).
-#     Downloads the latest golden-commit archive from Dima's own file host
-#     (Basic Auth over HTTPS, no GitHub involved at all) and just runs — no
-#     pausing, no keys, no waiting on anyone. Update DL_USER/DL_PASS below if
-#     the release host's credentials ever rotate.
+#   install.sh <domain> --clone [golden-commit] [--enable-terminal]
+#     RECOMMENDED, and the only mode anyone but Dima needs. Clones the public
+#     repo over HTTPS — no credentials, no deploy key, nothing to paste. Without
+#     a commit argument it installs the tip of $REPO_BRANCH. Keeps .git, so the
+#     box can update itself later with `self-update.sh`.
+#     Override the source with REPO_URL / REPO_BRANCH in the environment.
 #
 #   install.sh <domain> <code-archive.tar.gz> [--enable-terminal]
-#     Someone with repo access (Dima) ran `git archive <golden-commit>
-#     --format=tar.gz` and copied the file here. No network fetch at all.
-#     This is what provision-vps.sh uses.
+#     Someone with repo access ran `git archive <golden-commit> --format=tar.gz`
+#     and copied the file here. No network fetch at all. Used by
+#     provision-vps.sh. No .git, so updates go through scripts/update-client.sh.
 #
-#   install.sh <domain> --clone [golden-commit] [--enable-terminal]
-#     Fallback if the download host is ever down: this VPS clones the private
-#     repo itself over SSH. Generates a fresh read-only deploy key and pauses
-#     once, printing the public half — paste it into GitHub -> the repo ->
-#     Settings -> Deploy keys -> Add deploy key (leave "Allow write access"
-#     unchecked), then press Enter here to continue.
+#   DL_PASS='...' install.sh <domain> --download [--enable-terminal]
+#     Private release host (dl.neo3.ru, Basic Auth). Dima-only: the password is
+#     read from the environment and is deliberately not stored in this file.
 #
 #   <domain>            e.g. friend.neo3.ru — Caddy will request a Let's Encrypt
 #                        cert for it once DNS points here. Point DNS AFTER this
@@ -30,11 +27,15 @@
 #                        disabled, safer for non-technical users).
 set -euo pipefail
 
-# Release host for --download mode (see wiki/synthesis note on VPS NL setup,
-# 2026-07-22). Rotate the password in NPM/htpasswd on the VPS, then update here.
-DL_URL="https://dl.neo3.ru/cloudcli-latest.tar.gz"
-DL_USER="dl"
-DL_PASS="Q3SX53MefFTNEOuyg192"
+# Public source (default). Anyone can install without credentials of any kind.
+REPO_URL="${REPO_URL:-https://github.com/dimasikk25155/cloudcli-fork.git}"
+REPO_BRANCH="${REPO_BRANCH:-dima/fork-customizations}"
+
+# Private release host, used only by --download. Credentials are NEVER hardcoded:
+# pass them in the environment, e.g. DL_PASS='...' ./install.sh <domain> --download
+DL_URL="${DL_URL:-https://dl.neo3.ru/cloudcli-latest.tar.gz}"
+DL_USER="${DL_USER:-dl}"
+DL_PASS="${DL_PASS:-}"
 
 DOMAIN="${1:?Usage: install.sh <domain> <--download | code-archive.tar.gz | --clone [golden-commit]> [--enable-terminal]}"
 CODE_SOURCE="${2:?Usage: install.sh <domain> <--download | code-archive.tar.gz | --clone [golden-commit]> [--enable-terminal]}"
@@ -42,8 +43,14 @@ CODE_SOURCE="${2:?Usage: install.sh <domain> <--download | code-archive.tar.gz |
 [ "$(id -u)" -eq 0 ] || { echo "Run as root" >&2; exit 1; }
 
 if [ "$CODE_SOURCE" = "--clone" ]; then
-  GOLDEN_COMMIT="${3:-589a70b}"
-  [ "${4:-}" = "--enable-terminal" ] && DISABLE_TERMINAL_VALUE=0 || DISABLE_TERMINAL_VALUE=1
+  # No commit given -> take the tip of the branch, i.e. the current release.
+  if [ "${3:-}" = "--enable-terminal" ]; then
+    GOLDEN_COMMIT=""
+    DISABLE_TERMINAL_VALUE=0
+  else
+    GOLDEN_COMMIT="${3:-}"
+    [ "${4:-}" = "--enable-terminal" ] && DISABLE_TERMINAL_VALUE=0 || DISABLE_TERMINAL_VALUE=1
+  fi
 elif [ "$CODE_SOURCE" = "--download" ]; then
   [ "${3:-}" = "--enable-terminal" ] && DISABLE_TERMINAL_VALUE=0 || DISABLE_TERMINAL_VALUE=1
 else
@@ -87,36 +94,25 @@ echo "==> cloudcli user"
 id -u cloudcli &>/dev/null || adduser --disabled-password --gecos "" cloudcli
 
 if [ "$CODE_SOURCE" = "--clone" ]; then
-  echo "==> Deploy key for private repo clone"
-  DEPLOY_KEY=/home/cloudcli/.ssh/cloudcli_deploy
-  if [ ! -f "$DEPLOY_KEY" ]; then
-    mkdir -p /home/cloudcli/.ssh
-    ssh-keygen -t ed25519 -f "$DEPLOY_KEY" -N "" -C "cloudcli-deploy-$(hostname)" -q
-    chown -R cloudcli:cloudcli /home/cloudcli/.ssh
-    chmod 600 /home/cloudcli/.ssh/cloudcli_deploy
-    cat >> /home/cloudcli/.ssh/config <<EOF
-Host github.com
-  HostName github.com
-  User git
-  IdentityFile $DEPLOY_KEY
-  StrictHostKeyChecking accept-new
-EOF
-    chown cloudcli:cloudcli /home/cloudcli/.ssh/config
-    chmod 600 /home/cloudcli/.ssh/config
-    echo
-    echo "=============================================================================="
-    echo "Paste this public key into GitHub -> dimasikk25155/cloudcli-fork -> Settings ->"
-    echo "Deploy keys -> Add deploy key (read-only, leave \"Allow write access\" unchecked):"
-    echo
-    cat "$DEPLOY_KEY.pub"
-    echo
-    read -rp "Press Enter once the deploy key is added on GitHub... " _
-    echo "=============================================================================="
+  # Public HTTPS clone — no deploy key, no credentials, nothing to paste anywhere.
+  # Keeping the .git directory is what makes self-update.sh work afterwards.
+  echo "==> Cloning $REPO_URL ($REPO_BRANCH)"
+  su - cloudcli -c "git clone --branch '$REPO_BRANCH' '$REPO_URL' ~/cloudcli" || {
+    echo "❌ clone failed — is the repository public and the branch name right?" >&2
+    echo "   tried: $REPO_URL ($REPO_BRANCH)" >&2
+    exit 1
+  }
+  # Pin to a specific commit only when the caller asked for one.
+  if [ -n "${GOLDEN_COMMIT:-}" ]; then
+    echo "==> Checking out $GOLDEN_COMMIT"
+    su - cloudcli -c "cd ~/cloudcli && git checkout $GOLDEN_COMMIT"
   fi
-  echo "==> Cloning code (commit $GOLDEN_COMMIT)"
-  su - cloudcli -c "git clone git@github.com:dimasikk25155/cloudcli-fork.git ~/cloudcli"
-  su - cloudcli -c "cd ~/cloudcli && git checkout $GOLDEN_COMMIT"
 elif [ "$CODE_SOURCE" = "--download" ]; then
+  [ -n "$DL_PASS" ] || {
+    echo "❌ --download needs DL_PASS in the environment (private release host)." >&2
+    echo "   Use --clone instead — it is public and needs no credentials." >&2
+    exit 1
+  }
   echo "==> Downloading code from release host"
   curl -fsSL -u "$DL_USER:$DL_PASS" "$DL_URL" -o /tmp/cloudcli-code.tar.gz
   mkdir -p /home/cloudcli/cloudcli
