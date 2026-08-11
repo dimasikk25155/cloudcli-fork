@@ -22,6 +22,11 @@ SERVICE="neo3"
 ORIGIN_URL="http://127.0.0.1:3001/"
 PROD_URL="https://claude.neo3.ru/"
 RESTART_LOG="/tmp/neo3-deploy.log"
+# Fingerprint of the server build the running service was actually started on.
+# Compared by content, not mtime: `npm run build` wipes and regenerates
+# dist-server every time, so every file is always "new" and a timestamp check
+# would demand a restart (and drop the chat) on every single frontend tweak.
+SERVER_STAMP="$FORK_DIR/.neo3-deployed-server"
 
 RESTART_MODE="auto"
 for arg in "$@"; do
@@ -44,9 +49,9 @@ npm run typecheck
 npm test
 echo "    gate OK: types clean, tests green"
 
-# What the running service was started from, so we can tell a server change
-# (needs a restart) from a frontend-only one (does not).
-SERVICE_STARTED_AT=$(systemctl show "$SERVICE" --property=ExecMainStartTimestamp --value 2>/dev/null || true)
+server_fingerprint() {
+  find dist-server -type f -name '*.js' -exec sha1sum {} + 2>/dev/null | sort -k2 | sha1sum | cut -d' ' -f1
+}
 
 echo "==> Building client + server..."
 npm run build
@@ -68,14 +73,22 @@ EDGE_BUNDLE=$(curl -s --max-time 20 "$PROD_URL" | bundle_ref || true)
 [ "$EDGE_BUNDLE" = "$LOCAL_BUNDLE" ] || fail "prod edge serves $EDGE_BUNDLE, built $LOCAL_BUNDLE"
 echo "    edge OK: $EDGE_BUNDLE"
 
+SERVER_NOW=$(server_fingerprint)
+SERVER_DEPLOYED=$(cat "$SERVER_STAMP" 2>/dev/null || true)
+
 needs_restart() {
   [ "$RESTART_MODE" = "always" ] && return 0
   [ "$RESTART_MODE" = "never" ] && return 1
-  # Auto: did this build produce server code newer than the running process?
-  [ -n "$SERVICE_STARTED_AT" ] || return 0
-  local started_epoch
-  started_epoch=$(date -d "$SERVICE_STARTED_AT" +%s 2>/dev/null) || return 0
-  [ -n "$(find dist-server -type f -name '*.js' -newermt "@$started_epoch" -print -quit 2>/dev/null)" ]
+  # Auto: does the built server code differ from what the service is running?
+  if [ -z "$SERVER_DEPLOYED" ]; then
+    # First run after this script landed — no fingerprint to compare against.
+    # Assume the running service is current rather than dropping the chat on a
+    # guess; a real server change is deployed with --restart.
+    echo "$SERVER_NOW" > "$SERVER_STAMP"
+    echo "    (first run: server fingerprint recorded, assuming service is current)"
+    return 1
+  fi
+  [ "$SERVER_NOW" != "$SERVER_DEPLOYED" ]
 }
 
 if ! needs_restart; then
@@ -101,6 +114,8 @@ setsid nohup bash -c "
       sleep 2
       SERVED=\$(curl -s --max-time 5 '$ORIGIN_URL' | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -1)
       if [ \"\$SERVED\" = '$LOCAL_BUNDLE' ]; then
+        # Only now is this server build actually the one in production.
+        echo '$SERVER_NOW' > '$SERVER_STAMP'
         echo \"[\$(date '+%F %T')] ✅ back up, serving \$SERVED\"
         exit 0
       fi
