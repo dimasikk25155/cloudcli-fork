@@ -11,6 +11,7 @@ export { providerPreferencesDb } from '@/modules/database/repositories/provider-
 export { pushSubscriptionsDb } from '@/modules/database/repositories/push-subscriptions.js';
 export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
+export { telegramDb } from '@/modules/database/repositories/telegram.db.js';
 export { uiPreferencesDb } from '@/modules/database/repositories/ui-preferences.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 export { userProjectAccessDb } from '@/modules/database/repositories/user-project-access.js';
