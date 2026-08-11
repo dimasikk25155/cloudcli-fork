@@ -47,3 +47,17 @@ export function skipPermissionsDefaultMode(
   }
   return readSkipPermissions(provider, storage) ? 'bypassPermissions' : null;
 }
+
+/**
+ * What a brand-new chat starts in when nothing else decides it.
+ *
+ * Bypass rather than `default`, because the owner of this instance wants work
+ * to run to completion instead of stopping at every tool prompt. Deliberately
+ * independent of the Settings switch above: that switch lives in one browser's
+ * localStorage, so relying on it meant a phone and a laptop disagreed about
+ * the starting mode. A mode picked inside a chat still wins and is remembered
+ * per chat, so a single conversation can always be dropped back to `default`.
+ */
+export function preferredStartingMode(availableModes: PermissionMode[]): PermissionMode | null {
+  return availableModes.includes('bypassPermissions') ? 'bypassPermissions' : null;
+}

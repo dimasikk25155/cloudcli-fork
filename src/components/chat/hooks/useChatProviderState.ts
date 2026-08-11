@@ -16,7 +16,8 @@ import {
   FALLBACK_PROVIDER_EFFORT_VALUES,
   toProviderEffortOptions,
 } from '../constants/providerEffort';
-import { skipPermissionsDefaultMode } from '../utils/permissionDefaults';
+import { preferredStartingMode, skipPermissionsDefaultMode } from '../utils/permissionDefaults';
+import { withAutoPlanMode } from '../utils/autoPlanMode';
 import {
   WORK_MODE_DEFAULT_KEY,
   readDefaultWorkMode,
@@ -416,12 +417,15 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     };
   }, []);
 
+  // The backend catalog lists what the ENGINE can do; the auto-plan mode is
+  // added on top of it here because it is a client-side composition of two of
+  // those modes (plan, then bypass) rather than a mode the engine knows.
   const getPermissionModesForProvider = useCallback((targetProvider: LLMProvider): PermissionMode[] => {
     const capabilityModes = providerCapabilities?.[targetProvider]?.permissionModes;
     if (capabilityModes && capabilityModes.length > 0) {
-      return capabilityModes as PermissionMode[];
+      return withAutoPlanMode(capabilityModes as PermissionMode[]);
     }
-    return FALLBACK_PERMISSION_MODES[targetProvider] ?? ['default'];
+    return withAutoPlanMode(FALLBACK_PERMISSION_MODES[targetProvider] ?? ['default']);
   }, [providerCapabilities]);
 
   const getDefaultPermissionModeForProvider = useCallback((targetProvider: LLMProvider): PermissionMode => {
@@ -430,6 +434,15 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     const skipDefault = skipPermissionsDefaultMode(targetProvider, modes);
     if (skipDefault) {
       return skipDefault;
+    }
+    // Instance-wide preference: a new chat opens in bypass whenever the engine
+    // has it, because the owner asked for work to run without being pinged
+    // (11.08.2026). Deliberately NOT the Settings switch above — that one lives
+    // in a single browser's localStorage, so phone and laptop disagreed. A mode
+    // picked inside a chat still wins and is remembered per chat.
+    const preferred = preferredStartingMode(modes);
+    if (preferred) {
+      return preferred;
     }
     const capabilityDefault = providerCapabilities?.[targetProvider]?.defaultPermissionMode as PermissionMode | undefined;
     if (capabilityDefault && modes.includes(capabilityDefault)) {

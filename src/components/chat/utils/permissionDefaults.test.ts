@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { skipPermissionsDefaultMode } from './permissionDefaults.js';
+import { preferredStartingMode, skipPermissionsDefaultMode } from './permissionDefaults.js';
 
 const ALL_MODES = ['default', 'bypassPermissions', 'plan'] as const;
 
@@ -40,4 +40,12 @@ test('no stored settings at all -> null', () => {
 
 test('no storage available (SSR/tests) -> null, never bypass', () => {
   assert.equal(skipPermissionsDefaultMode('claude', [...ALL_MODES], undefined), null);
+});
+
+test('a new chat starts in bypass, with no stored settings anywhere', () => {
+  assert.equal(preferredStartingMode([...ALL_MODES]), 'bypassPermissions');
+});
+
+test('an engine without bypass keeps its own default', () => {
+  assert.equal(preferredStartingMode(['default', 'plan']), null);
 });
