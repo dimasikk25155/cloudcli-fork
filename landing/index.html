@@ -442,7 +442,7 @@
   /* ---------- WARP «макс-кино» на весь сайт (единый движок экосистемы neo3) ---------- */
   (function(){
     const cv=document.getElementById('road'),x=cv.getContext('2d');
-    const DPR=Math.min(window.devicePixelRatio||1,2);
+    const DPR=1; /* фон канваса всегда 1× — на Retina 2× это 5.2 Мп/кадр и 13 FPS (замер 2026-08-13) */
     const coarse=matchMedia('(pointer:coarse)').matches;
     const mob=window.innerWidth<760;
     const sy=0.62,O='247,147,26',Sc='255,214,150';
@@ -575,7 +575,7 @@
   /* ---------- FINAL CTA: pixel grid (как на whisper.neo3.ru) ---------- */
   (function(){
     const c=document.getElementById('pixels');if(!c)return;const x=c.getContext('2d');
-    const DPR=Math.min(window.devicePixelRatio||1,2);let W,H,t=0;
+    const DPR=1; /* фон канваса всегда 1× — на Retina 2× это 5.2 Мп/кадр и 13 FPS (замер 2026-08-13) */let W,H,t=0;
     const gap=26*DPR,dot=2*DPR;
     function resize(){W=c.width=c.offsetWidth*DPR;H=c.height=c.offsetHeight*DPR;}
     resize();
