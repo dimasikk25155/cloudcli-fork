@@ -3,9 +3,9 @@
 #
 #   bash /home/cloudcli/cloudcli/self-update.sh
 #
-# Pulls the latest code from the private repo (needs the read-only deploy key
-# this box was installed with), rebuilds and restarts the service, then checks
-# the instance actually came back on the new version.
+# Pulls the latest code from the public repo this box was cloned from, rebuilds
+# and restarts the service, then checks the instance actually came back on the
+# new version. No keys or passwords needed.
 #
 # Untouched, because none of it lives in git:
 #   ~/.cloudcli/    database, logins, engine credentials
