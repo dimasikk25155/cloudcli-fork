@@ -13,8 +13,10 @@ import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useConnectionWatchdog } from '../hooks/useConnectionWatchdog';
 import { useSessionStore } from '../../../stores/useSessionStore';
 import { decisionExitsPlanMode, permissionModeAfterPlanApproval } from '../utils/planMode';
+import { autoApprovedRequestIds } from '../utils/autoPlanMode';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
+import PinnedUserMessage from './subcomponents/PinnedUserMessage';
 import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
 
@@ -378,6 +380,29 @@ function ChatInterface({
     ],
   );
 
+  // "Plan + auto-run": the whole point of the mode is that nobody has to tap
+  // anything, so the client answers the prompts itself — first the plan, then
+  // whatever the approved plan needs. Answered ids are remembered because the
+  // decision only removes them from `pendingPermissionRequests` on the next
+  // render, and a double answer to one requestId is a protocol error.
+  const autoAnsweredRequestIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const ids = autoApprovedRequestIds(permissionMode, pendingPermissionRequests)
+      .filter((requestId) => !autoAnsweredRequestIdsRef.current.has(requestId));
+    if (ids.length === 0) {
+      return;
+    }
+
+    ids.forEach((requestId) => autoAnsweredRequestIdsRef.current.add(requestId));
+    handlePermissionDecision(ids, { allow: true });
+  }, [permissionMode, pendingPermissionRequests, handlePermissionDecision]);
+
+  useEffect(() => {
+    // Ids are unique per run; a new chat starts with a clean slate so the set
+    // can't grow without bound across a long-lived tab.
+    autoAnsweredRequestIdsRef.current = new Set();
+  }, [selectedSession?.id]);
+
   const permissionContextValue = useMemo(() => ({
     pendingPermissionRequests,
     handlePermissionDecision,
@@ -417,6 +442,8 @@ function ChatInterface({
   return (
     <PermissionContext.Provider value={permissionContextValue}>
       <div className="flex h-full min-h-0 flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col">
+        <PinnedUserMessage scrollContainerRef={scrollContainerRef} revision={chatMessages.length} />
         <ChatMessagesPane
           scrollContainerRef={scrollContainerRef}
           onWheel={handleScroll}
@@ -464,6 +491,7 @@ function ChatInterface({
           showThinking={showThinking}
           selectedProject={selectedProject}
         />
+        </div>
 
         <div className="relative flex-shrink-0">
           {showStopHint && (

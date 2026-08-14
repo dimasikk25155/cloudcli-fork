@@ -44,7 +44,9 @@ export default function CodeEditor({
   const paletteOps = usePaletteOps();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showDiff, setShowDiff] = useState(Boolean(file.diffInfo));
-  const [markdownPreview, setMarkdownPreview] = useState(false);
+  // Markdown открывается сразу читаемым видом: файл открывают, чтобы понять,
+  // что в нём, а решётки и звёздочки этому мешают. Правка — в одно нажатие.
+  const [markdownPreview, setMarkdownPreview] = useState(() => /\.(md|markdown)$/i.test(file.name));
 
   // The code editor follows the app-wide theme; it has no theme of its own.
   const { isDarkMode } = useTheme();
@@ -68,6 +70,10 @@ export default function CodeEditor({
     fileProjectId,
     handleSave,
     handleDownload,
+    handleShareLink,
+    shareBusy,
+    shareResult,
+    dismissShareResult,
   } = useCodeEditorDocument({
     file,
     projectPath,
@@ -226,6 +232,10 @@ export default function CodeEditor({
         isFullscreen={isFullscreen}
         onClose={onClose}
         onToggleFullscreen={() => setIsFullscreen((previous) => !previous)}
+        onDownload={handleDownload}
+        onShareLink={fileProjectId ? () => void handleShareLink() : undefined}
+        shareBusy={shareBusy}
+        shareResult={shareResult}
         title={t('binaryFile.title', 'Binary File')}
         message={t('binaryFile.message', 'The file "{{fileName}}" cannot be displayed in the text editor because it is a binary file.', { fileName: file.name })}
       />
@@ -260,6 +270,8 @@ export default function CodeEditor({
             onOpenHtmlPreview={openHtmlPreview}
             onOpenSettings={() => paletteOps.openSettings('appearance')}
             onDownload={handleDownload}
+            onShareLink={fileProjectId ? () => void handleShareLink() : undefined}
+            shareBusy={shareBusy}
             onSave={handleSave}
             onToggleFullscreen={() => setIsFullscreen((previous) => !previous)}
             onClose={onClose}
@@ -282,6 +294,21 @@ export default function CodeEditor({
           {saveError && (
             <div className="border-b border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
               {saveError}
+            </div>
+          )}
+
+          {shareResult && (
+            <div
+              className={`flex items-start gap-2 border-b px-3 py-1.5 text-xs ${
+                shareResult.ok
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
+              }`}
+            >
+              <span className="min-w-0 flex-1 break-all">{shareResult.text}</span>
+              <button className="flex-shrink-0 opacity-60 hover:opacity-100" onClick={dismissShareResult}>
+                ✕
+              </button>
             </div>
           )}
 

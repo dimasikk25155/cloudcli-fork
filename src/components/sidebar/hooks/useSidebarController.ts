@@ -21,11 +21,13 @@ import {
   getAllSessions,
   getSessionCreatedDate,
   getSessionDate,
-  getSessionTime,
   isScratchProject,
+  isSessionVisibleInRecentJournal,
+  readCollapsedProjectIds,
   readLegacyStarredProjectIds,
   readProjectSortOrder,
   sortProjects,
+  writeCollapsedProjectIds,
 } from '../utils/utils';
 
 // How many most-recent sessions (across every project) the Recent journal keeps
@@ -101,10 +103,15 @@ export function useSidebarController({
   const [archivedProjects, setArchivedProjects] = useState<ArchivedProjectListItem[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<ArchivedSessionListItem[]>([]);
   const [isArchivedSessionsLoading, setIsArchivedSessionsLoading] = useState(false);
-  // Map of sessionId -> ISO activity marker at the moment the user hid it from
-  // the Recent journal. Synced to the server so the choice applies on every
-  // device. A session re-appears once its activity is newer than its marker.
+  // Map of sessionId -> ISO timestamp of the moment the user hid it from the
+  // Recent journal. Synced to the server so the choice applies on every device.
+  // Presence in the map is what hides a card: it stays hidden until the user
+  // opens that session again or a new run starts in it.
   const [hiddenRecentSessions, setHiddenRecentSessions] = useState<Record<string, string>>({});
+  const hiddenRecentSessionsRef = useRef<Record<string, string>>({});
+  // Project groups folded away by the user in the Running/Recent views, where
+  // every group is unfolded by default (see `toggleProject`).
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set(readCollapsedProjectIds()));
   // Pinned card order per project ({ projectId -> sessionId[] }), also synced to
   // the server so the arrangement is the same on desktop and phone.
   const [sessionOrderByProject, setSessionOrderByProject] = useState<Record<string, string[]>>({});
@@ -112,6 +119,7 @@ export function useSidebarController({
   const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, boolean>>(new Map());
   const [loadingMoreProjects, setLoadingMoreProjects] = useState<Set<string>>(new Set());
   const starToggleSequenceByProjectRef = useRef<Map<string, number>>(new Map());
+  const previousActiveSessionIdsRef = useRef<Set<string> | null>(null);
   const migrationStartedRef = useRef(false);
   const onRefreshRef = useRef(onRefresh);
 
@@ -253,45 +261,87 @@ export function useSidebarController({
     }
   }, []);
 
-  const persistHiddenRecentSessions = useCallback(async (nextMap: Record<string, string>) => {
-    try {
-      await api.setRecentHidden(nextMap);
-    } catch (error) {
-      console.error('[Sidebar] Failed to persist recent-journal hidden list:', error);
-    }
-  }, []);
+  useEffect(() => {
+    hiddenRecentSessionsRef.current = hiddenRecentSessions;
+  }, [hiddenRecentSessions]);
 
-  // A session counts as hidden from the Recent journal while its latest activity
-  // is not newer than the marker stored when it was hidden. Any fresh activity
-  // (a new message, a resumed run) makes it re-surface automatically.
-  const isSessionHiddenFromRecent = useCallback(
-    (session: SessionWithProvider): boolean => {
-      const marker = hiddenRecentSessions[String(session.id)];
-      if (!marker) {
-        return false;
-      }
-      const markerMs = new Date(marker).getTime();
-      if (Number.isNaN(markerMs)) {
-        return false;
-      }
-      return getSessionDate(session).getTime() <= markerMs;
+  /**
+   * Applies one add/remove to the hidden list locally, then mirrors the very
+   * same change on the server through a read-merge-write. Pushing the whole
+   * local map instead used to wipe the stored list whenever the local copy was
+   * stale — a failed initial load, or a card hidden on another device.
+   */
+  const mutateHiddenRecentSessions = useCallback(
+    (mutate: (current: Record<string, string>) => Record<string, string>) => {
+      setHiddenRecentSessions((previous) => mutate(previous));
+
+      void (async () => {
+        let base = hiddenRecentSessionsRef.current;
+
+        try {
+          const response = await api.getRecentHidden();
+          if (response.ok) {
+            const payload = (await response.json()) as { data?: { hidden?: Record<string, string> } };
+            if (payload.data?.hidden && typeof payload.data.hidden === 'object') {
+              base = payload.data.hidden;
+            }
+          }
+        } catch (error) {
+          console.error('[Sidebar] Failed to re-read recent-journal hidden list:', error);
+        }
+
+        try {
+          await api.setRecentHidden(mutate(base));
+        } catch (error) {
+          console.error('[Sidebar] Failed to persist recent-journal hidden list:', error);
+        }
+      })();
     },
-    [hiddenRecentSessions],
+    [],
   );
 
   const hideSessionFromRecent = useCallback(
     (session: SessionWithProvider) => {
       const sessionId = String(session.id);
-      const marker = getSessionTime(session) || new Date().toISOString();
+      const hiddenAt = new Date().toISOString();
 
-      setHiddenRecentSessions((previous) => {
-        const next = { ...previous, [sessionId]: marker };
-        void persistHiddenRecentSessions(next);
+      mutateHiddenRecentSessions((current) => ({ ...current, [sessionId]: hiddenAt }));
+    },
+    [mutateHiddenRecentSessions],
+  );
+
+  const unhideSessionFromRecent = useCallback(
+    (sessionId: string) => {
+      if (!hiddenRecentSessionsRef.current[sessionId]) {
+        return;
+      }
+
+      mutateHiddenRecentSessions((current) => {
+        const next = { ...current };
+        delete next[sessionId];
         return next;
       });
     },
-    [persistHiddenRecentSessions],
+    [mutateHiddenRecentSessions],
   );
+
+  useEffect(() => {
+    const previousActiveIds = previousActiveSessionIdsRef.current;
+    previousActiveSessionIdsRef.current = new Set(activeSessionIds);
+
+    if (!previousActiveIds) {
+      return;
+    }
+
+    for (const sessionId of activeSessionIds) {
+      if (!previousActiveIds.has(sessionId)) {
+        // A run that just started (a resumed chat, a scheduled job) is real
+        // activity, unlike a transcript file being touched, so the session
+        // returns to the journal for good instead of only while it runs.
+        unhideSessionFromRecent(sessionId);
+      }
+    }
+  }, [activeSessionIds, unhideSessionFromRecent]);
 
   const fetchSessionOrder = useCallback(async () => {
     try {
@@ -437,23 +487,45 @@ export function useSidebarController({
 
   // All sidebar state keys (expanded, starred, loading, etc.) use the DB
   // `projectId` as their identifier after the migration.
-  const toggleProject = useCallback((projectId: string) => {
-    setExpandedProjects((prev) => {
-      const next = new Set<string>();
-      if (!prev.has(projectId)) {
-        next.add(projectId);
+  const toggleProject = useCallback(
+    (projectId: string) => {
+      if (searchMode === 'running' || searchMode === 'recent') {
+        // These two views unfold every group by default, so a tap on the folder
+        // has to record what the user closed — otherwise the click looks dead.
+        setCollapsedProjects((prev) => {
+          const next = new Set(prev);
+          if (next.has(projectId)) {
+            next.delete(projectId);
+          } else {
+            next.add(projectId);
+          }
+          writeCollapsedProjectIds([...next]);
+          return next;
+        });
+        return;
       }
-      return next;
-    });
-  }, []);
+
+      setExpandedProjects((prev) => {
+        const next = new Set<string>();
+        if (!prev.has(projectId)) {
+          next.add(projectId);
+        }
+        return next;
+      });
+    },
+    [searchMode],
+  );
 
   const handleSessionClick = useCallback(
     (session: SessionWithProvider, projectId: string) => {
+      // Opening a hidden session means it is back in play, so it returns to the
+      // Recent journal instead of staying invisible while being worked on.
+      unhideSessionFromRecent(String(session.id));
       // Tag the session with its owning projectId so downstream handlers
       // can correlate it with the selectedProject in the app state.
       onSessionSelect({ ...session, __projectId: projectId });
     },
-    [onSessionSelect],
+    [onSessionSelect, unhideSessionFromRecent],
   );
 
   const resolveProjectStarState = useCallback(
@@ -640,13 +712,9 @@ export function useSidebarController({
       (a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime(),
     );
 
-    const visible = flattened.filter(({ session }) => {
-      // A running session always belongs in the journal, even if it was hidden.
-      if (activeSessionIds.has(String(session.id))) {
-        return true;
-      }
-      return !isSessionHiddenFromRecent(session);
-    });
+    const visible = flattened.filter(({ session }) =>
+      isSessionVisibleInRecentJournal(session, hiddenRecentSessions, activeSessionIds),
+    );
 
     const top = visible.slice(0, RECENT_JOURNAL_LIMIT);
 
@@ -686,7 +754,7 @@ export function useSidebarController({
         },
       };
     });
-  }, [sortedProjects, activeSessionIds, isSessionHiddenFromRecent, sessionOrderByProject]);
+  }, [sortedProjects, activeSessionIds, hiddenRecentSessions, sessionOrderByProject]);
 
   const recentSessionsCount = useMemo(
     () => recentProjects.reduce((count, project) => count + (project.sessions?.length ?? 0), 0),
@@ -1013,6 +1081,7 @@ export function useSidebarController({
   return {
     isSidebarCollapsed,
     expandedProjects,
+    collapsedProjects,
     editingProject,
     showNewProject,
     editingName,

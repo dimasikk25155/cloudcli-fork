@@ -8,6 +8,7 @@
 //
 // Config is resolved per-request from headers (set by the client's voice settings),
 // falling back to server env defaults. Mounted at /api/voice behind authenticateToken.
+import fs from 'node:fs';
 import { Readable } from 'node:stream';
 
 import express from 'express';
@@ -24,7 +25,86 @@ const ENV = {
   language: process.env.VOICE_LANGUAGE || '',
   // Cleanup is on by default; it no-ops unless a correction model is available.
   correction: process.env.VOICE_CORRECTION !== 'false',
+  // Optional server-side glossary, so dictation is good out of the box instead
+  // of only for users who filled the glossary box in Settings -> Voice.
+  dictionaryPath: process.env.VOICE_DICTIONARY_PATH || '',
 };
+
+// Reload the file when it changes on disk: the glossary is edited far more
+// often than the server is restarted.
+let diskGlossaryCache = { mtimeMs: -1, glossary: { dictionary: {}, keep: [], terms: [] } };
+
+/**
+ * Parse a glossary file. Accepts JSON ({ dictionary, keep } or a flat
+ * canon -> [wrong, …] map) and the NeoWhisper YAML dialect: `canon: [a, b]`
+ * lines under `slang:` / `terms:`, plus a `- word` list under `keep:`.
+ * @param {string} text
+ * @param {boolean} isJson
+ * @returns {{dictionary: Record<string,string[]>, keep: string[], terms: string[]}}
+ */
+function parseGlossary(text, isJson) {
+  if (isJson) {
+    const data = JSON.parse(text);
+    const dictionary = data && typeof data.dictionary === 'object' ? data.dictionary : data;
+    return {
+      dictionary: dictionary && typeof dictionary === 'object' ? dictionary : {},
+      keep: Array.isArray(data?.keep) ? data.keep.map(String) : [],
+      terms: Array.isArray(data?.terms) ? data.terms.map(String) : [],
+    };
+  }
+  const dictionary = {};
+  const keep = [];
+  const terms = [];
+  let section = '';
+  for (const line of text.split('\n')) {
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    const head = line.match(/^([A-Za-z_]+):\s*$/);
+    if (head) {
+      section = head[1];
+      continue;
+    }
+    if (section === 'keep') {
+      const item = line.match(/^\s*-\s*(.+?)\s*$/);
+      if (item) keep.push(item[1]);
+      continue;
+    }
+    if (section === 'slang' || section === 'terms') {
+      const entry = line.match(/^\s+(.+?):\s*\[(.*)\]\s*$/);
+      if (entry) {
+        const canon = entry[1].trim();
+        const wrongs = entry[2].split(',').map((w) => w.trim()).filter(Boolean);
+        if (wrongs.length) {
+          dictionary[canon] = wrongs;
+          if (section === 'terms') terms.push(canon);
+        }
+      }
+    }
+  }
+  return { dictionary, keep, terms };
+}
+
+/**
+ * Glossary configured on the server, or empty when unset/unreadable. Never
+ * throws: a broken glossary must not take dictation down with it.
+ * @returns {{dictionary: Record<string,string[]>, keep: string[], terms: string[]}}
+ */
+function diskGlossary() {
+  if (!ENV.dictionaryPath) return { dictionary: {}, keep: [], terms: [] };
+  try {
+    const { mtimeMs } = fs.statSync(ENV.dictionaryPath);
+    if (mtimeMs !== diskGlossaryCache.mtimeMs) {
+      const text = fs.readFileSync(ENV.dictionaryPath, 'utf8');
+      const glossary = parseGlossary(text, ENV.dictionaryPath.endsWith('.json'));
+      diskGlossaryCache = { mtimeMs, glossary };
+      console.log(`[voice] glossary loaded: ${Object.keys(glossary.dictionary).length} terms, `
+        + `${glossary.keep.length} keep-words from ${ENV.dictionaryPath}`);
+    }
+    return diskGlossaryCache.glossary;
+  } catch (e) {
+    console.warn(`[voice] glossary unreadable (${ENV.dictionaryPath}): ${e.message}`);
+    return { dictionary: {}, keep: [], terms: [] };
+  }
+}
 
 /**
  * Resolve the voice backend config for a request. Client headers (set from the
@@ -115,16 +195,27 @@ function cleanTranscript(text) {
   return deduped.join(' ').trim();
 }
 
+// Whisper's prompt is capped at 224 tokens and silently truncated past it, so a
+// long glossary would cut off mid-list — or push the model into inventing terms.
+// ~500 chars stays inside the cap and leaves room for the sentence around it.
+const GLOSSARY_MAX_CHARS = 500;
+
 /**
- * Canon terms bias Whisper toward correct spellings (OpenAI prompt limit ~224
- * tokens, so this is best-effort). Empty when no dictionary is set.
+ * Canon terms bias Whisper toward correct spellings. Prefers the glossary's own
+ * technical terms when the source marks them (slang helps the corrector, not
+ * the recognizer) and always stays within the prompt cap.
  * @param {Record<string, string[]>} dictionary
+ * @param {string[]} [preferred] canon terms to send ahead of everything else
  * @returns {string}
  */
-function glossaryPrompt(dictionary) {
-  const terms = Object.keys(dictionary || {});
+function glossaryPrompt(dictionary, preferred) {
+  const terms = preferred?.length ? preferred : Object.keys(dictionary || {});
   if (!terms.length) return '';
-  return `Технический разговор. Термины: ${terms.join(', ')}.`;
+  let list = terms.join(', ');
+  if (list.length > GLOSSARY_MAX_CHARS) {
+    list = list.slice(0, GLOSSARY_MAX_CHARS).replace(/,[^,]*$/, '');
+  }
+  return `Технический разговор. Термины: ${list}.`;
 }
 
 /**
@@ -135,13 +226,22 @@ function glossaryPrompt(dictionary) {
  * @param {boolean} fillerCleanup
  * @returns {string}
  */
-function buildCorrectionSystemPrompt(dictionary, fillerCleanup) {
+function buildCorrectionSystemPrompt(dictionary, fillerCleanup, keepWords = []) {
   const mapping = Object.entries(dictionary || {})
     .flatMap(([canon, wrongs]) => (Array.isArray(wrongs) ? wrongs : []).map((w) => `${w} → ${canon}`))
     .join('\n');
   const fillerRule = fillerCleanup
     ? '3. Убери слова-паразиты («э-э», «эм», «ну», «короче», «как бы», «типа» — '
       + 'только когда это паразит, а не по смыслу) и случайные повторы слов.\n'
+    : '';
+  // One-way rule: without the explicit ban the model reads the list as a target
+  // vocabulary and starts translating neutral speech into it («нет» → «нету»).
+  const keepRule = keepWords.length
+    ? '4a. Слова ниже автор говорит сам — это НЕ ошибка распознавания. Если такое '
+      + 'слово есть в тексте, оставь его ровно как есть; мат не смягчай, не заменяй '
+      + 'эвфемизмами, не закрывай звёздочками. НО НИКОГДА не подставляй слово из '
+      + 'этого списка вместо того, что автор реально сказал. Список: '
+      + `${keepWords.join(', ')}.\n`
     : '';
   return (
     'Ты — корректор транскрипции русской устной речи. Приведи сырой текст '
@@ -157,6 +257,7 @@ function buildCorrectionSystemPrompt(dictionary, fillerCleanup) {
     + fillerRule
     + '4. НЕ перефразируй, НЕ сокращай, НЕ добавляй ничего от себя. Сленг и '
     + 'разговорный стиль сохраняй как есть.\n'
+    + keepRule
     + '5. Ответь ТОЛЬКО исправленным текстом, без комментариев и кавычек.\n\n'
     + `Словарь (как коверкается → как правильно):\n${mapping}`
   );
@@ -182,7 +283,10 @@ async function correctText(cfg, rawText, opts, keys) {
       // Headroom for long dictations; without it Groq silently truncates.
       max_completion_tokens: Math.min(8000, Math.max(1024, rawText.length)),
       messages: [
-        { role: 'system', content: buildCorrectionSystemPrompt(opts.dictionary, opts.fillerCleanup) },
+        {
+          role: 'system',
+          content: buildCorrectionSystemPrompt(opts.dictionary, opts.fillerCleanup, opts.keepWords),
+        },
         {
           role: 'user',
           content: 'Транскрипция между маркерами. Верни только исправленный текст, без маркеров.\n'
@@ -212,7 +316,7 @@ async function correctText(cfg, rawText, opts, keys) {
  * falling back to server env defaults. The dictionary is a { canon: [wrong,…] }
  * map parsed on the client from the user's glossary.
  * @param {import('express').Request} req
- * @returns {{correction: boolean, fillerCleanup: boolean, correctionModel: string, language: string, dictionary: Record<string,string[]>}}
+ * @returns {{correction: boolean, fillerCleanup: boolean, correctionModel: string, language: string, dictionary: Record<string,string[]>, keepWords: string[], hintTerms: string[]}}
  */
 function resolveCleanupOptions(req) {
   let o = {};
@@ -222,12 +326,17 @@ function resolveCleanupOptions(req) {
     o = {};
   }
   const dict = o.dictionary && typeof o.dictionary === 'object' && !Array.isArray(o.dictionary) ? o.dictionary : {};
+  // The user's own glossary wins; the server one is the default for everyone
+  // who never opened Settings -> Voice.
+  const fallback = Object.keys(dict).length ? { dictionary: dict, keep: [], terms: [] } : diskGlossary();
   return {
     correction: typeof o.correction === 'boolean' ? o.correction : ENV.correction,
     fillerCleanup: typeof o.fillerCleanup === 'boolean' ? o.fillerCleanup : true,
     correctionModel: String(o.correctionModel || '') || ENV.correctionModel,
     language: String(o.language || '') || ENV.language,
-    dictionary: dict,
+    dictionary: Object.keys(dict).length ? dict : fallback.dictionary,
+    keepWords: fallback.keep,
+    hintTerms: fallback.terms,
   };
 }
 
@@ -439,7 +548,7 @@ router.post('/transcribe', async (req, res) => {
         fd.append('response_format', 'verbose_json');
         fd.append('temperature', '0');
         if (opts.language) fd.append('language', opts.language);
-        const gloss = glossaryPrompt(opts.dictionary);
+        const gloss = glossaryPrompt(opts.dictionary, opts.hintTerms);
         if (gloss) fd.append('prompt', gloss);
         return { body: fd };
       };
@@ -523,6 +632,7 @@ export {
   cleanTranscript,
   glossaryPrompt,
   buildCorrectionSystemPrompt,
+  parseGlossary,
 };
 
 export default router;

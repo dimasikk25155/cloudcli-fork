@@ -4,23 +4,37 @@ import { Mic, Square, Loader2, RotateCw, X } from 'lucide-react';
 import { PromptInputButton } from '../../../../shared/view/ui';
 import type { VoiceInputState } from '../../hooks/useVoiceInput';
 
+import VoiceWaveform from './VoiceWaveform';
+
 type Props = {
   state: VoiceInputState;
   onToggle: () => void;
   errorMsg?: string | null;
   /** Drop a recording that failed to transcribe (only shown in the error state). */
   onDiscard?: () => void;
+  /** Live mic level, 0..1 — drives the waveform while recording. */
+  getLevel?: () => number;
+  /** Milliseconds since recording started. */
+  getElapsedMs?: () => number;
 };
 
 // Push-to-talk mic button (presentational). Recording state and the stop-and-send action
 // are owned by the composer so the main Send button can drive them too. This button just
 // starts recording and, while recording, stops and drops the transcript into the input box.
-export default function VoiceInputButton({ state, onToggle, errorMsg, onDiscard }: Props) {
+export default function VoiceInputButton({
+  state,
+  onToggle,
+  errorMsg,
+  onDiscard,
+  getLevel,
+  getElapsedMs,
+}: Props) {
   const { t } = useTranslation('chat');
 
   const icon =
     state === 'recording' ? (
-      <Square className="text-red-500" />
+      // Filled, not outlined: a hollow square reads as an empty checkbox.
+      <Square className="fill-red-500 text-red-500" />
     ) : state === 'transcribing' ? (
       <Loader2 className="animate-spin" />
     ) : state === 'error' ? (
@@ -37,6 +51,9 @@ export default function VoiceInputButton({ state, onToggle, errorMsg, onDiscard 
         <span className="absolute bottom-full left-1/2 mb-1 -translate-x-1/2 max-w-[70vw] truncate rounded bg-red-600 px-2 py-1 text-xs text-white shadow-lg">
           {failed ? t('voice.retryHint', { error: errorMsg }) : errorMsg}
         </span>
+      )}
+      {state === 'recording' && getLevel && getElapsedMs && (
+        <VoiceWaveform getLevel={getLevel} getElapsedMs={getElapsedMs} />
       )}
       <PromptInputButton
         tooltip={{

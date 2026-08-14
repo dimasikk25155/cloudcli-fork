@@ -18,6 +18,9 @@ before(async () => {
     // The vault is NOT a registered project — it only lives inside one.
     vaultNote = path.join(workspaceRoot, 'obsidian', 'vault', 'wiki', 'concepts', 'note.md');
 
+    // Lives one level above the project, like a workspace-wide secrets file.
+    await fs.writeFile(path.join(tmpRoot, '.secrets.env'), 'ABOVE=1');
+
     await fs.mkdir(path.join(projectRoot, 'src'), { recursive: true });
     await fs.writeFile(path.join(projectRoot, 'src', 'index.js'), 'in project');
     await fs.mkdir(path.join(workspaceRoot, 'sibling', 'docs'), { recursive: true });
@@ -87,6 +90,43 @@ describe('resolveAgainstRoots', () => {
 
         assert.equal(outcome.ok, false);
         assert.equal(outcome.status, 403);
+    });
+
+    it('finds a file that sits above the project root (shared .env case)', async () => {
+        const outcome = await resolveAgainstRoots({
+            filePath: '.secrets.env',
+            projectRoot,
+            fallbackRoots: [],
+            isAdmin: true,
+        });
+
+        assert.equal(outcome.ok, true);
+        assert.equal(outcome.resolved, path.join(tmpRoot, '.secrets.env'));
+    });
+
+    it('does not climb above the project root for a guest', async () => {
+        const outcome = await resolveAgainstRoots({
+            filePath: '.secrets.env',
+            projectRoot,
+            fallbackRoots: [],
+            isAdmin: false,
+        });
+
+        // Resolution stays project-local so the miss reports 404, not someone
+        // else's file.
+        assert.deepEqual(outcome, { ok: true, resolved: path.join(projectRoot, '.secrets.env') });
+    });
+
+    it('never resolves a relative save outside the project (allowSearch off)', async () => {
+        const outcome = await resolveAgainstRoots({
+            filePath: '.secrets.env',
+            projectRoot,
+            fallbackRoots: [path.join(workspaceRoot, 'sibling')],
+            isAdmin: true,
+            allowSearch: false,
+        });
+
+        assert.deepEqual(outcome, { ok: true, resolved: path.join(projectRoot, '.secrets.env') });
     });
 
     it('lets an admin open an absolute path outside the project', async () => {

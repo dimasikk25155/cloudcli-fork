@@ -20,8 +20,17 @@ export function isToolGroupItem(item: MessageListItem): item is ToolGroupItem {
   return '_isGroup' in item && (item as ToolGroupItem)._isGroup === true;
 }
 
+// The plan is the one "tool call" a human is meant to read, not skip past —
+// it stays out of the collapse and renders in full, like prose.
+const UNGROUPABLE_TOOLS = new Set(['exit_plan_mode', 'ExitPlanMode']);
+
 function isGroupableToolMessage(message: ChatMessage): message is ChatMessage & { toolName: string } {
-  return Boolean(message.isToolUse && message.toolName && !message.isSubagentContainer);
+  return Boolean(
+    message.isToolUse &&
+      message.toolName &&
+      !message.isSubagentContainer &&
+      !UNGROUPABLE_TOOLS.has(message.toolName),
+  );
 }
 
 // Messages that render nothing (e.g. reasoning hidden when showThinking is off)

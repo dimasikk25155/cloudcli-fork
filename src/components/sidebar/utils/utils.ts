@@ -17,6 +17,65 @@ export const readProjectSortOrder = (): ProjectSortOrder => {
   }
 };
 
+/**
+ * Decides whether a session belongs in the Recent journal.
+ *
+ * Hiding a card is a decision about the card itself, so the entry survives any
+ * later transcript activity: an idle CLI process keeps touching its JSONL file
+ * (same content, newer mtime) long after the conversation is finished, and the
+ * old "hidden until the transcript moves" rule un-hid everything on its own.
+ * A running session is always listed, so a job that resumes by itself cannot go
+ * unnoticed.
+ */
+export const isSessionVisibleInRecentJournal = (
+  session: SessionWithProvider,
+  hiddenSessions: Record<string, string>,
+  activeSessionIds: ReadonlySet<string>,
+): boolean => {
+  const sessionId = String(session.id);
+
+  if (activeSessionIds.has(sessionId)) {
+    return true;
+  }
+
+  return !hiddenSessions[sessionId];
+};
+
+const COLLAPSED_PROJECTS_STORAGE_KEY = 'sidebar-collapsed-projects';
+
+/**
+ * Reads the project groups the user folded away in the Running/Recent views.
+ * Those two views open every group by default, so what has to be remembered is
+ * the opposite of `expandedProjects`: which folders were explicitly closed.
+ */
+export const readCollapsedProjectIds = (): string[] => {
+  try {
+    const saved = localStorage.getItem(COLLAPSED_PROJECTS_STORAGE_KEY);
+    if (!saved) {
+      return [];
+    }
+
+    const parsed = JSON.parse(saved) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((value) => String(value).trim())
+      .filter((value) => value.length > 0);
+  } catch {
+    return [];
+  }
+};
+
+export const writeCollapsedProjectIds = (projectIds: string[]) => {
+  try {
+    localStorage.setItem(COLLAPSED_PROJECTS_STORAGE_KEY, JSON.stringify(projectIds));
+  } catch {
+    // Keep UI responsive even if storage is unavailable.
+  }
+};
+
 const LEGACY_STARRED_PROJECTS_STORAGE_KEY = 'starredProjects';
 
 /**

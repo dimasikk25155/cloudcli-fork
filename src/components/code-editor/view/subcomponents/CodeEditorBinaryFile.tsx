@@ -1,3 +1,5 @@
+import { Download, Link2, Loader2 } from 'lucide-react';
+
 import type { CodeEditorFile } from '../../types/types';
 
 type CodeEditorBinaryFileProps = {
@@ -6,6 +8,10 @@ type CodeEditorBinaryFileProps = {
   isFullscreen: boolean;
   onClose: () => void;
   onToggleFullscreen: () => void;
+  onDownload: () => void;
+  onShareLink?: () => void;
+  shareBusy?: boolean;
+  shareResult?: { ok: boolean; text: string } | null;
   title: string;
   message: string;
 };
@@ -16,6 +22,10 @@ export default function CodeEditorBinaryFile({
   isFullscreen,
   onClose,
   onToggleFullscreen,
+  onDownload,
+  onShareLink,
+  shareBusy = false,
+  shareResult = null,
   title,
   message,
 }: CodeEditorBinaryFileProps) {
@@ -31,11 +41,44 @@ export default function CodeEditorBinaryFile({
           <h3 className="mb-2 text-lg font-medium text-foreground">{title}</h3>
           <p className="text-sm text-muted-foreground">{message}</p>
         </div>
-        <button
-          onClick={onClose}
-          className="mt-4 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          Close
+
+        {/* Такой файл не читают, его забирают: скачивание — главное действие
+            экрана, а не мелкая иконка в шапке. */}
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          <button
+            onClick={onDownload}
+            className="flex min-h-[38px] items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            <Download className="h-4 w-4" />
+            Скачать файл
+          </button>
+          {onShareLink && (
+            <button
+              onClick={onShareLink}
+              disabled={shareBusy}
+              className="flex min-h-[38px] items-center gap-2 rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+              title="Ссылка для друга — работает сутки, вход в Neo3 не нужен"
+            >
+              {shareBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              Ссылка для друга
+            </button>
+          )}
+        </div>
+
+        {shareResult && (
+          <div
+            className={`w-full break-all rounded-lg px-3 py-2 text-xs ${
+              shareResult.ok
+                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                : 'bg-red-500/10 text-red-700 dark:text-red-300'
+            }`}
+          >
+            {shareResult.text}
+          </div>
+        )}
+
+        <button onClick={onClose} className="text-sm text-muted-foreground underline-offset-2 hover:underline">
+          Закрыть
         </button>
       </div>
     </div>

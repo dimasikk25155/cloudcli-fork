@@ -1,22 +1,38 @@
 import { useState } from 'react';
-import { Settings, AlertTriangle, CalendarClock, Timer, Workflow } from 'lucide-react';
+import {
+  Settings,
+  AlertTriangle,
+  CalendarClock,
+  Timer,
+  Workflow,
+  Server,
+  ChevronDown,
+  LayoutGrid,
+} from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM } from '../../../../constants/config';
 import NightshiftModal from '../../../nightshift/NightshiftModal';
 import PanelModal from '../../../panels/PanelModal';
 import SchedulesPanel from '../../../schedules/SchedulesPanel';
 import PipelinesPanel from '../../../pipelines/PipelinesPanel';
+import ServerPanel from '../../../server/ServerPanel';
+import { useAuth } from '../../../auth';
 
 // Entry points for the unattended-work features. Labels are Russian in place:
 // these panels ship ahead of their translation namespaces. The Telegram bot
 // setup used to sit here too — it moved into Settings (a one-off setup does
 // not belong next to everyday actions).
+// shortLabel is what fits under an icon in the mobile row (~54px wide).
 const FEATURE_PANELS = [
-  { key: 'schedules', label: 'Расписания', icon: Timer },
-  { key: 'pipelines', label: 'Сценарии', icon: Workflow },
+  { key: 'schedules', label: 'Расписания', shortLabel: 'График', icon: Timer },
+  { key: 'pipelines', label: 'Сценарии', shortLabel: 'Сцены', icon: Workflow },
 ] as const;
 
-type FeaturePanelKey = (typeof FEATURE_PANELS)[number]['key'];
+// The server panel can stop and start system services, so it is owner-only —
+// tenants of a shared instance must not even see the entry point.
+const SERVER_PANEL = { key: 'server', label: 'Сервер', shortLabel: 'Сервер', icon: Server } as const;
+
+type FeaturePanelKey = (typeof FEATURE_PANELS)[number]['key'] | typeof SERVER_PANEL.key;
 
 type SidebarFooterProps = {
   restartRequired: boolean;
@@ -33,6 +49,35 @@ export default function SidebarFooter({
 }: SidebarFooterProps) {
   const [showNightshift, setShowNightshift] = useState(false);
   const [openPanel, setOpenPanel] = useState<FeaturePanelKey | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { user } = useAuth();
+  const panels = !IS_PLATFORM && user?.role === 'admin' ? [...FEATURE_PANELS, SERVER_PANEL] : FEATURE_PANELS;
+
+  // One list, two shapes: the mobile icon row uses shortLabel, the desktop
+  // menu uses the full label.
+  const actions = [
+    {
+      key: 'nightshift',
+      label: t('nightshift.title'),
+      shortLabel: 'Задачи',
+      icon: CalendarClock,
+      onClick: () => setShowNightshift(true),
+    },
+    ...panels.map(({ key, label, shortLabel, icon }) => ({
+      key,
+      label,
+      shortLabel,
+      icon,
+      onClick: () => setOpenPanel(key),
+    })),
+    {
+      key: 'settings',
+      label: t('actions.settings'),
+      shortLabel: 'Настройки',
+      icon: Settings,
+      onClick: onShowSettings,
+    },
+  ];
 
   return (
     <div className="sidebar-footer flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
@@ -55,39 +100,35 @@ export default function SidebarFooter({
       {/* Settings */}
       <div className="nav-divider" />
 
-      {/* Desktop night-shift runs */}
-      <div className="hidden px-2 pt-1.5 md:block">
-        <button
-          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-          onClick={() => setShowNightshift(true)}
-        >
-          <CalendarClock className="h-3.5 w-3.5" />
-          <span className="text-sm">{t('nightshift.title')}</span>
-        </button>
-      </div>
-
-      {/* Desktop unattended-work panels */}
-      {FEATURE_PANELS.map(({ key, label, icon: Icon }) => (
-        <div key={key} className="hidden px-2 pt-1.5 md:block">
-          <button
-            className="sidebar-footer-item flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-            onClick={() => setOpenPanel(key)}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            <span className="text-sm">{label}</span>
-          </button>
-        </div>
-      ))}
-
-      {/* Desktop settings */}
+      {/* Desktop: the same fold as mobile — five permanent rows pushed the
+          session list up the sidebar. Collapsed on every mount by design. */}
       <div className="hidden px-2 py-1.5 md:block">
         <button
           className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-          onClick={onShowSettings}
+          onClick={() => setMenuOpen((open) => !open)}
+          aria-expanded={menuOpen}
         >
-          <Settings className="h-3.5 w-3.5" />
-          <span className="text-sm">{t('actions.settings')}</span>
+          <LayoutGrid className="h-3.5 w-3.5" />
+          <span className="flex-1 text-left text-sm">Меню</span>
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
+          />
         </button>
+
+        {menuOpen && (
+          <div className="mt-1 space-y-1">
+            {actions.map(({ key, label, icon: Icon, onClick }) => (
+              <button
+                key={key}
+                className="sidebar-footer-item flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                onClick={onClick}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                <span className="text-sm">{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Desktop version brand line (OSS mode only) */}
@@ -99,45 +140,24 @@ export default function SidebarFooter({
         </div>
       )}
 
-      {/* Mobile night-shift runs */}
-      <div className="px-3 pt-3 md:hidden">
-        <button
-          className="flex h-10 w-full items-center gap-3 rounded-xl bg-muted/40 px-3.5 transition-all hover:bg-muted/60 active:scale-[0.98]"
-          onClick={() => setShowNightshift(true)}
-        >
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-background/80">
-            <CalendarClock className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <span className="text-sm font-normal text-foreground">{t('nightshift.title')}</span>
-        </button>
-      </div>
-
-      {/* Mobile unattended-work panels */}
-      {FEATURE_PANELS.map(({ key, label, icon: Icon }) => (
-        <div key={key} className="px-3 pt-3 md:hidden">
+      {/* Mobile: one icon row instead of full-width buttons — on a phone they
+          ate a third of the screen while the session list scrolled. Labels sit
+          under the icons so the row stays readable without a spoiler. */}
+      <div className="flex items-stretch gap-1.5 px-3 pb-3 pt-2 md:hidden">
+        {actions.map(({ key, label, shortLabel, icon: Icon, onClick }) => (
           <button
-            className="sidebar-footer-item flex h-10 w-full items-center gap-3 rounded-xl bg-muted/40 px-3.5 transition-all hover:bg-muted/60 active:scale-[0.98]"
-            onClick={() => setOpenPanel(key)}
+            key={key}
+            className="sidebar-footer-item flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl bg-muted/40 px-0.5 py-2 transition-all hover:bg-muted/60 active:scale-[0.94]"
+            onClick={onClick}
+            title={label}
+            aria-label={label}
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-background/80">
-              <Icon className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <span className="text-sm font-normal text-foreground">{label}</span>
+            <Icon className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
+            <span className="w-full truncate text-center text-[9px] leading-tight text-muted-foreground">
+              {shortLabel}
+            </span>
           </button>
-        </div>
-      ))}
-
-      {/* Mobile settings */}
-      <div className="px-3 pb-3 pt-2 md:hidden">
-        <button
-          className="flex h-10 w-full items-center gap-3 rounded-xl bg-muted/40 px-3.5 transition-all hover:bg-muted/60 active:scale-[0.98]"
-          onClick={onShowSettings}
-        >
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-background/80">
-            <Settings className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <span className="text-sm font-normal text-foreground">{t('actions.settings')}</span>
-        </button>
+        ))}
       </div>
 
       {showNightshift && <NightshiftModal onClose={() => setShowNightshift(false)} t={t} />}
@@ -150,6 +170,12 @@ export default function SidebarFooter({
       {openPanel === 'pipelines' && (
         <PanelModal title="Сценарии" icon={Workflow} onClose={() => setOpenPanel(null)}>
           <PipelinesPanel />
+        </PanelModal>
+      )}
+      {openPanel === 'server' && (
+        <PanelModal title="Сервер" icon={Server} onClose={() => setOpenPanel(null)}>
+          {/* Кнопка «Починить» уводит в чат — панель при этом должна уйти с экрана. */}
+          <ServerPanel onRequestClose={() => setOpenPanel(null)} />
         </PanelModal>
       )}
     </div>

@@ -7,6 +7,7 @@ import {
   cleanTranscript,
   glossaryPrompt,
   buildCorrectionSystemPrompt,
+  parseGlossary,
 } from './voice-proxy.js';
 
 test('HALLUCINATION_RE matches YouTube outro artifacts (incl. Cyrillic suffixes)', () => {
@@ -58,4 +59,47 @@ test('buildCorrectionSystemPrompt embeds the glossary mapping', () => {
 test('buildCorrectionSystemPrompt includes the filler rule only when enabled', () => {
   assert.match(buildCorrectionSystemPrompt({}, true), /слова-паразиты/);
   assert.doesNotMatch(buildCorrectionSystemPrompt({}, false), /слова-паразиты/);
+});
+
+test('buildCorrectionSystemPrompt adds the keep-words rule only when given some', () => {
+  const p = buildCorrectionSystemPrompt({}, true, ['чё', 'нету']);
+  assert.match(p, /Слова ниже автор говорит сам/);
+  assert.match(p, /чё, нету/);
+  assert.doesNotMatch(buildCorrectionSystemPrompt({}, true), /Слова ниже автор говорит сам/);
+});
+
+test('parseGlossary reads the NeoWhisper YAML dialect', () => {
+  const yaml = [
+    '# comment',
+    'slang:',
+    '  закоммитить: [за комитить, закомитить]',
+    'keep:',
+    '  - чё',
+    '  - нету',
+    'terms:',
+    '  Claude Code: [клод код, клауд код]',
+    '  Next.js: [некст джиэс]',
+  ].join('\n');
+  const { dictionary, keep } = parseGlossary(yaml, false);
+  assert.deepEqual(dictionary['Claude Code'], ['клод код', 'клауд код']);
+  assert.deepEqual(dictionary['Next.js'], ['некст джиэс']);
+  assert.deepEqual(dictionary.закоммитить, ['за комитить', 'закомитить']);
+  assert.deepEqual(keep, ['чё', 'нету']);
+});
+
+test('parseGlossary reads JSON, flat map or { dictionary, keep }', () => {
+  assert.deepEqual(parseGlossary('{"Vercel":["версель"]}', true).dictionary, { Vercel: ['версель'] });
+  const wrapped = parseGlossary('{"dictionary":{"Groq":["грок"]},"keep":["блин"]}', true);
+  assert.deepEqual(wrapped.dictionary, { Groq: ['грок'] });
+  assert.deepEqual(wrapped.keep, ['блин']);
+});
+
+test('glossaryPrompt prefers the terms list and stays inside the prompt cap', () => {
+  const dict = { сленг: ['слэнг'] };
+  assert.match(glossaryPrompt(dict, ['Claude Code', 'Vercel']), /Claude Code, Vercel/);
+  assert.doesNotMatch(glossaryPrompt(dict, ['Vercel']), /сленг/);
+  const many = Array.from({ length: 300 }, (_, i) => `Термин${i}`);
+  const capped = glossaryPrompt({}, many);
+  assert.ok(capped.length < 600, `prompt too long: ${capped.length}`);
+  assert.doesNotMatch(capped, /Термин\d+$/); // never ends mid-term
 });

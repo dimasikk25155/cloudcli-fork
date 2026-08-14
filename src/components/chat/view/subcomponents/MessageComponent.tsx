@@ -83,6 +83,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
     <div
       ref={messageRef}
       data-message-timestamp={message.timestamp || undefined}
+      data-user-message-text={message.type === 'user' ? userCopyContent : undefined}
       className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.isStreaming ? 'streaming' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
     >
       {message.type === 'user' ? (

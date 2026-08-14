@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../../utils/api';
+import { copyTextToClipboard } from '../../../utils/clipboard';
+import { downloadFile } from '../../../utils/fileDownload';
 import type { CodeEditorFile } from '../types/types';
 import { isBinaryFile } from '../utils/binaryFile';
 import { getPreviewKind } from '../utils/previewableFile';
@@ -140,20 +142,60 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     }
   }, [content, resolvedPath, fileProjectId, previewKind, fileName]);
 
+  // Качаем ФАЙЛ С ДИСКА, а не текстовый буфер редактора. Раньше здесь
+  // собирался Blob из `content`, и для архива, APK или картинки он пустой:
+  // такие файлы редактор вообще не читает. Скачивался пустой файл (а на экране
+  // ошибки — текст ошибки, сохранённый под именем файла).
   const handleDownload = useCallback(() => {
+    if (fileProjectId) {
+      downloadFile(fileProjectId, resolvedPath, fileName);
+      return;
+    }
+
+    // Остался только просмотр диффа без проекта — там текст и есть весь файл.
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
 
     anchor.href = url;
-    anchor.download = file.name;
+    anchor.download = fileName;
 
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
 
     URL.revokeObjectURL(url);
-  }, [content, file.name]);
+  }, [content, fileName, fileProjectId, resolvedPath]);
+
+  // Ссылка для того, у кого нет доступа в Neo3: живёт сутки и ведёт ровно на
+  // этот файл. Адрес сразу уезжает в буфер обмена — его остаётся вставить в чат.
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareResult, setShareResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handleShareLink = useCallback(async () => {
+    if (!fileProjectId) return;
+
+    setShareBusy(true);
+    setShareResult(null);
+    try {
+      const response = await api.createShareLink(fileProjectId, resolvedPath);
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || 'Не удалось создать ссылку');
+      }
+
+      const url = `${window.location.origin}${data.url}`;
+      const copied = await copyTextToClipboard(url);
+      setShareResult({
+        ok: true,
+        text: copied ? 'Ссылка скопирована, живёт сутки' : url,
+      });
+    } catch (error) {
+      setShareResult({ ok: false, text: getErrorMessage(error) });
+    } finally {
+      setShareBusy(false);
+    }
+  }, [fileProjectId, resolvedPath]);
 
   return {
     content,
@@ -165,7 +207,12 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     isBinary,
     previewKind,
     fileProjectId,
+    resolvedPath,
     handleSave,
     handleDownload,
+    handleShareLink,
+    shareBusy,
+    shareResult,
+    dismissShareResult: useCallback(() => setShareResult(null), []),
   };
 };

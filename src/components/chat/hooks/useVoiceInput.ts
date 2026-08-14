@@ -25,6 +25,46 @@ function pickMime(): string {
 
 export type VoiceInputState = 'idle' | 'recording' | 'transcribing' | 'error';
 
+/** Live loudness tap on the recording stream — feeds the waveform, nothing else. */
+type Meter = {
+  ctx: AudioContext;
+  analyser: AnalyserNode;
+  buf: Uint8Array<ArrayBuffer>;
+  /** Cloned track the meter listens to; stopped together with the context. */
+  track: MediaStreamTrack | null;
+} | null;
+
+// Metering is decoration: a browser without AudioContext (or one that refuses
+// to open it) must still record normally, so every failure returns null.
+function openMeter(stream: MediaStream): Meter {
+  try {
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return null;
+    const ctx = new Ctx();
+    void ctx.resume(); // iOS hands back a suspended context
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.4;
+    // Listen to a CLONE of the track, never the one MediaRecorder is writing:
+    // on iOS, wiring a live capture track into an AudioContext can flip the
+    // audio session into voice-processing mode and wreck the recording.
+    const source = stream.getAudioTracks()[0];
+    const track = source ? source.clone() : null;
+    ctx.createMediaStreamSource(track ? new MediaStream([track]) : stream).connect(analyser);
+    return { ctx, analyser, buf: new Uint8Array(analyser.fftSize), track };
+  } catch {
+    return null;
+  }
+}
+
+function closeMeter(meter: Meter) {
+  if (!meter) return;
+  meter.track?.stop();
+  void meter.ctx.close().catch(() => {});
+}
+
 // Mobile networks blip and free API tiers rate-limit, so a first failure means
 // little. Retry a couple of times before bothering the user.
 const MAX_ATTEMPTS = 3;
@@ -64,6 +104,10 @@ export function useVoiceInput(
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  // Live mic metering for the waveform. Kept in refs, not state: the meter is
+  // read ~20 times a second and must never re-render the composer.
+  const meterRef = useRef<Meter>(null);
+  const startedAtRef = useRef(0);
   const cancelledRef = useRef(false);
   const startingRef = useRef(false);
   // Audio that failed to transcribe, kept so a retry never loses the dictation.
@@ -74,6 +118,9 @@ export function useVoiceInput(
   const stopTracks = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    closeMeter(meterRef.current);
+    meterRef.current = null;
+    startedAtRef.current = 0;
   };
 
   // Stop the mic if the component unmounts mid-recording.
@@ -85,8 +132,32 @@ export function useVoiceInput(
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       recorderRef.current = null;
+      closeMeter(meterRef.current);
+      meterRef.current = null;
     };
   }, []);
+
+  /** Current mic loudness, 0..1, ready to drive a bar height. */
+  const getLevel = useCallback(() => {
+    const meter = meterRef.current;
+    if (!meter) return 0;
+    const { analyser, buf } = meter;
+    analyser.getByteTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i += 1) {
+      const v = (buf[i] - 128) / 128;
+      sum += v * v;
+    }
+    // Speech RMS lives around 0.03..0.2, so scale it up before clamping —
+    // otherwise normal talking barely lifts the bars off the floor.
+    return Math.min(1, Math.sqrt(Math.sqrt(sum / buf.length) * 3.2));
+  }, []);
+
+  /** Milliseconds since recording started (0 when not recording). */
+  const getElapsedMs = useCallback(
+    () => (startedAtRef.current ? Date.now() - startedAtRef.current : 0),
+    [],
+  );
 
   // Upload with retries. On give-up the recording is kept in pendingRef and the
   // hook enters 'error', so the user can retry the same audio instead of
@@ -138,6 +209,7 @@ export function useVoiceInput(
         return;
       }
       streamRef.current = stream;
+      meterRef.current = openMeter(stream);
       const mimeType = pickMime();
       const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       recorderRef.current = rec;
@@ -174,6 +246,7 @@ export function useVoiceInput(
       };
 
       rec.start();
+      startedAtRef.current = Date.now();
       setState('recording');
     } catch (e) {
       recorderRef.current = null;
@@ -219,5 +292,5 @@ export function useVoiceInput(
     else if (state === 'idle') start();
   }, [state, start, stop, retry]);
 
-  return { state, toggle, stop, retry, discard };
+  return { state, toggle, stop, retry, discard, getLevel, getElapsedMs };
 }

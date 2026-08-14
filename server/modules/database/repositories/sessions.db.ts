@@ -1,6 +1,6 @@
 import { getConnection } from '@/modules/database/connection.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
-import { normalizeProjectPath } from '@/shared/utils.js';
+import { canonicalizeProjectPath, normalizeProjectPath } from '@/shared/utils.js';
 
 type SessionRow = {
   session_id: string;
@@ -57,7 +57,9 @@ function normalizeSessionRows(rows: SessionRow[]): SessionRow[] {
 
 function normalizeProjectPathForProvider(provider: string, projectPath: string): string {
   void provider;
-  return normalizeProjectPath(projectPath);
+  // Must match how projectsDb stores the row this path points at, otherwise the
+  // session hangs off a project_path with no project — invisible in the sidebar.
+  return canonicalizeProjectPath(projectPath);
 }
 
 export const sessionsDb = {

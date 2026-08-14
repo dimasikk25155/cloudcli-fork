@@ -8,11 +8,15 @@ import type {
 export type Provider = LLMProvider;
 
 /**
- * Three modes on purpose: ask (default), never ask (bypassPermissions) and
+ * Three backend modes: ask (default), never ask (bypassPermissions) and
  * read-only (plan). See PROVIDER_CAPABILITIES in
  * server/modules/providers/services/provider-capabilities.service.ts.
+ *
+ * `planBypass` is a fourth, UI-only mode: it runs as `plan` on the wire and the
+ * client approves the plan (and everything after it) by itself — see
+ * ../utils/autoPlanMode.
  */
-export type PermissionMode = 'default' | 'bypassPermissions' | 'plan';
+export type PermissionMode = 'default' | 'bypassPermissions' | 'plan' | 'planBypass';
 
 /**
  * How much the agent checks in while it works — a different axis from

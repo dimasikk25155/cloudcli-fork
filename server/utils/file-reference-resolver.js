@@ -88,6 +88,36 @@ function dropNestedRoots(roots) {
     return kept;
 }
 
+// Chat references routinely point just above the project (`.secrets.env` in the
+// parent workspace, `../notes/todo.md`). Walking up is a handful of stats, so it
+// runs before the wider search — but only far enough to stay meaningful.
+const MAX_ANCESTOR_LEVELS = 8;
+
+/**
+ * Look for `relativePath` in the directories above the project root.
+ *
+ * Admin-only: a guest's project may sit inside a folder that holds other users'
+ * work, so climbing out of it would hand them files they cannot otherwise see.
+ */
+async function findInAncestors(projectRoot, relativePath) {
+    let dir = path.dirname(projectRoot);
+
+    for (let level = 0; level < MAX_ANCESTOR_LEVELS; level += 1) {
+        const candidate = path.resolve(dir, relativePath);
+        if (await pathExists(candidate)) {
+            return candidate;
+        }
+
+        const parent = path.dirname(dir);
+        if (parent === dir) {
+            return null;
+        }
+        dir = parent;
+    }
+
+    return null;
+}
+
 /** Number of leading path segments two paths share. */
 function sharedSegments(a, b) {
     const left = a.split(path.sep);
@@ -176,12 +206,13 @@ async function findNearProject(roots, relativePath, projectRoot) {
  *
  * @returns {Promise<{ ok: true, resolved: string } | { ok: false, status: number, error: string }>}
  */
-export async function resolveAgainstRoots({ filePath, projectRoot, fallbackRoots, isAdmin }) {
+export async function resolveAgainstRoots({ filePath, projectRoot, fallbackRoots, isAdmin, allowSearch = true }) {
     const normalizedRoot = path.resolve(projectRoot);
     const expanded = expandHome(filePath);
-    const direct = path.isAbsolute(expanded)
-        ? path.resolve(expanded)
-        : path.resolve(normalizedRoot, expanded);
+    const isRelative = !path.isAbsolute(expanded);
+    const direct = isRelative
+        ? path.resolve(normalizedRoot, expanded)
+        : path.resolve(expanded);
 
     const insideProject = isInside(normalizedRoot, direct);
 
@@ -191,6 +222,16 @@ export async function resolveAgainstRoots({ filePath, projectRoot, fallbackRoots
         return { ok: true, resolved: direct };
     }
 
+    // Then the folders above the project: a shared `.secrets.env` or a note one
+    // level up is the single most common miss, and the project's own parent is
+    // not covered by the root/scan passes below (they only ever descend).
+    if (allowSearch && isRelative && isAdmin) {
+        const aboveProject = await findInAncestors(normalizedRoot, expanded);
+        if (aboveProject) {
+            return { ok: true, resolved: aboveProject };
+        }
+    }
+
     // A missing file whose directory does exist in this project is a file of this
     // project — newly created, renamed or deleted. Searching elsewhere would only
     // add latency to a 404 (or to saving a new file), so treat it as project-local.
@@ -198,7 +239,7 @@ export async function resolveAgainstRoots({ filePath, projectRoot, fallbackRoots
 
     // Roots are resolved lazily: the fast path above covers almost every request,
     // and collecting them means hitting the database.
-    if (!parentIsInProject && !path.isAbsolute(expanded)) {
+    if (allowSearch && !parentIsInProject && isRelative) {
         const roots = typeof fallbackRoots === 'function' ? fallbackRoots() : (fallbackRoots ?? []);
 
         // Cheap pass first: the reference is often relative to another project root.
@@ -229,14 +270,77 @@ export async function resolveAgainstRoots({ filePath, projectRoot, fallbackRoots
 }
 
 /**
+ * Find files by name alone, ignoring the folders around them.
+ *
+ * The resolver above always keeps the reference's own shape (`docs/x.md` must
+ * sit in a `docs` folder). That is right for opening a file, but useless for the
+ * "нет такого файла" screen: a path is usually wrong in the middle, not at the
+ * end. Here only the last segment matters, so a moved or misfiled note is still
+ * found and offered instead of a bare 404.
+ */
+export async function findByBasename({ name, projectRoot, user, limit = 10 }) {
+    const target = path.basename(String(name || '').trim()).toLowerCase();
+    if (!target || target === '.' || target === '..') {
+        return [];
+    }
+
+    const normalizedRoot = path.resolve(projectRoot);
+    const roots = dropNestedRoots([normalizedRoot, ...getSearchRoots(user, normalizedRoot)]);
+    const deadline = Date.now() + SEARCH_TIME_BUDGET_MS;
+    const queue = roots.map((root) => ({ dir: root, depth: 0 }));
+    const found = [];
+    let visited = 0;
+
+    while (queue.length > 0 && visited < MAX_SEARCH_DIRS && Date.now() <= deadline) {
+        const { dir, depth } = queue.shift();
+        visited += 1;
+
+        let entries;
+        try {
+            entries = await fsPromises.readdir(dir, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                if (depth >= MAX_SEARCH_DEPTH) continue;
+                if (entry.name.startsWith('.') || SEARCH_IGNORED_DIRS.has(entry.name)) continue;
+                queue.push({ dir: path.join(dir, entry.name), depth: depth + 1 });
+                continue;
+            }
+            if (entry.name.toLowerCase() !== target) continue;
+
+            const full = path.join(dir, entry.name);
+            let size = null;
+            let mtime = null;
+            try {
+                const stats = await fsPromises.stat(full);
+                size = stats.size;
+                mtime = stats.mtimeMs;
+            } catch {
+                continue;
+            }
+            found.push({ path: full, name: entry.name, size, mtime });
+            if (found.length >= limit) {
+                return found;
+            }
+        }
+    }
+
+    return found;
+}
+
+/**
  * Request-facing wrapper: picks the roots the caller is allowed to read from and
  * delegates the actual resolution.
  */
-export function resolveProjectFilePath({ filePath, projectRoot, user }) {
+export function resolveProjectFilePath({ filePath, projectRoot, user, allowSearch = true }) {
     return resolveAgainstRoots({
         filePath,
         projectRoot,
         fallbackRoots: () => getSearchRoots(user, path.resolve(projectRoot)),
         isAdmin: user?.role === 'admin',
+        allowSearch,
     });
 }

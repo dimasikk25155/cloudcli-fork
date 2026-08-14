@@ -1,4 +1,4 @@
-import { Code2, Download, Eye, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
+import { Code2, Download, Eye, Link2, Loader2, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
 
 import type { CodeEditorFile } from '../../types/types';
 
@@ -15,6 +15,8 @@ type CodeEditorHeaderProps = {
   onOpenHtmlPreview: () => void;
   onOpenSettings: () => void;
   onDownload: () => void;
+  onShareLink?: () => void;
+  shareBusy?: boolean;
   onSave: () => void;
   onToggleFullscreen: () => void;
   onClose: () => void;
@@ -47,6 +49,8 @@ export default function CodeEditorHeader({
   onOpenHtmlPreview,
   onOpenSettings,
   onDownload,
+  onShareLink,
+  shareBusy = false,
   onSave,
   onToggleFullscreen,
   onClose,
@@ -108,14 +112,30 @@ export default function CodeEditorHeader({
           <SettingsIcon className="h-4 w-4" />
         </button>
 
+        {/* Скачать и «ссылка для друга» — с подписями: это то, ради чего файл
+            чаще всего и открывают, а голую иконку на телефоне никто не находит. */}
         <button
           type="button"
           onClick={onDownload}
-          className="flex items-center justify-center rounded-ui-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex min-h-[32px] items-center gap-1.5 rounded-ui-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title={labels.download}
         >
-          <Download className="h-4 w-4" />
+          <Download className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Скачать</span>
         </button>
+
+        {onShareLink && (
+          <button
+            type="button"
+            onClick={onShareLink}
+            disabled={shareBusy}
+            className="flex min-h-[32px] items-center gap-1.5 rounded-ui-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            title="Ссылка для друга — работает сутки, вход в Neo3 не нужен"
+          >
+            {shareBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">Ссылка</span>
+          </button>
+        )}
 
         <button
           type="button"

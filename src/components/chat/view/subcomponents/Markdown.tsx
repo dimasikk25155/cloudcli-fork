@@ -7,6 +7,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTranslation } from 'react-i18next';
 import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
+import { bracketSpacedLinkTargets, looksLikePath, stripLineSuffix } from '../../utils/filePathDetection';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
@@ -21,39 +22,8 @@ type MarkdownProps = {
 const isExternalHref = (href?: string): boolean =>
   !!href && (/^(https?:|mailto:|tel:|data:)/i.test(href) || href.startsWith('#'));
 
-// Strip a trailing `:line` / `:line:col` suffix (e.g. `src/foo.ts:130`).
-const stripLineSuffix = (value: string): string => value.replace(/:\d+(?::\d+)?$/, '');
-
-// A usable file path contains a separator or a filename with an extension.
-const looksLikeFilePath = (value?: string): value is string => {
-  if (!value) {
-    return false;
-  }
-  const cleaned = stripLineSuffix(value.trim());
-  if (!cleaned || cleaned === '#') {
-    return false;
-  }
-  return /[\\/]/.test(cleaned) || /\.[a-z0-9]+$/i.test(cleaned);
-};
-
-// Inline code that is just a path (`src/foo.ts`, `templates/КАТАЛОГ.html`) is
-// turned into a tappable reference, so a file mentioned in prose can be opened
-// without retyping it into the file browser.
-const looksLikeInlineFileRef = (value: string): boolean => {
-  const cleaned = stripLineSuffix(value.trim());
-  if (!cleaned || cleaned.length > 200 || /\s/.test(cleaned)) {
-    return false;
-  }
-  if (/^(https?:|mailto:|tel:|data:|www\.)/i.test(cleaned)) {
-    return false;
-  }
-  // Shell/glob punctuation means it is a command or pattern, not a single file.
-  if (/[`'"<>|*?$]/.test(cleaned)) {
-    return false;
-  }
-  // An ASCII extension keeps version numbers (`2.1.218`), IPs and abbreviations out.
-  return /\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(cleaned);
-};
+// Что считается путём — в `../../utils/filePathDetection`: правило одно на
+// бэктики и на ссылки, и оно покрыто тестами (пробелы в пути, папки, команды).
 
 // Extract plain text from link children so a reference rendered only as link
 // text (e.g. `[src/foo.ts]()` with an empty href) can still be opened.
@@ -88,7 +58,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
   const shouldInline = inlineDetected || !looksMultiline;
 
   if (shouldInline) {
-    if (looksLikeInlineFileRef(raw)) {
+    if (looksLikePath(raw)) {
       const fileRef = stripLineSuffix(raw.trim());
       const open = () => openFileInEditor(fileRef);
 
@@ -229,7 +199,9 @@ const markdownComponents = {
 };
 
 export function Markdown({ children, className }: MarkdownProps) {
-  const content = normalizeInlineCodeFences(String(children ?? ''));
+  // Скобки вокруг адресов с пробелами дописываются ДО разбора: иначе
+  // `[отчёт](/home/agents/Antigravity Project/D5.md)` вообще не станет ссылкой.
+  const content = bracketSpacedLinkTargets(normalizeInlineCodeFences(String(children ?? '')));
   const remarkPlugins = useMemo(() => [remarkGfm, remarkMath], []);
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
   const { openFileInEditor } = usePaletteOps();
@@ -241,7 +213,7 @@ export function Markdown({ children, className }: MarkdownProps) {
         // Prefer the href when it is a real path; otherwise fall back to the
         // link text, since models often emit `[src/foo.ts]()` with an empty href.
         const linkText = childrenToText(linkChildren);
-        const fileRef = looksLikeFilePath(href) ? href : looksLikeFilePath(linkText) ? linkText : undefined;
+        const fileRef = looksLikePath(href) ? href : looksLikePath(linkText) ? linkText : undefined;
 
         if (fileRef && !isExternalHref(href)) {
           return (

@@ -22,7 +22,8 @@ import { createWebSocketServer } from '@/modules/websocket/index.js';
 import { getConnectableHost } from '../shared/networkHosts.js';
 
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
-import { resolveProjectFilePath } from './utils/file-reference-resolver.js';
+import { findByBasename, resolveProjectFilePath } from './utils/file-reference-resolver.js';
+import fileShareRoutes, { serveSharedFile } from './routes/file-share.js';
 import {
     queryClaudeSDK,
     abortClaudeSDKSession,
@@ -70,6 +71,8 @@ import pipelinesRoutes from './modules/pipelines/pipelines.routes.js';
 import schedulesRoutes from './modules/schedules/schedules.routes.js';
 import telegramRoutes from './modules/telegram/telegram.routes.js';
 import telegramWebhookRoutes from './modules/telegram/telegram-webhook.routes.js';
+import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
+import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -239,6 +242,13 @@ app.use('/api/user', authenticateToken, userRoutes);
 // Admin API Routes (protected, admin-only)
 app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 
+// Server panel: health of the host this instance runs on. Admin-only —
+// it can stop and start system services, which is not a tenant's business.
+// Mounted before the panel router so the shared-token ingest path is not
+// swallowed by the admin-only JWT check: a reporting machine has no login.
+app.use('/api/vps/ingest', vpsIngestRouter);
+app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
+
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);
 
@@ -255,6 +265,11 @@ app.use('/api/providers', authenticateToken, providerRoutes);
 app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
+
+// Ссылки на файлы: выдача — только своим, скачивание по подписанной ссылке —
+// открыто наружу (её и пересылают тому, у кого доступа в Neo3 нет).
+app.use('/api/files', fileShareRoutes);
+app.get('/d/:token', serveSharedFile);
 
 // Digital Asset Links for the Android TWA (ru.tarariev.claudecli). express.static
 // ignores dotfiles by default, so .well-known must be mounted explicitly or
@@ -391,8 +406,12 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
         // Resolve and normalize the path
         targetPath = path.resolve(targetPath);
 
-        // Security check - ensure path is within allowed workspace root
-        const validation = await validateWorkspacePath(targetPath);
+        // Security check - ensure path is within allowed workspace root.
+        // Admins browse the whole machine (they own it and have the Terminal
+        // tab anyway); guests stay inside the workspace root.
+        const validation = await validateWorkspacePath(targetPath, {
+            allowAnyPath: req.user?.role === 'admin',
+        });
         if (!validation.valid) {
             return res.status(403).json({ error: validation.error });
         }
@@ -412,6 +431,24 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
 
         // Use existing getFileTree function with shallow depth (only direct children)
         const fileTree = await getFileTree(resolvedPath, 1, 0, false); // maxDepth=1, showHidden=false
+
+        // `withFiles=1` — режим проводника: человек пришёл забрать файл, а не
+        // выбрать папку под новый проект, поэтому файлы нужны вместе с размером
+        // и датой. Без флага ответ прежний (только папки) — им пользуется мастер
+        // создания проекта, и лишние записи ему только мешают.
+        const wantsFiles = req.query.withFiles === '1' || req.query.withFiles === 'true';
+        const files = wantsFiles
+            ? fileTree
+                .filter(item => item.type === 'file')
+                .map(item => ({
+                    path: item.path,
+                    name: item.name,
+                    type: 'file',
+                    size: item.size ?? null,
+                    modified: item.modified ?? null,
+                }))
+                .sort((a, b) => a.name.localeCompare(b.name))
+            : [];
 
         // Filter only directories and format for suggestions
         const directories = fileTree
@@ -449,7 +486,9 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
 
         res.json({
             path: resolvedPath,
-            suggestions: suggestions
+            parent: path.dirname(resolvedPath) === resolvedPath ? null : path.dirname(resolvedPath),
+            suggestions: suggestions,
+            files
         });
 
     } catch (error) {
@@ -466,7 +505,9 @@ app.post('/api/create-folder', authenticateToken, async (req, res) => {
         }
         const expandedPath = expandWorkspacePath(folderPath);
         const resolvedInput = path.resolve(expandedPath);
-        const validation = await validateWorkspacePath(resolvedInput);
+        const validation = await validateWorkspacePath(resolvedInput, {
+            allowAnyPath: req.user?.role === 'admin',
+        });
         if (!validation.valid) {
             return res.status(403).json({ error: validation.error });
         }
@@ -621,6 +662,18 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
         const mimeType = mime.lookup(resolved) || 'application/octet-stream';
         res.setHeader('Content-Type', mimeType);
 
+        // `download=1` turns the same bytes into a real browser download instead
+        // of an inline preview. The RFC 5987 form keeps Cyrillic names intact —
+        // a plain `filename=` mangles them into question marks.
+        if (req.query.download === '1' || req.query.download === 'true') {
+            const fileName = path.basename(resolved);
+            const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+            );
+        }
+
         // Stream the file
         const fileStream = fs.createReadStream(resolved);
         fileStream.pipe(res);
@@ -637,6 +690,72 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
         if (!res.headersSent) {
             res.status(500).json({ error: error.message });
         }
+    }
+});
+
+// What is this path, before we open anything?
+//
+// A reference from chat can be a file, a folder or simply wrong, and each needs
+// a different window. Guessing on the client meant the editor opened for all
+// three and showed `// Error loading file: 404` for the last two. One cheap
+// round-trip decides it — and when nothing is there, the same answer already
+// carries files with that name found elsewhere, so the dead end offers a way out.
+app.get('/api/projects/:projectId/path-info', authenticateToken, async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const { path: filePath } = req.query;
+
+        if (!filePath) {
+            return res.status(400).json({ error: 'Invalid file path' });
+        }
+
+        const projectRoot = await projectsDb.getProjectPathById(projectId);
+        if (!projectRoot) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const outcome = await resolveProjectFilePath({ filePath, projectRoot, user: req.user });
+        if (!outcome.ok) {
+            return res.status(outcome.status).json({ error: outcome.error });
+        }
+        const resolved = outcome.resolved;
+
+        let stats = null;
+        try {
+            stats = await fsPromises.stat(resolved);
+        } catch (error) {
+            if (error.code !== 'ENOENT' && error.code !== 'EACCES') {
+                throw error;
+            }
+        }
+
+        if (!stats) {
+            const matches = await findByBasename({
+                name: filePath,
+                projectRoot,
+                user: req.user,
+            });
+            return res.json({
+                exists: false,
+                isDirectory: false,
+                path: resolved,
+                name: path.basename(resolved),
+                matches,
+            });
+        }
+
+        res.json({
+            exists: true,
+            isDirectory: stats.isDirectory(),
+            path: resolved,
+            name: path.basename(resolved),
+            size: stats.size,
+            modified: stats.mtime.toISOString(),
+            matches: [],
+        });
+    } catch (error) {
+        console.error('Error reading path info:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -663,10 +782,16 @@ app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
         }
 
         // Same resolution as the reader, so a cross-project file opened from chat
-        // saves back to the file it was read from. New files can only be created
-        // inside the project root, since resolution only leaves it for paths that
-        // already exist.
-        const outcome = await resolveProjectFilePath({ filePath, projectRoot, user: req.user });
+        // saves back to the file it was read from — the editor sends back the
+        // absolute path the reader reported. Searching is off here on purpose:
+        // a *relative* path that misses must create the file in this project,
+        // never silently overwrite a same-named file found elsewhere.
+        const outcome = await resolveProjectFilePath({
+            filePath,
+            projectRoot,
+            user: req.user,
+            allowSearch: false,
+        });
         if (!outcome.ok) {
             return res.status(outcome.status).json({ error: outcome.error });
         }
@@ -1740,6 +1865,14 @@ async function startServer() {
             startEnabledPluginServers().catch(err => {
                 console.error('[Plugins] Error during startup:', err.message);
             });
+
+            // Server-panel watchdog: alerts to Telegram when a service dies or
+            // a disk fills up. No-op until it is enabled in the panel.
+            try {
+                startAlertLoop();
+            } catch (err) {
+                console.error('[ServerPanel] alert loop failed to start:', err.message);
+            }
         });
 
         await closeSessionsWatcher();

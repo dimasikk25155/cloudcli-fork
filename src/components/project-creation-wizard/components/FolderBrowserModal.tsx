@@ -19,6 +19,10 @@ export default function FolderBrowserModal({
   onFolderSelected,
 }: FolderBrowserModalProps) {
   const [currentPath, setCurrentPath] = useState('~');
+  // Typing a path is the only practical way to reach a folder that is not below
+  // the starting directory (`/opt/<service>`, `/srv/...`); clicking can only
+  // ever walk the tree that is already on screen.
+  const [pathInput, setPathInput] = useState('~');
   const [folders, setFolders] = useState<FolderSuggestion[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [showHiddenFolders, setShowHiddenFolders] = useState(false);
@@ -34,6 +38,7 @@ export default function FolderBrowserModal({
     try {
       const result = await browseFilesystemFolders(pathToLoad);
       setCurrentPath(result.path);
+      setPathInput(result.path);
       setFolders(result.suggestions);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Failed to load folders');
@@ -229,9 +234,27 @@ export default function FolderBrowserModal({
         <div className="border-t border-border">
           <div className="flex items-center gap-2 bg-muted/40 px-4 py-3">
             <span className="text-sm text-muted-foreground">Path:</span>
-            <code className="flex-1 truncate font-mono text-sm text-foreground">
-              {currentPath}
-            </code>
+            <Input
+              type="text"
+              value={pathInput}
+              onChange={(event) => setPathInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && pathInput.trim()) {
+                  loadFolders(pathInput.trim());
+                }
+              }}
+              spellCheck={false}
+              className="flex-1 font-mono text-sm"
+              placeholder="/opt/my-service"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => pathInput.trim() && loadFolders(pathInput.trim())}
+              disabled={loadingFolders || !pathInput.trim() || pathInput.trim() === currentPath}
+            >
+              Go
+            </Button>
           </div>
           <div className="flex items-center justify-end gap-2 p-4">
             <Button variant="outline" onClick={handleClose}>

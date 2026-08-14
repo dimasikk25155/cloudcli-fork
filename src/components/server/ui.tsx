@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertTriangle, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Wrench, type LucideIcon } from 'lucide-react';
 
 import type { Diagnosis } from './shared';
 
@@ -13,6 +13,7 @@ export function ActionButton({
   busy,
   danger,
   primary,
+  title,
 }: {
   icon: LucideIcon;
   label: string;
@@ -20,16 +21,18 @@ export function ActionButton({
   busy?: boolean;
   danger?: boolean;
   primary?: boolean;
+  title?: string;
 }) {
   const accent = danger
     ? 'hover:border-red-500/60 hover:text-red-500'
     : primary
-      ? 'border-primary/50 text-foreground hover:bg-primary/10'
+      ? 'border-primary/50 bg-primary/10 text-foreground hover:bg-primary/20'
       : 'hover:bg-accent hover:text-foreground';
   return (
     <button
       onClick={onClick}
       disabled={busy}
+      title={title}
       className={`flex min-h-[34px] items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors disabled:opacity-40 ${accent}`}
     >
       <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${busy ? 'animate-spin' : ''}`} />
@@ -55,14 +58,20 @@ export function Card({ title, icon: Icon, count, children }: { title: string; ic
   );
 }
 
-/** Разбор аварии: почему упал и что с этим делать. Без моделей — по правилам. */
+/**
+ * Разбор аварии: почему упал и что с этим делать. Без моделей — по правилам.
+ *
+ * Трассировка убрана под «Подробности»: на первом экране она пугает и вытесняет
+ * кнопки, а Диме нужна одна фраза, что случилось. Кому нужен текст ошибки —
+ * тот раскроет, и он тут же, а не в другой вкладке.
+ */
 export function DiagnosisBlock({ diagnosis }: { diagnosis: Diagnosis | null | undefined }) {
   if (!diagnosis) return null;
   if (!diagnosis.reason && !diagnosis.lastError) {
     return (
       <div className="mt-2 text-xs text-muted-foreground">
-        Причину по логам определить не вышло{diagnosis.exitCode != null ? ` (код выхода ${diagnosis.exitCode})` : ''}.
-        Откройте логи — там видно больше.
+        По логам не понял, почему падает{diagnosis.exitCode != null ? ` (код выхода ${diagnosis.exitCode})` : ''}.
+        Нажмите «Починить» — агент разберётся в чате.
       </div>
     );
   }
@@ -77,15 +86,23 @@ export function DiagnosisBlock({ diagnosis }: { diagnosis: Diagnosis | null | un
           </div>
         </div>
       )}
-      {diagnosis.lastError && (
-        // Три строки — потолок: с телефона длинная трассировка выдавливает
-        // кнопки за экран. Кому нужен весь текст, тот идёт в «Логи».
-        <div
-          className="overflow-hidden rounded-lg bg-muted/60 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground"
-          title={diagnosis.lastError}
-        >
-          <span className="line-clamp-3 break-all">{diagnosis.lastError.slice(0, 300)}</span>
+
+      {diagnosis.needsHuman && (
+        <div className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+          <Wrench className="h-3 w-3 flex-shrink-0" />
+          Сам не поднимется: перезапуск не поможет, нужна починка.
         </div>
+      )}
+
+      {diagnosis.lastError && (
+        <details className="group">
+          <summary className="cursor-pointer list-none text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+            Подробности (текст ошибки)
+          </summary>
+          <div className="mt-1 overflow-hidden rounded-lg bg-muted/60 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
+            <span className="break-all">{diagnosis.lastError.slice(0, 600)}</span>
+          </div>
+        </details>
       )}
     </div>
   );

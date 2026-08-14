@@ -5,14 +5,17 @@ import FileTree from '../../file-tree/view/FileTree';
 import StandaloneShell from '../../standalone-shell/view/StandaloneShell';
 import GitPanel from '../../git-panel/view/GitPanel';
 import PluginTabContent from '../../plugins/view/PluginTabContent';
+import ProjectStatsPanel from '../../project-stats/view/ProjectStatsPanel';
 import { BrowserUsePanel } from '../../browser-use';
 import type { MainContentProps } from '../types/types';
 import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
-import { authenticatedFetch } from '../../../utils/api';
+import { api, authenticatedFetch } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import EditorSidebar from '../../code-editor/view/EditorSidebar';
+import FolderModal from '../../file-browser/FolderModal';
+import MissingFileModal, { type PathMatch } from '../../file-browser/MissingFileModal';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
 import ShellModeSwitcher from './subcomponents/ShellModeSwitcher';
@@ -69,6 +72,54 @@ function MainContent({
   // real project files before opening them in the in-app editor.
   const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
 
+  // Ссылка из чата может оказаться папкой или вообще ничем, и для каждого случая
+  // нужно своё окно. Раньше открывался редактор на всё подряд и показывал
+  // `// Error loading file: 404` там, где надо было объяснить словами.
+  const [folderPath, setFolderPath] = useState<string | null>(null);
+  const [missingFile, setMissingFile] = useState<{ reference: string; matches: PathMatch[] } | null>(null);
+
+  const openFileAsModal = useCallback(
+    (filePath: string) => {
+      setOpenAsModal(true);
+      handleFileOpen(filePath);
+    },
+    [handleFileOpen, setOpenAsModal],
+  );
+
+  const openPathFromChat = useCallback(
+    async (filePath: string) => {
+      const projectId = selectedProject?.projectId;
+      if (!projectId) return;
+
+      try {
+        const response = await api.pathInfo(projectId, filePath);
+        const info = await response.json().catch(() => null);
+
+        if (!response.ok || !info) {
+          // Сервер не дал ответа — ведём себя как раньше, лишь бы не потерять клик.
+          setOpenAsModal(true);
+          resolvedFileOpen(filePath);
+          return;
+        }
+
+        if (info.isDirectory) {
+          setFolderPath(info.path);
+          return;
+        }
+        if (info.exists) {
+          // Путь уже разрешён сервером, повторно угадывать его не нужно.
+          openFileAsModal(info.path);
+          return;
+        }
+        setMissingFile({ reference: info.path || filePath, matches: info.matches ?? [] });
+      } catch {
+        setOpenAsModal(true);
+        resolvedFileOpen(filePath);
+      }
+    },
+    [openFileAsModal, resolvedFileOpen, selectedProject?.projectId, setOpenAsModal],
+  );
+
   const loadBrowserUseSettings = useCallback(async () => {
     try {
       const response = await authenticatedFetch('/api/browser-use/settings');
@@ -99,8 +150,7 @@ function MainContent({
     // Opens links clicked inside chat messages as a centered modal (same as
     // mobile), instead of the desktop side panel used by the file tree.
     openFileInEditor: (filePath: string) => {
-      setOpenAsModal(true);
-      resolvedFileOpen(filePath);
+      void openPathFromChat(filePath);
     },
   });
 
@@ -172,6 +222,12 @@ function MainContent({
             </div>
           )}
 
+          {activeTab === 'stats' && (
+            <div className="h-full overflow-hidden">
+              <ProjectStatsPanel selectedProject={selectedProject} />
+            </div>
+          )}
+
           {activeTab === 'git' && (
             <div className="h-full overflow-hidden">
               <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
@@ -210,6 +266,35 @@ function MainContent({
           fillSpace={activeTab === 'files'}
         />
       </div>
+
+      {folderPath && (
+        <FolderModal
+          projectId={selectedProject.projectId}
+          path={folderPath}
+          onClose={() => setFolderPath(null)}
+          onOpenFile={(filePath) => {
+            setFolderPath(null);
+            openFileAsModal(filePath);
+          }}
+        />
+      )}
+
+      {missingFile && (
+        <MissingFileModal
+          projectId={selectedProject.projectId}
+          reference={missingFile.reference}
+          matches={missingFile.matches}
+          onClose={() => setMissingFile(null)}
+          onOpenFile={(filePath) => {
+            setMissingFile(null);
+            openFileAsModal(filePath);
+          }}
+          onOpenFolder={(dirPath) => {
+            setMissingFile(null);
+            setFolderPath(dirPath);
+          }}
+        />
+      )}
     </div>
   );
 }

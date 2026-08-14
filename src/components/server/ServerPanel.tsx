@@ -16,9 +16,11 @@ import {
   ScrollText,
   Square,
   Terminal,
+  Wrench,
 } from 'lucide-react';
 
 import { authenticatedFetch } from '../../utils/api';
+import { sendToComposer } from '../../utils/composerDraft';
 
 import AlertsTab from './AlertsTab';
 import InstalledTab from './InstalledTab';
@@ -29,6 +31,9 @@ import {
   HEALTH_STYLE,
   bytes,
   duration,
+  fixPrompt,
+  humanName,
+  plural,
   readJson,
   tone,
   type AlertSettings,
@@ -93,7 +98,7 @@ function MetricCard({
   );
 }
 
-export default function ServerPanel() {
+export default function ServerPanel({ onRequestClose }: { onRequestClose?: () => void } = {}) {
   const [tab, setTab] = useState<Tab>('overview');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [services, setServices] = useState<ServiceInfo[]>([]);
@@ -243,6 +248,50 @@ export default function ServerPanel() {
     setTab('logs');
   }, []);
 
+  // «Починить» — главный выход из аварии для человека, который не полезет в
+  // терминал: панель собирает задание (что, почему, лог) и кладёт его в чат.
+  // Отправляет Дима сам — панель ничего не запускает у него за спиной.
+  const askAgentToFix = useCallback(
+    (service: ServiceInfo) => {
+      sendToComposer(fixPrompt(service, diagnoses[service.unit]));
+      onRequestClose?.();
+    },
+    [diagnoses, onRequestClose],
+  );
+
+  // «Заглушить» = остановить и снять с автозапуска одним нажатием. Порознь это
+  // две кнопки и два решения, а смысл один: бот с 20 000 перезапусков должен
+  // перестать долбиться, пока его не починили.
+  const silence = useCallback(
+    async (unit: string) => {
+      setBusyUnit(unit);
+      setFeedback(null);
+      try {
+        for (const action of ['stop', 'disable'] as const) {
+          const response = await authenticatedFetch(`/api/vps/services/${encodeURIComponent(unit)}/${action}`, {
+            method: 'POST',
+          });
+          const body = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new Error(body?.error?.message || body?.error || 'Не удалось заглушить сервис');
+          }
+        }
+        if (mounted.current) {
+          setFeedback({
+            ok: true,
+            text: `${unit.replace(/\.service$/, '')} остановлен и больше не поднимется сам`,
+          });
+        }
+        await refresh();
+      } catch (error) {
+        if (mounted.current) setFeedback({ ok: false, text: error instanceof Error ? error.message : String(error) });
+      } finally {
+        if (mounted.current) setBusyUnit(null);
+      }
+    },
+    [refresh],
+  );
+
   const act = useCallback(
     async (unit: string, action: ServiceAction) => {
       setBusyUnit(unit);
@@ -316,7 +365,9 @@ export default function ServerPanel() {
         <div className="flex items-center gap-2">
           <span className={`h-2.5 w-2.5 rounded-full ${broken.length ? 'bg-red-500' : 'bg-emerald-500'}`} />
           <span className="text-sm font-medium text-foreground">
-            {broken.length ? `Проблемы: ${broken.length}` : 'Всё живо'}
+            {broken.length
+              ? `${broken.length} ${plural(broken.length, ['сервис', 'сервиса', 'сервисов'])} не ${plural(broken.length, ['работает', 'работают', 'работают'])}`
+              : 'Всё живо'}
           </span>
         </div>
         <span className="text-xs text-muted-foreground">
@@ -428,12 +479,13 @@ export default function ServerPanel() {
                 <div className="space-y-3">
                   {broken.map((service) => (
                     <div key={service.unit} className="rounded-lg border border-border/60 bg-card p-3">
-                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                        <span className="text-sm font-medium text-foreground">{service.name}</span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {HEALTH_STYLE[service.health].label}
-                          {service.restarts > 0 && ` · перезапусков ${service.restarts}`}
-                        </span>
+                      {/* Заголовок — человеческое имя из описания юнита; сам юнит
+                          уходит во вторую строку: он нужен в терминале, не здесь. */}
+                      <div className="text-sm font-medium text-foreground">{humanName(service)}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {service.name} · {HEALTH_STYLE[service.health].label}
+                        {service.restarts > 0 &&
+                          ` · пытался запуститься ${service.restarts.toLocaleString('ru-RU')} раз`}
                       </div>
 
                       {diagnoses[service.unit] ? (
@@ -446,35 +498,64 @@ export default function ServerPanel() {
                       )}
 
                       <div className="mt-2.5 flex flex-wrap gap-1.5">
-                        <ActionButton icon={ScrollText} label="Логи" onClick={() => openLogs(service.unit)} />
+                        {/* Первой — «Починить»: это единственное действие, которое
+                            для не-программиста что-то меняет. */}
+                        <ActionButton
+                          icon={Wrench}
+                          label="Починить"
+                          primary
+                          onClick={() => askAgentToFix(service)}
+                          title="Задание уедет в чат — отправите сами"
+                        />
                         {service.controllable && (
-                          <>
-                            {/* Первым — «Остановить»: бот с тысячей перезапусков не
-                                чинится ещё одним, его надо унять. */}
-                            <ActionButton
-                              icon={Square}
-                              label="Остановить"
-                              danger
-                              busy={busyUnit === service.unit}
-                              onClick={() => void act(service.unit, 'stop')}
-                            />
+                          <ActionButton
+                            icon={Square}
+                            label="Заглушить"
+                            danger
+                            busy={busyUnit === service.unit}
+                            onClick={() => void silence(service.unit)}
+                            title="Остановить и снять с автозапуска"
+                          />
+                        )}
+                        <ActionButton icon={ScrollText} label="Логи" onClick={() => openLogs(service.unit)} />
+                      </div>
+
+                      <div className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                        «Починить» — агент получит задание с причиной и логом. «Заглушить» — сервис
+                        перестанет бесконечно перезапускаться (работать он при этом тоже не будет).
+                      </div>
+
+                      {service.controllable && (
+                        <details className="mt-1.5">
+                          <summary className="cursor-pointer list-none text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+                            Ещё кнопки
+                          </summary>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
                             <ActionButton
                               icon={RotateCcw}
                               label="Перезапустить"
                               busy={busyUnit === service.unit}
                               onClick={() => void act(service.unit, 'restart')}
+                              title="Помогает, только если причина была разовой"
                             />
-                            {service.enabled === 'enabled' && (
+                            {service.enabled === 'enabled' ? (
                               <ActionButton
                                 icon={Power}
                                 label="Не поднимать после ребута"
                                 busy={busyUnit === service.unit}
                                 onClick={() => void act(service.unit, 'disable')}
                               />
+                            ) : (
+                              <ActionButton
+                                icon={Power}
+                                label="Поднимать после ребута"
+                                busy={busyUnit === service.unit}
+                                onClick={() => void act(service.unit, 'enable')}
+                              />
                             )}
-                          </>
-                        )}
-                      </div>
+                          </div>
+                        </details>
+                      )}
                     </div>
                   ))}
                 </div>

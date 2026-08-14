@@ -36,6 +36,7 @@ type SidebarProjectItemProps = {
   activeSessions: SessionActivityMap;
   attentionSessionIds: ReadonlySet<string>;
   isRecentView?: boolean;
+  isFoldOnlyHeader?: boolean;
   onNewSession: (project: Project) => void;
   onEditingSessionNameChange: (value: string) => void;
   onStartEditingSession: (sessionId: string, initialName: string) => void;
@@ -73,6 +74,7 @@ export default function SidebarProjectItem({
   activeSessions,
   attentionSessionIds,
   isRecentView = false,
+  isFoldOnlyHeader = false,
   onNewSession,
   onEditingSessionNameChange,
   onStartEditingSession,
@@ -94,7 +96,10 @@ export default function SidebarProjectItem({
   };
 
   const selectAndToggleProject = () => {
-    if (selectedProject?.projectId !== project.projectId) {
+    // In the journal views (Running/Recent) the header is a pure fold handle:
+    // folding a group away must never switch the workspace out of the chat the
+    // user currently has open.
+    if (!isFoldOnlyHeader && selectedProject?.projectId !== project.projectId) {
       onProjectSelect(project);
     }
 
@@ -201,7 +206,7 @@ export default function SidebarProjectItem({
                       <X className="h-4 w-4" />
                     </button>
                   </>
-                ) : !isRecentView ? (
+                ) : (
                   <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
                     {isExpanded ? (
                       <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -209,7 +214,7 @@ export default function SidebarProjectItem({
                       <ChevronRight className="h-3 w-3 text-muted-foreground" />
                     )}
                   </div>
-                ) : null}
+                )}
               </div>
             </div>
           </div>
@@ -305,13 +310,11 @@ export default function SidebarProjectItem({
                   <X className="h-3 w-3" />
                 </div>
               </>
-            ) : !isRecentView ? (
-              isExpanded ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-              ) : (
-                <ChevronRight className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-              )
-            ) : null}
+            ) : isExpanded ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+            )}
           </div>
         </Button>
       </div>

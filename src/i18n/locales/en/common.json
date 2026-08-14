@@ -23,7 +23,23 @@
     "files": "Files",
     "git": "Source Control",
     "browser": "Browser",
-    "computer": "Computer"
+    "computer": "Computer",
+    "stats": "Statistics"
+  },
+  "stats": {
+    "loading": "Counting…",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "truncated": "Project exceeds 20,000 files — numbers shown are partial.",
+    "files": "Files",
+    "lines": "Lines of code",
+    "size": "Size",
+    "sessions": "Claude sessions",
+    "lastActivity": "last {{date}}",
+    "tokens": "Tokens spent",
+    "cost": "Cost at API rates",
+    "costHint": "on a subscription this is quota, not money",
+    "languages": "What it's made of"
   },
   "status": {
     "loading": "Loading...",

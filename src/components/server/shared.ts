@@ -49,6 +49,7 @@ export type Diagnosis = {
   lastError: string | null;
   reason: string | null;
   advice: string | null;
+  needsHuman?: boolean;
 };
 
 export type ErrorGroup = { source: string; text: string; count: number; lastTs: string };
@@ -147,6 +148,56 @@ export const HEALTH_STYLE: Record<ServiceInfo['health'], { dot: string; label: s
   failed: { dot: 'bg-red-500', label: 'упал' },
   flapping: { dot: 'bg-amber-500', label: 'падает по кругу' },
 };
+
+/** Русское склонение по числу: 1 сервис, 2 сервиса, 5 сервисов. */
+export function plural(count: number, forms: [string, string, string]): string {
+  const mod100 = Math.abs(count) % 100;
+  const mod10 = mod100 % 10;
+  if (mod100 >= 11 && mod100 <= 14) return forms[2];
+  if (mod10 === 1) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4) return forms[1];
+  return forms[2];
+}
+
+/**
+ * Название сервиса для человека.
+ *
+ * `crypta-bg-repost` ни о чём не говорит, а systemd-описание — говорит:
+ * «Crypta BG repost — @crypto_hd → @vtemechannel1». Оно и идёт заголовком,
+ * имя юнита остаётся мелкой строкой для тех, кто полезет в терминал.
+ */
+export function humanName(service: ServiceInfo): string {
+  const description = service.description?.trim();
+  if (!description) return service.name;
+  if (description.toLowerCase() === service.name.toLowerCase()) return service.name;
+  if (/^\S+\.service$/i.test(description)) return service.name;
+  return description;
+}
+
+/**
+ * Готовое задание агенту по конкретной аварии.
+ *
+ * Дима нажимает «Починить», текст ложится в чат — и остаётся только отправить.
+ * Пересказывать причину и лог руками (тем более с телефона) он не должен.
+ */
+export function fixPrompt(service: ServiceInfo, diagnosis?: Diagnosis | null): string {
+  const lines = [
+    `Сервис «${humanName(service)}» (юнит ${service.unit}) не работает: ${HEALTH_STYLE[service.health].label}` +
+      (service.restarts > 0 ? `, перезапусков ${service.restarts}.` : '.'),
+  ];
+
+  if (diagnosis?.reason) lines.push(`Панель определила причину: ${diagnosis.reason}`);
+  if (diagnosis?.advice) lines.push(`Совет панели: ${diagnosis.advice}`);
+  if (diagnosis?.lastError) lines.push(`Последняя ошибка из лога:\n${diagnosis.lastError.slice(0, 600)}`);
+  if (diagnosis?.logPath) lines.push(`Лог сервиса: ${diagnosis.logPath}`);
+
+  lines.push(
+    'Разберись и почини. Если без меня не обойтись (новый вход, токен, код подтверждения) — ' +
+      'скажи одной строкой, что мне сделать.',
+  );
+
+  return lines.join('\n');
+}
 
 /** Одна строка про сервис: сколько живёт, сколько ест, сколько раз падал. */
 export function serviceStats(service: ServiceInfo): string {

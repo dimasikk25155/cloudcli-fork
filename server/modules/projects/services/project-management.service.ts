@@ -12,10 +12,16 @@ import { AppError, expandWorkspacePath, normalizeProjectPath, validateWorkspaceP
 type CreateProjectInput = {
   projectPath: string;
   customName?: string | null;
+  // Admins may register a folder anywhere on the machine (e.g. `/opt/<service>`),
+  // not only under the workspace root.
+  allowAnyPath?: boolean;
 };
 
 type CreateProjectDependencies = {
-  validatePath: (projectPath: string) => Promise<WorkspacePathValidationResult>;
+  validatePath: (
+    projectPath: string,
+    options?: { allowAnyPath?: boolean },
+  ) => Promise<WorkspacePathValidationResult>;
   ensureWorkspaceDirectory: (projectPath: string) => Promise<void>;
   persistProjectPath: (projectPath: string, customName: string | null) => CreateProjectPathResult;
   getProjectByPath: (projectPath: string) => ProjectRepositoryRow | null;
@@ -98,7 +104,9 @@ export async function createProject(
     });
   }
 
-  const pathValidation = await dependencies.validatePath(normalizedPath);
+  const pathValidation = await dependencies.validatePath(normalizedPath, {
+    allowAnyPath: input.allowAnyPath === true,
+  });
   if (!pathValidation.valid || !pathValidation.resolvedPath) {
     throw new AppError('Invalid project path', {
       code: 'INVALID_PROJECT_PATH',

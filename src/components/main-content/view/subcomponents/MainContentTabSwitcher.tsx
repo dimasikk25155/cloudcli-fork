@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, MonitorPlay, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, MonitorPlay, BarChart3, type LucideIcon } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -36,6 +36,9 @@ const BASE_TABS: BuiltInTab[] = [
   { kind: 'builtin', id: 'chat',  labelKey: 'tabs.chat',  icon: MessageSquare },
   { kind: 'builtin', id: 'shell', labelKey: 'tabs.shell', icon: Terminal },
   { kind: 'builtin', id: 'files', labelKey: 'tabs.files', icon: Folder },
+  // Was the external `project-stats` plugin; built in so it ships with the app
+  // and shares the token/pricing modules instead of duplicating their rates.
+  { kind: 'builtin', id: 'stats', labelKey: 'tabs.stats', icon: BarChart3 },
 ];
 
 const BROWSER_TAB: BuiltInTab = {

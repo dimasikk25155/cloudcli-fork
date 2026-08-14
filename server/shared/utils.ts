@@ -17,7 +17,7 @@ import readline from 'node:readline';
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
-import { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
+import { sessionsDb } from '@/modules/database/index.js';
 import { parseFrontMatter } from '@/shared/frontmatter.js';
 import type {
   AnyRecord,
@@ -222,13 +222,47 @@ export function normalizeProjectPath(inputPath: string): string {
 }
 
 /**
+ * Same as {@link normalizeProjectPath}, plus symlink resolution.
+ *
+ * `project_path` is the identity of a workspace across the projects and sessions
+ * tables, so one folder reachable under two spellings (a symlinked home such as
+ * `/Users/dimasik` → `/home/agents`) would otherwise register as two projects
+ * with the same name and the same sessions. Paths that do not exist yet keep
+ * their normalized form so callers can register a folder before creating it.
+ */
+export function canonicalizeProjectPath(inputPath: string): string {
+  const normalized = normalizeProjectPath(inputPath);
+  if (!normalized) {
+    return normalized;
+  }
+
+  try {
+    return normalizeProjectPath(fs.realpathSync(normalized));
+  } catch {
+    return normalized;
+  }
+}
+
+/**
  * Validates that a user-supplied workspace path is safe to use.
  *
  * Call this before any filesystem mutation that creates or registers projects.
  * The function resolves symlinks, enforces `WORKSPACES_ROOT` containment, and
  * blocks known system directories.
+ *
+ * `allowAnyPath` lifts both the workspace-root containment and the system
+ * directory blocklist. It is meant for admins, who own the machine and already
+ * have a shell through the Terminal tab: locking them out of `/opt` or `/srv`
+ * only stops them from opening the very folders they run their services from.
+ * The OS still enforces its own permissions, so an unreadable path fails later
+ * with EACCES instead of a fake 403. Guests keep the full restrictions.
  */
-export async function validateWorkspacePath(requestedPath: string): Promise<WorkspacePathValidationResult> {
+export async function validateWorkspacePath(
+  requestedPath: string,
+  options: { allowAnyPath?: boolean } = {},
+): Promise<WorkspacePathValidationResult> {
+  const allowAnyPath = options.allowAnyPath === true;
+
   try {
     const normalizedRequestedPath = normalizeProjectPath(requestedPath);
     if (!normalizedRequestedPath) {
@@ -241,14 +275,14 @@ export async function validateWorkspacePath(requestedPath: string): Promise<Work
     const absolutePath = path.resolve(normalizedRequestedPath);
     const normalizedPath = normalizeProjectPath(absolutePath);
 
-    if (FORBIDDEN_WORKSPACE_PATHS.includes(normalizedPath) || normalizedPath === '/') {
+    if (!allowAnyPath && (FORBIDDEN_WORKSPACE_PATHS.includes(normalizedPath) || normalizedPath === '/')) {
       return {
         valid: false,
         error: 'Cannot use system-critical directories as workspace locations',
       };
     }
 
-    for (const forbiddenPath of FORBIDDEN_WORKSPACE_PATHS) {
+    for (const forbiddenPath of allowAnyPath ? [] : FORBIDDEN_WORKSPACE_PATHS) {
       const normalizedForbiddenPath = normalizeProjectPath(forbiddenPath);
       if (
         normalizedPath === normalizedForbiddenPath
@@ -289,6 +323,13 @@ export async function validateWorkspacePath(requestedPath: string): Promise<Work
           throw parentFileError;
         }
       }
+    }
+
+    if (allowAnyPath) {
+      return {
+        valid: true,
+        resolvedPath,
+      };
     }
 
     const resolvedWorkspaceRoot = normalizeProjectPath(await realpath(WORKSPACES_ROOT));

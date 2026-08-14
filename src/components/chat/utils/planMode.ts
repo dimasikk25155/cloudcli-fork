@@ -26,6 +26,11 @@ export function permissionModeAfterPlanApproval(
  * message would silently be sent read-only again.
  *
  * Rejecting the plan ("revise") deliberately keeps plan mode on.
+ *
+ * The auto-plan mode (`planBypass`) is deliberately NOT included: there the
+ * chip must stay put, so the NEXT message plans itself again instead of
+ * dropping the chat into plain bypass forever. The run itself still goes to
+ * bypassPermissions server-side on approval.
  */
 export function decisionExitsPlanMode(
   currentMode: PermissionMode | string,

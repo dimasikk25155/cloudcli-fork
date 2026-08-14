@@ -10,14 +10,14 @@ import { createCachedDiffCalculator, type DiffCalculator } from '../utils/messag
 
 import { normalizedToChatMessages } from './useChatMessages';
 
-// Opening a session stays cheap, scrolling up grabs a big chunk on purpose:
+// Opening a session grabs a big chunk on purpose, and scrolling up grabs another:
 // what hurts when reading back through a long chat is the wait, not the bytes
 // (a message averages 2-8 KB, so one page of older history is well under 1 MB).
 // A tool call is its own message here, so an hour of work is hundreds of rows —
 // paging that 20 at a time meant a spinner every few flicks of the wheel.
-const INITIAL_MESSAGES = 50;
+const INITIAL_MESSAGES = 200;
 const MESSAGES_PER_PAGE = 150;
-const INITIAL_VISIBLE_MESSAGES = 100;
+const INITIAL_VISIBLE_MESSAGES = 200;
 
 interface UseChatSessionStateArgs {
   selectedProject: Project | null;

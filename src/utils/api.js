@@ -168,6 +168,17 @@ export const api = {
     authenticatedFetch(`/api/projects/${projectId}/file?filePath=${encodeURIComponent(filePath)}`),
   readFileBlob: (projectId, filePath) =>
     authenticatedFetch(`/api/projects/${projectId}/files/content?path=${encodeURIComponent(filePath)}`),
+  // Файл это или папка, есть ли он вообще — решает сервер: у ссылки из чата
+  // по виду не понять, а открывать надо разные окна.
+  pathInfo: (projectId, filePath) =>
+    authenticatedFetch(`/api/projects/${projectId}/path-info?path=${encodeURIComponent(filePath)}`),
+  browseFolder: (dirPath) =>
+    authenticatedFetch(`/api/browse-filesystem?withFiles=1&path=${encodeURIComponent(dirPath)}`),
+  createShareLink: (projectId, filePath) =>
+    authenticatedFetch('/api/files/share-link', {
+      method: 'POST',
+      body: JSON.stringify({ projectId, path: filePath }),
+    }),
   saveFile: (projectId, filePath, content) =>
     authenticatedFetch(`/api/projects/${projectId}/file`, {
       method: 'PUT',

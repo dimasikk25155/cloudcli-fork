@@ -43,6 +43,16 @@ test('hidden reasoning does not break a run', () => {
   assert.equal(isToolGroupItem(items[0]) && items[0].messages.length, 2);
 });
 
+test('the plan stays outside groups and splits the run', () => {
+  for (const name of ['ExitPlanMode', 'exit_plan_mode']) {
+    const items = groupConsecutiveTools([tool('Bash'), tool(name), tool('Read')], true);
+    assert.equal(items.length, 3);
+    assert.equal(isToolGroupItem(items[0]), true);
+    assert.equal(isToolGroupItem(items[1]), false);
+    assert.equal(isToolGroupItem(items[2]), true);
+  }
+});
+
 test('subagent containers stay outside groups', () => {
   const items = groupConsecutiveTools([tool('Task', { isSubagentContainer: true }), tool('Bash')], true);
   assert.equal(items.length, 2);

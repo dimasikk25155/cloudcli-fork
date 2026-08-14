@@ -140,6 +140,18 @@ export const telegramDb = {
     ).all(userId) as TelegramBindingRow[];
   },
 
+  /**
+   * Every binding, regardless of owner. Only for server-side senders that have
+   * no user in scope (the server-panel alert loop picks a fallback chat here);
+   * user-facing code must keep using the user-scoped queries above.
+   */
+  listBindings(): TelegramBindingRow[] {
+    const db = getConnection();
+    return db.prepare(
+      `SELECT ${BINDING_COLUMNS} FROM telegram_bindings ORDER BY created_at ASC`
+    ).all() as TelegramBindingRow[];
+  },
+
   /** Scoped by user_id on purpose: one user must never edit another user's binding. */
   setBindingProjectPath(userId: number, chatId: string, projectPath: string | null): boolean {
     const db = getConnection();

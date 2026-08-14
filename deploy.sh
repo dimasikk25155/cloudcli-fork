@@ -29,13 +29,38 @@ RESTART_LOG="/tmp/neo3-deploy.log"
 SERVER_STAMP="$FORK_DIR/.neo3-deployed-server"
 
 RESTART_MODE="auto"
+FORCE_OVER_LIVE_RUNS=0
 for arg in "$@"; do
   case "$arg" in
     --restart) RESTART_MODE="always" ;;
     --no-restart) RESTART_MODE="never" ;;
+    --force) FORCE_OVER_LIVE_RUNS=1 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
+
+# A restart kills every agent run in flight, not just this chat's: the other
+# chats lose their turn mid-sentence, and a question waiting for an answer comes
+# back to Dima as a raw English "user doesn't want to proceed" error with no
+# hint that a deploy did it (11.08, 22:56 — a parallel deploy killed a pending
+# AskUserQuestion). So count the OTHER live runs first and refuse by default.
+# Our own run doesn't count: it dies with the restart either way.
+my_process_chain() {
+  local pid=$$
+  while [ "${pid:-0}" -gt 1 ]; do
+    echo "$pid"
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  done
+}
+
+# Agent runs are the CLI processes the server spawns per turn (`--output-format
+# stream-json`). Matching by PID, never `pkill -f` — a pattern that broad kills
+# the shell running this very script.
+other_live_runs() {
+  local mine
+  mine=$(my_process_chain | paste -sd'|' -)
+  pgrep -f -- '--output-format stream-json' 2>/dev/null | grep -vxE "${mine:-none}" || true
+}
 
 bundle_ref() { grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -1; }
 fail() { echo "❌ SMOKE FAILED: $1" >&2; exit 1; }
@@ -95,6 +120,15 @@ if ! needs_restart; then
   echo "✅ Deploy verified, no restart needed: local == origin == edge ($LOCAL_BUNDLE)"
   echo "   Frontend-only change — Dima just reloads the page."
   exit 0
+fi
+
+LIVE_RUNS=$(other_live_runs | wc -l | tr -d ' ')
+if [ "$LIVE_RUNS" -gt 0 ] && [ "$FORCE_OVER_LIVE_RUNS" -eq 0 ]; then
+  echo "⛔ Рестарт отменён: прямо сейчас работают другие чаты ($LIVE_RUNS шт.)."
+  echo "   Перезапуск оборвёт их на полуслове — у Димы это выглядит как красная ошибка вместо ответа."
+  echo "   Фронт уже обновлён и живой ($LOCAL_BUNDLE) — серверная часть поедет следующим рестартом."
+  echo "   Когда чаты освободятся: ./deploy.sh --restart   (снести их намеренно: --restart --force)"
+  exit 3
 fi
 
 # Server code changed. The restart takes this chat down with it, so hand it to

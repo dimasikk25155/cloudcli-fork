@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 
 import { authenticatedFetch } from '../../../../utils/api';
+import { fileDownloadUrl } from '../../../../utils/fileDownload';
 import type { CodeEditorFile } from '../../types/types';
 import { getPreviewMimeType, type PreviewKind } from '../../utils/previewableFile';
 
@@ -205,6 +207,19 @@ export default function CodeEditorMediaPreview({
 
   const headerActions = (
     <div className="flex shrink-0 items-center gap-0.5">
+      {/* Картинку и PDF тоже забирают, а не только смотрят: без этой кнопки
+          единственным способом скачать оставался файловый менеджер проекта. */}
+      {projectId && (
+        <a
+          href={fileDownloadUrl(projectId, file.path)}
+          download={file.name}
+          className="flex min-h-[32px] items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="Скачать файл"
+        >
+          <Download className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Скачать</span>
+        </a>
+      )}
       {canOpenInNewTab && currentUrl && (
         <a
           href={currentUrl}

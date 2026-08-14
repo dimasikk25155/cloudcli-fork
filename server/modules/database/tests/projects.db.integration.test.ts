@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -69,4 +69,26 @@ test('projectsDb.createProjectPath returns active_conflict for active duplicates
     assert.equal(conflict.project?.project_id, initial.project?.project_id);
     assert.equal(conflict.project?.isArchived, 0);
   });
+});
+
+test('projectsDb.createProjectPath does not duplicate a folder reached through a symlink', async () => {
+  const sandbox = await mkdtemp(path.join(tmpdir(), 'projects-symlink-'));
+  const realDirectory = path.join(sandbox, 'real-home', 'my-project');
+  const linkedHome = path.join(sandbox, 'linked-home');
+  await mkdir(realDirectory, { recursive: true });
+  await symlink(path.join(sandbox, 'real-home'), linkedHome, 'dir');
+
+  try {
+    await withIsolatedDatabase(() => {
+      const viaRealPath = projectsDb.createProjectPath(realDirectory);
+      assert.equal(viaRealPath.outcome, 'created');
+
+      const viaSymlink = projectsDb.createProjectPath(path.join(linkedHome, 'my-project'));
+      assert.equal(viaSymlink.outcome, 'active_conflict');
+      assert.equal(viaSymlink.project?.project_id, viaRealPath.project?.project_id);
+      assert.equal(projectsDb.getProjectPaths().length, 1);
+    });
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });

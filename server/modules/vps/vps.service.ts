@@ -483,7 +483,10 @@ export async function getLogs(
 
 // --------------------------------------------------------------- диагностика
 
-type Rule = { re: RegExp; reason: string; advice: string };
+// `transient` — авария, которая рассасывается сама (лимит, сеть, занятая база).
+// Всё остальное без человека не оживёт, сколько ни жми «Перезапустить», и панель
+// обязана сказать это прямо: иначе бот копит по 20 000 бессмысленных рестартов.
+type Rule = { re: RegExp; reason: string; advice: string; transient?: boolean };
 
 // Причины, реально встреченные на этой машине и в прошлых авариях. Порядок
 // важен: первое совпадение выигрывает, поэтому конкретное — выше общего.
@@ -507,6 +510,7 @@ const RULES: Rule[] = [
     re: /FloodWaitError|Too Many Requests|429/i,
     reason: 'Внешний сервис временно ограничил частоту запросов.',
     advice: 'Подождать и снизить частоту — перезапуск здесь не поможет.',
+    transient: true,
   },
   {
     re: /ModuleNotFoundError: No module named ['"]([^'"]+)['"]/i,
@@ -532,11 +536,13 @@ const RULES: Rule[] = [
     re: /ECONNREFUSED|Connection refused/i,
     reason: 'Не достучался до другого сервиса — тот не отвечает на своём порту.',
     advice: 'Проверить, поднят ли сервис, к которому он ходит (база, API, туннель).',
+    transient: true,
   },
   {
     re: /ENOTFOUND|getaddrinfo|Temporary failure in name resolution/i,
     reason: 'Не резолвится домен — нет сети или DNS.',
     advice: 'Проверить сеть машины и адрес, к которому он обращается.',
+    transient: true,
   },
   {
     re: /EACCES|Permission denied/i,
@@ -552,6 +558,7 @@ const RULES: Rule[] = [
     re: /database is locked|SQLITE_BUSY/i,
     reason: 'База данных занята другим процессом.',
     advice: 'Убедиться, что базу не держит вторая копия сервиса.',
+    transient: true,
   },
   {
     re: /invalid.?(api.?)?key|API key|Forbidden|403/i,
@@ -579,34 +586,41 @@ const RULES: Rule[] = [
 export function explainFailure(
   text: string,
   { result, exitCode }: { result?: string; exitCode?: number | null } = {},
-): { reason: string; advice: string } | null {
+): { reason: string; advice: string; needsHuman: boolean } | null {
   for (const rule of RULES) {
     const match = rule.re.exec(text);
     if (match) {
       const fill = (template: string) => template.replace(/\$1/g, match[1] ?? '');
-      return { reason: fill(rule.reason), advice: fill(rule.advice) };
+      return { reason: fill(rule.reason), advice: fill(rule.advice), needsHuman: !rule.transient };
     }
   }
   if (result === 'oom-kill') {
     return {
       reason: 'Съел всю память, и ядро убило процесс.',
       advice: 'Ограничить аппетит сервиса или добавить памяти.',
+      needsHuman: true,
     };
   }
   if (result === 'timeout') {
     return {
       reason: 'Не уложился в отведённое время запуска.',
       advice: 'Увеличить TimeoutStartSec в юните или разобраться, что он так долго делает на старте.',
+      needsHuman: true,
     };
   }
   if (exitCode === 203) {
     return {
       reason: 'Программа не запустилась: неверный путь в ExecStart.',
       advice: 'Проверить, существует ли файл, указанный в юните, и исполняемый ли он.',
+      needsHuman: true,
     };
   }
   if (exitCode === 127) {
-    return { reason: 'Команда не найдена.', advice: 'Проверить путь к интерпретатору в ExecStart.' };
+    return {
+      reason: 'Команда не найдена.',
+      advice: 'Проверить путь к интерпретатору в ExecStart.',
+      needsHuman: true,
+    };
   }
   return null;
 }
@@ -623,6 +637,8 @@ export type Diagnosis = {
   lastError: string | null;
   reason: string | null;
   advice: string | null;
+  /** Правило знает: сам не поднимется, нужен человек (новый вход, токен, код). */
+  needsHuman: boolean;
 };
 
 /** «Почему упал» одним запросом: состояние юнита + последняя ошибка + разбор. */
@@ -660,6 +676,7 @@ export async function diagnose(unit: string): Promise<Diagnosis> {
     lastError,
     reason: explained?.reason ?? null,
     advice: explained?.advice ?? null,
+    needsHuman: explained?.needsHuman ?? false,
   };
 }
 

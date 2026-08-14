@@ -48,6 +48,7 @@ function Sidebar({
   const {
     isSidebarCollapsed,
     expandedProjects,
+    collapsedProjects,
     editingProject,
     showNewProject,
     editingName,
@@ -138,6 +139,7 @@ function Sidebar({
     isLoading,
     loadingProgress,
     expandedProjects,
+    collapsedProjects,
     editingProject,
     editingName,
     initialSessionsLoaded,

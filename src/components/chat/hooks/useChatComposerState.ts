@@ -12,9 +12,11 @@ import type {
 import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
+import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
 import { getUsageLimits } from '../../../utils/usageLimits';
 import type { MarkSessionProcessing } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
+import { toWirePermissionMode } from '../utils/autoPlanMode';
 import {
   clearQueuedMessage,
   readQueuedMessage,
@@ -691,7 +693,9 @@ export function useChatComposerState({
     return {
       model,
       effort: currentProviderEffort,
-      permissionMode: resolvePermissionModeForProvider(provider, permissionMode),
+      // `planBypass` is a client-side mode: the run itself starts as plain
+      // `plan`, and the client answers the plan prompt on its own.
+      permissionMode: toWirePermissionMode(resolvePermissionModeForProvider(provider, permissionMode)),
       workMode,
       toolsSettings,
       skipPermissions: toolsSettings?.skipPermissions || false,
@@ -1130,6 +1134,25 @@ export function useChatComposerState({
       safeLocalStorage.removeItem(`draft_input_${selectedProjectId}`);
     }
   }, [input, selectedProjectId]);
+
+  // Готовое задание из панели («Починить сервис», «Спросить про файл») приходит
+  // сюда и ложится в поле ввода. Именно в поле, а не в отправку: запускает
+  // работу человек, увидев текст. Уже написанное не затирается — дописываемся.
+  useEffect(() => {
+    const onDraft = (event: Event) => {
+      const text = (event as CustomEvent<ComposerDraftDetail>).detail?.text;
+      if (!text) return;
+      setInput((previous) => {
+        const next = previous.trim() ? `${previous.trim()}\n\n${text}` : text;
+        inputValueRef.current = next;
+        return next;
+      });
+      textareaRef.current?.focus();
+    };
+
+    window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
+    return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
+  }, [setInput]);
 
   // Persist the queued draft under its session's key. Must be defined BEFORE
   // the swap effect below: on a session switch there is one commit where

@@ -208,7 +208,12 @@ async function scanSessionFile(filePath: string, fallbackIso: string): Promise<S
     try {
       const entry = JSON.parse(line);
 
-      if (typeof entry.cwd === 'string' && entry.cwd) {
+      // A session belongs to the folder it STARTED in. cwd changes mid-run
+      // (sub-agents, a dive into cloudcli-fork or the vault), and last-wins
+      // handed the session — with its tokens and cost — to whatever folder it
+      // happened to end in: 59 of this project's sessions were billed to
+      // cloudcli-fork before this.
+      if (typeof entry.cwd === 'string' && entry.cwd && !acc.projectPath) {
         acc.projectPath = entry.cwd;
       }
 

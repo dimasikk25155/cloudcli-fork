@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { getConnection } from '@/modules/database/connection.js';
 import type { CreateProjectPathResult, ProjectRepositoryRow } from '@/shared/types.js';
-import { normalizeProjectPath } from '@/shared/utils.js';
+import { canonicalizeProjectPath } from '@/shared/utils.js';
 
 function normalizeProjectDisplayName(projectPath: string, customProjectName: string | null): string {
     const trimmedCustomName = typeof customProjectName === 'string' ? customProjectName.trim() : '';
@@ -18,7 +18,7 @@ function normalizeProjectDisplayName(projectPath: string, customProjectName: str
 export const projectsDb = {
     createProjectPath(projectPath: string, customProjectName: string | null = null): CreateProjectPathResult {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         const normalizedProjectName = normalizeProjectDisplayName(normalizedProjectPath, customProjectName);
         const attemptedId = randomUUID();
         const row = db.prepare(`
@@ -46,7 +46,7 @@ export const projectsDb = {
 
     getProjectPath(projectPath: string): ProjectRepositoryRow | null {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         const row = db.prepare(`
             SELECT project_id, project_path, custom_project_name, isStarred, isArchived
             FROM projects
@@ -110,7 +110,7 @@ export const projectsDb = {
 
     getCustomProjectName(projectPath: string): string | null {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         const row = db.prepare(`
             SELECT custom_project_name
             FROM projects
@@ -122,7 +122,7 @@ export const projectsDb = {
 
     updateCustomProjectName(projectPath: string, customProjectName: string | null): void {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         db.prepare(`
             INSERT INTO projects (project_id, project_path, custom_project_name)
             VALUES (?, ?, ?)
@@ -141,7 +141,7 @@ export const projectsDb = {
 
     updateProjectIsStarred(projectPath: string, isStarred: boolean): void {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         db.prepare(`
             UPDATE projects
             SET isStarred = ?
@@ -160,7 +160,7 @@ export const projectsDb = {
 
     updateProjectIsArchived(projectPath: string, isArchived: boolean): void {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         db.prepare(`
             UPDATE projects
             SET isArchived = ?
@@ -179,7 +179,7 @@ export const projectsDb = {
 
     deleteProjectPath(projectPath: string): void {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         db.prepare(`
             DELETE FROM projects
             WHERE project_path = ?

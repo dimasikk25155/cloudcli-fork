@@ -125,13 +125,22 @@ interface ChatComposerProps {
 
 // Dot + button tints per permission mode, shared by the trigger button and
 // the dropdown items so the color legend stays consistent.
+// The legend reads as a scale: grey = asks about everything, blue = touches
+// nothing (plan), orange = asks about nothing (bypass). Plan used to fall
+// through to the accent colour, which made it look identical to bypass — the
+// two least similar modes wearing the same dot.
 const MODE_DOT_CLASS: Record<string, string> = {
   default: 'bg-muted-foreground',
+  plan: 'bg-blue-500',
   bypassPermissions: 'bg-orange-500',
+  // Plan + auto-run sits between the two, so it gets the colour between them.
+  planBypass: 'bg-violet-500',
 };
 const MODE_BUTTON_CLASS: Record<string, string> = {
   default: 'border-border/60 bg-muted/50 hover:bg-muted',
+  plan: 'border-blue-300/60 bg-blue-50 hover:bg-blue-100 dark:border-blue-600/40 dark:bg-blue-900/15 dark:hover:bg-blue-900/25',
   bypassPermissions: 'border-orange-300/60 bg-orange-50 hover:bg-orange-100 dark:border-orange-600/40 dark:bg-orange-900/15 dark:hover:bg-orange-900/25',
+  planBypass: 'border-violet-300/60 bg-violet-50 hover:bg-violet-100 dark:border-violet-600/40 dark:bg-violet-900/15 dark:hover:bg-violet-900/25',
 };
 const modeDotClass = (mode: string) => MODE_DOT_CLASS[mode] ?? 'bg-primary';
 const modeButtonClass = (mode: string) => MODE_BUTTON_CLASS[mode] ?? 'border-primary/20 bg-primary/5 hover:bg-primary/10';
@@ -239,6 +248,8 @@ export default function ChatComposer({
     toggle: voiceToggle,
     stop: voiceStop,
     discard: voiceDiscard,
+    getLevel: voiceLevel,
+    getElapsedMs: voiceElapsed,
   } = useVoiceInput(onVoiceTranscript ?? noopTranscript, handleVoiceError);
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';
@@ -531,8 +542,15 @@ export default function ChatComposer({
     (r) => r.toolName === 'AskUserQuestion'
   );
 
-  // Hide the thinking/status bar while any permission request is pending
-  const hasPendingPermissions = pendingPermissionRequests.length > 0;
+  // Hide the thinking/status bar while a permission request is pending here —
+  // the banner takes that spot. The plan approval is the exception: the banner
+  // drops it (PlanDisplay renders it inline in the transcript), so hiding the
+  // indicator for it leaves the composer showing nothing at all — the run looks
+  // dead while every typed message silently lands in the queue.
+  const bannerPermissionRequests = pendingPermissionRequests.filter(
+    (request) => request.toolName !== 'ExitPlanMode' && request.toolName !== 'exit_plan_mode',
+  );
+  const hasPendingPermissions = bannerPermissionRequests.length > 0;
   const hasActivityIndicator = Boolean(activity && !hasPendingPermissions);
 
   const hasQueuedDraft = Boolean(queuedDraft);
@@ -553,10 +571,10 @@ export default function ChatComposer({
         </div>
       )}
 
-      {pendingPermissionRequests.length > 0 && (
+      {hasPendingPermissions && (
         <div className="mx-auto mb-3 max-w-[54.25rem]">
           <PermissionRequestsBanner
-            pendingPermissionRequests={pendingPermissionRequests}
+            pendingPermissionRequests={bannerPermissionRequests}
             handlePermissionDecision={handlePermissionDecision}
             handleGrantToolPermission={handleGrantToolPermission}
           />
@@ -974,6 +992,8 @@ export default function ChatComposer({
                 onToggle={voiceToggle}
                 errorMsg={voiceError}
                 onDiscard={voiceDiscard}
+                getLevel={voiceLevel}
+                getElapsedMs={voiceElapsed}
               />
             )}
             <PromptInputSubmit

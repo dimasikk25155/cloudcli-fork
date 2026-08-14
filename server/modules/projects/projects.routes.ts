@@ -152,6 +152,9 @@ router.post(
     const projectCreationResult = await createProject({
       projectPath,
       customName,
+      // Admins can point a project at any folder on the machine (`/opt/...`,
+      // `/srv/...`); guests stay inside the workspace root.
+      allowAnyPath: readRequestingUser(req)?.role === 'admin',
     });
 
     res.json({
