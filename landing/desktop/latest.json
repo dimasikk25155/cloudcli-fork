@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0",
+  "notes": "Обновление Neo3 1.0.0",
+  "notice": null,
+  "platforms": {
+    "darwin-arm64": {
+      "url": "https://github.com/dimasikk25155/neo3-desktop/releases/download/v1.0.0/Neo3-1.0.0-mac-arm64.zip",
+      "sha256": "cab16f1aef2983bcfd6dca0490d9326adc8a16a0519b74b9d81701e9ada35ff6",
+      "size": 109218687
+    },
+    "darwin-x64": {
+      "url": "https://github.com/dimasikk25155/neo3-desktop/releases/download/v1.0.0/Neo3-1.0.0-mac-x64.zip",
+      "sha256": "e88c5c882ff66cf3ad791fb5efc0af8642b07e005954a4ee41fba1c9b41546be",
+      "size": 114294051
+    },
+    "win32-x64": {
+      "url": "https://github.com/dimasikk25155/neo3-desktop/releases/download/v1.0.0/Neo3-1.0.0-win-x64.exe",
+      "sha256": "a822b0cba43324bc26f7681c9ab616f6ebceca297593247aceedcca7bb4aa21f",
+      "size": 93765008
+    },
+    "linux-x64": {
+      "url": "https://github.com/dimasikk25155/neo3-desktop/releases/download/v1.0.0/Neo3-1.0.0-linux-x64.zip",
+      "sha256": "b467932476ad7e9d30100c8fa1d2f3a8a58ae9ee47f1a07a20565629c58fb07a",
+      "size": 110675181
+    }
+  }
+}
