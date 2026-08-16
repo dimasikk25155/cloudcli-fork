@@ -1,0 +1,19 @@
+{
+  "redirects": [
+    {
+      "source": "/desktop/mac",
+      "destination": "https://github.com/dimasikk25155/neo3-desktop/releases/latest/download/Neo3-mac-arm64.dmg",
+      "permanent": false
+    },
+    {
+      "source": "/desktop/mac-intel",
+      "destination": "https://github.com/dimasikk25155/neo3-desktop/releases/latest/download/Neo3-mac-x64.dmg",
+      "permanent": false
+    },
+    {
+      "source": "/desktop/windows",
+      "destination": "https://github.com/dimasikk25155/neo3-desktop/releases/latest/download/Neo3-win-x64.exe",
+      "permanent": false
+    }
+  ]
+}
