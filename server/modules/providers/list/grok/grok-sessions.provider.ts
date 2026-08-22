@@ -82,11 +82,14 @@ export function extractGrokUserTurn(text: string): {
     return { text: '' };
   }
 
-  // Work-mode rules ride inside the prompt because grok's --rules flag never
-  // reaches the model (see embedGrokRulesInPrompt in server/grok-cli.js).
+  // Work-mode rules and hook context ride inside the prompt because grok's
+  // --rules flag never reaches the model and Claude-side hooks never run
+  // (see embedGrokRulesInPrompt / collectGrokHookContext in server/grok-cli.js).
   // They are app machinery, not something the user typed — strip them from
   // the visible bubble exactly like <images_input>.
-  const withoutRules = query.replace(/<work_mode_rules>[\s\S]*?<\/work_mode_rules>\s*/g, '');
+  const withoutRules = query
+    .replace(/<work_mode_rules>[\s\S]*?<\/work_mode_rules>\s*/g, '')
+    .replace(/<session_context>[\s\S]*?<\/session_context>\s*/g, '');
 
   const imagesParsed = parseImagesInputTag(withoutRules);
   const filesParsed = parseAttachedFilesTag(imagesParsed.text);

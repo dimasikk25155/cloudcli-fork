@@ -235,3 +235,10 @@ test('history strips the embedded work_mode_rules tag from the user bubble', () 
   );
   assert.equal(turn.text, 'Создай файл с фактами');
 });
+
+test('history strips the embedded session_context block from the user bubble', () => {
+  const turn = extractGrokUserTurn(
+    '<user_query><session_context>\nВНЕШНЯЯ ПАМЯТЬ (вольт Obsidian)…\n</session_context>\n<work_mode_rules>\nRULE\n</work_mode_rules>\n\nПривет</user_query>',
+  );
+  assert.equal(turn.text, 'Привет');
+});

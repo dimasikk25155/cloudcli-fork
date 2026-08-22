@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildGrokArgs, buildGrokRules, resolveGrokEffort, resolveGrokPermissionMode } from './grok-cli.js';
+import { buildGrokArgs, buildGrokRules, embedGrokRulesInPrompt, resolveGrokEffort, resolveGrokPermissionMode } from './grok-cli.js';
 import {
   GROK_FALLBACK_MODELS,
   GROK_MODE_PRESETS,
@@ -318,4 +318,17 @@ test('a plain run embeds no rules tag into the prompt', () => {
   });
   assert.equal(args[args.indexOf('-p') + 1], 'просто вопрос');
   assert.equal(args.includes('--rules'), false);
+});
+
+test('hook context rides in a session_context block before the rules', () => {
+  const prompt = embedGrokRulesInPrompt('вопрос', 'RULE X', 'ВНЕШНЯЯ ПАМЯТЬ: вольт 1190 заметок');
+  assert.match(prompt, /^<session_context>\nВНЕШНЯЯ ПАМЯТЬ: вольт 1190 заметок\n<\/session_context>\n<work_mode_rules>\n/);
+  assert.match(prompt, /<\/work_mode_rules>\n\nвопрос$/);
+});
+
+test('hook context embeds even when no work-mode rules exist', () => {
+  const prompt = embedGrokRulesInPrompt('вопрос', null, 'РЕАЛЬНОЕ ВРЕМЯ СЕЙЧАС: 2026-08-22');
+  assert.match(prompt, /^<session_context>\n/);
+  assert.match(prompt, /<\/session_context>\n\nвопрос$/);
+  assert.equal(prompt.includes('<work_mode_rules>'), false);
 });
