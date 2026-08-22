@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { collectPastedFiles, isRedundantPastedText } from './clipboardPaste.js';
+import {
+  collectPastedFiles,
+  isRedundantPastedText,
+  isRepeatPaste,
+  pasteSignature,
+  REPEAT_PASTE_WINDOW_MS,
+} from './clipboardPaste.js';
 
-const makeFile = (name: string, size = 1024, type = 'image/jpeg') =>
-  ({ name, size, type, lastModified: 1 }) as unknown as File;
+const makeFile = (name: string, size = 1024, type = 'image/jpeg', lastModified = 1) =>
+  ({ name, size, type, lastModified }) as unknown as File;
 
 interface ItemSpec {
   kind: 'file' | 'string';
@@ -40,6 +46,46 @@ test('a file listed in both items and files is attached once', () => {
     files: [photo],
   });
   assert.deepEqual(collectPastedFiles(clipboard), [photo]);
+});
+
+test('Electron: the same screenshot with two read timestamps attaches once', () => {
+  // Measured on Electron 38 (the desktop app): one paste event, `getAsFile()`
+  // and `clipboard.files` returning the same 642993-byte PNG stamped 2 ms apart.
+  const clipboard = makeClipboard({
+    items: [{ kind: 'file', type: 'image/png', file: makeFile('image.png', 642993, 'image/png', 1787221012544) }],
+    files: [makeFile('image.png', 642993, 'image/png', 1787221012542)],
+  });
+  assert.equal(collectPastedFiles(clipboard).length, 1);
+});
+
+test('two different screenshots pasted at once both attach', () => {
+  const clipboard = makeClipboard({
+    items: [
+      { kind: 'file', type: 'image/png', file: makeFile('image.png', 81893, 'image/png') },
+      { kind: 'file', type: 'image/png', file: makeFile('image.png', 796340, 'image/png') },
+    ],
+  });
+  assert.equal(collectPastedFiles(clipboard).length, 2);
+});
+
+test('the same clipboard delivered twice in a blink is one paste', () => {
+  const signature = pasteSignature([photo]);
+  assert.equal(isRepeatPaste(signature, { signature, at: 1000 }, 1000 + REPEAT_PASTE_WINDOW_MS - 1), true);
+});
+
+test('the same picture attached again later is a real second paste', () => {
+  const signature = pasteSignature([photo]);
+  assert.equal(isRepeatPaste(signature, { signature, at: 1000 }, 1000 + REPEAT_PASTE_WINDOW_MS), false);
+});
+
+test('a different picture right after the first one is never swallowed', () => {
+  const first = pasteSignature([photo]);
+  const second = pasteSignature([makeFile('other.jpg', 2048)]);
+  assert.equal(isRepeatPaste(second, { signature: first, at: 1000 }, 1001), false);
+});
+
+test('the first paste of a session has nothing to repeat', () => {
+  assert.equal(isRepeatPaste(pasteSignature([photo]), null, 1000), false);
 });
 
 test('Safari fallback: files without any items still attach', () => {

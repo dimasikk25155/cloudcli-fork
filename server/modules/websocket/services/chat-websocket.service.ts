@@ -7,6 +7,7 @@ import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
   appendAttachedFilesTag,
+  appendVisibleImagePathsTag,
   getGlobalImageAssetsDir,
   normalizeImageDescriptors,
   splitAttachmentsByKind,
@@ -17,6 +18,12 @@ import type {
   LLMProvider,
 } from '@/shared/types.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
+
+/**
+ * Runtimes that build their own image reference block (`appendImagesInputTag`)
+ * because their CLI has no vision — the gateway must not add a second one.
+ */
+const PROVIDERS_WITH_RUNTIME_IMAGE_TAG = new Set<LLMProvider>(['cursor', 'opencode']);
 
 /**
  * Trust boundary for client-supplied image attachments: chat.send options come
@@ -224,7 +231,15 @@ async function handleChatSend(
   const { images: imageAttachments, files: fileAttachments } = splitAttachmentsByKind(
     filterImagesToUploadStore(clientOptions.images)
   );
-  const command = appendAttachedFilesTag(rawContent, fileAttachments);
+  const commandWithFiles = appendAttachedFilesTag(rawContent, fileAttachments);
+  // Runtimes that show the picture to the model (Claude, Codex) used to pass the
+  // image and nothing else, leaving the agent unable to name the file it can
+  // see — so it could not feed it to a tool (`vis --ref`, ffmpeg, an upload).
+  // Cursor and OpenCode are left alone: they have no vision and already append
+  // their own "read these files" block inside the runtime.
+  const command = PROVIDERS_WITH_RUNTIME_IMAGE_TAG.has(provider)
+    ? commandWithFiles
+    : appendVisibleImagePathsTag(commandWithFiles, imageAttachments);
 
   // The provider runtimes receive the provider-native session id (that is the
   // id their CLI/SDK understands for resume). Brand-new sessions have no

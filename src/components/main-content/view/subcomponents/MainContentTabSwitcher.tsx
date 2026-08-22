@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, MonitorPlay, BarChart3, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, MonitorPlay, BarChart3, Gauge, type LucideIcon } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +13,7 @@ type MainContentTabSwitcherProps = {
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   shouldShowBrowserTab: boolean;
+  shouldShowAutopilotTab: boolean;
 };
 
 type BuiltInTab = {
@@ -48,10 +49,20 @@ const BROWSER_TAB: BuiltInTab = {
   icon: MonitorPlay,
 };
 
+// Появляется только на время прогона автопилота — в проекте, где его не
+// запускали, эта вкладка была бы вечной пустой строкой в шапке.
+const AUTOPILOT_TAB: BuiltInTab = {
+  kind: 'builtin',
+  id: 'autopilot',
+  labelKey: 'tabs.autopilot',
+  icon: Gauge,
+};
+
 export default function MainContentTabSwitcher({
   activeTab,
   setActiveTab,
   shouldShowBrowserTab,
+  shouldShowAutopilotTab,
 }: MainContentTabSwitcherProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
@@ -63,6 +74,7 @@ export default function MainContentTabSwitcher({
 
   const builtInTabs: BuiltInTab[] = [
     ...BASE_TABS.filter((tab) => !(terminalDisabled && tab.id === 'shell')),
+    ...(shouldShowAutopilotTab ? [AUTOPILOT_TAB] : []),
   ];
 
   const pluginTabs: PluginTab[] = plugins

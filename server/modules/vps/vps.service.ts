@@ -3,7 +3,22 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import { promisify } from 'node:util';
 
+import {
+  darwinControlService,
+  darwinDiagnose,
+  darwinGetLogs,
+  darwinInventory,
+  darwinListServices,
+  darwinOverview,
+  darwinRecentErrors,
+} from '@/modules/vps/vps.darwin.js';
+
 const run = promisify(execFile);
+
+// Панель работает на двух платформах: прод на VPS (systemd) и локальный агент
+// на маке. Реализации не смешиваются — каждая публичная функция на macOS сразу
+// уходит в vps.darwin.ts, поэтому Linux-ветка ниже читается так же, как раньше.
+const IS_DARWIN = process.platform === 'darwin';
 
 // Панель сервера: живое состояние машины, на которой крутится Neo3.
 // Всё читается из /proc и systemd — никаких агентов и демонов сверху.
@@ -184,6 +199,7 @@ async function osName(): Promise<string> {
 }
 
 export async function getOverview(): Promise<Overview> {
+  if (IS_DARWIN) return darwinOverview();
   const [cpuPct, mem, diskList, net, osLabel, loadRaw, procRaw] = await Promise.all([
     cpuPercent(),
     memInfo(),
@@ -244,6 +260,7 @@ export function isControllable(unit: string, fragmentPath: string): boolean {
 }
 
 export async function listServices(): Promise<ServiceInfo[]> {
+  if (IS_DARWIN) return darwinListServices();
   const { stdout: unitsRaw } = await run(
     'systemctl',
     ['list-units', '--type=service', '--all', '--no-pager', '--no-legend', '--plain'],
@@ -317,6 +334,7 @@ async function assertControllable(unit: string): Promise<void> {
 export type ServiceAction = 'start' | 'stop' | 'restart' | 'enable' | 'disable';
 
 export async function controlService(unit: string, action: ServiceAction) {
+  if (IS_DARWIN) return darwinControlService(unit, action);
   await assertControllable(unit);
   try {
     await run('sudo', ['-n', '/usr/bin/systemctl', action, unit], EXEC_OPTS);
@@ -416,6 +434,7 @@ export async function getLogs(
   unit: string,
   { lines = 200, level = 'info' as Exclude<LogLevel, 'system'>, system = true } = {},
 ): Promise<{ unit: string; lines: LogLine[]; source: 'journal' | 'file'; path?: string; note?: string }> {
+  if (IS_DARWIN) return darwinGetLogs(unit, { lines, level });
   if (!UNIT_RE.test(unit)) throw new Error('Некорректное имя сервиса');
   const safeLines = Math.min(Math.max(Number(lines) || 200, 20), 2000);
 
@@ -643,6 +662,7 @@ export type Diagnosis = {
 
 /** «Почему упал» одним запросом: состояние юнита + последняя ошибка + разбор. */
 export async function diagnose(unit: string): Promise<Diagnosis> {
+  if (IS_DARWIN) return darwinDiagnose(unit);
   if (!UNIT_RE.test(unit)) throw new Error('Некорректное имя сервиса');
 
   const [showRaw, logs] = await Promise.all([
@@ -714,6 +734,7 @@ export function groupErrors(lines: Array<{ ts: string; source: string; text: str
 
 /** Последние ошибки по всем сервисам сразу — «что сломалось» одним взглядом. */
 export async function getRecentErrors(hours = 24, limit = 400) {
+  if (IS_DARWIN) return darwinRecentErrors(hours, limit);
   const safeHours = Math.min(Math.max(Number(hours) || 24, 1), 168);
   try {
     const { stdout } = await run(
@@ -759,6 +780,7 @@ async function safeRun(cmd: string, args: string[]): Promise<{ ok: boolean; stdo
 }
 
 export async function getInventory() {
+  if (IS_DARWIN) return darwinInventory();
   const [docker, listen, node, python, psql, dockerVersion, top, opt] = await Promise.all([
     safeRun('docker', ['ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}']),
     safeRun('ss', ['-tlnpH']),

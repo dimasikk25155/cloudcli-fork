@@ -1959,18 +1959,33 @@
    различались только тоном. Ниже — то, что даёт лицо, не нарушая «ноль
    декоративных градиентов»: контраст кегля, микро-лейблы капсом вразрядку и
    светлая линия сверху у панели (материал, а не декор). */
+/* Базовый вес интерфейса. Geologica в 400 на тёмном угле «худеет»: тёмный
+   фон съедает штрих, и подписи выглядят выцветшими (жалоба Димы 22.08).
+   500 возвращает плотность, не превращая интерфейс в жирный. Вес наследуется
+   от <html data-theme='ember'>, поэтому одно правило держит всё дерево. */
+[data-theme='ember'] {
+  font-weight: 500;
+}
+/* Явный font-normal в компонентах — это 400, то есть ровно та худоба, от
+   которой уходим. В оранжевой теме поднимаем его до базовых 500. */
+[data-theme='ember'] .font-normal {
+  font-weight: 500;
+}
+[data-theme='ember'] .font-medium {
+  font-weight: 600;
+}
 [data-theme='ember'] h1,
 [data-theme='ember'] h2,
 [data-theme='ember'] h3 {
   font-family: var(--font-display);
   letter-spacing: -0.02em;
-  font-weight: 600;
+  font-weight: 700;
 }
 /* Одно значение крупно, подписи микро — главный приём отмеченных референсов. */
 [data-theme='ember'] .text-\[11px\].uppercase,
 [data-theme='ember'] .text-\[10px\].uppercase {
   letter-spacing: 0.18em;
-  font-weight: 500;
+  font-weight: 600;
 }
 [data-theme='ember'] .bg-card {
   background-color: var(--panel-bg);

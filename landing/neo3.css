@@ -12,34 +12,107 @@
 
    ВАЖНО: подключать ДО собственного <style> страницы, иначе страница
    не сможет переопределить базу там, где ей это нужно.
+
+   ПРОИСХОЖДЕНИЕ ПАЛИТРЫ (2026-08-14): значения перенесены один в один из
+   живой темы «Оранжевая» агентской системы — claude.neo3.ru. Источник правды
+   на стороне интерфейса: `claude agent/cloudcli-fork/src/index.css`, блок
+   [data-theme='ember']. Портал и агентская система обязаны выглядеть как один
+   продукт, поэтому цвет здесь не сочиняется — он сверяется с тем блоком.
+   Имена токенов НЕ трогали намеренно: вёрстка десяти страниц ссылается на
+   --bg/--fg/--a/--card/--line, переименование стоило бы правки 5300 строк
+   ради нуля пользы.
    ========================================================================== */
 
 :root {
   /* --- цвет ------------------------------------------------------------- */
-  --bg: #070504;                        /* тёплый почти-чёрный фон */
-  --fg: #fff4ea;                        /* тёплый белый текст */
-  --muted: #a4937f;                     /* приглушённый песочный */
-  --card: rgba(255, 255, 255, .04);     /* поверхность карточки */
-  --line: rgba(255, 255, 255, .08);     /* волосяная граница */
-  --a: #f7931a;                         /* акцент — оранжевый биткоина */
-  --a2: #ffb866;                        /* светлый акцент */
-  --gold: #ffd9a0;                      /* только внутри градиентов */
-  --glow: rgba(247, 147, 26, .55);      /* свечение */
-  --glow-soft: rgba(247, 147, 26, .22); /* мягкое свечение */
+  /* Уголь тёплый (hue 24), а не чистый чёрный и не нейтральный серый.
+     Поверхности разведены ступенями: подложка 8% → контент 9% → карточка 13%
+     → всплывающее 16%. Тёмное разделяется ЛИНИЕЙ, а не тенью. */
+  --bg: #161413;                        /* подложка портала */
+  --bg-content: #191715;                /* фон контентных полос */
+  --fg: #f2f0ee;                        /* основной текст */
+  --muted: #bdb7b3;                     /* приглушённый текст */
+  --card: hsl(24 7% 13% / .74);         /* поверхность карточки — полупрозрачная */
+  --surface-2: #33302e;                 /* вторичная поверхность, поля ввода */
+  --popover: #2c2826;                   /* всплывающее над карточкой */
+  --accent-warm: #402d21;               /* тёплая подложка активного пункта */
+  --line: hsl(28 14% 46% / .26);        /* волосяная граница */
+
+  /* Оранжевый — ТОЛЬКО как состояние: основное действие, активный пункт,
+     фокус. Крупных цветных заливок в системе нет. */
+  --a: #f66d1e;                         /* акцент, он же кольцо фокуса */
+  --a2: #f89359;                        /* светлый акцент, активная иконка */
+  --on-accent: #181410;                 /* текст на акценте — тёмный, не белый */
+  --gold: #fadfc6;                      /* только внутри градиентов */
+  --glow: rgba(246, 109, 30, .55);      /* свечение */
+  --glow-soft: rgba(246, 109, 30, .22); /* мягкое свечение */
+
+  /* Статусы разведены по тону от акцента намеренно: янтарное «внимание»
+     рядом с оранжевым перестало бы читаться как статус. */
+  --ok: #35b67a;
+  --warn: #fbc523;
+  --err: #e1474c;
+  --info: #1dabed;
+
+  /* --- материал фона ----------------------------------------------------- */
+  /* Два очага света по диагонали + зерно. Ровная заливка не передаёт ни
+     теплоты угля, ни глубины. Анимации у фона нет и не должно быть:
+     в исходной теме этот фон значится «плоским» (FLAT_THEMES), варп-канвас
+     снят с портала 2026-08-14 именно поэтому. */
+  --shell-material:
+    radial-gradient(1000px 640px at 10% -8%, hsl(24 62% 32% / .34), transparent 62%),
+    radial-gradient(820px 620px at 92% 106%, hsl(16 55% 26% / .28), transparent 60%);
+  --shell-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  --shell-grain-opacity: .06;
+  --panel-blur: blur(14px) saturate(1.2);
 
   /* --- шрифты ----------------------------------------------------------- */
   /* Роль → семейство. Смена шрифта портала = правка одной строки здесь.
-     Литеральное font-family:'Jura',sans-serif в страницах — регресс. */
-  --font-logo: 'Russo One', sans-serif;
-  --font-display: 'Roboto Flex', sans-serif;
-  --font-head: 'Jura', sans-serif;
-  --font-body: 'Golos Text', -apple-system, system-ui, sans-serif;
+     Литеральное font-family:'Jura',sans-serif в страницах — регресс.
+       Geologica на всех ролях: так набран интерфейс агентской системы.
+     Роли оставлены раздельными, чтобы вернуть логотипу свою гарнитуру
+     можно было одной строкой, а не поиском по десяти страницам. */
+  --font-logo: Geologica, 'Segoe UI', sans-serif;
+  --font-display: Geologica, 'Segoe UI', sans-serif;
+  --font-head: Geologica, 'Segoe UI', sans-serif;
+  --font-body: Geologica, -apple-system, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --tracking-caps: .18em;               /* разрядка микро-лейблов капсом */
+
+  /* --- геометрия --------------------------------------------------------- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 22px;
 
   /* --- движение --------------------------------------------------------- */
   /* Резкий старт, мягкое торможение. Bounce и elastic запрещены. */
   --ease-surface: cubic-bezier(.16, 1, .3, 1); /* поверхности: карточки, reveal */
   --ease-control: cubic-bezier(.2, .8, .2, 1); /* управление: кнопки, чипы */
+  --ease-ui: cubic-bezier(.25, .1, .25, 1);    /* интерфейсные состояния */
+  --duration-fast: 140ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+}
+
+/* ==========================================================================
+   Зерно поверх фона.
+   Слой общий для всего портала, поэтому живёт здесь, а не в странице.
+   z-index:-1 — под контентом, но над заливкой body: иначе фиксированный слой
+   всплывает выше текста и приглушает его.
+   Сам материал (два засвета) страница ставит себе сама: правило body у неё
+   использует шорткат background, который сбросил бы background-image отсюда.
+   ========================================================================== */
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--shell-grain);
+  opacity: var(--shell-grain-opacity);
 }
 
 /* ==========================================================================
@@ -62,7 +135,7 @@
   align-items: center;
   gap: 5px;
   font-family: var(--font-head);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 11px;
   letter-spacing: 1.4px;
   text-transform: uppercase;
@@ -80,7 +153,7 @@
 .home-badge:hover {
   color: var(--a);
   border-color: var(--a);
-  background: rgba(247, 147, 26, .08);
+  background: rgba(246, 109, 30, .08);
 }
 
 /* Стрелка — акцентом: направление «назад» читается раньше, чем текст. */
@@ -89,6 +162,53 @@
 /* На узких экранах бейдж поджимается — место в шапке дороже разрядки. */
 @media (max-width: 560px) {
   .home-badge { padding: 5px 9px; letter-spacing: 1px; font-size: 10px }
+}
+
+/* ==========================================================================
+   Утилиты интерфейсного слоя.
+   Перенесены из агентской системы, чтобы портал говорил теми же приёмами:
+   стекло, кольцо-свечение у активного, угасающая линия, лейблы вразрядку.
+   ========================================================================== */
+
+/* Стеклянная панель — шапка, плавающие блоки. */
+.glass {
+  background: hsl(24 7% 11% / .62);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+/* Полупрозрачная карточка со светлой кромкой сверху: материал, а не декор. */
+.panel {
+  background: var(--card);
+  -webkit-backdrop-filter: var(--panel-blur);
+  backdrop-filter: var(--panel-blur);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 hsl(30 60% 90% / .06);
+}
+
+/* Активное состояние: мягкое свечение + кольцо. Заливкой не помечаем. */
+.glow-ring {
+  box-shadow: 0 1px 8px hsl(22 92% 54% / .22),
+              0 0 0 1px hsl(22 92% 58% / .35);
+}
+
+/* Разделитель, угасающий по краям, — вместо сплошной черты. */
+.divider {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(90deg,
+    transparent,
+    hsl(24 8% 45% / .25) 20%,
+    hsl(24 8% 45% / .25) 80%,
+    transparent);
+}
+
+/* Микро-лейбл: капс вразрядку. На проекторе полутона съедаются первыми,
+   поэтому вес 500, а не 400. */
+.caps {
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  font-weight: 500;
 }
 
 /* ==========================================================================
@@ -103,7 +223,7 @@
    отвергнута, возвращать нельзя. */
 @keyframes pulseGlow {
   0%, 100% { box-shadow: 0 6px 16px -4px var(--glow-soft) }
-  50%      { box-shadow: 0 8px 24px -2px rgba(247, 147, 26, .38) }
+  50%      { box-shadow: 0 8px 24px -2px rgba(246, 109, 30, .38) }
 }
 
 /* Белый блик, пробегающий по кнопке. */
@@ -130,15 +250,15 @@
 
 /* Дыхание ореола у крупных иконок. */
 @keyframes breathe {
-  0%, 100% { filter: drop-shadow(0 0 20px rgba(247, 147, 26, .22)) }
-  50%      { filter: drop-shadow(0 0 44px rgba(247, 147, 26, .6)) }
+  0%, 100% { filter: drop-shadow(0 0 20px rgba(246, 109, 30, .22)) }
+  50%      { filter: drop-shadow(0 0 44px rgba(246, 109, 30, .6)) }
 }
 
 /* Неоновая вывеска: мерцание логотипной «3». Приглушено там же, 2026-07-12. */
 @keyframes neonFlicker {
   0%, 4%, 8%, 44%, 48%, 100% {
     opacity: 1;
-    text-shadow: 0 0 26px rgba(247, 147, 26, .42), 0 0 12px rgba(247, 147, 26, .35)
+    text-shadow: 0 0 26px rgba(246, 109, 30, .42), 0 0 12px rgba(246, 109, 30, .35)
   }
   6%, 46% { opacity: .55; text-shadow: 0 0 6px var(--glow-soft) }
 }
@@ -157,4 +277,200 @@
 /* Перелив по заголовку карточки. */
 @keyframes titleSheen {
   to { background-position: -250% 50% }
+}
+
+/* ==========================================================================
+   ЖИВОЙ СЛОЙ (2026-08-15).
+   --------------------------------------------------------------------------
+   Зачем: с портала сняли варп-канвас, страницы стали честными, но мёртвыми.
+   Возвращать канвас нельзя (решение 2026-08-14), поэтому движение даёт
+   CSS-слой: он ничего не считает покадрово, живёт на композиторе
+   (только transform/opacity) и одинаково звучит на всех десяти страницах.
+
+   Второе назначение — ОРАНЖЕВОГО В КАДРЕ БОЛЬШЕ. На узком экране два очага
+   темы (1000×640 и 820×620 px) перекрывают почти весь вьюпорт, и телефон
+   выглядит теплее десктопа — это и есть «на андроиде оранжевые тени чаще».
+   На широком экране те же очаги тонут в углу. Аврора добирает разницу:
+   на мобильном она усилена намеренно, чтобы десктоп догонял телефон, а не
+   наоборот.
+
+   Канонический --shell-material при этом НЕ трогаем: он сверен один в один
+   с темой «Оранжевая» агентской системы и остаётся источником правды.
+   Всё лишнее тепло живёт здесь, отдельным слоем, и снимается одной строкой.
+   ========================================================================== */
+
+/* --- аврора: три очага, медленно расходящихся по экрану -------------------
+   Без filter:blur — мягкость даёт сам radial-gradient. Блюр на полэкрана
+   стоит десятки мегабайт видеопамяти и роняет скролл на слабом телефоне,
+   а разницы в кадре не даёт.
+   z-index:-2 — под зерном (-1) и под контентом, но над заливкой body. */
+.neo3-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Параллакс: очаги отстают от прокрутки. Сдвиг живёт на контейнере, чтобы не
+   спорить с @keyframes детей — трансформы родителя и ребёнка складываются. */
+.neo3-aurora { transform: translate3d(0, calc(var(--sy, 0) * -0.045px), 0) }
+
+.neo3-aurora i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  will-change: transform;
+}
+
+.neo3-aurora i:nth-child(1) {
+  width: 62vmax; height: 62vmax; left: -16vmax; top: -24vmax;
+  background: radial-gradient(circle, hsl(24 72% 40% / .30), transparent 64%);
+  animation: auroraA 38s ease-in-out infinite;
+}
+.neo3-aurora i:nth-child(2) {
+  width: 54vmax; height: 54vmax; right: -18vmax; bottom: -22vmax;
+  background: radial-gradient(circle, hsl(16 62% 34% / .26), transparent 62%);
+  animation: auroraB 46s ease-in-out infinite;
+}
+/* Третий очаг — тот самый «лишний» оранжевый: тусклый, но всегда в кадре. */
+.neo3-aurora i:nth-child(3) {
+  width: 40vmax; height: 40vmax; left: 46%; top: 28%;
+  background: radial-gradient(circle, hsl(22 82% 46% / .14), transparent 66%);
+  animation: auroraC 52s ease-in-out infinite;
+}
+
+/* Телефон: очаги крупнее и плотнее — держим ту же теплоту, что в приложении. */
+@media (max-width: 760px) {
+  .neo3-aurora i:nth-child(1) { width: 96vmax; height: 96vmax; left: -30vmax; top: -34vmax }
+  .neo3-aurora i:nth-child(2) { width: 84vmax; height: 84vmax; right: -30vmax }
+  .neo3-aurora i:nth-child(3) { width: 66vmax; height: 66vmax; opacity: .8 }
+}
+
+@keyframes auroraA {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1) }
+  50%      { transform: translate3d(6vw, 4vh, 0) scale(1.12) }
+}
+@keyframes auroraB {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.06) }
+  50%      { transform: translate3d(-7vw, -5vh, 0) scale(1) }
+}
+@keyframes auroraC {
+  0%, 100% { transform: translate3d(-50%, -50%, 0) scale(1); opacity: .55 }
+  50%      { transform: translate3d(-38%, -62%, 0) scale(1.25); opacity: 1 }
+}
+
+/* --- полоса прочтения ------------------------------------------------------
+   Тонкая линия акцента вверху: единственный элемент портала, который прямо
+   говорит «докуда ты дочитал». Ширину гонит JS через scaleX. */
+.neo3-progress {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%;
+  height: 2px;
+  z-index: 120;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--a), var(--gold) 55%, var(--a2));
+  box-shadow: 0 0 12px var(--glow);
+  pointer-events: none;
+}
+
+/* --- появление при прокрутке ----------------------------------------------
+   Разметка сама говорит, как ей появляться: data-anim + необязательное
+   направление. Классы .in вешает shared/neo3.js.
+   Важно: у страниц уже есть свои системы reveal (.r/.seen) — эта работает
+   ТОЛЬКО по атрибуту и в чужие классы не лезет. */
+[data-anim] {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity .62s var(--ease-surface),
+              transform .62s var(--ease-surface);
+}
+[data-anim='left']  { transform: translateX(-26px) }
+[data-anim='right'] { transform: translateX(26px) }
+[data-anim='zoom']  { transform: scale(.94) }
+[data-anim='fade']  { transform: none }
+[data-anim].in      { opacity: 1; transform: none }
+
+/* --- отклик на курсор ------------------------------------------------------
+   Пятно света под курсором. Кладём ФОНОВОЙ КАРТИНКОЙ, а не ::after: у карточек
+   портала псевдоэлементы уже заняты (кольцо, блик), и ещё один слой их бы
+   выбил. background-color карточки при этом остаётся своим. */
+.neo3-spot {
+  --mx: 50%; --my: 0%;
+  transition: background-image .28s var(--ease-ui),
+              border-color .28s var(--ease-ui);
+}
+.neo3-spot:hover {
+  background-image: radial-gradient(340px circle at var(--mx) var(--my),
+                    rgba(246, 109, 30, .13), transparent 68%);
+}
+
+/* Подъём с тёплой тенью — общий жест для кликабельных плиток. */
+.neo3-lift { transition: transform .26s var(--ease-surface), box-shadow .3s var(--ease-surface) }
+.neo3-lift:hover { transform: translateY(-4px); box-shadow: 0 22px 48px -26px var(--glow) }
+
+/* --- отклик кнопки ---------------------------------------------------------
+   Кнопка обязана отвечать на палец, а не только на курсор. Подъём — здесь,
+   в ядре, поэтому одинаков на всех страницах; :active страницы (scale .96)
+   объявлен позже и остаётся за ней. */
+.btn:hover { transform: translateY(-2px) }
+
+/* Волна от касания. Элемент создаёт JS, поэтому здесь только вид. */
+.neo3-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  background: radial-gradient(circle, hsl(30 100% 96% / .55), transparent 70%);
+  animation: rippleOut .55s var(--ease-control) forwards;
+}
+
+@keyframes rippleOut {
+  to { transform: translate(-50%, -50%) scale(1); opacity: 0 }
+}
+
+/* --- подсказка-плашка ------------------------------------------------------
+   Ровно та плашка, что в агентской системе на пустом экране: тёплая подложка,
+   оранжевая кромка, оранжевый зачин. Даёт оранжевому ещё одно законное место
+   в кадре, кроме кнопок. */
+.tip {
+  border: 1px solid rgba(246, 109, 30, .34);
+  background: linear-gradient(180deg, rgba(246, 109, 30, .10), rgba(246, 109, 30, .04));
+  border-radius: var(--radius-xl);
+  padding: 14px 18px;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+.tip b, .tip strong { color: var(--a); font-weight: 600 }
+
+/* --- перенос заголовков ----------------------------------------------------
+   Заголовки портала верстались под старую гарнитуру, и в Geologica строка стала
+   уезжать так, что на второй строке оставалось одно слово («…СВОБОДНЫЙ ИНТЕРНЕТ
+   В ОДИН / КЛИК»). Балансировка раскладывает строки ровно, не трогая ни размер,
+   ни разметку. Браузеры без поддержки просто игнорируют свойство. */
+h1, h2, h3, .hero-tag, .tagline, .lead, .sub { text-wrap: balance }
+
+/* Медленное всплытие крупных значков — «дышит», а не прыгает. */
+@keyframes floaty {
+  0%, 100% { transform: translateY(0) }
+  50%      { transform: translateY(-7px) }
+}
+
+/* Бегущая по кромке искра: активная карточка, выбранный тариф. */
+@keyframes ringPulse {
+  0%, 100% { box-shadow: 0 0 0 1px hsl(22 92% 58% / .32), 0 0 22px -6px var(--glow-soft) }
+  50%      { box-shadow: 0 0 0 1px hsl(22 92% 58% / .58), 0 0 34px -4px var(--glow) }
+}
+
+/* Уважение к системной настройке — обязательно: слой декоративный. */
+@media (prefers-reduced-motion: reduce) {
+  .neo3-aurora { transform: none }
+  .neo3-aurora i { animation: none }
+  .neo3-progress { display: none }
+  .neo3-ripple { display: none }
+  .btn:hover { transform: none }
+  [data-anim] { opacity: 1; transform: none; transition: none }
 }

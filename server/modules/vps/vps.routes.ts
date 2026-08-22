@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Request, Response } from 'express';
 
 import {
   getSettings as getAlertSettings,
@@ -7,6 +8,15 @@ import {
   saveSettings as saveAlertSettings,
   sendTestMessage,
 } from '@/modules/vps/vps-alerts.service.js';
+import { checkDomain } from '@/modules/vps/vps-dns.service.js';
+import {
+  getCurrentRun,
+  normalizeInstallRequest,
+  startInstall,
+  subscribe,
+  type InstallEvent,
+  type InstallRun,
+} from '@/modules/vps/vps-install.service.js';
 import { getIngestToken, ingestTokenMatches, listRemoteHosts, saveReport } from '@/modules/vps/vps-reports.service.js';
 import {
   controlService,
@@ -172,6 +182,95 @@ router.post(
         statusCode: 400,
       });
     }
+  }),
+);
+
+// ------------------------------------------------------- мастер установки
+
+/**
+ * Лог установки уезжает в браузер по SSE — тем же приёмом, что и ответы агента
+ * (server/routes/agent.js). Сначала отдаём всё, что уже накопилось: вкладку
+ * можно закрыть и вернуться, и человек увидит установку с самого начала.
+ */
+function streamRun(run: InstallRun, req: Request, res: Response): void {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  const send = (event: InstallEvent | { type: 'end' }) => {
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  for (const event of run.events) send(event);
+
+  if (run.status !== 'running') {
+    send({ type: 'end' });
+    res.end();
+    return;
+  }
+
+  const unsubscribe = subscribe(run, (event) => {
+    send(event);
+    if (event.type === 'done' || event.type === 'error') {
+      send({ type: 'end' });
+      res.end();
+    }
+  });
+  // Прокси и мобильные сети рвут «молчащие» соединения: npm install умеет
+  // выдавать полминуты тишины, поэтому подтверждаем жизнь комментарием.
+  const ping = setInterval(() => {
+    if (!res.writableEnded) res.write(': ping\n\n');
+  }, 20_000);
+
+  req.on('close', () => {
+    clearInterval(ping);
+    unsubscribe();
+  });
+}
+
+router.post('/install', (req, res) => {
+  const run = startInstall(normalizeInstallRequest((req.body ?? {}) as Record<string, unknown>));
+  streamRun(run, req, res);
+});
+
+/** Переподключение к идущей установке: телефон уснул — лог не потерян. */
+router.get('/install/stream', (req, res) => {
+  const run = getCurrentRun();
+  if (!run) {
+    throw new AppError('Установка не запускалась', { code: 'VPS_INSTALL_NONE', statusCode: 404 });
+  }
+  streamRun(run, req, res);
+});
+
+router.get('/install/status', (_req, res) => {
+  const run = getCurrentRun();
+  res.json(
+    createApiSuccessResponse({
+      run: run
+        ? {
+            id: run.id,
+            status: run.status,
+            host: run.host,
+            domain: run.domain,
+            startedAt: run.startedAt,
+            finishedAt: run.finishedAt,
+          }
+        : null,
+    }),
+  );
+});
+
+/** Живая проверка домена на шаге мастера: наш ли он и куда смотрит сейчас. */
+router.get(
+  '/install/domain-check',
+  asyncHandler(async (req, res) => {
+    const domain = (firstQueryValue(req.query.domain) ?? '').trim().toLowerCase();
+    if (!domain || !/^[a-z0-9.-]{4,253}$/.test(domain)) {
+      throw new AppError('Домен не похож на домен', { code: 'VPS_INSTALL_BAD_DOMAIN', statusCode: 400 });
+    }
+    res.json(createApiSuccessResponse(await checkDomain(domain, firstQueryValue(req.query.ip))));
   }),
 );
 

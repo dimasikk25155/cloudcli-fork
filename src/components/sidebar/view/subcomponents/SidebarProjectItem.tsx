@@ -6,6 +6,7 @@ import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionActivityMap } from '../../../../hooks/useSessionProtection';
 import type { SessionWithProvider } from '../../types/types';
+import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
 
 import SidebarProjectSessions from './SidebarProjectSessions';
 
@@ -108,6 +109,11 @@ export default function SidebarProjectItem({
 
   return (
     <div className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}>
+      {/* An instance pinned to one folder (VITE_HIDE_PROJECTS) has nothing to
+          pick between, so the folder header — rename, star, fold, switch —
+          is dead weight. The project itself still exists and still owns the
+          sessions rendered below. */}
+      {!HIDE_PROJECTS && (
       <div className="md:group group">
         <div className="md:hidden">
           <div
@@ -318,10 +324,11 @@ export default function SidebarProjectItem({
           </div>
         </Button>
       </div>
+      )}
 
       <SidebarProjectSessions
         project={project}
-        isExpanded={isExpanded}
+        isExpanded={HIDE_PROJECTS || isExpanded}
         sessions={sessions}
         selectedSession={selectedSession}
         initialSessionsLoaded={initialSessionsLoaded}

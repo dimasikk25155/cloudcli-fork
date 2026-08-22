@@ -12,6 +12,7 @@ import {
   Monitor,
   Power,
   RefreshCw,
+  Rocket,
   RotateCcw,
   ScrollText,
   Square,
@@ -23,6 +24,7 @@ import { authenticatedFetch } from '../../utils/api';
 import { sendToComposer } from '../../utils/composerDraft';
 
 import AlertsTab from './AlertsTab';
+import InstallTab from './InstallTab';
 import InstalledTab from './InstalledTab';
 import LogsTab from './LogsTab';
 import ServicesTab from './ServicesTab';
@@ -57,7 +59,7 @@ import {
 // Причина считается правилами на сервере, без всяких моделей — панель должна
 // отвечать мгновенно и одинаково.
 
-type Tab = 'overview' | 'services' | 'logs' | 'alerts' | 'installed';
+type Tab = 'overview' | 'services' | 'logs' | 'alerts' | 'installed' | 'install';
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Activity }> = [
   { id: 'overview', label: 'Обзор', icon: Activity },
@@ -65,6 +67,9 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Activity }> = [
   { id: 'logs', label: 'Логи', icon: ScrollText },
   { id: 'alerts', label: 'Алерты', icon: Bell },
   { id: 'installed', label: 'Что установлено', icon: Terminal },
+  // Единственная вкладка не про этот сервер, а про чужой: мастер установки
+  // Neo3 на VPS клиента. Стоит последней — это разовое действие, а не мониторинг.
+  { id: 'install', label: 'Установка клиенту', icon: Rocket },
 ];
 
 function MetricCard({
@@ -670,6 +675,8 @@ export default function ServerPanel({ onRequestClose }: { onRequestClose?: () =>
         )}
 
         {tab === 'installed' && <InstalledTab inventory={inventory} />}
+
+        {tab === 'install' && <InstallTab />}
       </div>
     </div>
   );

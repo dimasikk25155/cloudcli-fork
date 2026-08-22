@@ -308,6 +308,7 @@ function AppContentInner() {
           onShowSettings={openSettings}
           externalMessageUpdate={externalMessageUpdate}
           newSessionTrigger={newSessionTrigger}
+          onStartNewChat={handleNewSession}
         />
       </div>
 

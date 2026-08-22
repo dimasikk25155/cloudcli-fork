@@ -136,3 +136,34 @@ export function bracketSpacedLinkTargets(markdown: string): string {
     })
     .join('');
 }
+
+/**
+ * Короткая подпись для пути: только имя файла с расширением.
+ *
+ * Дима читает чат с телефона и с проектора, а пути у него длиной в строку:
+ * `/home/agents/Antigravity Project/Dimasik-Obsidian/Dimasik/wiki/concepts/x.md`.
+ * Такая ссылка переносится на две строки и съедает ответ. Кликают по ней всё
+ * равно, а не переписывают руками, поэтому показываем `x.md`, а полный путь
+ * оставляем в подсказке при наведении (`title`) — скопировать по-прежнему можно.
+ *
+ * Короткие пути (`src/foo.ts`) не трогаем: прятать там нечего, а папка помогает
+ * различить одноимённые файлы.
+ */
+const SHORTEN_THRESHOLD = 34;
+
+export function shortenPathLabel(value: string): string {
+  const cleaned = value.trim();
+  if (!cleaned || !SEPARATOR.test(cleaned)) return cleaned;
+  if (cleaned.length <= SHORTEN_THRESHOLD) return cleaned;
+
+  // Хвост `:120` (номер строки) сохраняем: по нему видно, о каком месте речь.
+  const lineSuffix = cleaned.match(/:\d+(?::\d+)?$/)?.[0] ?? '';
+  const withoutSuffix = cleaned.slice(0, cleaned.length - lineSuffix.length);
+
+  const endsWithSlash = /[\\/]$/.test(withoutSuffix);
+  const segments = withoutSuffix.split(/[\\/]+/).filter(Boolean);
+  const last = segments[segments.length - 1];
+  if (!last) return cleaned;
+
+  return `${last}${endsWithSlash ? '/' : ''}${lineSuffix}`;
+}

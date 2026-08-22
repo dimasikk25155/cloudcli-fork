@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   appendAttachedFilesTag,
   appendImagesInputTag,
+  appendVisibleImagePathsTag,
   buildClaudeUserContent,
   buildCodexInputItems,
   isAllowedImageSourcePath,
@@ -349,6 +350,34 @@ test('appendAttachedFilesTag and parseAttachedFilesTag round-trip', () => {
 
 test('appendAttachedFilesTag returns the prompt unchanged with no files', () => {
   assert.equal(appendAttachedFilesTag('just text', []), 'just text');
+});
+
+test('appendVisibleImagePathsTag names the files a seeing agent can already view', () => {
+  const prompt = 'Оживи этот скрин';
+  const tagged = appendVisibleImagePathsTag(prompt, [
+    { path: '/home/agents/.cloudcli/assets/1787217327892-787873523-image.png', name: 'image.png' },
+  ]);
+
+  assert.ok(tagged.startsWith(prompt));
+  // The path is what makes the attachment usable by a tool (`vis --ref`, ffmpeg).
+  assert.ok(tagged.includes('/home/agents/.cloudcli/assets/1787217327892-787873523-image.png'));
+
+  const parsed = parseImagesInputTag(tagged);
+  assert.equal(parsed.text, prompt);
+  assert.deepEqual(parsed.attachments, [
+    { path: '/home/agents/.cloudcli/assets/1787217327892-787873523-image.png', name: 'image.png' },
+  ]);
+});
+
+test('appendVisibleImagePathsTag returns the prompt unchanged with no images', () => {
+  assert.equal(appendVisibleImagePathsTag('just text', []), 'just text');
+  assert.equal(appendVisibleImagePathsTag('just text', undefined), 'just text');
+});
+
+test('the visible-images block never reaches displayed history', () => {
+  const tagged = appendVisibleImagePathsTag('посмотри', [{ path: '.cloudcli/assets/a.png' }]);
+
+  assert.equal(stripAttachmentReferenceTags(tagged), 'посмотри');
 });
 
 test('stripAttachmentReferenceTags removes both attachment blocks', () => {

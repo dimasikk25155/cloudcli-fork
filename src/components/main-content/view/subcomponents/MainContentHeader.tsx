@@ -10,6 +10,7 @@ export default function MainContentHeader({
   selectedProject,
   selectedSession,
   shouldShowBrowserTab,
+  shouldShowAutopilotTab,
   isMobile,
   onMenuClick,
 }: MainContentHeaderProps) {
@@ -72,6 +73,7 @@ export default function MainContentHeader({
               activeTab={activeTab}
               setActiveTab={setActiveTab}
               shouldShowBrowserTab={shouldShowBrowserTab}
+              shouldShowAutopilotTab={shouldShowAutopilotTab}
             />
           </div>
           {canScrollRight && (

@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
-import { parseAttachedFilesTag } from '@/shared/image-attachments.js';
+import { parseAttachedFilesTag, stripAttachmentReferenceTags } from '@/shared/image-attachments.js';
 import { readRunOutcome, buildRunInterruptedNotice } from '@/shared/run-outcomes.js';
 import { sessionsDb } from '@/modules/database/index.js';
 
@@ -367,7 +367,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
               toolUseResult: raw.toolUseResult,
             }));
           } else if (part.type === 'text') {
-            const text = parseAttachedFilesTag(part.text || '').text;
+            const text = stripAttachmentReferenceTags(part.text || '');
             if (text && !isInternalContent(text)) {
               messages.push(createNormalizedMessage({
                 id: `${baseId}_text_${partIndex}`,
@@ -387,7 +387,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
         if (messages.length === 0) {
           const textParts = raw.message.content
             .filter((part: AnyRecord) => part.type === 'text')
-            .map((part: AnyRecord) => parseAttachedFilesTag(part.text || '').text)
+            .map((part: AnyRecord) => stripAttachmentReferenceTags(part.text || ''))
             .filter(Boolean)
             .join('\n');
           if (textParts && !isInternalContent(textParts)) {

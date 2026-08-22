@@ -6,6 +6,7 @@ import type { SessionActivityMap } from '../../../../hooks/useSessionProtection'
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
 import { useSessionReorderDrag } from '../../hooks/useSessionReorderDrag';
+import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
 
 import SidebarSessionItem from './SidebarSessionItem';
 
@@ -101,7 +102,7 @@ export default function SidebarProjectSessions({
     : null;
 
   return (
-    <div className="ml-3 space-y-1 border-l border-border pl-3">
+    <div className={HIDE_PROJECTS ? 'space-y-1' : 'ml-3 space-y-1 border-l border-border pl-3'}>
       <>
         <div className="px-3 pb-1 pt-1 md:hidden">
           <button

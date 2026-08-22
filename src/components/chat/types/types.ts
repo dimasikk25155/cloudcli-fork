@@ -23,9 +23,9 @@ export type PermissionMode = 'default' | 'bypassPermissions' | 'plan' | 'planByp
  * PermissionMode, which only decides whether a tool call needs an OK.
  * Mirrors WORK_MODES in server/shared/work-mode.ts.
  */
-export type WorkMode = 'autopilot' | 'checkpoints' | 'interrogate';
+export type WorkMode = 'autopilot' | 'checkpoints' | 'interrogate' | 'build';
 
-export const WORK_MODES: WorkMode[] = ['autopilot', 'checkpoints', 'interrogate'];
+export const WORK_MODES: WorkMode[] = ['autopilot', 'checkpoints', 'interrogate', 'build'];
 
 export interface ChatImage {
   /** Inline data URL (Claude history stores attachments as base64). */
@@ -153,6 +153,12 @@ export interface ChatInterfaceProps {
   sendByCtrlEnter?: boolean;
   externalMessageUpdate?: number;
   newSessionTrigger?: number;
+  /**
+   * Opens a fresh chat in the same project. Used when the model picker is asked
+   * for a model belonging to another engine while a session is already running:
+   * a session belongs to one CLI, so the switch has to happen in a new chat.
+   */
+  onStartNewChat?: () => void;
   onTaskClick?: (...args: unknown[]) => void;
   onShowAllTasks?: (() => void) | null;
 }

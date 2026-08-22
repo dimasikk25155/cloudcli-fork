@@ -7,6 +7,8 @@ import GitPanel from '../../git-panel/view/GitPanel';
 import PluginTabContent from '../../plugins/view/PluginTabContent';
 import ProjectStatsPanel from '../../project-stats/view/ProjectStatsPanel';
 import { BrowserUsePanel } from '../../browser-use';
+import AutopilotPanel from '../../autopilot/AutopilotPanel';
+import { useAutopilotDashboard } from '../../autopilot/useAutopilotDashboard';
 import type { MainContentProps } from '../types/types';
 import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
@@ -41,6 +43,7 @@ function MainContent({
   onShowSettings,
   externalMessageUpdate,
   newSessionTrigger,
+  onStartNewChat,
 }: MainContentProps) {
   const { preferences } = useUiPreferences();
   const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
@@ -50,6 +53,8 @@ function MainContent({
   const [shellMode, setShellMode] = useState<'agent' | 'plain'>('agent');
 
   const shouldShowBrowserTab = browserUseEnabled;
+
+  const autopilot = useAutopilotDashboard(selectedProject?.projectId);
 
   const {
     editingFile,
@@ -142,6 +147,14 @@ function MainContent({
     }
   }, [shouldShowBrowserTab, activeTab, setActiveTab]);
 
+  // Смена проекта на тот, где автопилот не запускали, не должна оставлять
+  // человека на исчезнувшей вкладке с пустым экраном.
+  useEffect(() => {
+    if (!autopilot.available && activeTab === 'autopilot') {
+      setActiveTab('chat');
+    }
+  }, [autopilot.available, activeTab, setActiveTab]);
+
   usePaletteOpsRegister({
     openFile: (filePath: string) => {
       setActiveTab('files');
@@ -170,6 +183,7 @@ function MainContent({
         selectedProject={selectedProject}
         selectedSession={selectedSession}
         shouldShowBrowserTab={shouldShowBrowserTab}
+        shouldShowAutopilotTab={autopilot.available}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
       />
@@ -196,6 +210,7 @@ function MainContent({
                 sendByCtrlEnter={sendByCtrlEnter}
                 externalMessageUpdate={externalMessageUpdate}
                 newSessionTrigger={newSessionTrigger}
+                onStartNewChat={selectedProject ? () => onStartNewChat?.(selectedProject) : undefined}
               />
             </ErrorBoundary>
           </div>
@@ -231,6 +246,12 @@ function MainContent({
           {activeTab === 'git' && (
             <div className="h-full overflow-hidden">
               <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
+            </div>
+          )}
+
+          {activeTab === 'autopilot' && (
+            <div className="h-full overflow-hidden">
+              <AutopilotPanel url={autopilot.url} />
             </div>
           )}
 

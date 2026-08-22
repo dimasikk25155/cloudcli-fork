@@ -30,6 +30,10 @@ function getTabTitle(activeTab: AppTab, t: (key: string) => string, pluginDispla
     return t('tabs.browser');
   }
 
+  if (activeTab === 'autopilot') {
+    return t('tabs.autopilot');
+  }
+
   return 'Project';
 }
 

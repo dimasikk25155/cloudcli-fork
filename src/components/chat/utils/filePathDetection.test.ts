@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bracketSpacedLinkTargets, looksLikeDirectory, looksLikePath, stripLineSuffix } from './filePathDetection.js';
+import { bracketSpacedLinkTargets, looksLikeDirectory, looksLikePath, shortenPathLabel, stripLineSuffix } from './filePathDetection.js';
 
 test('пути с пробелами — самый частый случай — распознаются', () => {
   for (const value of [
@@ -103,4 +103,28 @@ test('ссылки без пробелов, картинки и адреса с�
 test('внутри кода ссылки не переписываются', () => {
   const source = 'текст\n```\n[x](/a b/c.md)\n```\nи `[y](/d e/f.md)` тоже';
   assert.equal(bracketSpacedLinkTargets(source), source);
+});
+
+test('короткая подпись: длинный путь ужимается до имени файла', () => {
+  assert.equal(
+    shortenPathLabel('/home/agents/Antigravity Project/Dimasik-Obsidian/Dimasik/wiki/concepts/x.md'),
+    'x.md',
+  );
+  assert.equal(
+    shortenPathLabel('/home/agents/Antigravity Project/claude agent/cloudcli-fork/src/app.tsx:120'),
+    'app.tsx:120',
+  );
+  assert.equal(
+    shortenPathLabel('/home/agents/Antigravity Project/claude agent/cloudcli-fork/src/'),
+    'src/',
+  );
+});
+
+test('короткая подпись: короткие пути и голые имена не трогаем', () => {
+  assert.equal(shortenPathLabel('src/foo.ts'), 'src/foo.ts');
+  assert.equal(shortenPathLabel('README.md'), 'README.md');
+  assert.equal(
+    shortenPathLabel('очень-длинное-имя-файла-без-единой-папки-внутри.md'),
+    'очень-длинное-имя-файла-без-единой-папки-внутри.md',
+  );
 });

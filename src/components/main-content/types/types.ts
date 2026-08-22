@@ -28,6 +28,8 @@ export type MainContentProps = {
   onShowSettings: (tab?: SettingsMainTab) => void;
   externalMessageUpdate: number;
   newSessionTrigger: number;
+  /** Starts a brand-new chat in the current project (same path as the sidebar button). */
+  onStartNewChat?: (project: Project) => void;
 };
 
 export type MainContentHeaderProps = {
@@ -36,6 +38,7 @@ export type MainContentHeaderProps = {
   selectedProject: Project;
   selectedSession: ProjectSession | null;
   shouldShowBrowserTab: boolean;
+  shouldShowAutopilotTab: boolean;
   isMobile: boolean;
   onMenuClick: () => void;
 };

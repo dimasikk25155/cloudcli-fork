@@ -40,7 +40,9 @@ const markdownPreviewComponents: Components = {
 };
 
 export default function MarkdownPreview({ content }: MarkdownPreviewProps) {
-  const remarkPlugins = useMemo(() => [remarkGfm, remarkMath], []);
+  // Одиночный `$` НЕ начинает формулу: иначе «на $30 ... до $100» уходит
+  // в KaTeX целиком и рендерится без пробелов. Блочный `$$...$$` работает.
+  const remarkPlugins = useMemo(() => [remarkGfm, [remarkMath, { singleDollarTextMath: false }] as [typeof remarkMath, object]], []);
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
 
   return (

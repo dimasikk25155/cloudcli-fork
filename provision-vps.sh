@@ -13,10 +13,15 @@ set -euo pipefail
 
 TARGET="${1:?Usage: provision-vps.sh <root@vps-ip> <domain> [golden-commit-sha]}"
 DOMAIN="${2:?Usage: provision-vps.sh <root@vps-ip> <domain> [golden-commit-sha]}"
-COMMIT="${3:-589a70b}"
 
 FORK_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$FORK_DIR"
+
+# No commit given -> ship the tip of the release branch, same as `install.sh --clone`.
+# A hardcoded default rots silently: it used to pin 589a70b and quietly installed a
+# six-week-old build on every client box.
+REPO_BRANCH="${REPO_BRANCH:-dima/fork-customizations}"
+COMMIT="${3:-$(git rev-parse --verify "$REPO_BRANCH" 2>/dev/null || git rev-parse --verify HEAD)}"
 
 ARCHIVE="/tmp/cloudcli-code-$$.tar.gz"
 trap 'rm -f "$ARCHIVE"' EXIT

@@ -24,7 +24,11 @@
     "git": "Source Control",
     "browser": "Browser",
     "computer": "Computer",
-    "stats": "Statistics"
+    "stats": "Statistics",
+    "autopilot": "Autopilot"
+  },
+  "autopilot": {
+    "noRun": "Autopilot has not run in this project yet — the dashboard appears once a build starts."
   },
   "stats": {
     "loading": "Counting…",

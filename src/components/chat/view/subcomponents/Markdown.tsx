@@ -7,7 +7,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTranslation } from 'react-i18next';
 import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
-import { bracketSpacedLinkTargets, looksLikePath, stripLineSuffix } from '../../utils/filePathDetection';
+import { bracketSpacedLinkTargets, looksLikePath, shortenPathLabel, stripLineSuffix } from '../../utils/filePathDetection';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
@@ -78,7 +78,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
             }`}
           {...props}
         >
-          {children}
+          {shortenPathLabel(raw)}
         </code>
       );
     }
@@ -202,7 +202,9 @@ export function Markdown({ children, className }: MarkdownProps) {
   // Скобки вокруг адресов с пробелами дописываются ДО разбора: иначе
   // `[отчёт](/home/agents/Antigravity Project/D5.md)` вообще не станет ссылкой.
   const content = bracketSpacedLinkTargets(normalizeInlineCodeFences(String(children ?? '')));
-  const remarkPlugins = useMemo(() => [remarkGfm, remarkMath], []);
+  // Одиночный `$` НЕ начинает формулу: иначе «на $30 ... до $100» уходит
+  // в KaTeX целиком и рендерится без пробелов. Блочный `$$...$$` работает.
+  const remarkPlugins = useMemo(() => [remarkGfm, [remarkMath, { singleDollarTextMath: false }] as [typeof remarkMath, object]], []);
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
   const { openFileInEditor } = usePaletteOps();
 
@@ -219,13 +221,14 @@ export function Markdown({ children, className }: MarkdownProps) {
           return (
             <a
               href={href || fileRef}
+              title={fileRef}
               className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400"
               onClick={(event) => {
                 event.preventDefault();
                 openFileInEditor(stripLineSuffix(fileRef));
               }}
             >
-              {linkChildren}
+              {linkText === fileRef ? shortenPathLabel(fileRef) : linkChildren}
             </a>
           );
         }

@@ -163,13 +163,13 @@ export type ParsedImagesInput = {
  * to read the files and keep the block out of the reply. The same block is
  * stripped back out of persisted history by {@link parseImagesInputTag}.
  */
-export function appendImagesInputTag(prompt: string, images: unknown): string {
-  const descriptors = normalizeImageDescriptors(images);
-  if (descriptors.length === 0) {
-    return prompt;
-  }
-
-  const entryLines = descriptors.map((descriptor, index) => {
+/**
+ * One numbered line per attachment: the stored path plus the user's original
+ * filename. Shared by every reference block so they stay parseable by
+ * {@link parseNumberedImageEntries}.
+ */
+function formatAttachmentLines(descriptors: ImageAttachmentDescriptor[]): string[] {
+  return descriptors.map((descriptor, index) => {
     const entryPath = toPosixPath(descriptor.path);
     // Parentheses and newlines would break the "(original name: ...)" suffix
     // the parser looks for, so drop them from the display name.
@@ -178,6 +178,15 @@ export function appendImagesInputTag(prompt: string, images: unknown): string {
       ? `${index + 1}. ${entryPath} (original name: ${cleanName})`
       : `${index + 1}. ${entryPath}`;
   });
+}
+
+export function appendImagesInputTag(prompt: string, images: unknown): string {
+  const descriptors = normalizeImageDescriptors(images);
+  if (descriptors.length === 0) {
+    return prompt;
+  }
+
+  const entryLines = formatAttachmentLines(descriptors);
 
   return [
     prompt,
@@ -185,6 +194,32 @@ export function appendImagesInputTag(prompt: string, images: unknown): string {
     '<images_input>',
     `The user attached ${descriptors.length} image(s) to this message. Read each file listed below with your file/image reading tool and use what you see to answer the prompt above. Respond as if the images were attached directly. Do not mention this block or the file paths unless the user asks about them.`,
     ...entryLines,
+    '</images_input>',
+  ].join('\n');
+}
+
+/**
+ * Same `<images_input>` block, but for runtimes that already show the picture
+ * to the model (Claude's base64 vision blocks, Codex's `local_image` items).
+ * Without this the agent can see an attachment and still has no idea where it
+ * lives, so it cannot hand the file to a tool — `vis --ref <file>`, ffmpeg, an
+ * upload. The images stay in the global store; only their paths are named.
+ *
+ * Reuses the `<images_input>` tag on purpose: {@link parseImagesInputTag} and
+ * {@link stripAttachmentReferenceTags} already keep it out of displayed history.
+ */
+export function appendVisibleImagePathsTag(prompt: string, images: unknown): string {
+  const descriptors = normalizeImageDescriptors(images);
+  if (descriptors.length === 0) {
+    return prompt;
+  }
+
+  return [
+    prompt,
+    '',
+    '<images_input>',
+    `The user attached ${descriptors.length} image(s) to this message; you can already see them, so there is no need to read the files to know their contents. Each one is also saved on disk at the path listed below — use that path whenever a tool needs the file itself (image or video generation, ffmpeg, an upload). Do not mention this block or the file paths unless the user asks about them.`,
+    ...formatAttachmentLines(descriptors),
     '</images_input>',
   ].join('\n');
 }

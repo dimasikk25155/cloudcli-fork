@@ -128,6 +128,40 @@ const LOCAL_MODEL_MAP = {
   'local-qwen35-9b': 'qwen35-agent',
 };
 
+// UI model ids that route to a third-party provider over its OFFICIAL
+// Anthropic-compatible endpoint — same shape as the Kimi and Ollama branches
+// below, so the same Claude Code engine runs unchanged and skills, hooks,
+// subagents, MCP and memory keep working (those are client features, not model
+// ones). Each provider bills a FLAT subscription, not per token: at our volume
+// (~6B cached-read tokens/month) per-token pricing costs multiples of the
+// Claude Max plan, so pay-per-token backends deliberately do not belong here.
+// These exist to keep working when the Claude 5-hour window runs out, not to
+// save money. `keyEnv` names the env var holding that provider's key.
+const BYO_MODEL_MAP = {
+  // The only provider that officially accepts IMAGES through its
+  // Anthropic-compatible endpoint — the others either reject them or silently
+  // route them to a non-vision model. That is why it is here.
+  'minimax-m3': {
+    model: 'MiniMax-M3[1m]',
+    baseUrl: 'https://api.minimax.io/anthropic',
+    keyEnv: 'MINIMAX_API_KEY',
+  },
+  // The only provider that contractually promises not to train on API data,
+  // so this is the one to use on client work. Z.ai routes by Anthropic alias
+  // rather than by model id, hence the ANTHROPIC_DEFAULT_*_MODEL trio.
+  'glm-5-2': {
+    model: 'GLM-5.2',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    keyEnv: 'ZAI_API_KEY',
+    smallModel: 'GLM-4.7',
+    extraEnv: {
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'GLM-5.2',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'GLM-5.2',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'GLM-4.7',
+    },
+  },
+};
+
 // Anthropic-style effort levels that a given Kimi model actually understands
 // when translated to Kimi's native vocabulary (low/high/max). The SDK only
 // accepts Anthropic levels; we translate right before the request goes out.
@@ -413,8 +447,39 @@ function mapCliOptionsToSDK(options = {}) {
       ANTHROPIC_AUTH_TOKEN: 'ollama',
       ANTHROPIC_MODEL: localModel,
       ANTHROPIC_SMALL_FAST_MODEL: process.env.LOCAL_LLM_SMALL_MODEL || localModel,
+      // Claude Code does not recognise these model ids. Its unknown-model window
+      // enforcement then refuses the turn outright ("Prompt is too long") and
+      // its auto-compaction fails on top of that, so nothing is ever sent. The
+      // backend already knows its own window, so let it decide: measured 20.08,
+      // Ollama accepts 33k+ happily and the same turn that failed came back in
+      // 22 s. Setting CLAUDE_CODE_MAX_CONTEXT_TOKENS instead does NOT help —
+      // enforcement still fires.
+      CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1',
+      // num_ctx must hold prompt AND answer; an unbounded ask overflows it.
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.LOCAL_LLM_MAX_OUTPUT_TOKENS || '16384',
     };
     // Ollama exposes no effort control, and an unknown level is a hard error.
+    delete sdkOptions.effort;
+  }
+
+  // Third-party subscriptions (see BYO_MODEL_MAP): same injection as the two
+  // branches above, keyed per provider. Runs on that provider's own plan, so
+  // it does NOT consume the Claude Max limit.
+  const byoModel = typeof sdkOptions.model === 'string' ? BYO_MODEL_MAP[sdkOptions.model] : undefined;
+  if (byoModel) {
+    const byoKey = (process.env[byoModel.keyEnv] || '').trim();
+    sdkOptions.model = byoModel.model;
+    sdkOptions.env = {
+      ...sdkOptions.env,
+      ANTHROPIC_BASE_URL: byoModel.baseUrl,
+      ANTHROPIC_API_KEY: byoKey,
+      ANTHROPIC_AUTH_TOKEN: byoKey,
+      ANTHROPIC_MODEL: byoModel.model,
+      ANTHROPIC_SMALL_FAST_MODEL: byoModel.smallModel || byoModel.model,
+      ...(byoModel.extraEnv || {}),
+    };
+    // Neither gateway understands Anthropic's effort vocabulary, and an
+    // unknown level is a hard error — same reasoning as the Ollama branch.
     delete sdkOptions.effort;
   }
 
@@ -435,7 +500,7 @@ function mapCliOptionsToSDK(options = {}) {
   // How chatty the run is with the user (composer's work-mode chip). Appended
   // to the system prompt rather than to the message so it never shows up in
   // the chat history the user reads back. Autopilot appends nothing.
-  const workModeText = workModeInstruction(options.workMode);
+  const workModeText = workModeInstruction(options.workMode, permissionMode);
   if (workModeText) {
     appendedSystemPrompt.push(workModeText);
   }
