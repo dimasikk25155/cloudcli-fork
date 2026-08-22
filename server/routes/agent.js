@@ -491,7 +491,10 @@ class SSEStreamWriter {
 /**
  * Non-streaming response collector
  */
-class ResponseCollector {
+// Exported for tests only (see server/routes/tests/agent.test.js): the
+// non-streaming /api/agent answer is built from this collector, and its
+// NormalizedMessage handling used to be dead code nobody could test.
+export class ResponseCollector {
   constructor(userId = null) {
     this.messages = [];
     this.sessionId = null;
@@ -545,6 +548,20 @@ class ResponseCollector {
         continue;
       }
 
+      // Every modern engine emits NormalizedMessage objects (kind/role/content)
+      // — the legacy claude-response JSON strings below no longer exist on the
+      // wire. Without this branch `stream: false` returned `messages: []` for
+      // every provider: the same "success with empty text" class of bug the
+      // RunCollector already had fixed.
+      if (msg && typeof msg === 'object' && msg.kind === 'text' && msg.role === 'assistant'
+        && typeof msg.content === 'string' && msg.content.trim()) {
+        assistantMessages.push({
+          type: 'assistant',
+          message: { role: 'assistant', content: [{ type: 'text', text: msg.content }] },
+        });
+        continue;
+      }
+
       // Handle JSON strings
       if (typeof msg === 'string') {
         try {
@@ -581,6 +598,21 @@ class ResponseCollector {
         } catch (e) {
           continue;
         }
+      }
+
+      // NormalizedMessage token budget (all modern engines): the final usage
+      // snapshot of the run, not an increment — take the last one wholesale.
+      // `tokenBudget.inputTokens` already includes cache tokens, while the
+      // return below adds cache on top of `totalInput` — so store the input
+      // WITHOUT cache here or the cache would be counted twice.
+      if (data && typeof data === 'object' && data.kind === 'status'
+        && data.text === 'token_budget' && data.tokenBudget) {
+        const budget = data.tokenBudget;
+        totalCacheRead = budget.cacheReadTokens || 0;
+        totalCacheCreation = budget.cacheCreationTokens || 0;
+        totalOutput = budget.outputTokens || 0;
+        totalInput = Math.max(0, (budget.inputTokens || 0) - totalCacheRead - totalCacheCreation);
+        continue;
       }
 
       // Extract usage from claude-response messages
@@ -1032,6 +1064,7 @@ export async function handleAgentRun(req, res) {
         cwd: finalProjectPath,
         sessionId: sessionId || null,
         model: model || grokModels.DEFAULT,
+        effort,
         permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
       }, writer);
     }

@@ -198,7 +198,7 @@ export async function runHeadlessPrompt(options) {
     await spawnGemini(trimmedPrompt, { ...base, model: model || models.DEFAULT, permissionMode: 'bypassPermissions' }, collector);
   } else if (provider === 'grok') {
     const models = (await providerModelsService.getProviderModels('grok')).models;
-    await spawnGrok(trimmedPrompt, { ...base, model: model || models.DEFAULT, permissionMode: 'bypassPermissions' }, collector);
+    await spawnGrok(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions' }, collector);
   }
 
   return {

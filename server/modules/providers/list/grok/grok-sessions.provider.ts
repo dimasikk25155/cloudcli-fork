@@ -3,6 +3,8 @@ import readline from 'node:readline';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
+import { parseAttachedFilesTag, parseImagesInputTag } from '@/shared/image-attachments.js';
+import { buildRunInterruptedNotice, readRunOutcome } from '@/shared/run-outcomes.js';
 import { getContextWindow } from '@/shared/token-pricing.js';
 import type {
   AnyRecord,
@@ -62,6 +64,43 @@ const extractUserQuery = (text: string): string => {
   }
   return text.trim();
 };
+
+/**
+ * User-visible turn: the `<user_query>` body minus the `<images_input>` /
+ * `<attached_files>` blocks the gateway appends so the model can name a file.
+ * Those tags used to leak into the chat bubble because Grok history stores
+ * them inside the query, unlike Claude/Cursor which strip on read.
+ *
+ * Exported for tests.
+ */
+export function extractGrokUserTurn(text: string): {
+  text: string;
+  images?: Array<{ path: string; name?: string }>;
+} {
+  const query = extractUserQuery(text);
+  if (!query) {
+    return { text: '' };
+  }
+
+  // Work-mode rules ride inside the prompt because grok's --rules flag never
+  // reaches the model (see embedGrokRulesInPrompt in server/grok-cli.js).
+  // They are app machinery, not something the user typed — strip them from
+  // the visible bubble exactly like <images_input>.
+  const withoutRules = query.replace(/<work_mode_rules>[\s\S]*?<\/work_mode_rules>\s*/g, '');
+
+  const imagesParsed = parseImagesInputTag(withoutRules);
+  const filesParsed = parseAttachedFilesTag(imagesParsed.text);
+  const attachments = [...imagesParsed.attachments, ...filesParsed.files];
+  return {
+    text: filesParsed.text.trim(),
+    images: attachments.length > 0 ? attachments : undefined,
+  };
+}
+
+/** Live stream: non-null `parent_tool_use_id` is a subagent, not the main chat. */
+const isSubagentEvent = (raw: AnyRecord): boolean => (
+  typeof raw.parent_tool_use_id === 'string' && raw.parent_tool_use_id.trim().length > 0
+);
 
 const readTextParts = (content: unknown): string => {
   if (typeof content === 'string') {
@@ -128,6 +167,14 @@ export class GrokSessionsProvider implements IProviderSessions {
   private readonly modelBySession = new Map<string, string>();
 
   /**
+   * Sessions that already produced at least one assistant text block during
+   * the live run. If a run ends without any (all the answer text arrived only
+   * in the final `result.result` field), that field becomes the chat bubble —
+   * otherwise the chat would end on silence while the CLI did answer.
+   */
+  private readonly sessionsWithAssistantText = new Set<string>();
+
+  /**
    * Live streaming-messages-json events from the runner.
    */
   normalizeMessage(rawMessage: unknown, sessionId: string | null): NormalizedMessage[] {
@@ -136,9 +183,16 @@ export class GrokSessionsProvider implements IProviderSessions {
       return [];
     }
 
+    // Subagent chatter shares the same assistant/user stream. Dumping it into
+    // the main transcript interleaves three agents' tokens into one bubble.
+    if (isSubagentEvent(raw)) {
+      return [];
+    }
+
     // Session bootstrap (model, tools, connected MCP servers) — the runner
     // already knows the session id, so there is no UI payload here, but the
     // model is remembered for the token budget at the end of the run.
+    // `subtype: compact_boundary` is Grok's auto-compaction marker, not chat.
     if (raw.type === 'system') {
       if (sessionId && typeof raw.model === 'string' && raw.model.trim()) {
         this.modelBySession.set(sessionId, raw.model);
@@ -161,6 +215,9 @@ export class GrokSessionsProvider implements IProviderSessions {
         }
 
         if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+          if (sessionId) {
+            this.sessionsWithAssistantText.add(sessionId);
+          }
           messages.push(createNormalizedMessage({
             id: generateMessageId(PROVIDER),
             sessionId,
@@ -240,6 +297,25 @@ export class GrokSessionsProvider implements IProviderSessions {
         this.modelBySession.delete(sessionId);
       }
 
+      // Fallback answer text: a run that streamed no assistant text block but
+      // did put the final answer into `result.result` must not end silent.
+      const sawAssistantText = sessionId ? this.sessionsWithAssistantText.delete(sessionId) : false;
+      if (
+        raw.is_error !== true
+        && !sawAssistantText
+        && typeof raw.result === 'string'
+        && raw.result.trim()
+      ) {
+        messages.push(createNormalizedMessage({
+          id: generateMessageId(PROVIDER),
+          sessionId,
+          provider: PROVIDER,
+          kind: 'text',
+          role: 'assistant',
+          content: raw.result,
+        }));
+      }
+
       const usage = readObjectRecord(raw.usage);
       if (usage) {
         messages.push(createNormalizedMessage({
@@ -257,7 +333,7 @@ export class GrokSessionsProvider implements IProviderSessions {
       if (raw.is_error === true) {
         const stopReason = typeof raw.stop_reason === 'string' ? raw.stop_reason : 'unknown';
         const detail = stopReason === 'cancelled'
-          ? 'Grok остановил прогон: инструмент запросил разрешение, а в безголовом режиме подтвердить некому. Включите режим «Обход разрешений».'
+          ? 'Grok остановил прогон: инструмент упёрся в ограничение прав. В режиме «Планирование» это штатная остановка — агент только планирует и ничего не меняет; чтобы он выполнил работу, выбери «Обход разрешений» и отправь сообщение снова.'
           : `Grok завершился с ошибкой (${stopReason}).`;
         messages.push(createNormalizedMessage({
           sessionId,
@@ -313,6 +389,35 @@ export class GrokSessionsProvider implements IProviderSessions {
       }
     }
 
+    // If the last run for this session failed and the transcript never closed
+    // with an assistant answer (it ends on a tool call/thinking), append a
+    // durable "run interrupted" marker with the reason — same contract as the
+    // Claude history reader, fed by recordRunOutcome in grok-cli.js.
+    try {
+      const providerSessionId = options.providerSessionId
+        ?? sessionsDb.getSessionById(sessionId)?.provider_session_id
+        ?? sessionId;
+      const outcome = await readRunOutcome(providerSessionId);
+      if (outcome?.status === 'failed') {
+        const last = normalized[normalized.length - 1];
+        const endedWithoutAnswer =
+          !last || last.kind === 'tool_use' || last.kind === 'tool_result' || last.kind === 'thinking';
+        if (endedWithoutAnswer) {
+          normalized.push(createNormalizedMessage({
+            id: `${providerSessionId}_run_interrupted_${outcome.at}`,
+            sessionId,
+            timestamp: outcome.at,
+            provider: PROVIDER,
+            kind: 'text',
+            role: 'assistant',
+            content: buildRunInterruptedNotice(outcome.reason),
+          }));
+        }
+      }
+    } catch {
+      // Never let outcome lookup break history loading.
+    }
+
     const renderable = normalized.filter((msg) => msg.kind !== 'tool_result');
 
     const total = renderable.length;
@@ -339,8 +444,8 @@ export class GrokSessionsProvider implements IProviderSessions {
     }
 
     if (raw.type === 'user') {
-      const text = extractUserQuery(readTextParts(raw.content));
-      if (!text) {
+      const turn = extractGrokUserTurn(readTextParts(raw.content));
+      if (!turn.text && !turn.images?.length) {
         return [];
       }
       return [createNormalizedMessage({
@@ -349,7 +454,8 @@ export class GrokSessionsProvider implements IProviderSessions {
         provider: PROVIDER,
         kind: 'text',
         role: 'user',
-        content: text,
+        content: turn.text,
+        images: turn.images,
       })];
     }
 

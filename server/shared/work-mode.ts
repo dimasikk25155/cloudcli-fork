@@ -46,6 +46,15 @@ const DIALECTS: Record<WorkModeDialect, {
   askBetweenStages: string;
   askBeforeStep: string;
   invokeAutopilot: string;
+  /**
+   * Extra hard-stop lines appended to checkpoints/interrogate. Empty for
+   * Claude (its wording must not change by a byte); on Grok they exist because
+   * the smaller models (grok-4.5 at low effort) demonstrably blow straight
+   * through the polite phrasing: live run 22.08 created the file and answered
+   * «Готово» instead of stopping with the plan.
+   */
+  checkpointsHardStop: string;
+  interrogateHardStop: string;
 }> = {
   claude: {
     askBetweenStages:
@@ -54,6 +63,8 @@ const DIALECTS: Record<WorkModeDialect, {
       'ask the user clarifying questions with AskUserQuestion, offering concrete options rather than open prose.',
     invokeAutopilot:
       'Invoke the Skill tool with skill "autopilot" and hand it that message verbatim as the brief.',
+    checkpointsHardStop: '',
+    interrogateHardStop: '',
   },
   grok: {
     askBetweenStages:
@@ -67,6 +78,16 @@ const DIALECTS: Record<WorkModeDialect, {
       'Run the `autopilot` skill and hand it that message verbatim as the brief — your harness discovers it as `autopilot`.'
       + ' If you cannot invoke a skill as a tool, read ~/.claude/skills/autopilot/SKILL.md with read_file and follow it to the letter,'
       + ' including every phase file it tells you to open next.',
+    checkpointsHardStop:
+      'HARD RULE, no exceptions: on a new task your VERY FIRST output is the numbered stage plan as visible'
+      + ' plain text — zero tool calls before it. Then execute ONLY the first stage, post its brief, ask the'
+      + ' numbered question and END YOUR TURN. Completing the whole task in one turn in this mode is a failure'
+      + ' even if the result would be correct.',
+    interrogateHardStop:
+      'HARD RULE, no exceptions: on a new task your VERY FIRST output is your clarifying questions as visible'
+      + ' plain text with numbered options, and you END YOUR TURN on them — zero tool calls that create or'
+      + ' change anything before the user answers. Doing the work first and reporting afterwards is a failure'
+      + ' in this mode even if the result would be correct.',
   },
 };
 
@@ -86,6 +107,7 @@ function workModeInstructions(dialect: WorkModeDialect): Record<WorkMode, string
       `Then wait for the user before starting the next stage: ${phrases.askBetweenStages}`,
       'Do not chain stages together silently.',
       'If a stage turns out bigger than planned, say so in the brief instead of quietly absorbing it.',
+      ...(phrases.checkpointsHardStop ? [phrases.checkpointsHardStop] : []),
     ].join(' '),
 
     interrogate: [
@@ -97,6 +119,7 @@ function workModeInstructions(dialect: WorkModeDialect): Record<WorkMode, string
       'never pick one yourself to keep moving. Get an explicit go-ahead before writing files,',
       'running commands that change state, or moving on to the next step.',
       'Reporting back after the fact does not replace asking first.',
+      ...(phrases.interrogateHardStop ? [phrases.interrogateHardStop] : []),
     ].join(' '),
 
     // Собрать проект целиком за один прогон, а не за четыре сессии с хэндофами.

@@ -214,14 +214,19 @@ test('every mode preset expands into flags the CLI actually accepts', () => {
   }
 });
 
-test('the catalog offers exactly the five modes and keeps the raw models wired', () => {
+test('the catalog offers Build and Fast and keeps the other modes wired', () => {
   const visible = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => !option.hidden);
-  assert.deepEqual(visible.map((option) => option.value), Object.keys(GROK_MODE_PRESETS));
-  // Каждый режим подписан — иначе в пикере остаются голые слова.
-  visible.forEach((option) => assert.ok(option.description, `${option.value} has no description`));
-  // Старые чаты на сырых моделях должны продолжать работать.
+  assert.deepEqual(visible.map((option) => option.value), ['grok-mode-build', 'grok-mode-fast']);
+  visible.forEach((option) => assert.match(option.label, /Grok 4\.\d/));
+  // Старые чаты на спрятанных режимах и сырых моделях должны продолжать работать.
   const hidden = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => option.hidden).map((o) => o.value);
-  assert.deepEqual(hidden, ['grok-4.6', 'grok-4.5']);
+  assert.deepEqual(hidden, [
+    'grok-mode-auto',
+    'grok-mode-expert',
+    'grok-mode-heavy',
+    'grok-4.6',
+    'grok-4.5',
+  ]);
   assert.ok(GROK_MODE_PRESETS[GROK_FALLBACK_MODELS.DEFAULT], 'the default must be one of the modes');
 });
 
@@ -262,4 +267,55 @@ test('raw model ids still work for sessions and localStorage that hold them', ()
   const raw = argsForModel('grok-4.5', { effort: 'high' });
   assert.equal(raw[raw.indexOf('-m') + 1], 'grok-4.5');
   assert.equal(raw[raw.indexOf('--reasoning-effort') + 1], 'high');
+});
+
+test('plan mode strips the file-writing tool so it is actually read-only', () => {
+  const args = buildGrokArgs({
+    prompt: 'plan something',
+    resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+    model: 'grok-mode-fast',
+    permissionMode: 'plan',
+  });
+  const i = args.indexOf('--disallowed-tools');
+  assert.notEqual(i, -1, 'plan run must disallow search_replace');
+  assert.match(args[i + 1], /search_replace/);
+});
+
+test('non-plan modes do not strip tools', () => {
+  for (const permissionMode of ['default', 'bypassPermissions', 'planBypass', 'acceptEdits']) {
+    const args = buildGrokArgs({
+      prompt: 'x',
+      resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+      model: 'grok-mode-fast',
+      permissionMode,
+    });
+    assert.equal(args.includes('--disallowed-tools'), false, `${permissionMode} must keep all tools`);
+  }
+});
+
+test('work-mode rules ride inside the prompt because --rules never reaches the model', () => {
+  const args = buildGrokArgs({
+    prompt: 'сделай дело',
+    resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+    model: 'grok-mode-fast',
+    permissionMode: 'bypassPermissions',
+    workMode: 'checkpoints',
+  });
+  const prompt = args[args.indexOf('-p') + 1];
+  assert.match(prompt, /^<work_mode_rules>\n/);
+  assert.match(prompt, /STAGED BRIEFINGS/);
+  assert.match(prompt, /<\/work_mode_rules>\n\nсделай дело$/);
+  // The designed flag stays as a second channel for future CLI versions.
+  assert.notEqual(args.indexOf('--rules'), -1);
+});
+
+test('a plain run embeds no rules tag into the prompt', () => {
+  const args = buildGrokArgs({
+    prompt: 'просто вопрос',
+    resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+    model: 'grok-mode-fast',
+    permissionMode: 'default',
+  });
+  assert.equal(args[args.indexOf('-p') + 1], 'просто вопрос');
+  assert.equal(args.includes('--rules'), false);
 });

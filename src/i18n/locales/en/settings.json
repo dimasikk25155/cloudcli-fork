@@ -743,6 +743,10 @@
       "description": "How much the agent checks in with you while it works."
     },
     "loadError": "Could not load the defaults.",
-    "saveError": "Could not save. Try again."
+    "saveError": "Could not save. Try again.",
+    "defaultEngine": {
+      "label": "Open new chats on this engine",
+      "description": "Every new chat starts on this engine. Off everywhere: a new chat sticks to the engine used last."
+    }
   }
 }

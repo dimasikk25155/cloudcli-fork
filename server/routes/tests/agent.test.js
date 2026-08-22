@@ -81,3 +81,45 @@ test('unattended runs share the same whitelist as the agent API', async () => {
   );
   assert.deepEqual(unattended, SUPPORTED_PROVIDERS);
 });
+
+test('ResponseCollector: NormalizedMessage assistant text reaches the non-streaming answer', async () => {
+  const { ResponseCollector } = await import('../agent.js');
+  const collector = new ResponseCollector();
+
+  collector.send({ kind: 'session_created', sessionId: 'grok-uuid-1', provider: 'grok' });
+  collector.send({ kind: 'text', role: 'assistant', content: 'PONG', sessionId: 'grok-uuid-1', provider: 'grok' });
+  collector.send({ kind: 'text', role: 'user', content: 'ping', sessionId: 'grok-uuid-1', provider: 'grok' });
+  collector.send({ kind: 'complete', sessionId: 'grok-uuid-1', provider: 'grok' });
+
+  const messages = collector.getAssistantMessages();
+  // Every engine emits NormalizedMessage now; the legacy claude-response JSON
+  // strings this used to look for no longer exist on the wire. Empty here is
+  // the old "success with empty text" bug.
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].message.content[0].text, 'PONG');
+  assert.equal(collector.getSessionId(), 'grok-uuid-1');
+});
+
+test('ResponseCollector: token_budget status feeds token totals without double-counting cache', async () => {
+  const { ResponseCollector } = await import('../agent.js');
+  const collector = new ResponseCollector();
+
+  collector.send({
+    kind: 'status',
+    text: 'token_budget',
+    provider: 'grok',
+    sessionId: 'grok-uuid-2',
+    // inputTokens already INCLUDES the cache tokens (see buildTokenBudget in
+    // grok-sessions.provider.ts) — the collector must not add them twice.
+    tokenBudget: {
+      used: 1200, total: 500000, model: 'grok-4.6',
+      inputTokens: 1000, outputTokens: 200,
+      cacheReadTokens: 300, cacheCreationTokens: 100, cacheTokens: 400,
+    },
+  });
+
+  const tokens = collector.getTotalTokens();
+  assert.equal(tokens.inputTokens, 1000);
+  assert.equal(tokens.outputTokens, 200);
+  assert.equal(tokens.totalTokens, 1200);
+});

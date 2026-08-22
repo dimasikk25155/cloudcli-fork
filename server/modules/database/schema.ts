@@ -171,6 +171,9 @@ CREATE TABLE IF NOT EXISTS user_provider_preferences (
     -- per-provider: only the Claude runtime carries it, and it describes how
     -- the user wants to be talked to rather than a property of an engine.
     work_mode TEXT,
+    -- Engine every NEW chat opens on (e.g. 'grok'). NULL means the historic
+    -- behaviour: a new chat sticks to whatever engine was used last.
+    default_provider TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

@@ -13,6 +13,7 @@ import {
   uiPreferencesDb,
 } from '../modules/database/index.js';
 import { WORK_MODES } from '../shared/work-mode.js';
+import { SUPPORTED_PROVIDERS } from '../shared/providers.js';
 import { getPublicKey } from '../services/vapid-keys.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '../services/notification-orchestrator.js';
 
@@ -344,6 +345,22 @@ router.put('/provider-preferences/work-mode', async (req, res) => {
   } catch (error) {
     console.error('Error saving work mode preference:', error);
     res.status(500).json({ error: 'Failed to save work mode preference' });
+  }
+});
+
+// Engine every NEW chat opens on. `provider: null` restores the historic
+// behaviour (a new chat sticks to whatever engine was used last).
+router.put('/provider-preferences/default-provider', async (req, res) => {
+  try {
+    const { provider } = req.body;
+    if (provider !== null && !SUPPORTED_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ error: `provider must be null or one of: ${SUPPORTED_PROVIDERS.join(', ')}` });
+    }
+    const preferences = providerPreferencesDb.setDefaultProvider(req.user.id, provider);
+    res.json({ success: true, ...preferences });
+  } catch (error) {
+    console.error('Error saving default provider preference:', error);
+    res.status(500).json({ error: 'Failed to save default provider preference' });
   }
 });
 

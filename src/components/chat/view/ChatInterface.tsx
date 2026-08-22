@@ -6,7 +6,7 @@ import { useWebSocket } from '../../../contexts/WebSocketContext';
 import PermissionContext, { type PermissionContextValue } from '../../../contexts/PermissionContext';
 import { QuickSettingsPanel } from '../../quick-settings-panel';
 import type { ChatInterfaceProps, Provider  } from '../types/types';
-import { useChatProviderState } from '../hooks/useChatProviderState';
+import { useChatProviderState, readDefaultChatProvider } from '../hooks/useChatProviderState';
 import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
@@ -158,6 +158,23 @@ function ChatInterface({
     lastSeqRef,
     sessionStore,
   });
+
+  // "New chat" pressed: if Settings names an engine every new chat opens on,
+  // move the composer there. Only on the explicit trigger — a provider picked
+  // by hand for the draft afterwards is never snapped back (no other deps).
+  const appliedNewSessionTriggerRef = useRef(newSessionTrigger);
+  useEffect(() => {
+    if (newSessionTrigger === appliedNewSessionTriggerRef.current) {
+      return;
+    }
+    appliedNewSessionTriggerRef.current = newSessionTrigger;
+    const preferred = readDefaultChatProvider();
+    if (preferred && preferred !== provider) {
+      setProvider(preferred);
+      localStorage.setItem('selected-provider', preferred);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when the trigger moves
+  }, [newSessionTrigger]);
 
   // Brand-new conversation: the composer allocated a stable session id via
   // the session gateway before the first send. Record it locally and put it

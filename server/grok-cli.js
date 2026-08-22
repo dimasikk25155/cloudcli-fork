@@ -1,4 +1,7 @@
+import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import fsSync from 'node:fs';
+import path from 'node:path';
 
 import crossSpawn from 'cross-spawn';
 
@@ -8,10 +11,12 @@ import { sessionsService } from './modules/providers/services/sessions.service.j
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
+import { recordRunOutcome, isTransientRunFailure } from './shared/run-outcomes.js';
 import {
   createCompleteMessage,
   createNormalizedMessage,
   flattenPromptForWindowsShell,
+  getGrokHome,
   resolveGrokCliPath,
 } from './shared/utils.js';
 
@@ -22,6 +27,26 @@ const spawnFunction = crossSpawn;
 const activeGrokProcesses = new Map();
 
 const GROK_INSTALL_HINT = 'Grok Build CLI is not installed. Install it: curl -fsSL https://x.ai/cli/install.sh | bash';
+
+// xAI wobbles too (5xx, dropped connections). Same self-resend the Claude
+// runtime does (TRANSIENT_RETRY_DELAYS_MS in claude-sdk.js), one step shorter:
+// the CLI exits on such failures instead of hanging, so waves are cheap to ride.
+const GROK_TRANSIENT_RETRY_DELAYS_MS = [5_000, 20_000, 60_000];
+
+/**
+ * Whether the CLI already materialized this session on disk. Decides whether a
+ * transient-failure retry may `--resume` (keeping whatever the agent did) or
+ * must start the same `-s <uuid>` from scratch (nothing was written yet).
+ */
+function grokSessionExistsOnDisk(workingDir, sessionUuid) {
+  try {
+    return fsSync.existsSync(
+      path.join(getGrokHome(), 'sessions', encodeURIComponent(workingDir), sessionUuid, 'chat_history.jsonl'),
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Maps a CloudCLI permission mode onto Grok Build's `--permission-mode`.
@@ -67,6 +92,9 @@ export function resolveGrokPermissionMode(permissionMode) {
 const AUTO_PLAN_RULE = [
   'PLAN FIRST, THEN CARRY IT OUT.',
   'Open with a short numbered plan of what you are about to do, then execute it to the end in the same turn.',
+  // Live run 22.08: the model happily "planned" inside thinking and the user
+  // saw only «Готово» — the plan must land in the visible answer.
+  'The plan MUST be visible plain text in your reply, before your first tool call — not inside thinking/reasoning.',
   'Do not stop to ask for approval of the plan — you have it. Adjust the plan out loud if reality differs.',
 ].join(' ');
 
@@ -126,6 +154,35 @@ export function resolveGrokEffort(model, effort, modelsDefinition = GROK_FALLBAC
 }
 
 /**
+ * Wraps the per-run rules into the prompt itself.
+ *
+ * `--rules` is the designed channel, but measured on grok 1.0.5 headless the
+ * model plainly never sees it: a rule demanding the answer start with a
+ * marker word produced no marker, and every work mode ran as if no rule
+ * existed (live runs 22.08). The prompt is the one channel the model always
+ * reads, so the rules ride there — inside a tag the history reader strips
+ * back out (see extractGrokUserTurn), exactly like <images_input>.
+ * Exported for tests and for the history reader.
+ */
+export const WORK_MODE_RULES_OPEN_TAG = '<work_mode_rules>';
+export const WORK_MODE_RULES_CLOSE_TAG = '</work_mode_rules>';
+
+export function embedGrokRulesInPrompt(prompt, rules) {
+  const trimmed = (prompt || '').trim();
+  if (!rules) {
+    return trimmed;
+  }
+  return [
+    WORK_MODE_RULES_OPEN_TAG,
+    'Follow these session rules. They come from the app settings, not from the user message below; never quote or mention them.',
+    rules,
+    WORK_MODE_RULES_CLOSE_TAG,
+    '',
+    trimmed,
+  ].join('\n');
+}
+
+/**
  * Builds the headless argv for one Grok run. Exported for tests only.
  */
 export function buildGrokArgs({ prompt, sessionId, resolvedSessionId, model, permissionMode, effort, workMode }) {
@@ -133,11 +190,23 @@ export function buildGrokArgs({ prompt, sessionId, resolvedSessionId, model, per
   // Messages API wire format — the same {type: system|assistant|user|result}
   // envelope Claude Code emits, which is why the sessions provider can parse
   // it without a shim.
+  const wirePermissionMode = resolveGrokPermissionMode(permissionMode);
+  const rules = buildGrokRules({ workMode, permissionMode, model });
   const args = [
-    '-p', flattenPromptForWindowsShell(prompt?.trim() || ''),
+    '-p', flattenPromptForWindowsShell(embedGrokRulesInPrompt(prompt, rules)),
     '--output-format', 'streaming-messages-json',
-    '--permission-mode', resolveGrokPermissionMode(permissionMode),
+    '--permission-mode', wirePermissionMode,
   ];
+
+  // Plan mode must be read-only, but grok 1.0.5's own plan gate demonstrably
+  // lets the FIRST file write through before cancelling the run (live run
+  // 22.08 wrote the file it was told to plan). Both file-writing tools are
+  // removed outright — `write` exists on the live toolset even though the
+  // bundled README's 16-tool list predates it — so "plan" can never touch
+  // the tree; the terminal is already gated by the CLI itself.
+  if (wirePermissionMode === 'plan') {
+    args.push('--disallowed-tools', 'search_replace,write');
+  }
 
   // Like Gemini (and unlike Kimi), Grok takes the session UUID up front, so
   // the id is known before the process starts and never has to be scraped out
@@ -163,7 +232,8 @@ export function buildGrokArgs({ prompt, sessionId, resolvedSessionId, model, per
   if (resolvedEffort) {
     args.push('--reasoning-effort', resolvedEffort);
   }
-  const rules = buildGrokRules({ workMode, permissionMode, model });
+  // Second, designed channel for the same rules (see embedGrokRulesInPrompt):
+  // dead on 1.0.5 headless, kept for the day the CLI honours it.
   if (rules) {
     args.push('--rules', rules);
   }
@@ -181,23 +251,25 @@ async function spawnGrok(command, options = {}, ws) {
     let stderrBuffer = '';
     let terminalNotificationSent = false;
     let grokProcess = null;
+    let sessionCreatedSent = false;
+    let transientRetryAttempt = 0;
     // Unified lifecycle contract: exactly one terminal `complete` per run
     // (close and error handlers can both fire for spawn failures).
     let completeSent = false;
 
-    const notifyTerminalState = ({ code = null, error = null } = {}) => {
+    const notifyTerminalState = ({ code = null, error = null, aborted = false } = {}) => {
       if (terminalNotificationSent) {
         return;
       }
 
       terminalNotificationSent = true;
-      if (code === 0 && !error) {
+      if (aborted || (code === 0 && !error)) {
         notifyRunStopped({
           userId: ws?.userId || null,
           provider: 'grok',
           sessionId: resolvedSessionId,
           sessionName: sessionSummary,
-          stopReason: 'completed',
+          stopReason: aborted ? 'aborted' : 'completed',
         });
         return;
       }
@@ -246,141 +318,305 @@ async function spawnGrok(command, options = {}, ws) {
       }
     };
 
-    void providerModelsService.resolveResumeModel('grok', sessionId, model).then(async (resolvedModel) => {
-      // Sessions live under ~/.grok/sessions/<url-encoded cwd>/<uuid>/, so cwd
-      // decides which project a session belongs to.
-      const args = buildGrokArgs({
-        prompt: command,
-        sessionId,
-        resolvedSessionId,
-        model: resolvedModel,
-        permissionMode,
-        effort,
-        workMode,
-      });
+    // A stopped run must never end as "failed": no red frame, a calm aborted
+    // notification, and an `aborted` outcome on disk for the history reader.
+    const finishAborted = () => {
+      recordRunOutcome(resolvedSessionId, { status: 'aborted' });
+      notifyTerminalState({ aborted: true });
+      reject(new Error('Grok Build CLI process was terminated'));
+    };
 
-      grokProcess = spawnFunction(resolveGrokCliPath(), args, {
-        cwd: workingDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
-      });
-
-      activeGrokProcesses.set(processKey, grokProcess);
-      grokProcess.sessionId = resolvedSessionId;
-      grokProcess.stdin.end();
-
-      if (ws.setSessionId && typeof ws.setSessionId === 'function') {
-        ws.setSessionId(resolvedSessionId);
-      }
-
-      if (!sessionId) {
+    const finishFailed = async (code, failureReason) => {
+      if (failureReason) {
         ws.send(createNormalizedMessage({
-          kind: 'session_created',
-          newSessionId: resolvedSessionId,
+          kind: 'error',
+          content: failureReason,
           sessionId: resolvedSessionId,
           provider: 'grok',
         }));
       }
 
-      grokProcess.stdout.on('data', (data) => {
-        stdoutLineBuffer += data.toString();
-        const completeLines = stdoutLineBuffer.split(/\r?\n/);
-        stdoutLineBuffer = completeLines.pop() || '';
+      if (!completeSent) {
+        completeSent = true;
+        ws.send(createCompleteMessage({ provider: 'grok', sessionId: resolvedSessionId, exitCode: code ?? 1 }));
+      }
 
-        completeLines.forEach((line) => {
-          processGrokOutputLine(line.trim());
-        });
-      });
-
-      grokProcess.stderr.on('data', (data) => {
-        // Progress noise and update notices land on stderr even on healthy
-        // runs, so it is NOT streamed to the UI as errors — it is buffered and
-        // only surfaced if the run actually fails.
-        stderrBuffer += data.toString();
-        if (stderrBuffer.length > 8192) {
-          stderrBuffer = stderrBuffer.slice(-8192);
-        }
-      });
-
-      grokProcess.on('close', async (code) => {
-        activeGrokProcesses.delete(processKey);
-
-        if (stdoutLineBuffer.trim()) {
-          processGrokOutputLine(stdoutLineBuffer.trim());
-          stdoutLineBuffer = '';
-        }
-
-        if (code !== 0 && stderrBuffer.trim()) {
+      if (code === 127 || code === null) {
+        const installed = await providerAuthService.isProviderInstalled('grok');
+        if (!installed) {
           ws.send(createNormalizedMessage({
             kind: 'error',
-            content: stderrBuffer.trim(),
+            content: GROK_INSTALL_HINT,
+            sessionId: resolvedSessionId,
+            provider: 'grok',
+          }));
+        }
+      }
+
+      // Persist the RAW reason — the history reader humanizes it on reload
+      // (see grok-sessions.provider.ts / buildRunInterruptedNotice).
+      recordRunOutcome(resolvedSessionId, {
+        status: 'failed',
+        reason: failureReason || `Grok Build CLI exited with code ${code}`,
+      });
+      notifyTerminalState({ code });
+      reject(new Error(code === null ? 'Grok Build CLI process was terminated' : `Grok Build CLI exited with code ${code}`));
+    };
+
+    void providerModelsService.resolveResumeModel('grok', sessionId, model).then(async (resolvedModel) => {
+      const startAttempt = () => {
+        stdoutLineBuffer = '';
+        stderrBuffer = '';
+
+        // On a retry the very same session uuid is resumed if the first
+        // attempt already materialized it on disk; otherwise the same `-s`
+        // start is simply repeated — nothing was persisted the first time.
+        const resumeId = sessionId
+          || (transientRetryAttempt > 0 && grokSessionExistsOnDisk(workingDir, resolvedSessionId)
+            ? resolvedSessionId
+            : null);
+
+        // Sessions live under ~/.grok/sessions/<url-encoded cwd>/<uuid>/, so cwd
+        // decides which project a session belongs to.
+        const args = buildGrokArgs({
+          prompt: command,
+          sessionId: resumeId,
+          resolvedSessionId,
+          model: resolvedModel,
+          permissionMode,
+          effort,
+          workMode,
+        });
+
+        grokProcess = spawnFunction(resolveGrokCliPath(), args, {
+          cwd: workingDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env },
+          // Own process group (POSIX): Stop must kill the whole tree. A plain
+          // SIGTERM to the CLI alone leaves its bash children running — live
+          // run 22.08: `sleep 120` survived the stop, reparented to init.
+          detached: process.platform !== 'win32',
+        });
+
+        activeGrokProcesses.set(processKey, grokProcess);
+        grokProcess.sessionId = resolvedSessionId;
+        grokProcess.stdin.end();
+
+        if (ws.setSessionId && typeof ws.setSessionId === 'function') {
+          ws.setSessionId(resolvedSessionId);
+        }
+
+        if (!sessionId && !sessionCreatedSent) {
+          sessionCreatedSent = true;
+          ws.send(createNormalizedMessage({
+            kind: 'session_created',
+            newSessionId: resolvedSessionId,
             sessionId: resolvedSessionId,
             provider: 'grok',
           }));
         }
 
-        // Terminal complete — skipped for aborted runs (abort-session
-        // already sent the aborted complete on this run's behalf).
-        if (!completeSent && !grokProcess.aborted) {
-          completeSent = true;
-          ws.send(createCompleteMessage({ provider: 'grok', sessionId: resolvedSessionId, exitCode: code }));
-        }
+        grokProcess.stdout.on('data', (data) => {
+          stdoutLineBuffer += data.toString();
+          const completeLines = stdoutLineBuffer.split(/\r?\n/);
+          stdoutLineBuffer = completeLines.pop() || '';
 
-        if (code === 0) {
-          notifyTerminalState({ code });
-          resolve();
-          return;
-        }
+          completeLines.forEach((line) => {
+            processGrokOutputLine(line.trim());
+          });
+        });
 
-        if (code === 127 || code === null) {
-          const installed = await providerAuthService.isProviderInstalled('grok');
-          if (!installed) {
+        grokProcess.stderr.on('data', (data) => {
+          // Progress noise and update notices land on stderr even on healthy
+          // runs, so it is NOT streamed to the UI as errors — it is buffered and
+          // only surfaced if the run actually fails.
+          stderrBuffer += data.toString();
+          if (stderrBuffer.length > 8192) {
+            stderrBuffer = stderrBuffer.slice(-8192);
+          }
+        });
+
+        grokProcess.on('close', async (code) => {
+          activeGrokProcesses.delete(processKey);
+
+          if (stdoutLineBuffer.trim()) {
+            processGrokOutputLine(stdoutLineBuffer.trim());
+            stdoutLineBuffer = '';
+          }
+
+          const wasAborted = grokProcess.aborted === true;
+
+          if (wasAborted) {
+            // Terminal complete (aborted: true) was already sent by
+            // abort-session on this run's behalf.
+            finishAborted();
+            return;
+          }
+
+          if (code === 0) {
+            if (!completeSent) {
+              completeSent = true;
+              ws.send(createCompleteMessage({ provider: 'grok', sessionId: resolvedSessionId, exitCode: code }));
+            }
+            recordRunOutcome(resolvedSessionId, { status: 'completed' });
+            notifyTerminalState({ code });
+            resolve();
+            return;
+          }
+
+          // xAI wobbled (5xx, dropped connection): resend the turn instead of
+          // ending the run with an error the user can only answer by
+          // re-sending it themselves. Same contract as the Claude runtime.
+          const failureReason = stderrBuffer.trim() || `Grok Build CLI exited with code ${code}`;
+          const retryDelayMs = GROK_TRANSIENT_RETRY_DELAYS_MS[transientRetryAttempt];
+          if (retryDelayMs !== undefined && isTransientRunFailure(failureReason)) {
+            transientRetryAttempt += 1;
+            const waitSeconds = Math.round(retryDelayMs / 1000);
+            console.warn(`[Grok] Transient failure — retrying in ${waitSeconds}s (attempt ${transientRetryAttempt}/${GROK_TRANSIENT_RETRY_DELAYS_MS.length}, session: ${resolvedSessionId}):`, failureReason);
             ws.send(createNormalizedMessage({
-              kind: 'error',
-              content: GROK_INSTALL_HINT,
+              kind: 'text',
+              role: 'assistant',
+              content: `⏳ Сбой связи с серверами xAI — повторяю запрос сам через ${waitSeconds} с (попытка ${transientRetryAttempt} из ${GROK_TRANSIENT_RETRY_DELAYS_MS.length}). Делать ничего не надо.`,
               sessionId: resolvedSessionId,
               provider: 'grok',
             }));
+
+            // The dead process can no longer be killed, so Stop would quietly
+            // do nothing for the whole pause. Stand in for it: killing the
+            // stub cancels the wait and ends the run as aborted.
+            let cancelWait = () => {};
+            const retryStub = {
+              aborted: false,
+              sessionId: resolvedSessionId,
+              kill: () => {
+                retryStub.aborted = true;
+                cancelWait();
+              },
+            };
+            activeGrokProcesses.set(processKey, retryStub);
+
+            await new Promise((resolveWait) => {
+              const timer = setTimeout(resolveWait, retryDelayMs);
+              cancelWait = () => {
+                clearTimeout(timer);
+                resolveWait();
+              };
+            });
+
+            if (retryStub.aborted) {
+              activeGrokProcesses.delete(processKey);
+              finishAborted();
+              return;
+            }
+
+            startAttempt();
+            return;
           }
-        }
 
-        notifyTerminalState({ code });
-        reject(new Error(code === null ? 'Grok Build CLI process was terminated' : `Grok Build CLI exited with code ${code}`));
-      });
+          await finishFailed(code, failureReason);
+        });
 
-      grokProcess.on('error', async (error) => {
-        activeGrokProcesses.delete(processKey);
+        grokProcess.on('error', async (error) => {
+          activeGrokProcesses.delete(processKey);
 
-        const installed = await providerAuthService.isProviderInstalled('grok');
-        const errorContent = !installed ? GROK_INSTALL_HINT : error.message;
+          if (grokProcess.aborted === true) {
+            finishAborted();
+            return;
+          }
 
-        ws.send(createNormalizedMessage({
-          kind: 'error',
-          content: errorContent,
-          sessionId: resolvedSessionId,
-          provider: 'grok',
-        }));
-        if (!completeSent && !grokProcess.aborted) {
-          completeSent = true;
-          ws.send(createCompleteMessage({ provider: 'grok', sessionId: resolvedSessionId, exitCode: 1 }));
-        }
-        notifyTerminalState({ error });
-        reject(error);
-      });
+          const installed = await providerAuthService.isProviderInstalled('grok');
+          const errorContent = !installed ? GROK_INSTALL_HINT : error.message;
+
+          ws.send(createNormalizedMessage({
+            kind: 'error',
+            content: errorContent,
+            sessionId: resolvedSessionId,
+            provider: 'grok',
+          }));
+          if (!completeSent) {
+            completeSent = true;
+            ws.send(createCompleteMessage({ provider: 'grok', sessionId: resolvedSessionId, exitCode: 1 }));
+          }
+          recordRunOutcome(resolvedSessionId, {
+            status: 'failed',
+            reason: errorContent,
+          });
+          notifyTerminalState({ error });
+          reject(error);
+        });
+      };
+
+      startAttempt();
     }).catch(reject);
   });
 }
 
 function abortGrokSession(sessionId) {
-  const process = activeGrokProcesses.get(sessionId);
-  if (!process) {
+  const child = activeGrokProcesses.get(sessionId);
+  if (!child) {
     return false;
   }
 
   // The abort handler sends the terminal complete (aborted: true); flag the
   // process so its close handler does not emit a second one.
-  process.aborted = true;
-  process.kill('SIGTERM');
+  child.aborted = true;
+
+  // Kill the WHOLE TREE, not just the CLI. Two layers because the CLI's bash
+  // wrappers start their own sessions (measured 22.08: after a group kill the
+  // wrapper reparented to init and its `sleep 120` lived on):
+  //   1. walk pid->ppid and signal every live descendant individually;
+  //   2. signal the process group as a catch-all for anything mid-spawn.
+  // Falls back to a plain kill for the retry-wait stub (no pid).
+  const killGroup = (signal) => {
+    if (child.pid && process.platform !== 'win32') {
+      try {
+        const psOut = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' });
+        const childrenByParent = new Map();
+        for (const line of psOut.trim().split('\n')) {
+          const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+          if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue;
+          if (!childrenByParent.has(ppid)) childrenByParent.set(ppid, []);
+          childrenByParent.get(ppid).push(pid);
+        }
+        const tree = [];
+        const stack = [child.pid];
+        while (stack.length) {
+          const pid = stack.pop();
+          tree.push(pid);
+          for (const kid of childrenByParent.get(pid) || []) stack.push(kid);
+        }
+        // Children first so a dying wrapper cannot respawn its command.
+        for (const pid of tree.reverse()) {
+          try { process.kill(pid, signal); } catch { /* already gone */ }
+        }
+      } catch {
+        // ps unavailable — the group signal below still covers the common case.
+      }
+      try {
+        process.kill(-child.pid, signal);
+        return;
+      } catch {
+        // Group already gone or not a leader — fall through to a plain kill.
+      }
+    }
+    try {
+      child.kill(signal);
+    } catch {
+      // Process already dead.
+    }
+  };
+
+  killGroup('SIGTERM');
+  // Escalate: a CLI wedged in a tool call can survive SIGTERM. exitCode stays
+  // null while the process lives; the stub has none and is never escalated.
+  if (child.pid) {
+    const hardKill = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        killGroup('SIGKILL');
+      }
+    }, 2500);
+    hardKill.unref?.();
+  }
   activeGrokProcesses.delete(sessionId);
   return true;
 }

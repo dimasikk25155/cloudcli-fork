@@ -13,6 +13,8 @@ export type ProviderPreferences = {
   efforts: Record<string, string>;
   /** Work mode new chats start in; null means "whatever the client defaults to". */
   workMode: string | null;
+  /** Engine every NEW chat opens on; null keeps "sticks to the last used engine". */
+  defaultProvider: string | null;
 };
 
 function parseRecord(json: string): Record<string, string> {
@@ -34,17 +36,23 @@ export const providerPreferencesDb = {
   getProviderPreferences(userId: number): ProviderPreferences {
     const db = getConnection();
     const row = db
-      .prepare('SELECT models_json, efforts_json, work_mode FROM user_provider_preferences WHERE user_id = ?')
-      .get(userId) as { models_json: string; efforts_json: string; work_mode: string | null } | undefined;
+      .prepare('SELECT models_json, efforts_json, work_mode, default_provider FROM user_provider_preferences WHERE user_id = ?')
+      .get(userId) as {
+        models_json: string;
+        efforts_json: string;
+        work_mode: string | null;
+        default_provider: string | null;
+      } | undefined;
 
     if (!row) {
-      return { models: {}, efforts: {}, workMode: null };
+      return { models: {}, efforts: {}, workMode: null, defaultProvider: null };
     }
 
     return {
       models: parseRecord(row.models_json),
       efforts: parseRecord(row.efforts_json),
       workMode: row.work_mode ?? null,
+      defaultProvider: row.default_provider ?? null,
     };
   },
 
@@ -80,21 +88,33 @@ export const providerPreferencesDb = {
     return next;
   },
 
+  /** Upserts the engine new chats open on (null restores "last used wins"). */
+  setDefaultProvider(userId: number, defaultProvider: string | null): ProviderPreferences {
+    const next: ProviderPreferences = {
+      ...providerPreferencesDb.getProviderPreferences(userId),
+      defaultProvider,
+    };
+    providerPreferencesDb.upsert(userId, next);
+    return next;
+  },
+
   upsert(userId: number, preferences: ProviderPreferences): void {
     const db = getConnection();
     db.prepare(
-      `INSERT INTO user_provider_preferences (user_id, models_json, efforts_json, work_mode, updated_at)
-       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `INSERT INTO user_provider_preferences (user_id, models_json, efforts_json, work_mode, default_provider, updated_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
        ON CONFLICT(user_id) DO UPDATE SET
          models_json = excluded.models_json,
          efforts_json = excluded.efforts_json,
          work_mode = excluded.work_mode,
+         default_provider = excluded.default_provider,
          updated_at = CURRENT_TIMESTAMP`
     ).run(
       userId,
       JSON.stringify(preferences.models),
       JSON.stringify(preferences.efforts),
       preferences.workMode ?? null,
+      preferences.defaultProvider ?? null,
     );
   },
 };

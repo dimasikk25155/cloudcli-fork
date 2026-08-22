@@ -25,6 +25,7 @@ import {
   readSessionWorkMode,
   workModeStorageKey,
 } from '../utils/workModeStorage';
+import { applyProviderModel, type ProviderModelSetters } from '../utils/providerModelState';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   // 'default' means "whatever the CLI is configured to use" and stays the
@@ -56,7 +57,27 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
 // SuperGrok subscription (`grok login --device-auth` → ~/.grok/auth.json).
 const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'cursor', 'opencode', 'kimi', 'grok'];
 
+/**
+ * Settings-owned "engine every new chat opens on". Cached in localStorage from
+ * the account preferences (`/api/settings/provider-preferences`) so first
+ * paint doesn't wait for the request; the server value refreshes the cache on
+ * every load. Empty/absent means the historic behaviour: a new chat sticks to
+ * whatever engine was used last (`selected-provider`).
+ */
+export const DEFAULT_CHAT_PROVIDER_KEY = 'default-chat-provider';
+
+export const readDefaultChatProvider = (): LLMProvider | null => {
+  const preferred = localStorage.getItem(DEFAULT_CHAT_PROVIDER_KEY);
+  return PROVIDERS.includes(preferred as LLMProvider) ? preferred as LLMProvider : null;
+};
+
 const readStoredProvider = (): LLMProvider => {
+  // A page opened fresh (no session in the URL yet) is a "new chat", so the
+  // Settings default wins over the last-used engine when it is set.
+  const preferred = readDefaultChatProvider();
+  if (preferred) {
+    return preferred;
+  }
   const storedProvider = localStorage.getItem('selected-provider');
   return PROVIDERS.includes(storedProvider as LLMProvider)
     ? storedProvider as LLMProvider
@@ -241,6 +262,16 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     });
   }, []);
 
+  const providerModelSetters = useMemo<ProviderModelSetters>(() => ({
+    claude: setClaudeModel,
+    cursor: setCursorModel,
+    codex: setCodexModel,
+    opencode: setOpenCodeModel,
+    kimi: setKimiModel,
+    gemini: setGeminiModel,
+    grok: setGrokModel,
+  }), []);
+
   /**
    * Points the composer's Model chip at a value for the CURRENT chat only —
    * React state, nothing else. What a brand-new chat starts with is a separate
@@ -250,20 +281,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
    * selectProviderModel / commitSessionModelAndEffort.
    */
   const setActiveProviderModel = useCallback((targetProvider: LLMProvider, model: string) => {
-    if (targetProvider === 'claude') {
-      setClaudeModel(model);
-    } else if (targetProvider === 'cursor') {
-      setCursorModel(model);
-    } else if (targetProvider === 'codex') {
-      setCodexModel(model);
-    } else if (targetProvider === 'opencode') {
-      setOpenCodeModel(model);
-    } else if (targetProvider === 'gemini') {
-      setGeminiModel(model);
-    } else {
-      setKimiModel(model);
-    }
-  }, []);
+    applyProviderModel(targetProvider, model, providerModelSetters);
+  }, [providerModelSetters]);
 
   const setActiveProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
     setProviderEfforts((previous) => (
@@ -300,11 +319,20 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         models?: Record<string, string>;
         efforts?: Record<string, string>;
         workMode?: string | null;
+        defaultProvider?: string | null;
       } | null) => {
         if (cancelled || !data) {
           return;
         }
         const hasOpenSession = Boolean(selectedSessionIdRef.current);
+        // Cache the new-chat engine for readStoredProvider / the new-chat
+        // button. Applied on the next "new chat", deliberately not to the
+        // current draft — a provider picked by hand must not snap back.
+        if (data.defaultProvider && PROVIDERS.includes(data.defaultProvider as LLMProvider)) {
+          localStorage.setItem(DEFAULT_CHAT_PROVIDER_KEY, data.defaultProvider);
+        } else if (data.defaultProvider === null) {
+          localStorage.removeItem(DEFAULT_CHAT_PROVIDER_KEY);
+        }
         if (data.workMode && WORK_MODES.includes(data.workMode as WorkMode)) {
           localStorage.setItem(WORK_MODE_DEFAULT_KEY, data.workMode);
           // Same rule as the model above: an open chat keeps its own mode,
@@ -524,9 +552,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     if (typeof capabilitySupport === 'boolean') {
       return capabilitySupport;
     }
-    // Before the matrix lands (first paint) fall back to what has always been
-    // true: Claude carries work modes, the rest did not.
-    return targetProvider === 'claude';
+    // Before the matrix lands (first paint) fall back to engines that actually
+    // carry work modes. Grok's backend sets supportsWorkMode: true; without
+    // this the chip is missing on the first frame of a new Grok chat.
+    return targetProvider === 'claude' || targetProvider === 'grok';
   }, [providerCapabilities]);
 
   const getEffortOptionsForModel = useCallback((
@@ -757,24 +786,12 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       ?? localStorage.getItem(`${provider}-effort`)
       ?? DEFAULT_EFFORT_VALUE;
 
-    if (provider === 'claude') {
-      setClaudeModel(nextModel);
-    } else if (provider === 'cursor') {
-      setCursorModel(nextModel);
-    } else if (provider === 'codex') {
-      setCodexModel(nextModel);
-    } else if (provider === 'opencode') {
-      setOpenCodeModel(nextModel);
-    } else if (provider === 'gemini') {
-      setGeminiModel(nextModel);
-    } else {
-      setKimiModel(nextModel);
-    }
+    applyProviderModel(provider, nextModel, providerModelSetters);
 
     setProviderEfforts((previous) => (
       previous[provider] === nextEffort ? previous : { ...previous, [provider]: nextEffort }
     ));
-  }, [selectedSession?.id, selectedSession?.model, selectedSession?.effort, provider]);
+  }, [selectedSession?.id, selectedSession?.model, selectedSession?.effort, provider, providerModelSetters]);
 
   useEffect(() => {
     if (!selectedSession?.__provider || selectedSession.__provider === provider) {

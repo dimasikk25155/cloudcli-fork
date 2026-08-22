@@ -512,6 +512,9 @@ export const runMigrations = (db: Database) => {
     if (tableExists(db, 'user_provider_preferences')) {
       const preferencesColumnNames = getTableInfo(db, 'user_provider_preferences').map((column) => column.name);
       addColumnToTableIfNotExists(db, 'user_provider_preferences', preferencesColumnNames, 'work_mode', 'TEXT');
+      // Engine every new chat opens on; NULL keeps the historic "sticks to the
+      // last used engine" behaviour.
+      addColumnToTableIfNotExists(db, 'user_provider_preferences', preferencesColumnNames, 'default_provider', 'TEXT');
     }
 
     db.exec(LAST_SCANNED_AT_SQL);
