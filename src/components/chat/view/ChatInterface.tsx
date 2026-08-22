@@ -15,6 +15,14 @@ import { useSessionStore } from '../../../stores/useSessionStore';
 import { decisionExitsPlanMode, permissionModeAfterPlanApproval } from '../utils/planMode';
 import { autoApprovedRequestIds } from '../utils/autoPlanMode';
 
+// Engines whose models share one list in the composer's model chip: picking
+// "Grok 4.6" right under "Fable 5" starts the chat on Grok, and picking Opus
+// from a Grok chip switches back — no trip through the provider dialog. Order
+// is preserved, and the current engine's own models always come first.
+// Only applies to a chat that has no session yet: an existing session belongs
+// to exactly one CLI and cannot change engines mid-flight.
+const COMPOSER_CROSS_ENGINE_PROVIDERS = ['claude', 'grok'] as const;
+
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import PinnedUserMessage from './subcomponents/PinnedUserMessage';
 import ChatComposer from './subcomponents/ChatComposer';
@@ -38,6 +46,7 @@ function ChatInterface({
   sendByCtrlEnter,
   externalMessageUpdate,
   newSessionTrigger,
+  onStartNewChat,
 }: ChatInterfaceProps) {
   const { subscribe, isConnected, getLastFrameAt, forceReconnect } = useWebSocket();
   const { t } = useTranslation('chat');
@@ -78,6 +87,8 @@ function ChatInterface({
     setKimiModel,
     geminiModel,
     setGeminiModel,
+    grokModel,
+    setGrokModel,
     permissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
@@ -85,6 +96,7 @@ function ChatInterface({
     selectPermissionMode,
     workMode,
     selectWorkMode,
+    supportsWorkModeForProvider,
     commitWorkModeToSession,
     availablePermissionModes,
     providerModels,
@@ -228,6 +240,7 @@ function ChatInterface({
     opencodeModel,
     kimiModel,
     geminiModel,
+    grokModel,
     isLoading: isProcessing,
     canAbortSession,
     tokenBudget,
@@ -403,6 +416,41 @@ function ChatInterface({
     autoAnsweredRequestIdsRef.current = new Set();
   }, [selectedSession?.id]);
 
+  // Models flagged `hidden` in the catalog stay wired but out of the picker
+  // (the local RTX models and the BYO gateways, 21.08.2026).
+  // Cross-engine models are listed in every chat, not just empty ones — hiding
+  // them inside a running chat read as "Grok disappeared". In a running chat
+  // the label says where the pick lands, because it opens a new chat there.
+  const { options: composerModelOptions, providerByModel: composerModelProviders } = useMemo(() => {
+    const visibleModels = (target: typeof provider) => (
+      (providerModelCatalog[target]?.OPTIONS ?? []).filter((option) => !option.hidden)
+    );
+    const hasRunningSession = Boolean(currentSessionId || selectedSession?.id);
+    const providerByModel = new Map<string, typeof provider>();
+    const options = visibleModels(provider);
+    options.forEach((option) => providerByModel.set(option.value, provider));
+
+    COMPOSER_CROSS_ENGINE_PROVIDERS.forEach((candidate) => {
+      if (candidate === provider) {
+        return;
+      }
+      visibleModels(candidate).forEach((option) => {
+        if (providerByModel.has(option.value)) {
+          return;
+        }
+        providerByModel.set(option.value, candidate);
+        options.push(hasRunningSession
+          ? {
+            ...option,
+            label: `${option.label} · ${t('input.inANewChat', { defaultValue: 'в новом чате' })}`,
+          }
+          : option);
+      });
+    });
+
+    return { options, providerByModel };
+  }, [providerModelCatalog, provider, currentSessionId, selectedSession?.id, t]);
+
   const permissionContextValue = useMemo(() => ({
     pendingPermissionRequests,
     handlePermissionDecision,
@@ -423,7 +471,9 @@ function ChatInterface({
               ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
             : provider === 'kimi'
               ? t('messageTypes.kimi', { defaultValue: 'Kimi' })
-              : t('messageTypes.claude');
+              : provider === 'grok'
+                ? t('messageTypes.grok', { defaultValue: 'Grok' })
+                : t('messageTypes.claude');
 
     return (
       <div className="flex h-full items-center justify-center">
@@ -469,6 +519,8 @@ function ChatInterface({
           setKimiModel={setKimiModel}
           geminiModel={geminiModel}
           setGeminiModel={setGeminiModel}
+          grokModel={grokModel}
+          setGrokModel={setGrokModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
           isLoadingMoreMessages={isLoadingMoreMessages}
@@ -529,21 +581,43 @@ function ChatInterface({
           onSelectPermissionMode={selectPermissionMode}
           workMode={workMode}
           onSelectWorkMode={selectWorkMode}
-          // Work modes ride on the Claude system prompt (see
-          // server/shared/work-mode.ts); the other CLIs have no equivalent
-          // hook, so the chip says so instead of pretending to apply.
-          isWorkModeSupported={provider === 'claude'}
+          // Work modes ride on a system-prompt append (see
+          // server/shared/work-mode.ts): Claude's appendSystemPrompt and Grok
+          // Build's `--rules`. Runtimes without such a hook say so on the chip
+          // instead of pretending to apply it — the matrix decides, so adding a
+          // runtime never means touching this component.
+          isWorkModeSupported={supportsWorkModeForProvider(provider)}
           model={providerModels[provider]}
-          availableModelOptions={providerModelCatalog[provider]?.OPTIONS ?? []}
+          availableModelOptions={composerModelOptions}
           onSelectModel={(nextModel) => {
+            // A model belonging to another engine (Grok listed under the Claude
+            // models) switches the engine too. The mirror into localStorage
+            // matches what the provider dialog does, so a reload starts on the
+            // same engine.
+            const targetProvider = composerModelProviders.get(nextModel) ?? provider;
+            const isEngineSwitch = targetProvider !== provider;
+            if (isEngineSwitch) {
+              setProvider(targetProvider as Provider);
+              localStorage.setItem('selected-provider', targetProvider);
+            }
+            // A session belongs to exactly one CLI, so switching engines inside
+            // a running chat is not a thing: the pick opens a fresh chat on the
+            // new engine (the label in the menu says so) and the model is
+            // recorded as that chat's starting choice, not against the old id.
+            const startsNewChat = isEngineSwitch && Boolean(currentSessionId || selectedSession?.id);
             // Scoped to this chat: selectProviderModel moves the chip and,
             // once there is a session id, records the choice on that session.
             // The starting model for NEW chats is a separate Settings value
             // and is deliberately left alone here.
-            const sessionIdForOverride = currentSessionId || selectedSession?.id || null;
-            selectProviderModel(provider, nextModel, sessionIdForOverride).catch((error) => {
+            const sessionIdForOverride = startsNewChat
+              ? null
+              : currentSessionId || selectedSession?.id || null;
+            selectProviderModel(targetProvider, nextModel, sessionIdForOverride).catch((error) => {
               console.error('Failed to persist the session model override:', error);
             });
+            if (startsNewChat) {
+              onStartNewChat?.();
+            }
           }}
           effort={currentProviderEffort}
           availableEffortOptions={currentProviderEffortOptions}
@@ -607,7 +681,9 @@ function ChatInterface({
                       ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
                     : provider === 'kimi'
                       ? t('messageTypes.kimi', { defaultValue: 'Kimi' })
-                      : t('messageTypes.claude'),
+                      : provider === 'grok'
+                        ? t('messageTypes.grok', { defaultValue: 'Grok' })
+                        : t('messageTypes.claude'),
           })}
           isTextareaExpanded={isTextareaExpanded}
         />

@@ -74,6 +74,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   codex: 'Codex',
   opencode: 'OpenCode',
   kimi: 'Kimi',
+  gemini: 'Gemini',
+  grok: 'Grok',
 };
 
 const FALLBACK_COMMANDS: CommandEntry[] = [

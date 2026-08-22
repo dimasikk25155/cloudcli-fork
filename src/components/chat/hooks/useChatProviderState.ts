@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { authenticatedFetch } from '../../../utils/api';
+import { defaultClaudeModel } from '../../../utils/instanceConfig';
 import { WORK_MODES } from '../types/types';
 import type { PendingPermissionRequest, PermissionMode, WorkMode } from '../types/types';
 import type {
@@ -26,12 +27,21 @@ import {
 } from '../utils/workModeStorage';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
-  claude: 'default',
+  // 'default' means "whatever the CLI is configured to use" and stays the
+  // answer everywhere the optional VITE_DEFAULT_CLAUDE_MODEL is unset (the
+  // production VPS). The laptop instance sets it to a local model so a new
+  // chat opens on that instead of walking through the picker. A model picked
+  // inside a chat is stored per provider in localStorage and still wins.
+  claude: defaultClaudeModel('default'),
   cursor: 'gpt-5.3-codex',
   codex: 'gpt-5.4',
   opencode: 'anthropic/claude-sonnet-4-5',
   kimi: 'kimi-code/k3',
   gemini: 'gemini-2.5-pro',
+  // Grok's picker lists modes, not model ids (grok.com-style): the preset is
+  // expanded into `-m` + `--reasoning-effort` server-side. Naming a raw model
+  // here would open a new chat on an entry the picker no longer shows.
+  grok: 'grok-mode-build',
 };
 
 // Kimi re-added 2026-07-26 — including it here re-enables `loadProviderModels`
@@ -42,7 +52,9 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
 // but Code Assist itself rejects with "no longer supported ... migrate to
 // Antigravity"). Excluding it here also stops loadProviderModels from
 // fetching providerModelCatalog.gemini. Re-add once there's a real login path.
-const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'cursor', 'opencode', 'kimi'];
+// 'grok' added 2026-08-21 — xAI's Grok Build CLI, logged in through the
+// SuperGrok subscription (`grok login --device-auth` → ~/.grok/auth.json).
+const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'cursor', 'opencode', 'kimi', 'grok'];
 
 const readStoredProvider = (): LLMProvider => {
   const storedProvider = localStorage.getItem('selected-provider');
@@ -69,6 +81,10 @@ const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
   // stall a headless run — the runner maps this onto `--approval-mode
   // auto_edit`. See resolveGeminiApprovalMode in server/gemini-cli.js.
   gemini: ['default', 'bypassPermissions', 'plan'],
+  // Grok maps `default` onto `--permission-mode auto` (the only non-bypass
+  // mode that finishes headless) and keeps `plan` read-only.
+  // See resolveGrokPermissionMode in server/grok-cli.js.
+  grok: ['default', 'bypassPermissions', 'plan'],
 };
 
 type ProviderCapabilities = {
@@ -80,6 +96,7 @@ type ProviderCapabilities = {
   supportsPermissionRequests: boolean;
   supportsTokenUsage: boolean;
   supportsEffort?: boolean;
+  supportsWorkMode?: boolean;
 };
 
 type ProviderCapabilitiesApiResponse = {
@@ -155,6 +172,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   });
   const [geminiModel, setGeminiModel] = useState<string>(() => {
     return localStorage.getItem('gemini-model') || FALLBACK_DEFAULT_MODEL.gemini;
+  });
+  const [grokModel, setGrokModel] = useState<string>(() => {
+    return localStorage.getItem('grok-model') || FALLBACK_DEFAULT_MODEL.grok;
   });
 
   /**
@@ -499,6 +519,16 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     return definition.OPTIONS.find((option) => option.value === model) ?? null;
   }, [providerModelCatalog]);
 
+  const supportsWorkModeForProvider = useCallback((targetProvider: LLMProvider): boolean => {
+    const capabilitySupport = providerCapabilities?.[targetProvider]?.supportsWorkMode;
+    if (typeof capabilitySupport === 'boolean') {
+      return capabilitySupport;
+    }
+    // Before the matrix lands (first paint) fall back to what has always been
+    // true: Claude carries work modes, the rest did not.
+    return targetProvider === 'claude';
+  }, [providerCapabilities]);
+
   const getEffortOptionsForModel = useCallback((
     targetProvider: LLMProvider,
     model: string,
@@ -550,7 +580,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     opencode: opencodeModel,
     kimi: kimiModel,
     gemini: geminiModel,
-  }), [claudeModel, cursorModel, codexModel, opencodeModel, kimiModel, geminiModel]);
+    grok: grokModel,
+  }), [claudeModel, cursorModel, codexModel, opencodeModel, kimiModel, geminiModel, grokModel]);
 
   useEffect(() => {
     const claude = providerModelCatalog.claude;
@@ -611,6 +642,16 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       }
     }
   }, [providerModelCatalog.gemini, geminiModel]);
+
+  useEffect(() => {
+    const grok = providerModelCatalog.grok;
+    if (grok) {
+      const next = pickStoredOrCurrent('grok-model', grokModel, grok);
+      if (next !== grokModel) {
+        setGrokModel(next);
+      }
+    }
+  }, [providerModelCatalog.grok, grokModel]);
 
   useEffect(() => {
     const nextEfforts: Partial<Record<LLMProvider, string>> = {};
@@ -995,6 +1036,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     setKimiModel,
     geminiModel,
     setGeminiModel,
+    grokModel,
+    setGrokModel,
     permissionMode,
     setPermissionMode,
     pendingPermissionRequests,
@@ -1007,6 +1050,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     selectWorkMode,
     commitWorkModeToSession,
     availablePermissionModes: getPermissionModesForProvider(provider),
+    supportsWorkModeForProvider,
     providerModels,
     providerModelCatalog,
     providerModelCacheCatalog,

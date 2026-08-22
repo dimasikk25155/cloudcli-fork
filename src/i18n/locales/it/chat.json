@@ -20,7 +20,8 @@
     "codex": "Codex",
     "opencode": "OpenCode",
     "kimi": "Kimi",
-    "gemini": "Gemini"
+    "gemini": "Gemini",
+    "grok": "Grok"
   },
   "tools": {
     "settings": "Impostazioni strumento",
@@ -141,6 +142,7 @@
       "opencode": "Pronto a usare OpenCode con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
       "kimi": "Pronto a usare Kimi con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
       "gemini": "Pronto a usare Gemini con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
+      "grok": "Pronto a usare Grok con {{model}}. Inizia a digitare il tuo messaggio qui sotto.",
       "default": "Seleziona un provider sopra per iniziare"
     },
     "pressToSearch": "Premi <kbd>{{shortcut}}</kbd> per cercare sessioni, file e commit"

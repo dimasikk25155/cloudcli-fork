@@ -311,6 +311,9 @@
       },
       "gemini": {
         "description": "Assistente AI Google Gemini"
+      },
+      "grok": {
+        "description": "Agente di codifica xAI Grok Build"
       }
     },
     "connectionStatus": "Stato connessione",
@@ -408,7 +411,8 @@
       "codex": "I server Model Context Protocol forniscono strumenti e fonti dati aggiuntive a Codex",
       "opencode": "I server Model Context Protocol forniscono strumenti e fonti dati aggiuntive a OpenCode",
       "kimi": "I server Model Context Protocol forniscono strumenti e fonti dati aggiuntive a Kimi",
-      "gemini": "I server Model Context Protocol forniscono strumenti e fonti dati aggiuntive a Gemini"
+      "gemini": "I server Model Context Protocol forniscono strumenti e fonti dati aggiuntive a Gemini",
+      "grok": "I server Model Context Protocol forniscono strumenti e fonti dati aggiuntive a Grok"
     },
     "addButton": "Aggiungi server MCP",
     "empty": "Nessun server MCP configurato",

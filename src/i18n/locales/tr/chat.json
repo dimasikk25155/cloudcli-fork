@@ -20,7 +20,8 @@
     "codex": "Codex",
     "opencode": "OpenCode",
     "kimi": "Kimi",
-    "gemini": "Gemini"
+    "gemini": "Gemini",
+    "grok": "Grok"
   },
   "tools": {
     "settings": "Araç Ayarları",
@@ -141,6 +142,7 @@
       "opencode": "OpenCode'i {{model}} ile kullanmaya hazır. Mesajını aşağıya yazmaya başla.",
       "kimi": "Kimi'i {{model}} ile kullanmaya hazır. Mesajını aşağıya yazmaya başla.",
       "gemini": "Gemini'i {{model}} ile kullanmaya hazır. Mesajını aşağıya yazmaya başla.",
+      "grok": "Grok'u {{model}} ile kullanmaya hazır. Mesajını aşağıya yazmaya başla.",
       "default": "Başlamak için yukarıdan bir sağlayıcı seç"
     },
     "pressToSearch": "Oturumlarda, dosyalarda ve commit'lerde arama yapmak için <kbd>{{shortcut}}</kbd> tuşlarına bas"

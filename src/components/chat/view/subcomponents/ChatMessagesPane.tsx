@@ -44,6 +44,8 @@ interface ChatMessagesPaneProps {
   setKimiModel: (model: string) => void;
   geminiModel: string;
   setGeminiModel: (model: string) => void;
+  grokModel: string;
+  setGrokModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
   isLoadingMoreMessages: boolean;
@@ -92,6 +94,8 @@ function ChatMessagesPane({
   setKimiModel,
   geminiModel,
   setGeminiModel,
+  grokModel,
+  setGrokModel,
   providerModelCatalog,
   providerModelsLoading,
   isLoadingMoreMessages,
@@ -191,6 +195,8 @@ function ChatMessagesPane({
           setKimiModel={setKimiModel}
           geminiModel={geminiModel}
           setGeminiModel={setGeminiModel}
+          grokModel={grokModel}
+          setGrokModel={setGrokModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
         />

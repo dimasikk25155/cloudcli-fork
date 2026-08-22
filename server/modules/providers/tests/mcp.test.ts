@@ -313,7 +313,8 @@ test('providerMcpService global adder writes to all providers and rejects unsupp
       workspacePath,
     });
 
-    assert.equal(globalResult.length, 6);
+    // claude, cursor, codex, opencode, kimi, gemini, grok
+    assert.equal(globalResult.length, 7);
     assert.ok(globalResult.every((entry) => entry.created === true));
 
     const claudeProject = await readJson(path.join(workspacePath, '.mcp.json'));
@@ -333,6 +334,17 @@ test('providerMcpService global adder writes to all providers and rejects unsupp
 
     const geminiProject = await readJson(path.join(workspacePath, '.gemini', 'settings.json'));
     assert.ok((geminiProject.mcpServers as Record<string, unknown>)['global-http']);
+
+    // Grok deliberately shares Claude's files (harness compatibility), so the
+    // proof it took part is its own read-back, not a file of its own: a stray
+    // ~/.grok/config.toml writer would split the truth in two.
+    const grokProjectServers = await providerMcpService.listProviderMcpServersForScope(
+      'grok',
+      'project',
+      { workspacePath },
+    );
+    assert.ok(grokProjectServers.some((server) => server.name === 'global-http'));
+    await assert.rejects(fs.access(path.join(workspacePath, '.grok')));
 
     await assert.rejects(
       providerMcpService.addMcpServerToAllProviders({

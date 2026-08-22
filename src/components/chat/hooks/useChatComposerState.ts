@@ -33,7 +33,13 @@ import type {
 } from '../types/types';
 import type { Project, ProjectSession, LLMProvider, ProviderModelsCacheInfo } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
-import { collectPastedFiles, isRedundantPastedText } from '../utils/clipboardPaste';
+import {
+  collectPastedFiles,
+  isRedundantPastedText,
+  isRepeatPaste,
+  pasteSignature,
+  type PasteRecord,
+} from '../utils/clipboardPaste';
 import { downscaleImageFile } from '../utils/imageDownscale';
 
 import { useFileMentions } from './useFileMentions';
@@ -60,6 +66,7 @@ interface UseChatComposerStateArgs {
   opencodeModel: string;
   kimiModel: string;
   geminiModel: string;
+  grokModel: string;
   isLoading: boolean;
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
@@ -242,6 +249,7 @@ export function useChatComposerState({
   opencodeModel,
   kimiModel,
   geminiModel,
+  grokModel,
   isLoading,
   canAbortSession,
   tokenBudget,
@@ -283,6 +291,8 @@ export function useChatComposerState({
   // no session id yet and would each create a session, spawning two parallel
   // runs. This flag is set synchronously so only one submit is ever in flight.
   const isSubmittingRef = useRef(false);
+  // What the last paste carried, for the duplicate-paste guard in handlePaste.
+  const lastPasteRef = useRef<PasteRecord | null>(null);
   const inputValueRef = useRef(input);
   // Synchronous mirror of attachedImages, like inputValueRef mirrors the text.
   // The queue auto-flush fires handleSubmit via setTimeout(0) BEFORE React has
@@ -443,7 +453,9 @@ export function useChatComposerState({
                     ? kimiModel
                     : provider === 'gemini'
                       ? geminiModel
-                      : claudeModel,
+                      : provider === 'grok'
+                        ? grokModel
+                        : claudeModel,
           tokenUsage: tokenBudget,
         };
 
@@ -622,14 +634,25 @@ export function useChatComposerState({
         return;
       }
 
-      handleImageFiles(files);
-
       // Safari hands over the image *and* its on-disk path as text. Keep the
       // attachment, drop the path — otherwise the composer fills with
       // `/Users/…/telegram-cloud-photo-….jpg` on every Telegram paste.
       if (isRedundantPastedText(clipboard?.getData('text/plain') ?? '', files)) {
         event.preventDefault();
       }
+
+      // One clipboard delivered twice in a blink is one paste: the text above is
+      // still dropped, but the files attach once. (The duplicate Electron 38
+      // handed us came inside a single event and is caught by collectPastedFiles;
+      // this covers a whole second event arriving from elsewhere.)
+      const signature = pasteSignature(files);
+      const now = Date.now();
+      if (isRepeatPaste(signature, lastPasteRef.current, now)) {
+        return;
+      }
+      lastPasteRef.current = { signature, at: now };
+
+      handleImageFiles(files);
     },
     [handleImageFiles],
   );
@@ -688,14 +711,16 @@ export function useChatComposerState({
               ? kimiModel
               : provider === 'gemini'
                 ? geminiModel
-                : claudeModel;
+                : provider === 'grok'
+                  ? grokModel
+                  : claudeModel;
 
     return {
       model,
       effort: currentProviderEffort,
       // `planBypass` is a client-side mode: the run itself starts as plain
       // `plan`, and the client answers the plan prompt on its own.
-      permissionMode: toWirePermissionMode(resolvePermissionModeForProvider(provider, permissionMode)),
+      permissionMode: toWirePermissionMode(resolvePermissionModeForProvider(provider, permissionMode), provider),
       workMode,
       toolsSettings,
       skipPermissions: toolsSettings?.skipPermissions || false,
@@ -708,6 +733,7 @@ export function useChatComposerState({
     cursorModel,
     kimiModel,
     geminiModel,
+    grokModel,
     opencodeModel,
     permissionMode,
     workMode,

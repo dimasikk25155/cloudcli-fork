@@ -20,6 +20,7 @@
     "codex": "Codex",
     "kimi": "Kimi",
     "gemini": "Gemini",
+    "grok": "Grok",
     "opencode": "OpenCode"
   },
   "tools": {
@@ -140,6 +141,7 @@
       "codex": "Prêt à utiliser Codex avec {{model}}. Commencez à taper votre message ci-dessous.",
       "kimi": "Prêt à utiliser Kimi avec {{model}}. Commencez à taper votre message ci-dessous.",
       "gemini": "Prêt à utiliser Gemini avec {{model}}. Commencez à taper votre message ci-dessous.",
+      "grok": "Prêt à utiliser Grok avec {{model}}. Commencez à taper votre message ci-dessous.",
       "opencode": "Prêt à utiliser OpenCode avec {{model}}. Commencez à taper votre message ci-dessous.",
       "default": "Sélectionnez un fournisseur ci-dessus pour commencer"
     },

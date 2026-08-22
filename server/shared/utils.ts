@@ -1085,6 +1085,41 @@ export function resolveGeminiCliPath(): string {
 }
 
 /**
+ * Root of the Grok Build CLI's local data (config.toml, sessions, auth.json).
+ * Honors GROK_HOME for parity with the other providers; the CLI itself always
+ * uses ~/.grok.
+ */
+export function getGrokHome(): string {
+  const fromEnv = process.env.GROK_HOME?.trim();
+  return fromEnv || path.join(os.homedir(), '.grok');
+}
+
+/**
+ * Resolves the Grok Build CLI binary. Order: GROK_CLI_PATH override, then the
+ * official installer's location (~/.grok/bin/grok), then bare 'grok' for PATH
+ * resolution. The installer also symlinks ~/.local/bin/grok, but the private
+ * bin dir is the one guaranteed to exist, and the systemd service PATH does
+ * not include it.
+ */
+export function resolveGrokCliPath(): string {
+  const fromEnv = process.env.GROK_CLI_PATH?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  const homeBinary = path.join(
+    getGrokHome(),
+    'bin',
+    process.platform === 'win32' ? 'grok.exe' : 'grok',
+  );
+  if (fs.existsSync(homeBinary)) {
+    return homeBinary;
+  }
+
+  return 'grok';
+}
+
+/**
  * Decodes an OpenCode text payload that was persisted as a JSON string literal.
  *
  * OpenCode can store the first user prompt (and other text parts) as `"hello"`

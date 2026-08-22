@@ -20,7 +20,8 @@
     "codex": "Codex",
     "opencode": "OpenCode",
     "kimi": "Kimi",
-    "gemini": "Gemini"
+    "gemini": "Gemini",
+    "grok": "Grok"
   },
   "tools": {
     "settings": "ツール設定",
@@ -138,6 +139,7 @@
       "opencode": "{{model}}でOpenCodeを使用する準備ができました。下にメッセージを入力してください。",
       "kimi": "{{model}}でKimiを使用する準備ができました。下にメッセージを入力してください。",
       "gemini": "{{model}}でGeminiを使用する準備ができました。下にメッセージを入力してください。",
+      "grok": "{{model}}でGrokを使用する準備ができました。下にメッセージを入力してください。",
       "default": "上からプロバイダーを選択して開始してください"
     },
     "pressToSearch": "<kbd>{{shortcut}}</kbd> を押してセッション、ファイル、コミットを検索"

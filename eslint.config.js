@@ -164,6 +164,7 @@ export default tseslint.config(
             "server/shared/image-attachments.ts",
             "server/shared/run-outcomes.ts",
             "server/shared/claude-usage.ts",
+            "server/shared/token-pricing.ts", // pure price/context-window table; the Grok sessions provider reads the 500K window from it
           ], // classify shared utility files so modules can depend on them explicitly
           mode: "file",
         },

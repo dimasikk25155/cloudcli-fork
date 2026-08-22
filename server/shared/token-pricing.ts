@@ -57,12 +57,20 @@ const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: numb
   ['claude-3-7-sonnet', { input: 3, output: 15, contextWindow: 200_000 }, 200_000],
   ['claude-3-5-haiku', { input: 0.8, output: 4, contextWindow: 200_000 }, 200_000],
   // Non-Anthropic engines routed through this app — window only, no pricing.
+  // Both entries match the UI catalog id AND the native id the gateway wants
+  // (`minimax-m3` / `MiniMax-M3[1m]`, `glm-5-2` / `GLM-5.2`), since either can
+  // reach this module depending on whether the alias was already resolved.
+  ['minimax', null, 1_000_000],
+  ['glm-', null, 1_000_000],
   ['kimi', null, 256_000],
   ['k3', null, 256_000],
   ['k2', null, 256_000],
   ['gpt-', null, 400_000],
   ['o3', null, 200_000],
   ['gemini', null, 1_000_000],
+  // Grok 4.6 / 4.5 through the SuperGrok subscription — 500K window, and the
+  // native id can arrive as `grok-4.6-build` (what the CLI records on disk).
+  ['grok', null, 500_000],
 ];
 
 /**

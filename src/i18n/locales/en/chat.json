@@ -20,6 +20,7 @@
     "codex": "Codex",
     "kimi": "Kimi",
     "gemini": "Gemini",
+    "grok": "Grok",
     "opencode": "OpenCode"
   },
   "toolGroup": {
@@ -153,7 +154,8 @@
       "imagesAttached_one": "{{count}} image attached",
       "imagesAttached_other": "{{count}} images attached"
     },
-    "pressEscAgainToStop": "Press Esc again to stop"
+    "pressEscAgainToStop": "Press Esc again to stop",
+    "inANewChat": "in a new chat"
   },
   "providerSelection": {
     "title": "Choose Your AI Assistant",
@@ -171,6 +173,7 @@
       "codex": "Ready to use Codex with {{model}}. Start typing your message below.",
       "kimi": "Ready to use Kimi with {{model}}. Start typing your message below.",
       "gemini": "Ready to use Gemini with {{model}}. Start typing your message below.",
+      "grok": "Ready to use Grok with {{model}}. Start typing your message below.",
       "opencode": "Ready to use OpenCode with {{model}}. Start typing your message below.",
       "default": "Select a provider above to begin"
     },
@@ -261,12 +264,14 @@
     "modes": {
       "autopilot": "Standard",
       "checkpoints": "Briefings",
-      "interrogate": "Ask first"
+      "interrogate": "Ask first",
+      "build": "Autopilot"
     },
     "descriptions": {
       "autopilot": "Runs the task to the end on its own, asking only when it genuinely cannot proceed.",
       "checkpoints": "Plans the work in stages, briefs you after each one and waits for your go-ahead.",
-      "interrogate": "Asks clarifying questions before every step and never assumes anything."
+      "interrogate": "Asks clarifying questions before every step and never assumes anything.",
+      "build": "Builds the whole project in one flight: requirements taken from your own words, tickets in parallel, a final check against the brief. Progress lives on the Autopilot tab. With permissions bypassed it asks nothing at all."
     }
   }
 }

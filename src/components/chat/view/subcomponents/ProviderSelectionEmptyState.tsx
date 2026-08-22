@@ -31,6 +31,7 @@ const PROVIDER_META: { id: LLMProvider; name: string }[] = [
   { id: "cursor", name: "Cursor" },
   { id: "opencode", name: "OpenCode" },
   { id: "kimi", name: "Moonshot" },
+  { id: "grok", name: "xAI" },
 ];
 
 const MOD_KEY =
@@ -65,6 +66,8 @@ type ProviderSelectionEmptyStateProps = {
   setKimiModel: (model: string) => void;
   geminiModel: string;
   setGeminiModel: (model: string) => void;
+  grokModel: string;
+  setGrokModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
 };
@@ -91,12 +94,14 @@ function getCurrentModel(
   o: string,
   k: string,
   g: string,
+  gr: string,
 ) {
   if (p === "claude") return c;
   if (p === "codex") return co;
   if (p === "opencode") return o;
   if (p === "kimi") return k;
   if (p === "gemini") return g;
+  if (p === "grok") return gr;
   return cu;
 }
 
@@ -107,6 +112,7 @@ function getProviderDisplayName(p: LLMProvider) {
   if (p === "opencode") return "OpenCode";
   if (p === "kimi") return "Kimi";
   if (p === "gemini") return "Gemini";
+  if (p === "grok") return "Grok";
   return "Claude";
 }
 
@@ -128,6 +134,8 @@ export default function ProviderSelectionEmptyState({
   setKimiModel,
   geminiModel,
   setGeminiModel,
+  grokModel,
+  setGrokModel,
   providerModelCatalog,
   providerModelsLoading,
 }: ProviderSelectionEmptyStateProps) {
@@ -138,7 +146,9 @@ export default function ProviderSelectionEmptyState({
     return PROVIDER_META.map((p) => ({
       id: p.id,
       name: p.name,
-      models: providerModelCatalog[p.id]?.OPTIONS ?? [],
+      // `hidden` models are wired but deliberately not offered (see
+      // ProviderModelOption.hidden) — same rule as the composer's model chip.
+      models: (providerModelCatalog[p.id]?.OPTIONS ?? []).filter((option) => !option.hidden),
     }));
   }, [providerModelCatalog]);
 
@@ -150,6 +160,7 @@ export default function ProviderSelectionEmptyState({
     opencodeModel,
     kimiModel,
     geminiModel,
+    grokModel,
   );
 
   const currentModelLabel = useMemo(() => {
@@ -313,29 +324,36 @@ export default function ProviderSelectionEmptyState({
             </DialogContent>
           </Dialog>
 
+          {/* Человеческое имя, а не id из каталога: у Grok это режим
+              («Build»), и строка «Готов использовать Grok с grok-mode-build»
+              ничего Диме не говорит. Тот же лейбл, что и в карточке выше. */}
           <p className="mt-4 text-center text-sm text-muted-foreground/70">
             {
               {
                 claude: t("providerSelection.readyPrompt.claude", {
-                  model: claudeModel,
+                  model: currentModelLabel,
                 }),
                 cursor: t("providerSelection.readyPrompt.cursor", {
-                  model: cursorModel,
+                  model: currentModelLabel,
                 }),
                 codex: t("providerSelection.readyPrompt.codex", {
-                  model: codexModel,
+                  model: currentModelLabel,
                 }),
                 opencode: t("providerSelection.readyPrompt.opencode", {
-                  model: opencodeModel,
+                  model: currentModelLabel,
                   defaultValue: "Ready with OpenCode {{model}}",
                 }),
                 kimi: t("providerSelection.readyPrompt.kimi", {
-                  model: kimiModel,
+                  model: currentModelLabel,
                   defaultValue: "Ready with Kimi {{model}}",
                 }),
                 gemini: t("providerSelection.readyPrompt.gemini", {
-                  model: geminiModel,
+                  model: currentModelLabel,
                   defaultValue: "Ready with Gemini {{model}}",
+                }),
+                grok: t("providerSelection.readyPrompt.grok", {
+                  model: currentModelLabel,
+                  defaultValue: "Ready with Grok {{model}}",
                 }),
               }[provider]
             }

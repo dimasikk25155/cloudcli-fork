@@ -23,6 +23,13 @@ type ProviderCapabilities = {
   supportsTokenUsage: boolean;
   /** Whether the provider runtime can accept model-level reasoning effort. */
   supportsEffort: boolean;
+  /**
+   * Whether the runtime can carry a work mode (the "how much do you check in
+   * with me" chip). It rides on a system-prompt append, so a runtime qualifies
+   * only if it has a hook for that: the Claude SDK's appendSystemPrompt, or
+   * Grok Build's `--rules`.
+   */
+  supportsWorkMode: boolean;
 };
 
 /**
@@ -48,6 +55,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: true,
     supportsTokenUsage: true,
     supportsEffort: true,
+    supportsWorkMode: true,
   },
   cursor: {
     provider: 'cursor',
@@ -58,6 +66,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: false,
     supportsEffort: false,
+    supportsWorkMode: false,
   },
   codex: {
     provider: 'codex',
@@ -69,6 +78,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: true,
     supportsEffort: true,
+    supportsWorkMode: false,
   },
   opencode: {
     provider: 'opencode',
@@ -82,6 +92,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: true,
     supportsEffort: true,
+    supportsWorkMode: false,
   },
   kimi: {
     provider: 'kimi',
@@ -97,6 +108,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: false,
     supportsEffort: false,
+    supportsWorkMode: false,
   },
   gemini: {
     provider: 'gemini',
@@ -112,6 +124,33 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsPermissionRequests: false,
     supportsTokenUsage: false,
     supportsEffort: false,
+    supportsWorkMode: false,
+  },
+  grok: {
+    provider: 'grok',
+    // Grok Build takes `--permission-mode` in headless mode, but a run that
+    // hits a permission gate does not stall — it ends immediately as
+    // error_during_execution/cancelled with no answer text. Measured on 1.0.5:
+    // `default` and `dontAsk` both cancelled on the first terminal command,
+    // `auto` finished (end_turn), `bypassPermissions` finished. So the UI
+    // `default` maps to `auto`, and `plan` is offered because its cancellation
+    // IS the read-only gate. See resolveGrokPermissionMode in grok-cli.js.
+    permissionModes: ['default', 'bypassPermissions', 'plan'],
+    defaultPermissionMode: 'default',
+    // Image blocks would need --prompt-json content blocks; not wired yet.
+    supportsImages: false,
+    supportsAbort: true,
+    supportsPermissionRequests: false,
+    // The `result` event carries a full Anthropic-shaped usage payload
+    // (input/output/cache_read/cache_creation), so the token badge works.
+    supportsTokenUsage: true,
+    // `--reasoning-effort` takes low/medium/high (+ xhigh on 4.6 only) —
+    // confirmed on 1.0.5, see grok-models.provider.ts. The CLI rejects any
+    // other value at argv parse time and the run dies before it starts, so
+    // resolveGrokEffort in grok-cli.js drops the composer's `default`
+    // sentinel and any level the selected model does not list.
+    supportsEffort: true,
+    supportsWorkMode: true,
   },
 };
 

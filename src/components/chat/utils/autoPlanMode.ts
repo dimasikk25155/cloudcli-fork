@@ -31,9 +31,28 @@ export function withAutoPlanMode(modes: readonly PermissionMode[]): PermissionMo
   return modes.flatMap((mode) => (mode === 'plan' ? [mode, AUTO_PLAN_MODE] : [mode]));
 }
 
-/** What the backend is told to run: the auto-plan mode is plain `plan` there. */
-export function toWirePermissionMode(mode: PermissionMode | string): PermissionMode | string {
-  return mode === AUTO_PLAN_MODE ? 'plan' : mode;
+/**
+ * Runtimes that emulate "plan + auto-run" themselves instead of having the
+ * client answer an ExitPlanMode prompt. Grok Build has no permission prompts
+ * to answer and a headless `plan` run dies at the first tool call, so its
+ * runtime takes `planBypass` verbatim and turns the plan into a system rule
+ * (see resolveGrokPermissionMode / buildGrokRules in server/grok-cli.js).
+ */
+const AUTO_PLAN_EMULATING_PROVIDERS = new Set(['grok']);
+
+/**
+ * What the backend is told to run. The auto-plan mode is plain `plan` there —
+ * except for the runtimes above, which are handed the real mode because they
+ * implement the pairing themselves.
+ */
+export function toWirePermissionMode(
+  mode: PermissionMode | string,
+  provider?: string,
+): PermissionMode | string {
+  if (mode !== AUTO_PLAN_MODE) {
+    return mode;
+  }
+  return provider && AUTO_PLAN_EMULATING_PROVIDERS.has(provider) ? AUTO_PLAN_MODE : 'plan';
 }
 
 export const isAutoPlanMode = (mode: PermissionMode | string): boolean => mode === AUTO_PLAN_MODE;

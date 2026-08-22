@@ -56,6 +56,11 @@ const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
     description: 'Google Gemini CLI assistant',
     ...sharedVisualConfig,
   },
+  grok: {
+    name: 'Grok',
+    description: 'xAI Grok Build coding agent',
+    ...sharedVisualConfig,
+  },
 };
 
 export default function AccountContent({ agent, authStatus, onLogin }: AccountContentProps) {

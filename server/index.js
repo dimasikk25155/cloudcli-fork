@@ -24,6 +24,7 @@ import { getConnectableHost } from '../shared/networkHosts.js';
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
 import { findByBasename, resolveProjectFilePath } from './utils/file-reference-resolver.js';
 import fileShareRoutes, { serveSharedFile } from './routes/file-share.js';
+import autopilotRoutes, { serveAutopilotAsset } from './routes/autopilot.js';
 import {
     queryClaudeSDK,
     abortClaudeSDKSession,
@@ -51,6 +52,10 @@ import {
     spawnGemini,
     abortGeminiSession,
 } from './gemini-cli.js';
+import {
+    spawnGrok,
+    abortGrokSession,
+} from './grok-cli.js';
 import {
     stripAnsiSequences,
     normalizeDetectedUrl,
@@ -135,6 +140,7 @@ const wss = createWebSocketServer(server, {
             opencode: spawnOpenCode,
             kimi: spawnKimi,
             gemini: spawnGemini,
+            grok: spawnGrok,
         },
         abortFns: {
             claude: abortClaudeSDKSession,
@@ -143,6 +149,7 @@ const wss = createWebSocketServer(server, {
             opencode: abortOpenCodeSession,
             kimi: abortKimiSession,
             gemini: abortGeminiSession,
+            grok: abortGrokSession,
         },
         resolveToolApproval,
         getPendingApprovalsForSession,
@@ -270,6 +277,12 @@ app.use('/api/voice', authenticateToken, voiceRoutes);
 // открыто наружу (её и пересылают тому, у кого доступа в Neo3 нет).
 app.use('/api/files', fileShareRoutes);
 app.get('/d/:token', serveSharedFile);
+
+// Дашборд автопилота: статус спрашивает вкладка (со своим токеном), сами файлы
+// идут по подписанной ссылке — iframe заголовков не шлёт, а `state.js?t=…`
+// затирает query, поэтому токен живёт в пути. Подробности в routes/autopilot.js.
+app.use('/api', autopilotRoutes);
+app.get('/ap/:token/:file', serveAutopilotAsset);
 
 // Digital Asset Links for the Android TWA (ru.tarariev.claudecli). express.static
 // ignores dotfiles by default, so .well-known must be mounted explicitly or

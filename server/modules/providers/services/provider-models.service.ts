@@ -16,7 +16,12 @@ import type {
 import { readProviderSessionActiveModelChange } from '@/shared/utils.js';
 
 export const PROVIDER_MODELS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
-const PROVIDER_MODELS_CACHE_VERSION = 2;
+// Bump whenever a built-in catalog changes shape or gains fields the UI reads
+// (v3, 21.08.2026: per-model `effort` levels for Grok and the `hidden` flag;
+// v4, 22.08.2026: Grok's catalog became the five grok.com-style mode presets).
+// Entries are cached for three days, so without a bump the UI would keep the
+// pre-change catalog until the TTL ran out.
+const PROVIDER_MODELS_CACHE_VERSION = 4;
 const UNCACHED_PROVIDERS = new Set<LLMProvider>(['claude']);
 
 type ProviderModelsServiceDependencies = {

@@ -50,6 +50,13 @@ const getProviderCommand = ({
     return 'gemini';
   }
 
+  if (provider === 'grok') {
+    // Device-code flow: the server has no browser, so `grok login` alone would
+    // try to open one. --device-auth prints a URL + code to confirm elsewhere.
+    // Absolute path sidesteps a shell alias named `grok`.
+    return '"$HOME/.grok/bin/grok" login --device-auth';
+  }
+
   if (provider === 'kimi') {
     // Kimi Code's interactive TUI owns the OAuth device login via /login.
     // Absolute path: the official installer puts the binary there, and this
@@ -67,6 +74,7 @@ const getProviderTitle = (provider: LLMProvider) => {
   if (provider === 'opencode') return 'OpenCode CLI Login';
   if (provider === 'kimi') return 'Kimi Code CLI Login';
   if (provider === 'gemini') return 'Gemini CLI Login';
+  if (provider === 'grok') return 'Grok Build CLI Login';
   return 'Claude CLI Login';
 };
 

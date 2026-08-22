@@ -155,6 +155,14 @@ function buildShellCommand(
     return initialCommand || 'opencode';
   }
 
+  if (provider === 'grok') {
+    // The installer symlinks ~/.local/bin/grok, which the service PATH covers.
+    if (resumeSessionId) {
+      return `grok --resume "${resumeSessionId}"`;
+    }
+    return initialCommand || 'grok';
+  }
+
   const command = initialCommand || 'claude';
   if (resumeSessionId) {
     if (os.platform() === 'win32') {

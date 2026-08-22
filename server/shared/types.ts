@@ -66,7 +66,7 @@ export type AuthenticatedWebSocketRequest = IncomingMessage & {
  * Use this as the source of truth whenever a function or payload needs to identify
  * a specific LLM integration.
  */
-export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'kimi' | 'gemini';
+export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'kimi' | 'gemini' | 'grok';
 
 /**
  * One selectable model row in a provider model catalog.
@@ -75,6 +75,13 @@ export type ProviderModelOption = {
   value: string;
   label: string;
   description?: string;
+  /**
+   * Keeps a model out of the pickers without unwiring it. A hidden model still
+   * runs if a session or localStorage already points at it — this is only the
+   * "do not offer it to me" switch for models that are wired up but not in
+   * daily use (21.08.2026: the local RTX ones and the BYO gateways).
+   */
+  hidden?: boolean;
   effort?: {
     default?: string;
     values: {

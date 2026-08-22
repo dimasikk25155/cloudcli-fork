@@ -50,7 +50,8 @@ export default function AgentsSettingsTab({
     // Backend/types/i18n all stay in place; re-add only once there's a real
     // login path (paid GCP Vertex AI, or a from-scratch Antigravity CLI
     // integration — see wiki/concepts/cloudcli-gemini-engine.md).
-    return ['claude', 'codex', 'cursor', 'opencode', 'kimi'];
+    // 'grok' added 2026-08-21 — xAI Grok Build, bring-your-own SuperGrok login.
+    return ['claude', 'codex', 'cursor', 'opencode', 'kimi', 'grok'];
   }, []);
 
   const agentContextById = useMemo<Record<AgentProvider, AgentContext>>(() => ({
@@ -78,6 +79,10 @@ export default function AgentsSettingsTab({
       authStatus: providerAuthStatus.gemini,
       onLogin: () => onProviderLogin('gemini'),
     },
+    grok: {
+      authStatus: providerAuthStatus.grok,
+      onLogin: () => onProviderLogin('grok'),
+    },
   }), [
     onProviderLogin,
     providerAuthStatus.claude,
@@ -86,6 +91,7 @@ export default function AgentsSettingsTab({
     providerAuthStatus.opencode,
     providerAuthStatus.kimi,
     providerAuthStatus.gemini,
+    providerAuthStatus.grok,
   ]);
 
   useEffect(() => {

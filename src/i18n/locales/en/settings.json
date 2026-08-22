@@ -462,6 +462,9 @@
       "gemini": {
         "description": "Google Gemini AI assistant"
       },
+      "grok": {
+        "description": "xAI Grok Build coding agent"
+      },
       "opencode": {
         "description": "OpenCode CLI assistant"
       }
@@ -561,6 +564,7 @@
       "codex": "Model Context Protocol servers provide additional tools and data sources to Codex",
       "kimi": "Model Context Protocol servers provide additional tools and data sources to Kimi",
       "gemini": "Model Context Protocol servers provide additional tools and data sources to Gemini",
+      "grok": "Model Context Protocol servers provide additional tools and data sources to Grok",
       "opencode": "Model Context Protocol servers provide additional tools and data sources to OpenCode"
     },
     "addButton": "Add MCP Server",

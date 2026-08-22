@@ -17,7 +17,7 @@ const APP_ROOT = findAppRoot(__dirname);
 
 const router = express.Router();
 
-const MODEL_PROVIDERS = ["claude", "cursor", "codex", "opencode", "kimi", "gemini"];
+const MODEL_PROVIDERS = ["claude", "cursor", "codex", "opencode", "kimi", "gemini", "grok"];
 
 const MODEL_PROVIDER_LABELS = {
   claude: "Claude",
@@ -26,6 +26,7 @@ const MODEL_PROVIDER_LABELS = {
   opencode: "OpenCode",
   kimi: "Kimi",
   gemini: "Gemini",
+  grok: "Grok",
 };
 
 // Raw transcript model ids → human labels. Catalog values (`opus[1m]`,

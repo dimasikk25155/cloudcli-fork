@@ -471,6 +471,9 @@
       },
       "gemini": {
         "description": "AI-ассистент Google Gemini"
+      },
+      "grok": {
+        "description": "Кодовый агент Grok Build от xAI"
       }
     },
     "connectionStatus": "Статус подключения",
@@ -568,7 +571,8 @@
       "codex": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для Codex",
       "opencode": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для OpenCode",
       "kimi": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для Kimi",
-      "gemini": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для Gemini"
+      "gemini": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для Gemini",
+      "grok": "Серверы Model Context Protocol предоставляют дополнительные инструменты и источники данных для Grok"
     },
     "addButton": "Добавить MCP сервер",
     "empty": "MCP серверы не настроены",

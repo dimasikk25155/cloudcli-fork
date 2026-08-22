@@ -13,10 +13,11 @@ import { queryCodex } from '../../openai-codex.js';
 import { spawnOpenCode } from '../../opencode-cli.js';
 import { spawnKimi } from '../../kimi-cli.js';
 import { spawnGemini } from '../../gemini-cli.js';
-import { providerModelsService } from '../providers/services/provider-models.service.js';
+import { spawnGrok } from '../../grok-cli.js';
+import { providerModelsService } from '../providers/index.js';
 import { normalizeProjectPath } from '../../shared/utils.js';
 
-export const SUPPORTED_PROVIDERS = ['claude', 'cursor', 'codex', 'opencode', 'kimi', 'gemini'];
+export const SUPPORTED_PROVIDERS = ['claude', 'cursor', 'codex', 'opencode', 'kimi', 'gemini', 'grok'];
 
 /**
  * Collects engine output instead of streaming it to an HTTP response.
@@ -194,6 +195,9 @@ export async function runHeadlessPrompt(options) {
   } else if (provider === 'gemini') {
     const models = (await providerModelsService.getProviderModels('gemini')).models;
     await spawnGemini(trimmedPrompt, { ...base, model: model || models.DEFAULT, permissionMode: 'bypassPermissions' }, collector);
+  } else if (provider === 'grok') {
+    const models = (await providerModelsService.getProviderModels('grok')).models;
+    await spawnGrok(trimmedPrompt, { ...base, model: model || models.DEFAULT, permissionMode: 'bypassPermissions' }, collector);
   }
 
   return {

@@ -1,9 +1,16 @@
-export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini';
+export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini' | 'grok';
 
 export type ProviderModelOption = {
   value: string;
   label: string;
   description?: string;
+  /**
+   * Keeps a model out of the pickers without unwiring it. A hidden model still
+   * runs if a session or localStorage already points at it — this is only the
+   * "do not offer it to me" switch for models that are wired up but not in
+   * daily use (21.08.2026: the local RTX ones and the BYO gateways).
+   */
+  hidden?: boolean;
   effort?: {
     default?: string;
     values: {
@@ -24,7 +31,7 @@ export type ProviderModelsCacheInfo = {
   source: 'memory' | 'disk' | 'fresh';
 };
 
-export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'browser' | 'stats' | `plugin:${string}`;
+export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'browser' | 'stats' | 'autopilot' | `plugin:${string}`;
 
 export interface ProjectSession {
   id: string;

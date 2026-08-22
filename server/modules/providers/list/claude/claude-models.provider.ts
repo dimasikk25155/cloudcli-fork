@@ -65,15 +65,37 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     // every turn reprocesses the whole history, so keep sessions short.
     // No `effort` block — Ollama has no effort control, and omitting it makes
     // resolveClaudeEffort strip whatever the UI sends.
+    // `hidden` since 21.08.2026: the picker shows only the models actually in
+    // daily rotation (Opus/Sonnet/Fable + Grok). Flip the flag to bring one
+    // back — nothing else has to change.
     {
       value: 'local-ornith-9b',
+      hidden: true,
       label: 'Local · Ornith 9B',
       description: 'Runs on your RTX 5070 · free, no Claude limit · best local tool-calling · short tasks',
     },
     {
       value: 'local-qwen35-9b',
+      hidden: true,
       label: 'Local · Qwen3.5 9B',
       description: 'Runs on your RTX 5070 · free, no Claude limit · strong Russian · fallback if Ornith misbehaves',
+    },
+    // Third-party subscriptions (see BYO_MODEL_MAP in claude-sdk.js). Flat
+    // monthly rate on the provider's own plan, so they keep working when the
+    // Claude 5-hour window is spent. No `effort` block — neither gateway
+    // understands Anthropic's effort levels, so resolveClaudeEffort strips it.
+    // Hidden alongside the local ones (see above) — wired, just not offered.
+    {
+      value: 'minimax-m3',
+      hidden: true,
+      label: 'MiniMax M3',
+      description: 'Own $20/mo plan, no Claude limit · understands screenshots · 1M context · use when the Claude window is spent',
+    },
+    {
+      value: 'glm-5-2',
+      hidden: true,
+      label: 'GLM-5.2',
+      description: 'Own $18/mo plan, no Claude limit · contractually not trained on your data · 1M context · safest for client work',
     },
   ],
   DEFAULT: 'opus[1m]',

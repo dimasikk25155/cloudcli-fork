@@ -12,6 +12,7 @@ import { queryCodex } from '../openai-codex.js';
 import { spawnOpenCode } from '../opencode-cli.js';
 import { spawnKimi } from '../kimi-cli.js';
 import { spawnGemini } from '../gemini-cli.js';
+import { spawnGrok } from '../grok-cli.js';
 import { Octokit } from '@octokit/rest';
 import { providerModelsService } from '../modules/providers/services/provider-models.service.js';
 import { IS_PLATFORM } from '../constants/config.js';
@@ -872,8 +873,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  if (!['claude', 'cursor', 'codex', 'opencode', 'kimi', 'gemini'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "opencode", "kimi", or "gemini"' });
+  if (!['claude', 'cursor', 'codex', 'opencode', 'kimi', 'gemini', 'grok'].includes(provider)) {
+    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "opencode", "kimi", "gemini", or "grok"' });
   }
 
   // Validate GitHub branch/PR creation requirements
@@ -1019,6 +1020,17 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         cwd: finalProjectPath,
         sessionId: sessionId || null,
         model: model || geminiModels.DEFAULT,
+        permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
+      }, writer);
+    } else if (provider === 'grok') {
+      console.log('Starting Grok Build CLI session');
+
+      const grokModels = (await providerModelsService.getProviderModels('grok')).models;
+      await spawnGrok(message.trim(), {
+        projectPath: finalProjectPath,
+        cwd: finalProjectPath,
+        sessionId: sessionId || null,
+        model: model || grokModels.DEFAULT,
         permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
       }, writer);
     }

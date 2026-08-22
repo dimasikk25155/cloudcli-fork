@@ -7,6 +7,7 @@ export const MCP_PROVIDER_NAMES: Record<McpProvider, string> = {
   opencode: 'OpenCode',
   kimi: 'Kimi',
   gemini: 'Gemini',
+  grok: 'Grok',
 };
 
 export const MCP_SUPPORTED_SCOPES: Record<McpProvider, McpScope[]> = {
@@ -16,6 +17,7 @@ export const MCP_SUPPORTED_SCOPES: Record<McpProvider, McpScope[]> = {
   opencode: ['user', 'project'],
   kimi: ['user', 'project'],
   gemini: ['user', 'project'],
+  grok: ['user', 'project', 'local'],
 };
 
 export const MCP_SUPPORTED_TRANSPORTS: Record<McpProvider, McpTransport[]> = {
@@ -25,6 +27,7 @@ export const MCP_SUPPORTED_TRANSPORTS: Record<McpProvider, McpTransport[]> = {
   opencode: ['stdio', 'http'],
   kimi: ['stdio', 'http'],
   gemini: ['stdio', 'http'],
+  grok: ['stdio', 'http', 'sse'],
 };
 
 export const MCP_GLOBAL_SUPPORTED_SCOPES: McpScope[] = ['user', 'project'];
@@ -38,6 +41,7 @@ export const MCP_PROVIDER_BUTTON_CLASSES: Record<McpProvider, string> = {
   opencode: 'bg-primary text-primary-foreground hover:bg-primary/90',
   kimi: 'bg-primary text-primary-foreground hover:bg-primary/90',
   gemini: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  grok: 'bg-primary text-primary-foreground hover:bg-primary/90',
 };
 
 export const MCP_SUPPORTS_WORKING_DIRECTORY: Record<McpProvider, boolean> = {
@@ -47,6 +51,7 @@ export const MCP_SUPPORTS_WORKING_DIRECTORY: Record<McpProvider, boolean> = {
   opencode: false,
   kimi: false,
   gemini: false,
+  grok: false,
 };
 
 export const DEFAULT_MCP_FORM: McpFormState = {

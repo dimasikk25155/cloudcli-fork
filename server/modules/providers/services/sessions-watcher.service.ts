@@ -35,6 +35,12 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
       ? path.join(process.env.KIMI_CODE_HOME.trim(), 'sessions')
       : path.join(os.homedir(), '.kimi-code', 'sessions'),
   },
+  {
+    provider: 'grok',
+    rootPath: process.env.GROK_HOME?.trim()
+      ? path.join(process.env.GROK_HOME.trim(), 'sessions')
+      : path.join(os.homedir(), '.grok', 'sessions'),
+  },
 ];
 
 const WATCHER_IGNORED_PATTERNS = [
@@ -81,6 +87,12 @@ function isWatcherTargetFile(provider: LLMProvider, filePath: string): boolean {
     // Only the main agent's wire file indexes a session — subagent streams and
     // per-session logs must not trigger sync churn.
     return filePath.endsWith(path.join('agents', 'main', 'wire.jsonl'));
+  }
+
+  if (provider === 'grok') {
+    // Only the conversation file indexes a session — updates.jsonl,
+    // events.jsonl and rewind_points.jsonl are internal churn.
+    return path.basename(filePath) === 'chat_history.jsonl';
   }
 
   return filePath.endsWith('.jsonl');

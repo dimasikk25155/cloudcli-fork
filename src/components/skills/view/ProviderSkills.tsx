@@ -62,6 +62,7 @@ const PROVIDER_NAMES: Record<SkillsProvider, string> = {
   opencode: 'OpenCode',
   kimi: 'Kimi',
   gemini: 'Gemini',
+  grok: 'Grok',
 };
 
 const PROVIDER_SKILL_PATHS: Record<Exclude<SkillsProvider, 'opencode'>, string> = {
@@ -70,6 +71,9 @@ const PROVIDER_SKILL_PATHS: Record<Exclude<SkillsProvider, 'opencode'>, string> 
   cursor: '~/.cursor/skills/<skill-name>/SKILL.md',
   kimi: '~/.kimi-code/skills/<skill-name>/SKILL.md',
   gemini: '~/.gemini/skills/<skill-name>/SKILL.md',
+  // Grok reads Claude's library too (verified with `grok inspect`), so the
+  // shared folder is the honest place to point at.
+  grok: '~/.claude/skills/<skill-name>/SKILL.md',
 };
 
 const SCOPE_LABELS: Record<SkillsScope, string> = {

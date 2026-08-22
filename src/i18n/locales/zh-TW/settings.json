@@ -312,6 +312,9 @@
       },
       "gemini": {
         "description": "Google Gemini AI 助手"
+      },
+      "grok": {
+        "description": "xAI Grok Build 程式設計助手"
       }
     },
     "connectionStatus": "連線狀態",
@@ -409,7 +412,8 @@
       "codex": "Model Context Protocol 伺服器為 Codex 提供額外的工具和資料來源",
       "opencode": "Model Context Protocol 伺服器為 OpenCode 提供額外的工具和資料來源",
       "kimi": "Model Context Protocol 伺服器為 Kimi 提供額外的工具和資料來源",
-      "gemini": "Model Context Protocol 伺服器為 Gemini 提供額外的工具和資料來源"
+      "gemini": "Model Context Protocol 伺服器為 Gemini 提供額外的工具和資料來源",
+      "grok": "Model Context Protocol 伺服器為 Grok 提供額外的工具和資料來源"
     },
     "addButton": "新增 MCP 伺服器",
     "empty": "未設定 MCP 伺服器",

@@ -46,6 +46,30 @@ function isLocalModel(model: string | undefined): boolean {
   return (model ?? '').startsWith('local-');
 }
 
+/** Third-party subscriptions (see BYO_MODEL_MAP in claude-sdk.js) bill on their
+ * own flat monthly plan, so Claude's percentages must not appear next to them
+ * for the same reason as local models. Unlike Kimi, neither provider exposes a
+ * usage endpoint we could poll, so this is a plain label rather than numbers. */
+function ownPlanLabel(model: string | undefined): string | null {
+  const id = (model ?? '').toLowerCase();
+  if (id.startsWith('minimax')) {
+    return 'MiniMax';
+  }
+  if (id.startsWith('glm-')) {
+    return 'GLM';
+  }
+  // Grok Build rides the SuperGrok subscription through ~/.grok/auth.json and
+  // never touches the Claude Max window. Until 21.08.2026 the badge showed
+  // Claude's percentages next to a Grok model — a number that had nothing to do
+  // with what the run was actually spending. xAI publishes no quota endpoint
+  // (the weekly allowance is not exposed anywhere), so this is a label, not a
+  // gauge; the per-run token count and cost still come from the usage panel.
+  if (id.startsWith('grok')) {
+    return 'SuperGrok';
+  }
+  return null;
+}
+
 type Props = {
   /** Currently selected model id — decides which subscription's limits to show. */
   model?: string;
@@ -96,6 +120,19 @@ export default function UsageLimitsBadge({ model }: Props) {
           <GaugeIcon className="h-3.5 w-3.5" />
         </span>
         <span className="font-medium">Локально · без лимита</span>
+      </span>
+    );
+  }
+
+  const ownPlan = ownPlanLabel(model);
+  if (ownPlan) {
+    const ownPlanTitle = `${ownPlan} — своя подписка, лимит Claude не расходуется`;
+    return (
+      <span className={CHIP_CLASS} title={ownPlanTitle} aria-label={ownPlanTitle}>
+        <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary">
+          <GaugeIcon className="h-3.5 w-3.5" />
+        </span>
+        <span className="font-medium">{ownPlan} · без лимита Claude</span>
       </span>
     );
   }

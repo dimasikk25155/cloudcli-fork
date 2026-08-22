@@ -10,6 +10,7 @@ const AGENT_NAMES: Record<AgentProvider, string> = {
   opencode: 'OpenCode',
   kimi: 'Kimi',
   gemini: 'Gemini',
+  grok: 'Grok',
 };
 
 export default function AgentSelectorSection({
@@ -26,7 +27,8 @@ export default function AgentSelectorSection({
             agent === 'claude' ? 'bg-blue-500' :
             agent === 'cursor' ? 'bg-purple-500' :
             agent === 'opencode' ? 'bg-zinc-500' :
-            agent === 'kimi' ? 'bg-sky-500' : 'bg-foreground/60';
+            agent === 'kimi' ? 'bg-sky-500' :
+            agent === 'grok' ? 'bg-slate-400' : 'bg-foreground/60';
 
           return (
             <Pill

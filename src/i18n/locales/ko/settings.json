@@ -337,6 +337,9 @@
       },
       "gemini": {
         "description": "Google Gemini AI 어시스턴트"
+      },
+      "grok": {
+        "description": "xAI Grok Build 코딩 에이전트"
       }
     },
     "connectionStatus": "연결 상태",
@@ -434,7 +437,8 @@
       "codex": "Model Context Protocol 서버는 Codex에 추가 도구와 데이터 소스를 제공합니다",
       "opencode": "Model Context Protocol 서버는 OpenCode에 추가 도구와 데이터 소스를 제공합니다",
       "kimi": "Model Context Protocol 서버는 Kimi에 추가 도구와 데이터 소스를 제공합니다",
-      "gemini": "Model Context Protocol 서버는 Gemini에 추가 도구와 데이터 소스를 제공합니다"
+      "gemini": "Model Context Protocol 서버는 Gemini에 추가 도구와 데이터 소스를 제공합니다",
+      "grok": "Model Context Protocol 서버는 Grok에 추가 도구와 데이터 소스를 제공합니다"
     },
     "addButton": "MCP 서버 추가",
     "empty": "설정된 MCP 서버 없음",
