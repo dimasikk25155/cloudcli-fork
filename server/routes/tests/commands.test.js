@@ -80,3 +80,38 @@ test('models command falls back to claude for unsupported providers', async () =
     providerModelsService.getCurrentActiveModel = originalGetCurrentActiveModel;
   }
 });
+
+test('models command serves the grok catalog, not the claude one', async () => {
+  const originalGetProviderModels = providerModelsService.getProviderModels;
+  const requestedProviders = [];
+
+  providerModelsService.getProviderModels = async (provider) => {
+    requestedProviders.push(provider);
+    return {
+      models: {
+        OPTIONS: [
+          { value: 'grok-mode-build', label: 'Build' },
+          { value: 'grok-mode-fast', label: 'Быстрый' },
+        ],
+        DEFAULT: 'grok-mode-build',
+      },
+      cache: {
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        expiresAt: '2026-01-04T00:00:00.000Z',
+        source: 'fresh',
+      },
+    };
+  };
+
+  try {
+    const result = await executeModelsCommand([], { provider: 'grok' });
+
+    assert.deepEqual(requestedProviders, ['grok']);
+    assert.equal(result.data.current.provider, 'grok');
+    assert.deepEqual(Object.keys(result.data.available), ['grok']);
+    assert.ok(result.data.availableModels.includes('grok-mode-build'));
+    assert.equal(result.data.available.claude, undefined);
+  } finally {
+    providerModelsService.getProviderModels = originalGetProviderModels;
+  }
+});

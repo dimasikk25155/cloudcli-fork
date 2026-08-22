@@ -17,6 +17,7 @@ import { Octokit } from '@octokit/rest';
 import { providerModelsService } from '../modules/providers/services/provider-models.service.js';
 import { IS_PLATFORM } from '../constants/config.js';
 import { normalizeProjectPath } from '../shared/utils.js';
+import { SUPPORTED_PROVIDERS, isSupportedProvider } from '../shared/providers.js';
 
 const router = express.Router();
 
@@ -762,7 +763,7 @@ class ResponseCollector {
  * Input Validations (400 Bad Request):
  *   - Either githubUrl OR projectPath must be provided (not neither)
  *   - message must be non-empty string
- *   - provider must be 'claude', 'cursor', 'codex', or 'opencode'
+ *   - provider must be one of SUPPORTED_PROVIDERS (server/constants/providers.js)
  *   - createBranch/createPR requires githubUrl OR projectPath (not neither)
  *   - branchName must pass Git naming rules (if provided)
  *
@@ -850,7 +851,7 @@ class ResponseCollector {
  *     "cleanup": false
  *   }
  */
-router.post('/', validateExternalApiKey, async (req, res) => {
+export async function handleAgentRun(req, res) {
   const { githubUrl, projectPath, message, provider = 'claude', model, githubToken, branchName, sessionId } = req.body;
   const effort = typeof req.body.effort === 'string' && req.body.effort.trim()
     ? req.body.effort.trim()
@@ -873,8 +874,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  if (!['claude', 'cursor', 'codex', 'opencode', 'kimi', 'gemini', 'grok'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "opencode", "kimi", "gemini", or "grok"' });
+  if (!isSupportedProvider(provider)) {
+    return res.status(400).json({ error: `provider must be one of: ${SUPPORTED_PROVIDERS.join(', ')}` });
   }
 
   // Validate GitHub branch/PR creation requirements
@@ -1288,6 +1289,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       });
     }
   }
-});
+}
+
+router.post('/', validateExternalApiKey, handleAgentRun);
 
 export default router;

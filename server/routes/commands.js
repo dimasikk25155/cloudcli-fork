@@ -9,6 +9,7 @@ import { findClaudeModelOption } from "../modules/providers/list/claude/claude-m
 import { parseFrontMatter } from "../shared/frontmatter.js";
 import { getSessionCostSnapshot } from "../shared/session-usage.js";
 import { findAppRoot, getModuleDir } from "../utils/runtime-paths.js";
+import { SUPPORTED_PROVIDERS } from "../shared/providers.js";
 
 const __dirname = getModuleDir(import.meta.url);
 // This route reads the top-level package.json for the status command, so it needs the real
@@ -17,7 +18,7 @@ const APP_ROOT = findAppRoot(__dirname);
 
 const router = express.Router();
 
-const MODEL_PROVIDERS = ["claude", "cursor", "codex", "opencode", "kimi", "gemini", "grok"];
+const MODEL_PROVIDERS = SUPPORTED_PROVIDERS;
 
 const MODEL_PROVIDER_LABELS = {
   claude: "Claude",

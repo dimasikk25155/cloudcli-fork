@@ -16,8 +16,9 @@ import { spawnGemini } from '../../gemini-cli.js';
 import { spawnGrok } from '../../grok-cli.js';
 import { providerModelsService } from '../providers/index.js';
 import { normalizeProjectPath } from '../../shared/utils.js';
+import { SUPPORTED_PROVIDERS } from '../../shared/providers.js';
 
-export const SUPPORTED_PROVIDERS = ['claude', 'cursor', 'codex', 'opencode', 'kimi', 'gemini', 'grok'];
+export { SUPPORTED_PROVIDERS };
 
 /**
  * Collects engine output instead of streaming it to an HTTP response.

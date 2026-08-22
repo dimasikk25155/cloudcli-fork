@@ -165,6 +165,7 @@ export default tseslint.config(
             "server/shared/run-outcomes.ts",
             "server/shared/claude-usage.ts",
             "server/shared/token-pricing.ts", // pure price/context-window table; the Grok sessions provider reads the 500K window from it
+            "server/shared/providers.js", // single list of shipped engines; the agent API, unattended runs and /models all read it
           ], // classify shared utility files so modules can depend on them explicitly
           mode: "file",
         },
