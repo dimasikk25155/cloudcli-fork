@@ -1,6 +1,7 @@
 import { backgroundFile } from '../../contexts/ThemeContext';
 
 import ShaderBackground from './ShaderBackground';
+import ThemeVideoBackground from './ThemeVideoBackground';
 
 /**
  * Per-theme full-viewport background, rendered behind the whole app at z-0.
@@ -37,7 +38,21 @@ const PHOTO_THEMES = new Set([
  * шейдер за ними эту работу ломают. Без этого списка любая новая тема
  * молча проваливалась бы в WebGL-фон из ветки по умолчанию.
  */
-const FLAT_THEMES = new Set(['ember', 'gt', 'editorial', 'glass']);
+const FLAT_THEMES = new Set(['gt', 'editorial', 'glass']);
+
+/**
+ * Темы с живыми обоями — зацикленный ролик вместо фотографии.
+ *
+ * `ember` до 22.08.2026 числилась плоской: разбор референсов требовал «ноль
+ * декоративных градиентов», и это было верное решение для градиента. Ролик —
+ * не градиент: он не спорит с интерфейсом за внимание, потому что уходит под
+ * тот же скрим, что и фотографии кино-тем. Решение принято владельцем продукта
+ * явно, поэтому старое правило здесь отменено осознанно, а не потеряно.
+ *
+ * Цена движения оплачена в самом ролике и в компоненте: 15 кадров в секунду,
+ * замедление 0.75 и пауза при уходе окна в фон — см. `ThemeVideoBackground`.
+ */
+const VIDEO_THEMES = new Set(['ember']);
 
 export default function ThemeBackground({
   theme = 'default',
@@ -67,6 +82,10 @@ export default function ThemeBackground({
         <div className="theme-photo-scrim" />
       </div>
     );
+  }
+
+  if (VIDEO_THEMES.has(theme)) {
+    return <ThemeVideoBackground src={`/theme-bg/${theme}.mp4`} poster={`/theme-bg/${theme}.jpg`} />;
   }
 
   if (FLAT_THEMES.has(theme)) {
