@@ -1,4 +1,5 @@
-import { MessageSquare, Terminal, Folder, MonitorPlay, BarChart3, Gauge, type LucideIcon } from 'lucide-react';
+import { useState } from 'react';
+import { Type } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -8,54 +9,18 @@ import { usePlugins } from '../../../../contexts/PluginsContext';
 import { useAuth } from '../../../auth/context/AuthContext';
 import PluginIcon from '../../../plugins/view/PluginIcon';
 import { localizePluginName } from '../../../plugins/utils/pluginDisplayName';
+import {
+  COMPACT_TAB_LABELS_KEY,
+  assembleMainTabs,
+  readCompactTabLabels,
+  tabShowsLabel,
+} from './mainContentTabs';
 
 type MainContentTabSwitcherProps = {
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   shouldShowBrowserTab: boolean;
   shouldShowAutopilotTab: boolean;
-};
-
-type BuiltInTab = {
-  kind: 'builtin';
-  id: AppTab;
-  labelKey: string;
-  icon: LucideIcon;
-};
-
-type PluginTab = {
-  kind: 'plugin';
-  id: AppTab;
-  label: string;
-  pluginName: string;
-  iconFile: string;
-};
-
-type TabDefinition = BuiltInTab | PluginTab;
-
-const BASE_TABS: BuiltInTab[] = [
-  { kind: 'builtin', id: 'chat',  labelKey: 'tabs.chat',  icon: MessageSquare },
-  { kind: 'builtin', id: 'shell', labelKey: 'tabs.shell', icon: Terminal },
-  { kind: 'builtin', id: 'files', labelKey: 'tabs.files', icon: Folder },
-  // Was the external `project-stats` plugin; built in so it ships with the app
-  // and shares the token/pricing modules instead of duplicating their rates.
-  { kind: 'builtin', id: 'stats', labelKey: 'tabs.stats', icon: BarChart3 },
-];
-
-const BROWSER_TAB: BuiltInTab = {
-  kind: 'builtin',
-  id: 'browser',
-  labelKey: 'tabs.browser',
-  icon: MonitorPlay,
-};
-
-// Появляется только на время прогона автопилота — в проекте, где его не
-// запускали, эта вкладка была бы вечной пустой строкой в шапке.
-const AUTOPILOT_TAB: BuiltInTab = {
-  kind: 'builtin',
-  id: 'autopilot',
-  labelKey: 'tabs.autopilot',
-  icon: Gauge,
 };
 
 export default function MainContentTabSwitcher({
@@ -67,40 +32,60 @@ export default function MainContentTabSwitcher({
   const { t } = useTranslation();
   const { plugins } = usePlugins();
   const { terminalDisabled } = useAuth();
+  const [compactLabels, setCompactLabels] = useState(readCompactTabLabels);
 
   // Git и Browser табы скрыты по просьбе — оставлены только Chat/Shell/Files.
   void shouldShowBrowserTab;
-  void BROWSER_TAB;
 
-  const builtInTabs: BuiltInTab[] = [
-    ...BASE_TABS.filter((tab) => !(terminalDisabled && tab.id === 'shell')),
-    ...(shouldShowAutopilotTab ? [AUTOPILOT_TAB] : []),
-  ];
+  const tabs = assembleMainTabs({
+    terminalDisabled,
+    shouldShowAutopilotTab,
+    plugins,
+    localize: (name, displayName) => localizePluginName(name, displayName, t),
+  });
 
-  const pluginTabs: PluginTab[] = plugins
-    .filter((p) => p.enabled)
-    .map((p) => ({
-      kind: 'plugin',
-      id: `plugin:${p.name}` as AppTab,
-      label: localizePluginName(p.name, p.displayName, t),
-      pluginName: p.name,
-      iconFile: p.icon,
-    }));
+  const toggleCompact = () => {
+    setCompactLabels((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(COMPACT_TAB_LABELS_KEY, String(next));
+      } catch {
+        // Private mode — the choice still applies for this visit.
+      }
+      return next;
+    });
+  };
 
-  const tabs: TabDefinition[] = [...builtInTabs, ...pluginTabs];
+  const toggleLabel = compactLabels
+    ? t('tabs.showLabels', 'Показать подписи')
+    : t('tabs.hideLabels', 'Скрыть подписи');
 
   return (
     <PillBar>
+      <Tooltip content={toggleLabel} position="bottom">
+        <button
+          type="button"
+          onClick={toggleCompact}
+          aria-pressed={compactLabels}
+          aria-label={toggleLabel}
+          title={toggleLabel}
+          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
+        >
+          <Type className="h-3.5 w-3.5" strokeWidth={compactLabels ? 1.8 : 2.2} />
+        </button>
+      </Tooltip>
       {tabs.map((tab) => {
         const isActive = tab.id === activeTab;
         const displayLabel = tab.kind === 'builtin' ? t(tab.labelKey) : tab.label;
+        const showLabel = tabShowsLabel(tab, compactLabels);
+        const isAutopilot = tab.id === 'autopilot';
 
         return (
           <Tooltip key={tab.id} content={displayLabel} position="bottom">
             <Pill
               isActive={isActive}
               onClick={() => setActiveTab(tab.id)}
-              className="px-2.5 py-[5px]"
+              className={isAutopilot ? 'px-3 py-[5px]' : 'px-2.5 py-[5px]'}
             >
               {tab.kind === 'builtin' ? (
                 <tab.icon className="h-3.5 w-3.5" strokeWidth={isActive ? 2.2 : 1.8} />
@@ -111,7 +96,11 @@ export default function MainContentTabSwitcher({
                   className="flex h-3.5 w-3.5 items-center justify-center [&>svg]:h-full [&>svg]:w-full"
                 />
               )}
-              <span className="hidden lg:inline">{displayLabel}</span>
+              {showLabel && (
+                <span className={compactLabels || isAutopilot ? 'inline' : 'hidden lg:inline'}>
+                  {displayLabel}
+                </span>
+              )}
             </Pill>
           </Tooltip>
         );

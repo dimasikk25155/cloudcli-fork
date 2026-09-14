@@ -16,8 +16,8 @@ export default function StandaloneShellEmptyState({ className }: StandaloneShell
             />
           </svg>
         </div>
-        <h3 className="mb-2 text-lg font-semibold">No Project Selected</h3>
-        <p>A project is required to open a shell</p>
+        <h3 className="mb-2 text-lg font-semibold">Нет проекта</h3>
+        <p>Откройте проект с домашнего экрана — иконка как на телефоне</p>
       </div>
     </div>
   );

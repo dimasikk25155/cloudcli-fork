@@ -13,6 +13,7 @@ import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
 import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
+import { wrapCatalogBrief } from '../utils/catalogBrief';
 import { getUsageLimits } from '../../../utils/usageLimits';
 import type { MarkSessionProcessing } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
@@ -41,12 +42,18 @@ import {
   type PasteRecord,
 } from '../utils/clipboardPaste';
 import { downscaleImageFile } from '../utils/imageDownscale';
+import { modelForProvider } from '../utils/providerModelState';
 
 import { useFileMentions } from './useFileMentions';
+import { useInputHistory } from './useInputHistory';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 
 /** Per-file upload cap (must match the server multer limit in assets.routes.ts). */
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+// How long the second Enter still counts as part of a "double Enter".
+const DOUBLE_ENTER_WINDOW_MS = 700;
+
+const MAX_ATTACHMENT_MB = 100;
+const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024;
 /** Max number of files attachable at once. */
 const MAX_ATTACHED_FILES = 20;
 
@@ -72,6 +79,12 @@ interface UseChatComposerStateArgs {
   tokenBudget: Record<string, unknown> | null;
   sendMessage: (message: unknown) => void;
   sendByCtrlEnter?: boolean;
+  /**
+   * Desktop habit-saver: a single Enter only breaks the line, and the message
+   * is sent by pressing Enter twice in a row (within DOUBLE_ENTER_WINDOW_MS).
+   * Prevents half-typed messages from flying out on an accidental Enter.
+   */
+  sendByDoubleEnter?: boolean;
   onSessionProcessing?: MarkSessionProcessing;
   /**
    * Invoked with the freshly allocated session id when the user sends the
@@ -81,6 +94,12 @@ interface UseChatComposerStateArgs {
    * /session/:id and records it as the current session.
    */
   onSessionEstablished?: (sessionId: string, context: SessionEstablishedContext) => void;
+  /**
+   * Fired after a user turn is dispatched (or snapshotted for append), so
+   * one-shot composer modes can snap back to ordinary + bypass before the
+   * next message is typed. The in-flight send already captured the chips.
+   */
+  onComposerModesConsumed?: (sessionId: string) => void;
   onInputFocusChange?: (focused: boolean) => void;
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   onShowSettings?: () => void;
@@ -255,8 +274,10 @@ export function useChatComposerState({
   tokenBudget,
   sendMessage,
   sendByCtrlEnter,
+  sendByDoubleEnter,
   onSessionProcessing,
   onSessionEstablished,
+  onComposerModesConsumed,
   onInputFocusChange,
   onFileOpen,
   onShowSettings,
@@ -309,11 +330,23 @@ export function useChatComposerState({
   // a queued attachment survives the flush and a reload. The flush sets it just
   // before invoking submit; a normal user submit leaves it null.
   const preUploadedImagesRef = useRef<unknown[] | null>(null);
+  const catalogBriefRef = useRef<string | null>(null);
   const selectedProjectId = selectedProject?.projectId;
   // Prefer the stable backend-allocated id (selectedSession.id) but fall back
   // to currentSessionId for a just-established session that hasn't been
   // handed back to the parent's `selectedSession` prop yet.
   const sessionKey = selectedSession?.id || currentSessionId || null;
+  const historyScope = sessionKey ?? (selectedProject ? `project:${selectedProject.projectId}` : null);
+
+  const setInputFromHistory = useCallback((value: string) => {
+    setInput(value);
+    inputValueRef.current = value;
+  }, []);
+  const { recordSentMessage, handleHistoryKeyDown } = useInputHistory({
+    setInput: setInputFromHistory,
+    textareaRef,
+    scope: historyScope,
+  });
 
   const [queuedDraft, setQueuedDraft] = useState<QueuedDraft | null>(() => {
     if (typeof window === 'undefined' || !sessionKey) {
@@ -443,19 +476,15 @@ export function useChatComposerState({
           projectId: selectedProject.projectId,
           sessionId: currentSessionId,
           provider,
-          model: provider === 'cursor'
-            ? cursorModel
-            : provider === 'codex'
-              ? codexModel
-              : provider === 'opencode'
-                  ? opencodeModel
-                  : provider === 'kimi'
-                    ? kimiModel
-                    : provider === 'gemini'
-                      ? geminiModel
-                      : provider === 'grok'
-                        ? grokModel
-                        : claudeModel,
+          model: modelForProvider(provider, {
+            claude: claudeModel,
+            cursor: cursorModel,
+            codex: codexModel,
+            opencode: opencodeModel,
+            kimi: kimiModel,
+            gemini: geminiModel,
+            grok: grokModel,
+          }),
           tokenUsage: tokenBudget,
         };
 
@@ -509,6 +538,8 @@ export function useChatComposerState({
       currentSessionId,
       cursorModel,
       kimiModel,
+      geminiModel,
+      grokModel,
       opencodeModel,
       handleBuiltInCommand,
       handleCustomCommand,
@@ -608,7 +639,7 @@ export function useChatComposerState({
           const fileName = file.name || 'Unknown file';
           setImageErrors((previous) => {
             const next = new Map(previous);
-            next.set(fileName, 'File too large (max 25MB)');
+            next.set(fileName, `File too large (max ${MAX_ATTACHMENT_MB}MB)`);
             return next;
           });
           return false;
@@ -700,20 +731,15 @@ export function useChatComposerState({
     };
 
     const toolsSettings = getToolsSettings();
-    const model =
-      provider === 'cursor'
-        ? cursorModel
-        : provider === 'codex'
-          ? codexModel
-          : provider === 'opencode'
-            ? opencodeModel
-            : provider === 'kimi'
-              ? kimiModel
-              : provider === 'gemini'
-                ? geminiModel
-                : provider === 'grok'
-                  ? grokModel
-                  : claudeModel;
+    const model = modelForProvider(provider, {
+      claude: claudeModel,
+      cursor: cursorModel,
+      codex: codexModel,
+      opencode: opencodeModel,
+      kimi: kimiModel,
+      gemini: geminiModel,
+      grok: grokModel,
+    });
 
     return {
       model,
@@ -815,6 +841,7 @@ export function useChatComposerState({
       // A turn is already in flight: stash this message instead of sending it.
       // It's auto-flushed (re-running this same function) once the turn ends,
       // so it still goes through slash-command interception, image upload, etc.
+      // The queue card's "Send now" is the interrupt path if the user wants it.
       if (isLoading) {
         // Upload attachments now, at queue time, rather than at flush time.
         // The result is a serializable descriptor, so the image survives
@@ -848,6 +875,7 @@ export function useChatComposerState({
         }
         // selectedProject is guaranteed by the guard at the top of handleSubmit.
         safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+        recordSentMessage(currentInput, sessionKey);
         return;
       }
 
@@ -872,6 +900,7 @@ export function useChatComposerState({
             : undefined);
         if (matchedCommand && matchedCommand.type !== 'skill') {
           executeCommand(matchedCommand, isHelpAlias ? '/help' : commandInput);
+          recordSentMessage(currentInput);
           setInput('');
           inputValueRef.current = '';
           setAttachedImages([]);
@@ -886,7 +915,7 @@ export function useChatComposerState({
         }
       }
 
-      const messageContent = currentInput;
+      const visibleContent = currentInput;
 
       // Usage guard: past the threshold of the 5-hour subscription window the
       // server holds new runs (the remainder is a reserve for interactive
@@ -979,9 +1008,15 @@ export function useChatComposerState({
         });
       }
 
+      const hiddenBrief = catalogBriefRef.current;
+      catalogBriefRef.current = null;
+      const messageContent = hiddenBrief
+        ? wrapCatalogBrief(hiddenBrief, visibleContent)
+        : visibleContent;
+
       const userMessage: ChatMessage = {
         type: 'user',
-        content: currentInput,
+        content: visibleContent,
         images: uploadedImages as any,
         timestamp: new Date(),
       };
@@ -1011,7 +1046,9 @@ export function useChatComposerState({
           ...(usageGuardOverride ? { usageGuardOverride: true } : {}),
         },
       });
+      onComposerModesConsumed?.(targetSessionId);
 
+      recordSentMessage(currentInput, targetSessionId);
       setInput('');
       inputValueRef.current = '';
       resetCommandMenuState();
@@ -1036,9 +1073,11 @@ export function useChatComposerState({
       currentSessionId,
       executeCommand,
       isLoading,
+      onComposerModesConsumed,
       onSessionProcessing,
       onSessionEstablished,
       provider,
+      recordSentMessage,
       resetCommandMenuState,
       scrollToBottom,
       selectedProject,
@@ -1161,19 +1200,27 @@ export function useChatComposerState({
     }
   }, [input, selectedProjectId]);
 
-  // Готовое задание из панели («Починить сервис», «Спросить про файл») приходит
-  // сюда и ложится в поле ввода. Именно в поле, а не в отправку: запускает
-  // работу человек, увидев текст. Уже написанное не затирается — дописываемся.
+  // «Починить сервис» кладёт текст в поле и ждёт Enter.
+  // Кнопка готовой работы шлёт короткий ярлык сразу, бриф — только агенту.
   useEffect(() => {
     const onDraft = (event: Event) => {
-      const text = (event as CustomEvent<ComposerDraftDetail>).detail?.text;
+      const detail = (event as CustomEvent<ComposerDraftDetail>).detail;
+      const text = detail?.text;
       if (!text) return;
-      setInput((previous) => {
-        const next = previous.trim() ? `${previous.trim()}\n\n${text}` : text;
-        inputValueRef.current = next;
-        return next;
-      });
+
+      if (detail.hiddenBrief) {
+        catalogBriefRef.current = detail.hiddenBrief;
+      }
+
+      inputValueRef.current = text;
+      setInput(text);
       textareaRef.current?.focus();
+
+      if (detail.autoSend) {
+        window.setTimeout(() => {
+          handleSubmitRef.current?.(createFakeSubmitEvent());
+        }, 50);
+      }
     };
 
     window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
@@ -1248,13 +1295,24 @@ export function useChatComposerState({
     [handleCommandInputChange, resetCommandMenuState, setCursorPosition],
   );
 
+  // Timestamp of the previous plain Enter, used by the double-Enter mode.
+  const lastEnterAtRef = useRef(0);
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key !== 'Enter') {
+        lastEnterAtRef.current = 0;
+      }
+
       if (handleCommandMenuKeyDown(event)) {
         return;
       }
 
       if (handleFileMentionsKeyDown(event)) {
+        return;
+      }
+
+      if (handleHistoryKeyDown(event)) {
         return;
       }
 
@@ -1273,6 +1331,25 @@ export function useChatComposerState({
           event.preventDefault();
           handleSubmit(event);
         } else if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !sendByCtrlEnter) {
+          if (sendByDoubleEnter) {
+            const now = Date.now();
+            const isSecondEnter = now - lastEnterAtRef.current <= DOUBLE_ENTER_WINDOW_MS;
+            lastEnterAtRef.current = isSecondEnter ? 0 : now;
+
+            // First Enter (or a slow one) just breaks the line — default behaviour.
+            if (!isSecondEnter) {
+              return;
+            }
+
+            event.preventDefault();
+            // Drop the newline the first Enter inserted so the sent text is clean.
+            const trimmed = inputValueRef.current.replace(/\s*\n+$/, '');
+            inputValueRef.current = trimmed;
+            setInput(trimmed);
+            handleSubmit(event);
+            return;
+          }
+
           event.preventDefault();
           handleSubmit(event);
         }
@@ -1282,8 +1359,10 @@ export function useChatComposerState({
       cyclePermissionMode,
       handleCommandMenuKeyDown,
       handleFileMentionsKeyDown,
+      handleHistoryKeyDown,
       handleSubmit,
       sendByCtrlEnter,
+      sendByDoubleEnter,
       showCommandMenu,
       showFileDropdown,
     ],
@@ -1349,15 +1428,14 @@ export function useChatComposerState({
     options: QueuedSendOptions;
   } | null>(null);
 
-  const handleAppendNow = useCallback(async () => {
+  const handleAppendNow = useCallback(async (opts?: { preferInput?: boolean }) => {
     if (!canAbortSession || isAppendPending) {
       return;
     }
 
-    // Prefer an already-queued draft (the card's own "Send now" button) over
-    // whatever is currently typed, since queuing already snapshotted the
-    // content, images and send options at that point in time.
-    const source = queuedDraft
+    // Queue card "Send now" keeps the snapshotted draft. Submit-while-loading
+    // passes preferInput so the just-typed text wins over a stale queue card.
+    const source = (!opts?.preferInput && queuedDraft)
       ? { content: queuedDraft.content, images: queuedDraft.images }
       : { content: inputValueRef.current, images: attachedImages };
     if (!source.content.trim()) {
@@ -1402,6 +1480,7 @@ export function useChatComposerState({
       images: uploadedImages,
       options: buildSendOptions(source.content),
     };
+    onComposerModesConsumed?.(targetSessionId);
     setIsAppendPending(true);
 
     setQueuedDraft(null);
@@ -1428,6 +1507,7 @@ export function useChatComposerState({
     attachedImages,
     buildSendOptions,
     canAbortSession,
+    onComposerModesConsumed,
     currentSessionId,
     isAppendPending,
     queuedDraft,

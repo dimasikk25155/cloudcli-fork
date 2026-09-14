@@ -6,6 +6,10 @@ import {
   THEMES,
   THEME_LABELS,
   backgroundsForTheme,
+  isVideoTheme,
+  LIVE_WALLPAPER_OFF,
+  LIVE_WALLPAPER_AUTO,
+  liveWallpaperSelectValue,
 } from '../../../contexts/ThemeContext';
 import LanguageSelector from '../../../shared/view/ui/LanguageSelector';
 import {
@@ -24,12 +28,14 @@ import QuickSettingsToggleRow from './QuickSettingsToggleRow';
 
 type QuickSettingsContentProps = {
   isDarkMode: boolean;
+  isMobile?: boolean;
   preferences: QuickSettingsPreferences;
   onPreferenceChange: (key: PreferenceToggleKey, value: boolean) => void;
 };
 
 export default function QuickSettingsContent({
   isDarkMode,
+  isMobile = false,
   preferences,
   onPreferenceChange,
 }: QuickSettingsContentProps) {
@@ -41,12 +47,16 @@ export default function QuickSettingsContent({
     setTheme,
     backgroundVariant,
     setThemeBackground,
+    setLiveWallpaper,
   } = useTheme();
   // Селектор картинки показываем только там, где есть из чего выбирать.
   const backgroundVariants = shaderEnabled ? backgroundsForTheme(theme) : [];
-  const inputSettingToggles = preferences.voiceEnabled
-    ? INPUT_SETTING_TOGGLES
-    : INPUT_SETTING_TOGGLES.filter(({ key }) => key !== 'voiceEnabled');
+  const liveWallpaperTheme = isVideoTheme(theme);
+  const liveWallpaperValue = liveWallpaperSelectValue(shaderEnabled, backgroundVariant, theme);
+  const inputSettingToggles = INPUT_SETTING_TOGGLES
+    .filter(({ key }) => preferences.voiceEnabled || key !== 'voiceEnabled')
+    // Двойной Enter имеет смысл только там, где есть настоящая клавиатура.
+    .filter(({ desktopOnly }) => !desktopOnly || !isMobile);
 
   const renderToggleRows = (items: PreferenceToggleItem[]) => (
     items.map(({ key, labelKey, icon }) => (
@@ -80,31 +90,59 @@ export default function QuickSettingsContent({
             ))}
           </select>
         </div>
-        {backgroundVariants.length > 1 && (
+        {liveWallpaperTheme ? (
           <div className={SETTING_ROW_CLASS}>
             <span className="flex items-center gap-2 text-sm text-foreground">
               <ImageIcon className="h-4 w-4 text-muted-foreground" />
-              {t('quickSettings.themeBackground')}
+              {t('appearanceSettings.liveWallpaper.label', { defaultValue: 'Background' })}
             </span>
             <select
-              value={backgroundVariant}
-              onChange={(event) => setThemeBackground(theme, event.target.value)}
+              value={liveWallpaperValue}
+              onChange={(event) => setLiveWallpaper(event.target.value)}
               className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              {backgroundVariants.map((variant: { id: string; label: string }) => (
+              <option value={LIVE_WALLPAPER_OFF}>
+                {t('appearanceSettings.liveWallpaper.off', { defaultValue: 'Off' })}
+              </option>
+              <option value={LIVE_WALLPAPER_AUTO}>
+                {t('appearanceSettings.liveWallpaper.auto', { defaultValue: 'Auto rotate' })}
+              </option>
+              {backgroundsForTheme(theme).map((variant: { id: string; label: string }) => (
                 <option key={variant.id} value={variant.id}>
                   {variant.label}
                 </option>
               ))}
             </select>
           </div>
+        ) : (
+          <>
+            {backgroundVariants.length > 1 && (
+              <div className={SETTING_ROW_CLASS}>
+                <span className="flex items-center gap-2 text-sm text-foreground">
+                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                  {t('quickSettings.themeBackground')}
+                </span>
+                <select
+                  value={backgroundVariant}
+                  onChange={(event) => setThemeBackground(theme, event.target.value)}
+                  className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {backgroundVariants.map((variant: { id: string; label: string }) => (
+                    <option key={variant.id} value={variant.id}>
+                      {variant.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <QuickSettingsToggleRow
+              label={t('quickSettings.showBackground')}
+              icon={ImageIcon}
+              checked={shaderEnabled}
+              onCheckedChange={setShaderEnabled}
+            />
+          </>
         )}
-        <QuickSettingsToggleRow
-          label={t('quickSettings.showBackground')}
-          icon={ImageIcon}
-          checked={shaderEnabled}
-          onCheckedChange={setShaderEnabled}
-        />
         <LanguageSelector compact />
       </QuickSettingsSection>
 
@@ -117,6 +155,11 @@ export default function QuickSettingsContent({
         <p className="ml-3 text-xs text-muted-foreground">
           {t('quickSettings.sendByCtrlEnterDescription')}
         </p>
+        {!isMobile && (
+          <p className="ml-3 text-xs text-muted-foreground">
+            {t('quickSettings.sendByDoubleEnterDescription')}
+          </p>
+        )}
       </QuickSettingsSection>
     </div>
   );

@@ -1207,6 +1207,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
             ws.send(msg);
           }
 
+          // Bill the run. The meter reads the *raw* usage fields rather than the
+          // blended `tokenBudget.inputTokens` below, because cache reads bill at
+          // 0.1x and cache writes at 1.25x/2x — charging the blended number as
+          // fresh input overstates the cost by roughly 10x. Owned by the caller
+          // (chat socket / unattended runner), which writes the audit row.
+          options.meter?.addMessage(message);
+
           // Extract and send token budget updates from assistant/result usage payloads
           const tokenBudgetData = extractTokenBudget(message);
           if (tokenBudgetData) {

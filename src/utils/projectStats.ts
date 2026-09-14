@@ -15,6 +15,8 @@ export type ProjectStats = {
   languages: { ext: string; files: number; lines: number }[];
   sessions: number;
   tokens: number;
+  tokensIn: number;
+  tokensOut: number;
   costUsd: number | null;
   lastActivity: string | null;
   /** Scan hit its file cap: numbers are a floor, and the UI must say so. */

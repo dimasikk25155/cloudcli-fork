@@ -13,6 +13,9 @@ const POLL_INTERVAL_MS = 60_000;
 /** Official usage page of the Claude subscription — the badge links straight to it. */
 const CLAUDE_USAGE_URL = 'https://claude.ai/new#settings/usage';
 
+/** SuperGrok weekly pool — xAI does not expose this number to the CLI token. */
+const GROK_USAGE_URL = 'https://grok.com/?_s=usage';
+
 const CHIP_CLASS =
   'composer-chip inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 text-xs text-muted-foreground shadow-sm transition-colors hover:border-primary/25 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:gap-2 sm:px-2.5';
 
@@ -58,16 +61,11 @@ function ownPlanLabel(model: string | undefined): string | null {
   if (id.startsWith('glm-')) {
     return 'GLM';
   }
-  // Grok Build rides the SuperGrok subscription through ~/.grok/auth.json and
-  // never touches the Claude Max window. Until 21.08.2026 the badge showed
-  // Claude's percentages next to a Grok model — a number that had nothing to do
-  // with what the run was actually spending. xAI publishes no quota endpoint
-  // (the weekly allowance is not exposed anywhere), so this is a label, not a
-  // gauge; the per-run token count and cost still come from the usage panel.
-  if (id.startsWith('grok')) {
-    return 'SuperGrok';
-  }
   return null;
+}
+
+function isGrokModel(model: string | undefined): boolean {
+  return (model ?? '').toLowerCase().startsWith('grok');
 }
 
 type Props = {
@@ -108,6 +106,24 @@ export default function UsageLimitsBadge({ model }: Props) {
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [open]);
+
+  if (isGrokModel(model)) {
+    return (
+      <a
+        href={GROK_USAGE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={CHIP_CLASS}
+        title="Расход SuperGrok — открыть на grok.com"
+        aria-label="Расход SuperGrok — открыть на grok.com"
+      >
+        <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary">
+          <GaugeIcon className="h-3.5 w-3.5" />
+        </span>
+        <span className="font-medium">SuperGrok</span>
+      </a>
+    );
+  }
 
   if (isLocalModel(model)) {
     return (

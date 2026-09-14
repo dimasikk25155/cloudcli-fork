@@ -5,7 +5,7 @@ import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import { parseAttachedFilesTag, parseImagesInputTag } from '@/shared/image-attachments.js';
 import { buildRunInterruptedNotice, readRunOutcome } from '@/shared/run-outcomes.js';
-import { getContextWindow } from '@/shared/token-pricing.js';
+import { getContextWindow, readUsageBreakdown, usageFootprint } from '@/shared/token-pricing.js';
 import type {
   AnyRecord,
   FetchHistoryOptions,
@@ -20,6 +20,74 @@ import {
 } from '@/shared/utils.js';
 
 const PROVIDER = 'grok';
+
+/**
+ * Clock for history rows. chat_history.jsonl has no per-event timestamps, so
+ * we interpolate from session start → file mtime. Stamping everything `now()`
+ * made an old "привет" look like the message just sent, and the live bubble
+ * disappeared.
+ */
+export function resolveGrokHistoryClock(
+  historyPath: string | null | undefined,
+  createdAt: string | null | undefined,
+  messageCount: number,
+): { startMs: number; endMs: number } {
+  const now = Date.now();
+  let endMs = now;
+  let birthMs = Number.NaN;
+
+  if (historyPath) {
+    try {
+      const stats = fsSync.statSync(historyPath);
+      if (Number.isFinite(stats.mtimeMs) && stats.mtimeMs > 0) {
+        endMs = stats.mtimeMs;
+      }
+      if (Number.isFinite(stats.birthtimeMs) && stats.birthtimeMs > 0) {
+        birthMs = stats.birthtimeMs;
+      }
+    } catch {
+      // Keep the fallback clock below.
+    }
+  }
+
+  const createdMs = createdAt ? Date.parse(createdAt) : Number.NaN;
+  const startCandidates = [birthMs, createdMs].filter((value) => Number.isFinite(value) && value > 0 && value <= endMs);
+  let startMs = startCandidates.length > 0 ? Math.min(...startCandidates) : Number.NaN;
+  if (!Number.isFinite(startMs)) {
+    startMs = endMs - Math.max(messageCount - 1, 0) * 1000;
+  }
+  if (startMs > endMs) {
+    startMs = endMs;
+  }
+  return { startMs, endMs };
+}
+
+/**
+ * Stable ids + interpolated clocks for a parsed Grok transcript.
+ * Tool rows keep their `toolId`-based ids so results still fold onto calls.
+ */
+export function stampGrokHistoryMessages(
+  messages: NormalizedMessage[],
+  sessionId: string,
+  clock: { startMs: number; endMs: number },
+): void {
+  const count = messages.length;
+  if (count === 0) {
+    return;
+  }
+  const span = Math.max(0, clock.endMs - clock.startMs);
+  for (let index = 0; index < count; index += 1) {
+    const message = messages[index];
+    const at = count === 1
+      ? clock.endMs
+      : clock.startMs + Math.round(span * (index / (count - 1)));
+    message.timestamp = new Date(at).toISOString();
+    if (message.kind === 'tool_use' || message.kind === 'tool_result') {
+      continue;
+    }
+    message.id = `grok_hist_${sessionId}_${index}_${message.kind}_${message.role || 'none'}`;
+  }
+}
 
 /**
  * Sessions provider for the Grok Build CLI (xAI).
@@ -54,6 +122,48 @@ const PROVIDER = 'grok';
  * `<rules>`, `<user_query>`). Only the query itself is chat content; the rest
  * is machinery the user never typed.
  */
+/**
+ * Grok injects MCP connect/disconnect banners as if they were a new user
+ * turn. That both paints junk in the chat and aborts the running agent.
+ * Treat the banner as harness noise, never as conversation.
+ */
+export function isGrokHarnessNoise(text: string): boolean {
+  const raw = (text || '').trim();
+  if (!raw) {
+    return false;
+  }
+  const stripped = raw
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
+    // Status line plus the following "- server" bullets. The connecting
+    // variant has a parenthetical before the colon ("currently connecting
+    // (tools will become available shortly):"), so we cannot require `:`
+    // immediately after the status word.
+    .replace(/MCP servers [^\n]*(?:\n-[^\n]*)*/gi, ' ')
+    .replace(/To use MCP tools, you MUST call[^\n]*/gi, ' ')
+    .replace(/Do not attempt to use tools from these servers yet[^\n]*/gi, ' ')
+    .replace(/If the user's request likely requires one of these servers[^\n]*/gi, ' ')
+    .replace(/NEVER guess parameter names[^\n]*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped.length === 0;
+}
+
+/**
+ * Grok CLI 1.0.13+ injects Stop-hook / reminder rows as fake user turns
+ * (`synthetic_reason: "stop_hook_feedback"`). Same contract as Claude's
+ * `isMeta` rows: the model must see them, the chat must not.
+ */
+export function isGrokSyntheticUserTurn(raw: AnyRecord): boolean {
+  return typeof raw.synthetic_reason === 'string' && raw.synthetic_reason.trim().length > 0;
+}
+
+/** Native Stop-hook text Grok writes when it continues the turn itself. */
+export function isGrokStopHookFeedbackText(text: string): boolean {
+  const trimmed = (text || '').trim();
+  return /^Stop hook feedback:/i.test(trimmed)
+    || /^This is an automatic follow-up from a session Stop hook/i.test(trimmed);
+}
+
 const extractUserQuery = (text: string): string => {
   const queryMatch = text.match(/<user_query>([\s\S]*?)<\/user_query>/);
   if (queryMatch) {
@@ -62,7 +172,11 @@ const extractUserQuery = (text: string): string => {
   if (text.includes('<user_info>') || text.includes('<system-reminder>')) {
     return '';
   }
-  return text.trim();
+  const trimmed = text.trim();
+  if (isGrokHarnessNoise(trimmed)) {
+    return '';
+  }
+  return trimmed;
 };
 
 /**
@@ -89,13 +203,19 @@ export function extractGrokUserTurn(text: string): {
   // the visible bubble exactly like <images_input>.
   const withoutRules = query
     .replace(/<work_mode_rules>[\s\S]*?<\/work_mode_rules>\s*/g, '')
-    .replace(/<session_context>[\s\S]*?<\/session_context>\s*/g, '');
+    .replace(/<session_context>[\s\S]*?<\/session_context>\s*/g, '')
+    .replace(/<session_followup>[\s\S]*?<\/session_followup>\s*/g, '')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, '');
 
   const imagesParsed = parseImagesInputTag(withoutRules);
   const filesParsed = parseAttachedFilesTag(imagesParsed.text);
   const attachments = [...imagesParsed.attachments, ...filesParsed.files];
+  const visibleText = filesParsed.text.trim();
+  if (isGrokHarnessNoise(visibleText) || isGrokStopHookFeedbackText(visibleText)) {
+    return { text: '', images: attachments.length > 0 ? attachments : undefined };
+  }
   return {
-    text: filesParsed.text.trim(),
+    text: visibleText,
     images: attachments.length > 0 ? attachments : undefined,
   };
 }
@@ -133,27 +253,28 @@ const parseToolArguments = (value: unknown): unknown => {
   }
 };
 
-const readNumber = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
-
 /**
- * Turns a `result` event's usage payload into the same token-budget shape the
- * Claude runtime emits, so the composer's token badge works unchanged.
+ * Turns a `result` event's usage payload into the token-budget shape the
+ * composer badge expects. `used` is the context-window footprint of this
+ * event — never the sum of every model call in the turn. Grok's native
+ * `inputTokens` already includes cache and is often several million; that
+ * number is spend, not fill, so it must not become the badge denominator.
  */
 const buildTokenBudget = (usage: AnyRecord, model: string | null): AnyRecord => {
-  const cacheCreationTokens = readNumber(usage.cache_creation_input_tokens);
-  const cacheReadTokens = readNumber(usage.cache_read_input_tokens);
-  const cacheTokens = cacheCreationTokens + cacheReadTokens;
-  const inputTokens = readNumber(usage.input_tokens) + cacheTokens;
-  const outputTokens = readNumber(usage.output_tokens);
+  const row = readUsageBreakdown(usage);
+  const window = getContextWindow(model);
+  const footprint = usageFootprint(row);
+  const cacheTokens = row.cacheRead + row.cacheWrite5m + row.cacheWrite1h;
+  const used = window > 0 && footprint > window ? 0 : footprint;
 
   return {
-    used: inputTokens + outputTokens,
-    total: getContextWindow(model),
+    used,
+    total: window,
     model,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheCreationTokens,
+    inputTokens: row.freshInput + cacheTokens,
+    outputTokens: row.output,
+    cacheReadTokens: row.cacheRead,
+    cacheCreationTokens: row.cacheWrite5m + row.cacheWrite1h,
     cacheTokens,
   };
 };
@@ -218,6 +339,9 @@ export class GrokSessionsProvider implements IProviderSessions {
         }
 
         if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+          if (isGrokHarnessNoise(block.text)) {
+            continue;
+          }
           if (sessionId) {
             this.sessionsWithAssistantText.add(sessionId);
           }
@@ -260,6 +384,9 @@ export class GrokSessionsProvider implements IProviderSessions {
     }
 
     if (raw.type === 'user') {
+      if (isGrokSyntheticUserTurn(raw)) {
+        return [];
+      }
       const message = readObjectRecord(raw.message);
       const content = message?.content;
       if (!Array.isArray(content)) {
@@ -276,6 +403,12 @@ export class GrokSessionsProvider implements IProviderSessions {
         if (!toolId) {
           continue;
         }
+        const resultText = typeof block.content === 'string'
+          ? block.content
+          : JSON.stringify(block.content ?? '');
+        if (/No user is available to answer questions in this non-interactive session/i.test(resultText)) {
+          continue;
+        }
 
         messages.push(createNormalizedMessage({
           id: `${toolId}_result`,
@@ -283,7 +416,7 @@ export class GrokSessionsProvider implements IProviderSessions {
           provider: PROVIDER,
           kind: 'tool_result',
           toolId,
-          content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? ''),
+          content: resultText,
         }));
       }
 
@@ -308,6 +441,7 @@ export class GrokSessionsProvider implements IProviderSessions {
         && !sawAssistantText
         && typeof raw.result === 'string'
         && raw.result.trim()
+        && !isGrokHarnessNoise(raw.result)
       ) {
         messages.push(createNormalizedMessage({
           id: generateMessageId(PROVIDER),
@@ -360,6 +494,7 @@ export class GrokSessionsProvider implements IProviderSessions {
     options: FetchHistoryOptions = {},
   ): Promise<FetchHistoryResult> {
     const { limit = null, offset = 0 } = options;
+    const sessionRow = sessionsDb.getSessionById(sessionId);
 
     let rawEvents: AnyRecord[] = [];
     try {
@@ -374,6 +509,12 @@ export class GrokSessionsProvider implements IProviderSessions {
     for (const raw of rawEvents) {
       normalized.push(...this.normalizeHistoryEvent(raw, sessionId));
     }
+
+    stampGrokHistoryMessages(
+      normalized,
+      sessionId,
+      resolveGrokHistoryClock(sessionRow?.jsonl_path, sessionRow?.created_at, normalized.length),
+    );
 
     // Fold tool results into their tool_use rows, same as the other providers.
     const toolResultMap = new Map<string, NormalizedMessage>();
@@ -447,6 +588,9 @@ export class GrokSessionsProvider implements IProviderSessions {
     }
 
     if (raw.type === 'user') {
+      if (isGrokSyntheticUserTurn(raw)) {
+        return [];
+      }
       const turn = extractGrokUserTurn(readTextParts(raw.content));
       if (!turn.text && !turn.images?.length) {
         return [];

@@ -321,6 +321,7 @@ export class DesktopNotificationsController {
         environmentUrl: target.httpUrl,
         sessionId: payload.data?.sessionId || null,
         provider: payload.data?.provider || null,
+        panel: payload.data?.panel || null,
       }).catch((error) => {
         this.lastEvent = 'click-error';
         this.lastError = error instanceof Error ? error.message : String(error);

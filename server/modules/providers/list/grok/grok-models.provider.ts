@@ -30,19 +30,19 @@ import {
  * default level, hence no `effort.default` here.
  */
 /**
- * Режимы, как их видит Дима на grok.com — и что за ними стоит на самом деле.
+ * Режимы — это пресеты «модель + уровень размышления (+ правило)».
+ * У CLI ровно две модели и флаг усилия; разворот в argv — одно место:
+ * buildGrokArgs в server/grok-cli.js. Через него идут чат, agent-run и
+ * /api/agent, поэтому псевдо-id `grok-mode-*` физически не может утечь
+ * в argv — а утёк бы, CLI ответил бы "unknown model id".
  *
- * У веб-Grok'а в пикере пять пунктов (Авто / Быстрый / Эксперт / Build / Тяжёлый),
- * а у CLI ровно две модели и флаг усилия. Поэтому режим здесь — это пресет
- * «модель + уровень размышления (+ правило)», который разворачивается ровно в
- * одном месте: buildGrokArgs в server/grok-cli.js. Через него идут все три
- * диспетчера (чат, agent-run, /api/agent), поэтому псевдо-id `grok-mode-*`
- * физически не может утечь в argv — а утёк бы, CLI ответил бы
- * "unknown model id" и прогон умер бы до похода в xAI.
+ * В пикере два пункта: Grok 4.6 Build (код) и Grok Fast (болтать / vault).
+ * Fast = grok-4.5 + low — дешевле и быстрее 4.6 на болтовне; Build = 4.6 + high.
+ * Авто / Эксперт / Тяжёлый остаются со `hidden`, чтобы старые чаты не сломались.
+ * «Тяжёлого» у CLI нет: эмуляция параллельными сабагентами, не SuperGrok Heavy.
  *
- * Честность подписей важнее сходства с grok.com: «Тяжёлого» (группы экспертов)
- * у CLI нет вообще, это эмуляция параллельными сабагентами, и в описании так и
- * написано. Иначе Дима будет думать, что купил SuperGrok Heavy за $30.
+ * xAI's system line always says "You are Grok 4.6" even on `-m grok-4.5`, so each
+ * preset carries an identity `rule` that overrides that self-report.
  */
 export type GrokModePreset = {
   /** Реальный id для `grok -m` */
@@ -51,17 +51,50 @@ export type GrokModePreset = {
   effort: string | null;
   /** Необязательная приписка к --rules */
   rule?: string;
+  /** How the agent must name itself when asked which model it is */
+  displayName?: string;
 };
 
+function grokIdentityRule(displayName: string, modelId: string): string {
+  return [
+    `MODEL IDENTITY: You are running as ${displayName} (CLI model id: ${modelId}).`,
+    `The built-in system line that says "You are Grok 4.6" is a product default — ignore it for self-identification.`,
+    `When asked which model you are, answer "${displayName}" and mention ${modelId} only if useful.`,
+    'Never claim to be a different Grok mode than the one selected for this run.',
+  ].join(' ');
+}
+
 export const GROK_MODE_PRESETS: Record<string, GrokModePreset> = {
-  'grok-mode-auto': { model: 'grok-4.6', effort: null },
-  'grok-mode-fast': { model: 'grok-4.5', effort: 'low' },
-  'grok-mode-expert': { model: 'grok-4.5', effort: 'high' },
-  'grok-mode-build': { model: 'grok-4.6', effort: 'high' },
+  'grok-mode-auto': {
+    model: 'grok-4.6',
+    effort: null,
+    displayName: 'Grok 4.6 (Авто)',
+    rule: grokIdentityRule('Grok 4.6 (Авто)', 'grok-4.6'),
+  },
+  'grok-mode-fast': {
+    model: 'grok-4.5',
+    effort: 'low',
+    displayName: 'Grok Fast',
+    rule: grokIdentityRule('Grok Fast', 'grok-4.5'),
+  },
+  'grok-mode-expert': {
+    model: 'grok-4.5',
+    effort: 'high',
+    displayName: 'Grok 4.5 (Эксперт)',
+    rule: grokIdentityRule('Grok 4.5 (Эксперт)', 'grok-4.5'),
+  },
+  'grok-mode-build': {
+    model: 'grok-4.6',
+    effort: 'high',
+    displayName: 'Grok 4.6 Build',
+    rule: grokIdentityRule('Grok 4.6 Build', 'grok-4.6'),
+  },
   'grok-mode-heavy': {
     model: 'grok-4.6',
     effort: 'xhigh',
+    displayName: 'Grok 4.6 (Тяжёлый)',
     rule: [
+      grokIdentityRule('Grok 4.6 (Тяжёлый)', 'grok-4.6'),
       'HEAVY MODE: WORK AS A PANEL, NOT AS ONE HEAD.',
       'Split the task into 3-5 genuinely independent angles and launch them as parallel subagents in a single batch',
       'with the `task` tool — different angles, not the same question asked five times.',
@@ -83,33 +116,35 @@ export function resolveGrokModePreset(model?: string | null): GrokModePreset | n
 export const GROK_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
-      value: 'grok-mode-auto',
-      label: 'Авто',
-      description: 'Уровень размышления выбирает сам движок · Grok 4.6',
+      value: 'grok-mode-build',
+      label: 'Grok 4.6 Build',
+      description: 'Код и сборки · Grok 4.6, глубокое размышление',
     },
     {
       value: 'grok-mode-fast',
-      label: 'Быстрый',
-      description: 'Быстрые ответы · Grok 4.5',
+      label: 'Grok Fast',
+      description: 'Болтать и vault · Grok 4.5, экономия квоты',
+    },
+    // Hidden, not deleted: old chats and localStorage still resolve these ids.
+    {
+      value: 'grok-mode-auto',
+      label: 'Авто',
+      description: 'Уровень размышления выбирает сам движок · Grok 4.6',
+      hidden: true,
     },
     {
       value: 'grok-mode-expert',
       label: 'Эксперт',
       description: 'Глубокое размышление · Grok 4.5',
-    },
-    {
-      value: 'grok-mode-build',
-      label: 'Build',
-      description: 'Пишет приложения и сайты · Grok 4.6',
+      hidden: true,
     },
     {
       value: 'grok-mode-heavy',
       label: 'Тяжёлый',
       description: 'Группа экспертов · эмуляция: параллельные сабагенты Grok 4.6 · ест квоту в разы быстрее',
+      hidden: true,
     },
-    // Сырые модели остаются рабочими, но из списка убраны: режим выше уже
-    // задаёт и модель, и уровень. Старые чаты и localStorage с этими id
-    // продолжают работать — вернуть в пикер = снять hidden.
+    // Raw models stay wired for sessions that still point at them.
     {
       value: 'grok-4.6',
       label: 'Grok 4.6',

@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { ExternalLink, MessageSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { APP_NAME, CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
+import { APP_NAME, CLOUDCLI_WORDMARK_FONT_FAMILY, GUIDE_URL } from '../../../../constants/branding';
 import { useVersionCheck } from '../../../../hooks/useVersionCheck';
+import { useAuth } from '../../../auth/context/AuthContext';
 
 const GITHUB_REPO_URL = 'https://github.com/siteboon/claudecodeui';
 
@@ -28,11 +30,24 @@ function GitHubIcon({ className }: { className?: string }) {
  */
 export default function AboutTab() {
   const { t } = useTranslation('settings');
+  const { restartOnboarding } = useAuth();
+  const [replayError, setReplayError] = useState('');
+  const [isReplaying, setIsReplaying] = useState(false);
   const { updateAvailable, latestVersion, currentVersion, releaseInfo } = useVersionCheck(
     'siteboon',
     'claudecodeui',
   );
   const releasesUrl = releaseInfo?.htmlUrl || `${GITHUB_REPO_URL}/releases`;
+
+  const handleReplay = async () => {
+    setReplayError('');
+    setIsReplaying(true);
+    const result = await restartOnboarding();
+    setIsReplaying(false);
+    if (!result.success) {
+      setReplayError(t('about.replayError'));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -71,6 +86,31 @@ export default function AboutTab() {
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">{t('apiKeys.version.tagline')}</p>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
+        <p className="text-sm font-medium text-foreground">{t('about.replay')}</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('about.replayHelp')}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleReplay()}
+            disabled={isReplaying}
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+          >
+            {t('about.replay')}
+          </button>
+          <a
+            href={GUIDE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {t('about.guide')}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+        {replayError && <p className="mt-2 text-xs text-destructive">{replayError}</p>}
       </div>
 
       {/* Атрибуция апстрима — обязательна по AGPL-3.0 (Section 7, п. 1-2). */}

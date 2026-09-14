@@ -20,12 +20,18 @@ import {
 import { preferredStartingMode, skipPermissionsDefaultMode } from '../utils/permissionDefaults';
 import { withAutoPlanMode } from '../utils/autoPlanMode';
 import {
+  IDLE_WORK_MODE,
+  idlePermissionMode,
+  isIdleComposerModes,
+} from '../utils/composerModeReset';
+import {
   WORK_MODE_DEFAULT_KEY,
   readDefaultWorkMode,
   readSessionWorkMode,
   workModeStorageKey,
 } from '../utils/workModeStorage';
 import { applyProviderModel, type ProviderModelSetters } from '../utils/providerModelState';
+import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   // 'default' means "whatever the CLI is configured to use" and stays the
@@ -35,7 +41,7 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   // inside a chat is stored per provider in localStorage and still wins.
   claude: defaultClaudeModel('default'),
   cursor: 'gpt-5.3-codex',
-  codex: 'gpt-5.4',
+  codex: 'gpt-5.6-sol',
   opencode: 'anthropic/claude-sonnet-4-5',
   kimi: 'kimi-code/k3',
   gemini: 'gemini-2.5-pro',
@@ -81,7 +87,7 @@ const readStoredProvider = (): LLMProvider => {
   const storedProvider = localStorage.getItem('selected-provider');
   return PROVIDERS.includes(storedProvider as LLMProvider)
     ? storedProvider as LLMProvider
-    : 'claude';
+    : 'grok';
 };
 
 /**
@@ -874,11 +880,25 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
   }, [getPermissionModesForProvider, permissionMode, provider, selectedSession?.id, selectPermissionMode]);
 
+  // Catalog briefs (empty-chat job buttons) put text in the composer AND
+  // switch this chat to interrogate, so the first move is questions, not a draft.
+  useEffect(() => {
+    const onDraft = (event: Event) => {
+      const mode = (event as CustomEvent<ComposerDraftDetail>).detail?.workMode;
+      if (!mode || !WORK_MODES.includes(mode)) {
+        return;
+      }
+      selectWorkMode(mode);
+    };
+    window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
+    return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
+  }, [selectWorkMode]);
+
   // Called once, exactly when a brand-new chat's session id becomes real
   // (see ChatInterface's onSessionEstablished). Whatever mode is active
-  // RIGHT NOW becomes this session's own permanent record — the only way a
-  // mode picked before the first send survives the "no id" -> "real id"
-  // jump, without ever touching any other chat's stored mode.
+  // RIGHT NOW becomes this session's record for the first send — the only
+  // way a mode picked before the first send survives the "no id" -> "real
+  // id" jump. The send path then one-shot-resets it to ordinary + bypass.
   const commitPermissionModeToSession = useCallback((sessionId: string) => {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) {
@@ -895,6 +915,34 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
     localStorage.setItem(workModeStorageKey(normalizedSessionId), workMode);
   }, [workMode]);
+
+  /**
+   * One-shot modes: the message that just went out keeps the chip that was
+   * on, and the composer snaps back to ordinary + bypass so the NEXT
+   * message does not write another plan / re-ask the briefing questions /
+   * re-invoke the autopilot skill. Pass the session id from the send path
+   * — a brand-new chat has no selectedSession.id yet when this runs.
+   */
+  const resetComposerModesAfterSend = useCallback((sessionId?: string | null) => {
+    const modes = getPermissionModesForProvider(provider);
+    const idlePerm = idlePermissionMode(modes);
+    if (isIdleComposerModes(workMode, permissionMode, modes)) {
+      return;
+    }
+
+    setWorkMode(IDLE_WORK_MODE);
+    setPermissionMode(idlePerm);
+
+    const targetId = (typeof sessionId === 'string' && sessionId.trim()) || selectedSession?.id || '';
+    if (targetId) {
+      localStorage.setItem(workModeStorageKey(targetId), IDLE_WORK_MODE);
+      localStorage.setItem(`permissionMode-${targetId}`, idlePerm);
+      return;
+    }
+
+    draftWorkModePickedRef.current = true;
+    draftPermissionModePickedRef.current = true;
+  }, [getPermissionModesForProvider, permissionMode, provider, selectedSession?.id, workMode]);
 
   const cyclePermissionMode = useCallback(() => {
     const modes = getPermissionModesForProvider(provider);
@@ -1066,6 +1114,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     workMode,
     selectWorkMode,
     commitWorkModeToSession,
+    resetComposerModesAfterSend,
     availablePermissionModes: getPermissionModesForProvider(provider),
     supportsWorkModeForProvider,
     providerModels,

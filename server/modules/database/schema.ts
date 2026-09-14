@@ -283,6 +283,79 @@ CREATE TABLE IF NOT EXISTS telegram_bindings (
 );
 `;
 
+// Append-only record of every run this installation performed, and what it cost.
+//
+// Two questions had no answer before this table existed:
+//   1. "What did the agent do last night?" — unattended runs (schedules,
+//      pipelines, Telegram) leave no trace anywhere.
+//   2. "Where did the money go?" — token counts existed per session, but never
+//      attributed to a run, a trigger or a project.
+//
+// `actor` is deliberately separate from `user_id`: a schedule runs *on behalf
+// of* a user, but that user did not start it. Collapsing the two makes the
+// central audit question unanswerable.
+//
+// `run_id` rather than `session_id` is the unit of grouping — one session hosts
+// dozens of runs, and the feed answers "what did this one run do".
+//
+// Money is stored as integer micro-USD. Summing floats across thousands of rows
+// drifts, and this number is what a spend cap will eventually be compared to.
+export const AUDIT_LOG_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    day_msk TEXT NOT NULL,
+    user_id INTEGER,
+    actor TEXT NOT NULL,
+    project_id TEXT,
+    project_path TEXT,
+    session_id TEXT,
+    run_id TEXT,
+    event TEXT NOT NULL,
+    provider TEXT,
+    model TEXT,
+    tool_name TEXT,
+    detail TEXT NOT NULL DEFAULT '',
+    outcome TEXT,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    cache_read INTEGER NOT NULL DEFAULT 0,
+    cache_write_5m INTEGER NOT NULL DEFAULT 0,
+    cache_write_1h INTEGER NOT NULL DEFAULT 0,
+    cost_micro_usd INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+`;
+
+// An audit log that can be edited is not an audit log. UPDATE and DELETE are
+// refused at the database level, so neither a bug nor a future feature can
+// quietly rewrite history — only the file itself can be tampered with, and that
+// is outside what the app can defend against.
+export const AUDIT_LOG_GUARD_SQL = `
+CREATE TRIGGER IF NOT EXISTS audit_log_no_update
+BEFORE UPDATE ON audit_log
+BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS audit_log_no_delete
+BEFORE DELETE ON audit_log
+BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+`;
+
+// Indexes and the idempotency guard, kept next to the table so migrations and
+// fresh installs apply exactly the same set.
+//
+// The unique index on run.finish is what makes metering safe to retry: a run
+// that is re-reported (transient retry, reconnect) cannot bill twice.
+export const AUDIT_LOG_INDEXES_SQL = `
+CREATE INDEX IF NOT EXISTS idx_audit_day ON audit_log(day_msk, id DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_log(run_id);
+CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_log(project_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user_day ON audit_log(user_id, day_msk);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_run_finish
+    ON audit_log(run_id) WHERE event = 'run.finish' AND run_id IS NOT NULL;
+`;
+
 // Short-lived codes a user pastes into the bot to prove the chat is theirs.
 export const TELEGRAM_LINK_CODES_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS telegram_link_codes (
@@ -367,6 +440,10 @@ CREATE INDEX IF NOT EXISTS idx_telegram_bindings_user_id ON telegram_bindings(us
 
 ${TELEGRAM_LINK_CODES_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_telegram_link_codes_user_id ON telegram_link_codes(user_id);
+
+${AUDIT_LOG_TABLE_SCHEMA_SQL}
+${AUDIT_LOG_INDEXES_SQL}
+${AUDIT_LOG_GUARD_SQL}
 
 ${LAST_SCANNED_AT_SQL}
 

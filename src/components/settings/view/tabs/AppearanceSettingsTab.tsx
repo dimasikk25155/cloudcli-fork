@@ -9,6 +9,10 @@ import {
   THEME_LABELS,
   UI_SCALES,
   backgroundsForTheme,
+  isVideoTheme,
+  LIVE_WALLPAPER_OFF,
+  LIVE_WALLPAPER_AUTO,
+  liveWallpaperSelectValue,
 } from '../../../../contexts/ThemeContext';
 import SettingsCard from '../SettingsCard';
 import SettingsRow from '../SettingsRow';
@@ -46,11 +50,14 @@ export default function AppearanceSettingsTab({
     setUiScale,
     backgroundVariant,
     setThemeBackground,
+    setLiveWallpaper,
     customBackground,
     uploadCustomBackground,
     clearCustomBackground,
   } = useTheme();
   const backgroundVariants = shaderEnabled ? backgroundsForTheme(theme) : [];
+  const liveWallpaperTheme = isVideoTheme(theme);
+  const liveWallpaperValue = liveWallpaperSelectValue(shaderEnabled, backgroundVariant, theme);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
   const [backgroundBusy, setBackgroundBusy] = useState(false);
   const [backgroundError, setBackgroundError] = useState<string | null>(null);
@@ -91,35 +98,64 @@ export default function AppearanceSettingsTab({
             </select>
           </SettingsRow>
 
-          {backgroundVariants.length > 1 && (
+          {liveWallpaperTheme ? (
             <SettingsRow
-              label={t('appearanceSettings.themeBackground.label')}
-              description={t('appearanceSettings.themeBackground.description')}
+              label={t('appearanceSettings.liveWallpaper.label', { defaultValue: 'Background' })}
+              description={t('appearanceSettings.liveWallpaper.description', {
+                defaultValue: 'Off removes the picture. Auto rotates the clips. Any other item stays as picked.',
+              })}
             >
               <select
-                value={backgroundVariant}
-                onChange={(event) => setThemeBackground(theme, event.target.value)}
+                value={liveWallpaperValue}
+                onChange={(event) => setLiveWallpaper(event.target.value)}
                 className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44"
               >
-                {backgroundVariants.map((variant: { id: string; label: string }) => (
+                <option value={LIVE_WALLPAPER_OFF}>
+                  {t('appearanceSettings.liveWallpaper.off', { defaultValue: 'Off' })}
+                </option>
+                <option value={LIVE_WALLPAPER_AUTO}>
+                  {t('appearanceSettings.liveWallpaper.auto', { defaultValue: 'Auto rotate' })}
+                </option>
+                {backgroundsForTheme(theme).map((variant: { id: string; label: string }) => (
                   <option key={variant.id} value={variant.id}>
                     {variant.label}
                   </option>
                 ))}
               </select>
             </SettingsRow>
-          )}
+          ) : (
+            <>
+              {backgroundVariants.length > 1 && (
+                <SettingsRow
+                  label={t('appearanceSettings.themeBackground.label')}
+                  description={t('appearanceSettings.themeBackground.description')}
+                >
+                  <select
+                    value={backgroundVariant}
+                    onChange={(event) => setThemeBackground(theme, event.target.value)}
+                    className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44"
+                  >
+                    {backgroundVariants.map((variant: { id: string; label: string }) => (
+                      <option key={variant.id} value={variant.id}>
+                        {variant.label}
+                      </option>
+                    ))}
+                  </select>
+                </SettingsRow>
+              )}
 
-          <SettingsRow
-            label={t('appearanceSettings.showBackground.enable.label')}
-            description={t('appearanceSettings.showBackground.enable.description')}
-          >
-            <SettingsToggle
-              checked={shaderEnabled}
-              onChange={setShaderEnabled}
-              ariaLabel={t('appearanceSettings.showBackground.enable.label')}
-            />
-          </SettingsRow>
+              <SettingsRow
+                label={t('appearanceSettings.showBackground.enable.label')}
+                description={t('appearanceSettings.showBackground.enable.description')}
+              >
+                <SettingsToggle
+                  checked={shaderEnabled}
+                  onChange={setShaderEnabled}
+                  ariaLabel={t('appearanceSettings.showBackground.enable.label')}
+                />
+              </SettingsRow>
+            </>
+          )}
 
           <SettingsRow
             label={t('appearanceSettings.customBackground.label', { defaultValue: 'Your own background' })}

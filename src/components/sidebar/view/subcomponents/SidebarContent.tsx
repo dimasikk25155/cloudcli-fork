@@ -112,6 +112,7 @@ type SidebarContentProps = {
   restartRequired: boolean;
   currentVersion: string;
   onShowSettings: () => void;
+  onGoHome?: () => void;
   projectListProps: SidebarProjectListProps;
   t: TFunction;
 };
@@ -143,6 +144,7 @@ export default function SidebarContent({
   restartRequired,
   currentVersion,
   onShowSettings,
+  onGoHome,
   projectListProps,
   t,
 }: SidebarContentProps) {
@@ -171,6 +173,7 @@ export default function SidebarContent({
         isRefreshing={isRefreshing}
         onCreateProject={onCreateProject}
         onCollapseSidebar={onCollapseSidebar}
+        onGoHome={onGoHome}
         t={t}
       />
 

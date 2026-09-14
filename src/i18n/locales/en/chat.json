@@ -106,7 +106,8 @@
       "auto": "A model classifier decides per tool call whether to approve or deny. Hands-off, but safer than Bypass — denials still happen.",
       "acceptEdits": "All commands run automatically within the workspace. Full auto mode with sandboxed execution.",
       "bypassPermissions": "Full system access with no restrictions. All commands run automatically with full disk and network access. Use with caution.",
-      "plan": "Planning mode - no commands are executed"
+      "plan": "Writes a plan and waits for your approval. Nothing is changed without an OK",
+      "planBypass": "First 3–4 clarifying questions (goal, duration, scope), then a real plan and work through to a finished result — no extra “continue?” prompts"
     },
     "technicalDetails": "Technical details"
   },
@@ -244,6 +245,7 @@
       "label": "{{time}} elapsed",
       "startingNow": "Starting now"
     },
+    "usingTools": "Tools: {{name}}",
     "stop": "Stop",
     "controls": {
       "stopGeneration": "Stop Generation",
@@ -269,9 +271,59 @@
     },
     "descriptions": {
       "autopilot": "Runs the task to the end on its own, asking only when it genuinely cannot proceed.",
-      "checkpoints": "Plans the work in stages, briefs you after each one and waits for your go-ahead.",
+      "checkpoints": "Plans the work in stages and briefs you after each one, then keeps going on its own. Asks only at genuine forks.",
       "interrogate": "Asks clarifying questions before every step and never assumes anything.",
       "build": "Builds the whole project in one flight: requirements taken from your own words, tickets in parallel, a final check against the brief. Progress lives on the Autopilot tab. With permissions bypassed it asks nothing at all."
+    }
+  },
+  "firstTask": {
+    "title": "What to do with these files",
+    "subtitle": "Tap a job — questions arrive as buttons. The brief is for the agent, you do not send anything.",
+    "guide": "Full interface guide",
+    "claudeNeeded": "Sign in to Claude first — otherwise the agent cannot work.",
+    "openSettings": "Open settings",
+    "briefPreamble": "This is a BRIEF, not “just make something”.\nHard order:\n1) Skim the project files — what already exists. Do not re-ask facts that are already in the files. Do NOT draft anything yet.\n2) Ask clarifying questions with AskUserQuestion (or ask_user_question). Options as buttons, not a numbered list in chat. First batch: 5–7 questions. Each question closes a decision that would change the result. Every question needs a short recommended option in the description plus “you decide / I don’t know”. Do not ask the obvious, and do not ask taste (“modern or classic”).\n3) STOP. Wait for answers. No files, pages, posts, or tables until they answer.\n4) If a hole remains that would make you invent a price, a fact, or a reference look — second batch of 2–4 questions. Then stop asking.\n5) After answers: 5–8 lines of brief (who it is for, what we make, what we skip, what “done” looks like) and then do the work.\nForbidden: “not much data, I’ll improvise”. No answers — no work. Do not invent prices, reviews, numbers, photos, or other people’s quotes. Missing from files and answers → write “to confirm”.",
+    "tasks": {
+      "site": {
+        "label": "Website or landing page",
+        "prompt": "Job: a sales page or a small site for this business.\nDone: on a phone it is clear who this is, one promise, one action; the page can be sent to a client. No invented numbers, reviews, or faces.\nAsk with buttons (decisions, not taste). Every question needs “you decide / I don’t know”:\n— After the visit, what MUST happen: a message lead / a call / a booking / they understood and will write later. I would take a message lead — easiest to check.\n— Who opens it and why they do not buy today: they don’t know you / they don’t trust the promise / it feels expensive / they already have someone.\n— One promise on the first screen, not four equal pluses: a result / speed / “we’ll figure it for you” / a price — only if it is in the files.\n— What proof already exists: reviews or cases in the folder / photos of work / numbers from the files / no proof — write honestly, no fake.\n— What it should feel like: name 1–2 sites you know by heart / there is an existing site to redo / you pick a reference from the same world, not “like Apple”.\n— What we deliver this round: one page, sendable today / several pages (home, services, contacts) / section copy only, build later.\nAfter answers: 5–8 lines of brief, then the work. Do not invent or generate images — describe what to take from the folder. Do not appoint a reference they did not name."
+      },
+      "crm": {
+        "label": "Client tracker",
+        "prompt": "Job: a simple client tracker for this business, not enterprise CRM.\nDone: a table or a small board where a lead can be added today and the step is visible.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— Who uses this every day: only me on a phone / me and staff / just me for now, a team later. I would start with “only me on a phone” — fewer screens.\n— Who a “client” is in real life: an ad lead, not bought yet / already bought / a subscriber, far from a purchase.\n— Which deal steps actually exist, not a textbook: new → talking → waiting for payment → done / my own 3–5 steps.\n— Where the truth lives now: messenger chat / a sheet / nowhere, all in my head. If it is in the head, the tracker must be shorter than the habit of typing in chat.\n— If nobody opened a card for three days: remind me / nothing, I look myself / hand to a staff member.\n— What we deliver: a table fillable today / a small board with list and statuses / a one-page map first, the board later.\nAfter answers: fields and stages plus a working draft. Do not invent names, phones, or sums."
+      },
+      "bot": {
+        "label": "Messenger bot",
+        "prompt": "Job: a bot that takes one routine off the chat.\nDone: a flow with buttons and ready message copy. Code only if they ask for it separately.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— Where: Telegram / MAX / both. If unsure, start where clients already write.\n— One main job, not three at once: take a lead / answer frequent questions / book a time.\n— Where the lead goes the same minute: to me in chat / a table / the tracker, if it already exists.\n— When a human must step in: always via an “operator” button / if the bot did not understand / the bot runs alone, no human.\n— Tone: short / warm / formal. I would take short — long messages are not read in chat.\n— Prices and slots in bot replies: only from files / always write “we’ll confirm” / they will name 2–3 figures in the answers.\nAfter answers: the flow and the copy. No code unless they ask. Do not invent prices or hours."
+      },
+      "content": {
+        "label": "Posts and content",
+        "prompt": "Job: a batch of posts ready to paste into a channel.\nDone: title, text, and what is on the image for each post. No corporate speak, no invented numbers.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— Where: Telegram / MAX / VK / several. Several means one meaning, different cuts per platform.\n— Who reads and what hurts NOW, not “target audience”: say it in their words / propose from the files / I don’t know — read the folder and offer 2 portraits as buttons.\n— What this week sells with one blow: a named service / trust, no sell / a lead in chat.\n— Tone: neighbour / calm expert / blunt. If they like a channel, name it — that is the reference.\n— How many: 3 as a trial / 7 for a week / 14 for two. I would take 7.\n— Which facts may go in the text: only files and answers / carefully, with no numbers / they will add 2–3 facts in the answers.\nAfter answers: the posts. Do not invent client quotes or numbers."
+      },
+      "competitors": {
+        "label": "Competitor review",
+        "prompt": "Job: a competitor review you can use to decide how to differ — not praise that “everyone is fine”.\nDone: 5 names, comparison on 4–5 points, weak spots, how this business can differ. No flattery.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— Market: city and region / the whole country / online, no geography.\n— Compare with: the same / pricier / cheaper / I’ll name 2–3. No names — I find 5 similar and confirm them with buttons.\n— What people actually pick you for, not “quality”: price / speed / human feel / range / I’ll say.\n— Where to look: sites / ads / socials / all of them.\n— Output: a table / a one-page review / ideas for how the offer should differ.\n— What must not appear: invented reviews / smoothed-over weaknesses / comparison with world brands not from this life.\nAfter answers: 5 competitors and a verdict. Quotes and numbers only with a source; no source → mark “hypothesis”."
+      },
+      "offer": {
+        "label": "Sales proposal",
+        "prompt": "Job: one one-page sales proposal.\nDone: text that can be sent today. Do not invent a price.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— For: one named client / a template for similar clients / I don’t know, make a template.\n— Selling with one blow: one service / a package / turnkey. Not three offers in one file.\n— They already know you, or this is cold: they know us / cold / mixed, there is a shared name.\n— Money at the bottom: a price from the files / “we’ll quote” / several packages, they will name the range. No figures → write “price to confirm”, do not invent a pretty number.\n— What proof already exists: a case in the folder / a review / numbers / no proof, do not invent.\n— Tone: short and to the point / longer, with stages. I would take short — long proposals are not finished.\nAfter answers: the proposal."
+      },
+      "replies": {
+        "label": "Client replies",
+        "prompt": "Job: ready replies to paste into chat.\nDone: 8–12 lines for the chosen situations, no “dear customer, thank you for reaching out”.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— Where: WhatsApp / Telegram / MAX / email / several.\n— Who writes: the owner / a manager in the company voice.\n— Situations to cover (several allowed): new lead / price / timing / “too expensive” / a complaint / all of them.\n— Tone: owner, plain / polite neutral / firmer, no sugar.\n— May the replies offer a discount: never / yes, inside a range they will name / propose wording with no figure.\n— Which facts may be promised: only from files / timing and price always “we’ll confirm” / they will add 2–3 facts.\nAfter answers: the replies. Do not promise a discount, a deadline, or a price that is not in the answers."
+      },
+      "spreadsheet": {
+        "label": "Spreadsheet review",
+        "prompt": "Job: read the numbers so it is obvious what to do next week.\nDone: plain-language takeaways plus 3 concrete steps. No mash of percentages, no invented figures.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— What the sheet is: sales / leads / ads / stock / I don’t know, find it in the folder.\n— One main question to the numbers: where money leaks / what is growing / who to stop selling to / I’ll phrase it.\n— Period: last month / quarter / year / whatever is in the file.\n— Output: 5 takeaways / takeaways plus what to change next week. I would take the second.\n— If none exist: which export to attach — sales / leads / ads — then STOP until the file. Do not invent sample figures.\nAfter answers: the takeaways. No sheet — do not fake a review."
+      },
+      "ads": {
+        "label": "Ad copy",
+        "prompt": "Job: ad copy ready to run.\nDone: 5 short (and long, if asked) with no “best on the market” and no numbers that are not there.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— Where: Direct / VK / Telegram / Avito / several. Several means one meaning, different cuts.\n— Who we catch and what hurts now: in their words / propose two portraits from the files as buttons.\n— One promise: a result / a price if it exists / speed / “we’ll figure it for you”.\n— The ask: write / call / leave a lead.\n— How many: 5 short / 5 short and 3 long. I would take both if the platform allows a long text.\n— Which facts may go in: only files and answers / no numbers at all / they will add 2–3.\nAfter answers: the copy. Forbidden: “best”, “#1”, and any number that is not in the files or answers."
+      },
+      "knowledge": {
+        "label": "Knowledge base",
+        "prompt": "Job: a short knowledge base from the folder so the same facts are not hunted down again.\nDone: a cheat sheet in plain language, gaps marked, not papered over.\nAsk with buttons. Every question needs “you decide / I don’t know”:\n— For: me / a staff member / the agent answering clients.\n— Must include: services / prices / how we work / FAQ / whatever you find.\n— If a gap: mark “missing” / stop and ask / do not fill it at all. “Fill carefully” is forbidden.\n— Size: one page / several short cards. I would take cards — easier to find.\n— Ready client answers, or an internal cheat sheet only.\nAfter answers: the base. Mark gaps. Do not invent prices or rules that are not there."
+      }
     }
   }
 }

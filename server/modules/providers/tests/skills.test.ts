@@ -69,7 +69,8 @@ const writeClaudePluginCommand = async (
 
 /**
  * This test covers Claude user/project skill folders plus plugin discovery from
- * installed plugin command files and fallback plugin skill files.
+ * installed plugin command files and plugin skill files, including a plugin that
+ * ships both.
  */
 test('providerSkillsService lists claude user, project, and enabled plugin skills', { concurrency: false }, async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'llm-skills-claude-'));
@@ -144,11 +145,17 @@ test('providerSkillsService lists claude user, project, and enabled plugin skill
     );
     await writeSkill(
       path.join(commandPluginInstallPath, 'skills'),
-      'ignored-command-plugin-skill-dir',
-      'ignored-command-plugin-skill',
-      'Command plugin fallback skill should be ignored',
+      'command-plugin-skill-dir',
+      'command-plugin-skill',
+      'Skill shipped beside plugin commands',
     );
     await writeClaudePluginManifest(skillPluginInstallPath, 'ExampleSkills');
+    await fs.mkdir(path.join(skillPluginInstallPath, 'commands'), { recursive: true });
+    await fs.writeFile(
+      path.join(skillPluginInstallPath, 'commands', 'other-agent.toml'),
+      'description = "Command for another agent"\n',
+      'utf8',
+    );
     await writeSkill(
       path.join(skillPluginInstallPath, 'skills'),
       'claude-plugin-dir',
@@ -280,7 +287,12 @@ test('providerSkillsService lists claude user, project, and enabled plugin skill
     assert.equal(pluginCommand?.command, '/Notion:insert-row');
     assert.equal(pluginCommand?.description, 'Insert a Notion database row');
     assert.match(pluginCommand?.sourcePath ?? '', /commands[\\/]insert-row\.md$/);
-    assert.equal(byName.has('ignored-command-plugin-skill'), false);
+    const commandPluginSkill = byName.get('command-plugin-skill');
+    assert.equal(commandPluginSkill?.scope, 'plugin');
+    assert.equal(commandPluginSkill?.pluginName, 'Notion');
+    assert.equal(commandPluginSkill?.pluginId, 'notion@notion-marketplace');
+    assert.equal(commandPluginSkill?.command, '/Notion:command-plugin-skill');
+    assert.equal(commandPluginSkill?.description, 'Skill shipped beside plugin commands');
 
     const pluginSkill = byName.get('claude-plugin');
     assert.equal(pluginSkill?.scope, 'plugin');
@@ -356,6 +368,12 @@ test('providerSkillsService lists codex repository, user, and system skills', { 
       'Codex user skill',
     );
     await writeSkill(
+      path.join(tempRoot, '.codex', 'skills'),
+      'codex-app-dir',
+      'codex-app',
+      'Codex app skill',
+    );
+    await writeSkill(
       path.join(tempRoot, '.codex', 'skills', '.system'),
       'codex-system-dir',
       'codex-system',
@@ -369,7 +387,9 @@ test('providerSkillsService lists codex repository, user, and system skills', { 
     assert.equal(byName.get('codex-parent')?.scope, 'repo');
     assert.equal(byName.get('codex-root')?.scope, 'repo');
     assert.equal(byName.get('codex-user')?.scope, 'user');
+    assert.equal(byName.get('codex-app')?.scope, 'user');
     assert.equal(byName.get('codex-system')?.scope, 'system');
+    assert.equal(skills.filter((skill) => skill.name === 'codex-system').length, 1);
     assert.equal(byName.get('codex-root')?.command, '$codex-root');
   } finally {
     restoreHomeDir();
@@ -540,7 +560,7 @@ test('providerSkillsService adds global skills for claude, codex, and cursor', {
     assert.ok(createdCodexSkill);
     assert.equal(createdCodexSkill.command, '$codex-global');
     assert.equal(
-      createdCodexSkill.sourcePath.endsWith(path.join('.agents', 'skills', 'uploaded-codex-folder', 'SKILL.md')),
+      createdCodexSkill.sourcePath.endsWith(path.join('.codex', 'skills', 'uploaded-codex-folder', 'SKILL.md')),
       true,
     );
     assert.equal(
@@ -561,7 +581,7 @@ test('providerSkillsService adds global skills for claude, codex, and cursor', {
     assert.equal(fallbackNamedSkill.name, 'fallback-skill');
     assert.equal(fallbackNamedSkill.command, '$fallback-skill');
     assert.equal(
-      fallbackNamedSkill.sourcePath.endsWith(path.join('.agents', 'skills', 'fallback-skill', 'SKILL.md')),
+      fallbackNamedSkill.sourcePath.endsWith(path.join('.codex', 'skills', 'fallback-skill', 'SKILL.md')),
       true,
     );
 
@@ -580,7 +600,7 @@ test('providerSkillsService adds global skills for claude, codex, and cursor', {
       { code: 'ENOENT' },
     );
 
-    const pendingBatchSkillPath = path.join(tempRoot, '.agents', 'skills', 'pending-batch', 'SKILL.md');
+    const pendingBatchSkillPath = path.join(tempRoot, '.codex', 'skills', 'pending-batch', 'SKILL.md');
     await assert.rejects(
       providerSkillsService.addProviderSkills('codex', {
         entries: [

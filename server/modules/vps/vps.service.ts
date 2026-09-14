@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -62,6 +64,92 @@ export type ServiceInfo = {
   controllable: boolean;
   health: 'up' | 'down' | 'failed' | 'flapping' | 'idle';
 };
+
+const HEARTBEAT_STALE_MS = 90_000;
+
+export type BotHealthItem = {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+};
+
+type BotWatch = {
+  id: string;
+  label: string;
+  /** Always listed, even if the heartbeat file is missing. */
+  required: boolean;
+  paths: () => string[];
+};
+
+function homeHeartbeat(...parts: string[]): string {
+  return join(os.homedir(), 'Antigravity Project', ...parts);
+}
+
+const BOT_WATCHLIST: BotWatch[] = [
+  {
+    id: 'tyres-wa-kz',
+    label: 'Tyres KZ',
+    required: true,
+    paths: () => [
+      homeHeartbeat('Tyres', 'bot', 'logs', 'heartbeat.json'),
+      '/home/agents/Antigravity Project/Tyres/bot/logs/heartbeat.json',
+    ],
+  },
+  {
+    id: 'tyres-wa-7su',
+    label: '7su',
+    required: false,
+    paths: () => [homeHeartbeat('Tyres-7su', 'bot', 'logs', 'heartbeat.json')],
+  },
+];
+
+/** Exported for tests: turns a heartbeat file into the row the header shows. */
+export function interpretHeartbeat(
+  id: string,
+  label: string,
+  raw: string | null,
+  now = Date.now(),
+  staleMs = HEARTBEAT_STALE_MS,
+): BotHealthItem {
+  if (raw == null) {
+    return { id, label, ok: false, detail: 'нет пульса' };
+  }
+  try {
+    const parsed = JSON.parse(raw) as { connected?: boolean; ts?: number };
+    const age = now - Number(parsed.ts || 0);
+    if (!Number.isFinite(age) || age > staleMs) {
+      return { id, label, ok: false, detail: 'завис или не стучится' };
+    }
+    if (!parsed.connected) {
+      return { id, label, ok: false, detail: 'WhatsApp отвалился' };
+    }
+    return { id, label, ok: true, detail: 'на связи' };
+  } catch {
+    return { id, label, ok: false, detail: 'нет пульса' };
+  }
+}
+
+function readHeartbeatFile(paths: string[]): string | null {
+  for (const path of paths) {
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      // Try the next known location — Mac and VPS keep the same tree under $HOME.
+    }
+  }
+  return null;
+}
+
+export function getBotsHealth(): { ok: boolean; bots: BotHealthItem[] } {
+  const bots: BotHealthItem[] = [];
+  for (const bot of BOT_WATCHLIST) {
+    const raw = readHeartbeatFile(bot.paths());
+    if (raw == null && !bot.required) continue;
+    bots.push(interpretHeartbeat(bot.id, bot.label, raw));
+  }
+  return { ok: bots.length > 0 && bots.every((item) => item.ok), bots };
+}
 
 export type Overview = {
   hostname: string;

@@ -114,12 +114,41 @@ export function getConnection(): Database.Database {
   migrateLegacyDatabase(dbPath);
 
   instance = new Database(dbPath);
+  applyConcurrencyPragmas(instance);
 
   // app_config must exist immediately — the auth middleware reads
   // the JWT secret at module-load time, before initializeDatabase() runs.
   instance.exec(APP_CONFIG_TABLE_SCHEMA_SQL);
 
   return instance;
+}
+
+/**
+ * This database file has more than one writer.
+ *
+ * `schedule-runner.js` is launched by launchd/systemd as a *separate process*
+ * and writes to the same auth.db as the running server (schedule run status,
+ * pipeline steps, audit rows). In the default rollback journal mode a writer
+ * takes an exclusive lock on the whole file, so the second process fails
+ * immediately with SQLITE_BUSY rather than waiting — which surfaces as a
+ * schedule that silently did not run.
+ *
+ * WAL lets readers and one writer proceed concurrently; `busy_timeout` makes
+ * the loser of a write race wait instead of throwing. Both are per-connection
+ * settings that must be applied on every open, not once at creation.
+ *
+ * Wrapped in try/catch on purpose: WAL is unavailable for in-memory databases
+ * (used by the test helpers) and on some network filesystems. Falling back to
+ * the previous behaviour is correct there — refusing to open the database is
+ * not.
+ */
+function applyConcurrencyPragmas(db: Database.Database): void {
+  try {
+    db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');
+  } catch (err: any) {
+    console.warn('Could not enable WAL/busy_timeout on the database', { error: err?.message });
+  }
 }
 
 /**

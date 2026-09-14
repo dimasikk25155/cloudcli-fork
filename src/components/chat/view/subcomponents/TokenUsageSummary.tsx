@@ -25,25 +25,15 @@ const formatTokenCount = (value: number) => {
   return value.toLocaleString();
 };
 
-/** Window size without a trailing ".0" — 1000000 → "1M", 200000 → "200K". */
-const formatWindow = (value: number) => {
-  if (value >= 1_000_000) {
-    const millions = value / 1_000_000;
-    return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`;
-  }
-  return `${Math.round(value / 1_000)}K`;
-};
-
 const readUsageNumber = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
 /**
- * Context fill level, not a spend meter: `used` is the last turn's context
- * footprint and `total` is the model's real window (1M on current Opus/Sonnet).
- * Showing the raw number alone was unreadable — "310K" means nothing until you
- * know whether the window is 200K or 1M.
+ * Mini chip: session spend (input+output including cache) plus how full the
+ * model's context window is. Those are different numbers — never write spend
+ * over the window or Grok's 3M-token turns render as "600%".
  */
 export default function TokenUsageSummary({ usage, onClick }: TokenUsageSummaryProps) {
   const breakdown =
@@ -52,11 +42,18 @@ export default function TokenUsageSummary({ usage, onClick }: TokenUsageSummaryP
       : null;
   const inputTokens = readUsageNumber(usage?.inputTokens ?? breakdown?.input);
   const outputTokens = readUsageNumber(usage?.outputTokens ?? breakdown?.output);
-  const usedTokens = readUsageNumber(usage?.used) || inputTokens + outputTokens;
+  const spendTokens = inputTokens + outputTokens;
+  // `used` is the live context-window fill. Do NOT fall back to spend:
+  // on Grok that sum is every model call in the turn (millions).
+  const usedTokens = readUsageNumber(usage?.used);
   const windowTokens = readUsageNumber(usage?.total);
 
   const hasWindow = windowTokens > 0;
-  const fillPct = hasWindow ? Math.min(999, Math.round((usedTokens / windowTokens) * 100)) : null;
+  const hasFill = usedTokens > 0;
+  const hasSpend = spendTokens > 0;
+  const fillPct = hasWindow && hasFill
+    ? Math.min(100, Math.round((usedTokens / windowTokens) * 100))
+    : null;
 
   // Colour tracks headroom: calm under 60%, warning past 60%, urgent past 85%.
   const fillTone =
@@ -72,11 +69,17 @@ export default function TokenUsageSummary({ usage, onClick }: TokenUsageSummaryP
         ? 'bg-amber-500/10 text-amber-500'
         : 'bg-red-500/10 text-red-500';
 
-  const title = hasWindow
-    ? `Контекст: ${usedTokens.toLocaleString()} из ${windowTokens.toLocaleString()} токенов (${fillPct}%)`
-      + `\nВход (с кэшем): ${inputTokens.toLocaleString()} · Выход: ${outputTokens.toLocaleString()}`
-      + '\nНажми — полный расход и стоимость по API'
-    : `${usedTokens.toLocaleString()} tokens used`;
+  const title = hasSpend || hasFill
+    ? [
+        hasSpend
+          ? `В этой сессии: ${spendTokens.toLocaleString()} токенов (вход ${inputTokens.toLocaleString()} · выход ${outputTokens.toLocaleString()})`
+          : null,
+        hasWindow && hasFill
+          ? `Окно модели занято на ${fillPct}% (${usedTokens.toLocaleString()} из ${windowTokens.toLocaleString()})`
+          : null,
+        'Нажми — полный расход и стоимость по API',
+      ].filter(Boolean).join('\n')
+    : 'Расход этой сессии пока неизвестен';
 
   return (
     <button
@@ -85,23 +88,22 @@ export default function TokenUsageSummary({ usage, onClick }: TokenUsageSummaryP
       className="composer-chip inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 text-xs text-muted-foreground shadow-sm transition-colors hover:border-primary/25 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:gap-2 sm:px-2.5"
       title={title}
       aria-label={
-        hasWindow
-          ? `Контекст заполнен на ${fillPct} процентов`
-          : 'Show token usage'
+        hasSpend
+          ? `В сессии ${formatTokenCount(spendTokens)} токенов${fillPct !== null ? `, окно ${fillPct}%` : ''}`
+          : 'Показать расход токенов'
       }
     >
       <span className={`composer-chip-icon grid h-5 w-5 place-items-center rounded-md ${iconTone}`}>
         <ActivityIcon className="h-3.5 w-3.5" />
       </span>
-      <span className="font-medium text-foreground">{usage == null ? '—' : formatTokenCount(usedTokens)}</span>
-      {usage != null && hasWindow && (
-        <>
-          <span className="hidden text-muted-foreground/60 sm:inline">/ {formatWindow(windowTokens)}</span>
-          <span className={`font-medium tabular-nums ${fillTone}`}>{fillPct}%</span>
-        </>
+      <span className="font-medium text-foreground">
+        {hasSpend ? formatTokenCount(spendTokens) : '—'}
+      </span>
+      {fillPct !== null && (
+        <span className={`font-medium tabular-nums ${fillTone}`}>{fillPct}%</span>
       )}
-      {(usage == null || !hasWindow) && (
-        <span className="hidden text-muted-foreground/70 sm:inline">tokens</span>
+      {!hasSpend && !hasFill && (
+        <span className="hidden text-muted-foreground/70 sm:inline">сессия</span>
       )}
     </button>
   );

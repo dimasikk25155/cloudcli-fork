@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { copyTextToClipboard } from '../../../utils/clipboard';
 import { useCodeEditorDocument } from '../hooks/useCodeEditorDocument';
 import { useCodeEditorSettings } from '../hooks/useCodeEditorSettings';
 import { useEditorKeyboardShortcuts } from '../hooks/useEditorKeyboardShortcuts';
@@ -78,6 +79,17 @@ export default function CodeEditor({
     file,
     projectPath,
   });
+
+  // «Копировать» забирает весь файл в буфер: выделять текст руками на телефоне
+  // почти невозможно, а файлы открывают в том числе чтобы вставить их куда-то.
+  const [copySuccess, setCopySuccess] = useState(false);
+  const handleCopyContent = useCallback(async () => {
+    const copied = await copyTextToClipboard(content);
+    if (copied) {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    }
+  }, [content]);
 
   const isMarkdownFile = useMemo(() => {
     const extension = file.name.split('.').pop()?.toLowerCase();
@@ -269,6 +281,8 @@ export default function CodeEditor({
             onToggleMarkdownPreview={() => setMarkdownPreview((previous) => !previous)}
             onOpenHtmlPreview={openHtmlPreview}
             onOpenSettings={() => paletteOps.openSettings('appearance')}
+            onCopyContent={() => void handleCopyContent()}
+            copySuccess={copySuccess}
             onDownload={handleDownload}
             onShareLink={fileProjectId ? () => void handleShareLink() : undefined}
             shareBusy={shareBusy}

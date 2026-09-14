@@ -21,6 +21,9 @@ import {
   CommandItem,
   Card,
 } from "../../../../shared/view/ui";
+import { applyProviderModel } from "../../utils/providerModelState";
+
+import FirstTaskHints from "./FirstTaskHints";
 
 // Kimi re-added 2026-07-26 — bring-your-own-login engine alongside the others.
 // 'gemini' intentionally excluded — Google killed free personal-account login
@@ -70,6 +73,7 @@ type ProviderSelectionEmptyStateProps = {
   setGrokModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
+  onShowSettings?: () => void;
 };
 
 type ProviderGroup = {
@@ -138,6 +142,7 @@ export default function ProviderSelectionEmptyState({
   setGrokModel,
   providerModelCatalog,
   providerModelsLoading,
+  onShowSettings,
 }: ProviderSelectionEmptyStateProps) {
   const { t } = useTranslation("chat");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -173,27 +178,38 @@ export default function ProviderSelectionEmptyState({
 
   const setModelForProvider = useCallback(
     (providerId: LLMProvider, modelValue: string) => {
-      if (providerId === "claude") {
-        setClaudeModel(modelValue);
-        localStorage.setItem("claude-model", modelValue);
-      } else if (providerId === "codex") {
-        setCodexModel(modelValue);
-        localStorage.setItem("codex-model", modelValue);
-      } else if (providerId === "opencode") {
-        setOpenCodeModel(modelValue);
-        localStorage.setItem("opencode-model", modelValue);
-      } else if (providerId === "kimi") {
-        setKimiModel(modelValue);
-        localStorage.setItem("kimi-model", modelValue);
-      } else if (providerId === "gemini") {
-        setGeminiModel(modelValue);
-        localStorage.setItem("gemini-model", modelValue);
-      } else {
-        setCursorModel(modelValue);
-        localStorage.setItem("cursor-model", modelValue);
-      }
+      applyProviderModel(providerId, modelValue, {
+        claude: (model) => {
+          setClaudeModel(model);
+          localStorage.setItem("claude-model", model);
+        },
+        cursor: (model) => {
+          setCursorModel(model);
+          localStorage.setItem("cursor-model", model);
+        },
+        codex: (model) => {
+          setCodexModel(model);
+          localStorage.setItem("codex-model", model);
+        },
+        opencode: (model) => {
+          setOpenCodeModel(model);
+          localStorage.setItem("opencode-model", model);
+        },
+        kimi: (model) => {
+          setKimiModel(model);
+          localStorage.setItem("kimi-model", model);
+        },
+        gemini: (model) => {
+          setGeminiModel(model);
+          localStorage.setItem("gemini-model", model);
+        },
+        grok: (model) => {
+          setGrokModel(model);
+          localStorage.setItem("grok-model", model);
+        },
+      });
     },
-    [setClaudeModel, setCursorModel, setCodexModel, setOpenCodeModel, setKimiModel, setGeminiModel],
+    [setClaudeModel, setCursorModel, setCodexModel, setOpenCodeModel, setKimiModel, setGeminiModel, setGrokModel],
   );
 
   const handleModelSelect = useCallback(
@@ -371,6 +387,8 @@ export default function ProviderSelectionEmptyState({
               }}
             />
           </p>
+
+          <FirstTaskHints textareaRef={textareaRef} onShowSettings={onShowSettings} />
         </div>
       </div>
     );
@@ -386,6 +404,7 @@ export default function ProviderSelectionEmptyState({
           <p className="text-sm leading-relaxed text-muted-foreground">
             {t("session.continue.description")}
           </p>
+          <FirstTaskHints textareaRef={textareaRef} onShowSettings={onShowSettings} />
         </div>
       </div>
     );

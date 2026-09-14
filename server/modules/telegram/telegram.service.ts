@@ -392,6 +392,7 @@ async function handlePrompt(chatId: string, binding: TelegramBindingRow, prompt:
       prompt,
       userId: binding.user_id,
       sessionId: state.sessionId ?? undefined,
+      actor: 'telegram',
     });
 
     if (result?.sessionId) {

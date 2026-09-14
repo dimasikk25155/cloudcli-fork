@@ -5,7 +5,7 @@
 
 import type { NormalizedMessage } from '../../../stores/useSessionStore';
 import type { ChatMessage, SubagentChildTool } from '../types/types';
-import { decodeHtmlEntities, unescapeWithMathProtection, formatUsageLimitText } from '../utils/chatFormatting';
+import { decodeHtmlEntities, unescapeWithMathProtection, formatUsageLimitText, isStopHookFeedbackText, stripAttachmentDisplayTags, stripMemoryCitations } from '../utils/chatFormatting';
 
 function formatToolResultContent(content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
@@ -97,6 +97,9 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         if (!content.trim() && !images) continue;
 
         if (msg.role === 'user') {
+          if (isStopHookFeedbackText(content)) {
+            continue;
+          }
           // Parse task notifications
           const taskNotif = parseTaskNotification(content);
           if (taskNotif) {
@@ -121,7 +124,8 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           } else {
             converted.push({
               type: 'user',
-              content: unescapeWithMathProtection(decodeHtmlEntities(content)),
+              id: msg.id,
+              content: stripAttachmentDisplayTags(unescapeWithMathProtection(decodeHtmlEntities(content))),
               timestamp: msg.timestamp,
               images,
               ...sharedMetadata,
@@ -131,6 +135,8 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           let text = decodeHtmlEntities(content);
           text = unescapeWithMathProtection(text);
           text = formatUsageLimitText(text);
+          text = stripMemoryCitations(text);
+          if (!text.trim()) continue;
           converted.push({
             type: 'assistant',
             content: text,
@@ -231,17 +237,19 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         });
         break;
 
-      case 'stream_delta':
-        if (msg.content) {
+      case 'stream_delta': {
+        const content = stripMemoryCitations(decodeHtmlEntities(msg.content || ''));
+        if (content.trim()) {
           converted.push({
             type: 'assistant',
-            content: msg.content,
+            content,
             timestamp: msg.timestamp,
             isStreaming: true,
             ...sharedMetadata,
           });
         }
         break;
+      }
 
       // stream_end, complete, status, permission_*, session_created
       // are control events — not rendered as messages

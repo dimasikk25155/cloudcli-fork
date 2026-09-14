@@ -7,6 +7,9 @@ import type { Project, ProjectSession, LLMProvider } from '../../../../types/app
 import type { SessionActivityMap } from '../../../../hooks/useSessionProtection';
 import type { SessionWithProvider } from '../../types/types';
 import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
+import ProjectIcon from '../../../app-icon/ProjectIcon';
+import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
+import { isCodexInboxProject } from '../../utils/utils';
 
 import SidebarProjectSessions from './SidebarProjectSessions';
 
@@ -129,30 +132,7 @@ export default function SidebarProjectItem({
           >
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                {!isRecentView && (
-                  <button
-                    className={cn(
-                      'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
-                      isStarred
-                        ? 'bg-warning/10 border-warning/30'
-                        : 'bg-muted border-border',
-                    )}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleStarProject();
-                    }}
-                    title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
-                  >
-                    <Star
-                      className={cn(
-                        'w-4 h-4 transition-colors',
-                        isStarred
-                          ? 'text-warning fill-current'
-                          : 'text-muted-foreground',
-                      )}
-                    />
-                  </button>
-                )}
+                <ProjectIcon project={project} size="md" starred={isStarred && !isRecentView} />
 
                 <div className="min-w-0 flex-1">
                   {isEditing ? (
@@ -182,7 +162,10 @@ export default function SidebarProjectItem({
                     />
                   ) : (
                     <>
-                      <div className="flex min-w-0 flex-1 items-center justify-between">
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-1.5">
+                        {isCodexInboxProject(project) && (
+                          <SessionProviderLogo provider="codex" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        )}
                         <h3 className="truncate text-sm font-normal text-foreground" title={project.fullPath}>{project.displayName}</h3>
                       </div>
                     </>
@@ -213,13 +196,32 @@ export default function SidebarProjectItem({
                     </button>
                   </>
                 ) : (
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
-                    {isExpanded ? (
-                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                  <>
+                    {!isRecentView && (
+                      <button
+                        className="flex h-6 w-6 items-center justify-center rounded-md"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleStarProject();
+                        }}
+                        title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+                      >
+                        <Star
+                          className={cn(
+                            'h-3 w-3',
+                            isStarred ? 'fill-current text-warning' : 'text-muted-foreground',
+                          )}
+                        />
+                      </button>
                     )}
-                  </div>
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
+                      {isExpanded ? (
+                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -238,31 +240,8 @@ export default function SidebarProjectItem({
           )}
           onClick={selectAndToggleProject}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            {!isRecentView && (
-              <div
-                className={cn(
-                  'w-6 h-6 flex items-center justify-center rounded cursor-pointer transition-all duration-200',
-                  isStarred
-                    ? 'hover:bg-warning/10'
-                    : 'opacity-40 hover:opacity-100 hover:bg-accent',
-                )}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  toggleStarProject();
-                }}
-                title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
-              >
-                <Star
-                  className={cn(
-                    'w-3 h-3 transition-colors',
-                    isStarred
-                      ? 'text-warning fill-current'
-                      : 'text-muted-foreground',
-                  )}
-                />
-              </div>
-            )}
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <ProjectIcon project={project} size="sm" starred={isStarred && !isRecentView} />
             <div className="min-w-0 flex-1 text-left">
               {isEditing ? (
                 <div className="space-y-1">
@@ -287,8 +266,11 @@ export default function SidebarProjectItem({
                   </div>
                 </div>
               ) : (
-                <div className="truncate text-sm font-normal text-foreground" title={project.fullPath}>
-                  {project.displayName}
+                <div className="flex min-w-0 items-center gap-1.5 text-sm font-normal text-foreground" title={project.fullPath}>
+                  {isCodexInboxProject(project) && (
+                    <SessionProviderLogo provider="codex" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate">{project.displayName}</span>
                 </div>
               )}
             </div>
@@ -316,10 +298,34 @@ export default function SidebarProjectItem({
                   <X className="h-3 w-3" />
                 </div>
               </>
-            ) : isExpanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
             ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+              <>
+                {!isRecentView && (
+                  <div
+                    className={cn(
+                      'flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-40 transition-opacity group-hover:opacity-100',
+                      isStarred && 'opacity-100',
+                    )}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleStarProject();
+                    }}
+                    title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+                  >
+                    <Star
+                      className={cn(
+                        'h-3 w-3',
+                        isStarred ? 'fill-current text-warning' : 'text-muted-foreground',
+                      )}
+                    />
+                  </div>
+                )}
+                {isExpanded ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                )}
+              </>
             )}
           </div>
         </Button>

@@ -93,6 +93,47 @@ function extractCodexTextContent(content: unknown): string {
     .join('\n');
 }
 
+/** Codex 0.153 records real input as response_item, alongside user-role context. */
+export function extractCodexResponseUserMessage(payload: AnyRecord): AnyRecord | null {
+  if (payload.type !== 'message' || payload.role !== 'user' || !Array.isArray(payload.content)) {
+    return null;
+  }
+  const kinds = payload.internal_chat_message_metadata_passthrough?.content_item_kinds;
+  // Role alone is not evidence of user input: AGENTS.md, environment, plugins,
+  // and compaction context also have role=user in the same transcript.
+  if (!Array.isArray(kinds) || !kinds.some((kind) => kind === 'user.text' || kind === 'user.image')) {
+    return null;
+  }
+  const parts = payload.content.filter((_: unknown, index: number) => (
+    kinds[index] === 'user.text' || kinds[index] === 'user.image'
+  ));
+  const images: Array<{ path?: string; data?: string }> = [];
+  const text: string[] = [];
+  for (const part of parts) {
+    if (part.type === 'input_text' && typeof part.text === 'string') {
+      // Codex surrounds an image item with two text-only transport markers.
+      const imageOpen = /^<image\s+name=[^\n]*?\s+path="([^"]+)">\s*$/.exec(part.text);
+      if (imageOpen) {
+        images.push({ path: imageOpen[1] });
+      } else if (part.text.trim() !== '</image>') {
+        text.push(part.text);
+      }
+    } else if (part.type === 'input_image' && typeof part.image_url === 'string') {
+      // Prefer the preceding path marker over duplicating its base64 payload.
+      if (images.length === 0 || !images.at(-1)?.path) images.push({ data: part.image_url });
+    } else if (part.type === 'local_image' && typeof part.path === 'string') {
+      images.push({ path: part.path });
+    }
+  }
+  const content = stripAttachmentReferenceTags(text.join('\n')).trim();
+  if (!content && images.length === 0) return null;
+  return {
+    type: 'user', uuid: payload.id,
+    message: { role: 'user', content },
+    images: images.length ? images : undefined,
+  };
+}
+
 async function getCodexSessionMessages(
   sessionId: string,
   limit: number | null = null,
@@ -143,6 +184,13 @@ async function getCodexSessionMessages(
             },
             images: extractCodexUserImages(entry.payload as AnyRecord),
           });
+        }
+
+        if (entry.type === 'response_item') {
+          const userMessage = extractCodexResponseUserMessage(entry.payload as AnyRecord);
+          if (userMessage) {
+            messages.push({ ...userMessage, timestamp: entry.timestamp });
+          }
         }
 
         if (

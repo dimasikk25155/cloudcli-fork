@@ -133,7 +133,7 @@ export default function ProjectStatsPanel({ selectedProject }: ProjectStatsPanel
         />
         <StatCard
           icon={MessageSquare}
-          label={t('stats.sessions', { defaultValue: 'Сессии с Claude' })}
+          label={t('stats.sessions', { defaultValue: 'Сессии' })}
           value={formatCount(stats.sessions)}
           hint={
             stats.lastActivity
@@ -148,12 +148,13 @@ export default function ProjectStatsPanel({ selectedProject }: ProjectStatsPanel
           icon={Coins}
           label={t('stats.tokens', { defaultValue: 'Потрачено токенов' })}
           value={formatTokensShort(stats.tokens)}
+          hint={`вход ${formatTokensShort(stats.tokensIn ?? Math.max(0, stats.tokens - (stats.tokensOut ?? 0)))} · выход ${formatTokensShort(stats.tokensOut ?? 0)}`}
         />
         <StatCard
           icon={Coins}
-          label={t('stats.cost', { defaultValue: 'Стоимость по API' })}
+          label={t('stats.cost', { defaultValue: 'Стоимость по API Grok' })}
           value={formatUsd(stats.costUsd)}
-          hint={t('stats.costHint', { defaultValue: 'на подписке это лимит, а не деньги' })}
+          hint={t('stats.costHint', { defaultValue: 'сколько стоило бы по прайсу API, на подписке не списывается' })}
         />
       </div>
 

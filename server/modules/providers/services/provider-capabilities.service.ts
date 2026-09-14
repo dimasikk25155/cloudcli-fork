@@ -137,8 +137,9 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // IS the read-only gate. See resolveGrokPermissionMode in grok-cli.js.
     permissionModes: ['default', 'bypassPermissions', 'plan'],
     defaultPermissionMode: 'default',
-    // Image blocks would need --prompt-json content blocks; not wired yet.
-    supportsImages: false,
+    // Wired 24.08.2026: `--prompt-json` ACP content blocks (not Claude's
+    // `{source:{type:base64}}` shape — that dies with "missing field `data`").
+    supportsImages: true,
     supportsAbort: true,
     supportsPermissionRequests: false,
     // The `result` event carries a full Anthropic-shaped usage payload

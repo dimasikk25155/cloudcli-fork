@@ -119,9 +119,19 @@ function ChatMessagesPane({
   selectedProject,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
+  // Thinking stays on the composer badge — a stack of "Thought for a few
+  // seconds" rows jumps the pane on every chunk. Tool cards stay visible
+  // while the run is live: hiding them until `complete` made the transcript
+  // look empty until a full page reload. The group is collapsed by default,
+  // so the row grows as "Tools xN" instead of unfolding each call.
+  const transcriptMessages = useMemo(
+    () => visibleMessages.filter((message) => !message.isThinking),
+    [visibleMessages],
+  );
+
   const groupedVisibleMessages = useMemo(
-    () => groupConsecutiveTools(visibleMessages, Boolean(showThinking)),
-    [visibleMessages, showThinking],
+    () => groupConsecutiveTools(transcriptMessages, Boolean(showThinking)),
+    [transcriptMessages, showThinking],
   );
 
   // Stable, deterministic keys for the messages rendered this pass.
@@ -199,6 +209,7 @@ function ChatMessagesPane({
           setGrokModel={setGrokModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
+          onShowSettings={onShowSettings}
         />
       ) : (
         <>

@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ChevronDown } from 'lucide-react';
+
 import type { LLMProvider } from '../../../../types/app';
 import type { ProviderAuthStatusMap } from '../../../provider-auth/types';
 
@@ -8,14 +12,15 @@ type AgentConnectionsStepProps = {
   onOpenProviderLogin: (provider: LLMProvider) => void;
 };
 
-const providerCards = [
-  {
-    provider: 'claude' as const,
-    title: 'Claude Code',
-    connectedClassName: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800',
-    iconContainerClassName: 'bg-blue-100 dark:bg-blue-900/30',
-    loginButtonClassName: 'bg-blue-600 hover:bg-blue-700',
-  },
+const claudeCard = {
+  provider: 'claude' as const,
+  title: 'Claude',
+  connectedClassName: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800',
+  iconContainerClassName: 'bg-blue-100 dark:bg-blue-900/30',
+  loginButtonClassName: 'bg-blue-600 hover:bg-blue-700',
+};
+
+const otherCards = [
   {
     provider: 'codex' as const,
     title: 'OpenAI Codex',
@@ -43,31 +48,65 @@ export default function AgentConnectionsStep({
   providerStatuses,
   onOpenProviderLogin,
 }: AgentConnectionsStepProps) {
+  const { t } = useTranslation('common');
+  const [showOthers, setShowOthers] = useState(false);
+
+  const labels = {
+    loginLabel: t('onboarding.connect.login'),
+    checkingLabel: t('onboarding.connect.checking'),
+    connectedLabel: t('onboarding.connect.connected'),
+    notConnectedLabel: t('onboarding.connect.notConnected'),
+  };
+
   return (
     <div className="space-y-4">
       <div className="text-center">
-        <h2 className="font-serif text-xl font-bold tracking-tight text-foreground">Connect Your AI Agents</h2>
+        <h2 className="text-xl font-bold tracking-tight text-foreground">{t('onboarding.connect.title')}</h2>
         <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">
-          Login to one or more AI coding assistants. All are optional.
+          {t('onboarding.connect.body')}
         </p>
       </div>
 
-      <div className="-mr-1 max-h-[38vh] space-y-2 overflow-y-auto pr-1">
-        {providerCards.map((providerCard) => (
-          <AgentConnectionCard
-            key={providerCard.provider}
-            provider={providerCard.provider}
-            title={providerCard.title}
-            status={providerStatuses[providerCard.provider]}
-            connectedClassName={providerCard.connectedClassName}
-            iconContainerClassName={providerCard.iconContainerClassName}
-            loginButtonClassName={providerCard.loginButtonClassName}
-            onLogin={() => onOpenProviderLogin(providerCard.provider)}
-          />
-        ))}
-      </div>
+      <AgentConnectionCard
+        provider={claudeCard.provider}
+        title={claudeCard.title}
+        status={providerStatuses.claude}
+        connectedClassName={claudeCard.connectedClassName}
+        iconContainerClassName={claudeCard.iconContainerClassName}
+        loginButtonClassName={claudeCard.loginButtonClassName}
+        onLogin={() => onOpenProviderLogin('claude')}
+        {...labels}
+      />
 
-      <p className="text-center text-xs text-muted-foreground">You can configure these later in Settings.</p>
+      <button
+        type="button"
+        onClick={() => setShowOthers((open) => !open)}
+        className="flex w-full items-center justify-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {t('onboarding.connect.others')}
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showOthers ? 'rotate-180' : ''}`} />
+      </button>
+
+      {showOthers && (
+        <div className="space-y-2">
+          <p className="text-center text-xs text-muted-foreground">{t('onboarding.connect.othersHint')}</p>
+          {otherCards.map((providerCard) => (
+            <AgentConnectionCard
+              key={providerCard.provider}
+              provider={providerCard.provider}
+              title={providerCard.title}
+              status={providerStatuses[providerCard.provider]}
+              connectedClassName={providerCard.connectedClassName}
+              iconContainerClassName={providerCard.iconContainerClassName}
+              loginButtonClassName={providerCard.loginButtonClassName}
+              onLogin={() => onOpenProviderLogin(providerCard.provider)}
+              {...labels}
+            />
+          ))}
+        </div>
+      )}
+
+      <p className="text-center text-xs text-muted-foreground">{t('onboarding.connect.later')}</p>
     </div>
   );
 }

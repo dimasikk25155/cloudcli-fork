@@ -119,6 +119,10 @@ export function useChatSessionState({
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  // Live mirror for the content-growth ResizeObserver below: its callback must
+  // read the current value without re-subscribing on every scroll-state flip.
+  const isUserScrolledUpRef = useRef(false);
+  isUserScrolledUpRef.current = isUserScrolledUp;
   const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
   // Live pointer to the viewed session: the async token-usage writers below
   // check it before setTokenBudget so a late response for a previous session
@@ -142,11 +146,7 @@ export function useChatSessionState({
   const topLoadLockRef = useRef(false);
   const pendingScrollRestoreRef = useRef<ScrollRestoreState | null>(null);
   const pendingInitialScrollRef = useRef(true);
-  // VS Code Copilot Chat-style scroll: the message you just sent docks near the
-  // top of the pane and the reply streams in below it, instead of the pane
-  // chasing the bottom on every streamed chunk.
-  const pendingUserPinRef = useRef(false);
-  const pinnedToUserMessageRef = useRef(false);
+
   const messagesOffsetRef = useRef(0);
   const scrollPositionRef = useRef({ height: 0, top: 0 });
   const loadAllFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -208,8 +208,6 @@ export function useChatSessionState({
     topLoadLockRef.current = false;
     pendingScrollRestoreRef.current = null;
     pendingInitialScrollRef.current = true;
-    pendingUserPinRef.current = false;
-    pinnedToUserMessageRef.current = false;
     lastLoadedSessionKeyRef.current = null;
 
     if (loadAllOverlayTimerRef.current) {
@@ -268,7 +266,7 @@ export function useChatSessionState({
       return;
     }
 
-    const prov = (localStorage.getItem('selected-provider') as LLMProvider) || 'claude';
+    const prov = (localStorage.getItem('selected-provider') as LLMProvider) || 'grok';
     const normalized = chatMessageToNormalized(pendingUserMessage, activeSessionId, prov);
     if (normalized) {
       sessionStore.appendRealtime(activeSessionId, normalized);
@@ -302,15 +300,12 @@ export function useChatSessionState({
   /* ---------------------------------------------------------------- */
 
   const addMessage = useCallback((msg: ChatMessage) => {
-    if (msg.type === 'user') {
-      pendingUserPinRef.current = true;
-    }
     if (!activeSessionId) {
       // No session yet — show as pending until the backend creates one
       setPendingUserMessage(msg);
       return;
     }
-    const prov = (localStorage.getItem('selected-provider') as LLMProvider) || 'claude';
+    const prov = (localStorage.getItem('selected-provider') as LLMProvider) || 'grok';
     const normalized = chatMessageToNormalized(msg, activeSessionId, prov);
     if (normalized) {
       sessionStore.appendRealtime(activeSessionId, normalized);
@@ -331,7 +326,6 @@ export function useChatSessionState({
   }, []);
 
   const scrollToBottomAndReset = useCallback(() => {
-    pinnedToUserMessageRef.current = false;
     scrollToBottom();
     if (allMessagesLoaded) {
       setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
@@ -339,22 +333,6 @@ export function useChatSessionState({
       allMessagesLoadedRef.current = false;
     }
   }, [allMessagesLoaded, scrollToBottom]);
-
-  // Docks the most recently sent user message near the top of the pane, the
-  // way VS Code's chat view keeps your prompt in view while the reply grows
-  // beneath it.
-  const scrollNewestUserMessageToTop = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const userEls = container.querySelectorAll('.chat-message.user');
-    const last = userEls[userEls.length - 1] as HTMLElement | undefined;
-    if (!last) {
-      scrollToBottom();
-      return;
-    }
-    const delta = last.getBoundingClientRect().top - container.getBoundingClientRect().top;
-    container.scrollTop = container.scrollTop + delta - 12;
-  }, [scrollToBottom]);
 
   const isNearBottom = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -479,8 +457,6 @@ export function useChatSessionState({
     topLoadLockRef.current = false;
     pendingScrollRestoreRef.current = null;
     wasNearTopRef.current = false;
-    pendingUserPinRef.current = false;
-    pinnedToUserMessageRef.current = false;
     setIsUserScrolledUp(false);
   }, [selectedProject?.projectId, selectedSession?.id]);
 
@@ -565,8 +541,11 @@ export function useChatSessionState({
       });
     };
 
-    // Skip if already loaded and fresh
-    if (lastLoadedSessionKeyRef.current === sessionKey && sessionStore.has(selectedSessionId) && !sessionStore.isStale(selectedSessionId)) {
+    // Same session already in the store: a websocket reconnect or the 30s
+    // "stale" timer must not refetch history. That mid-turn REST reload was
+    // the "everything is wrong until I refresh" bug — live bubbles jumped,
+    // the just-sent prompt vanished, tools disappeared until F5.
+    if (lastLoadedSessionKeyRef.current === sessionKey && sessionStore.has(selectedSessionId)) {
       subscribeToSelectedSession();
       return;
     }
@@ -757,33 +736,33 @@ export function useChatSessionState({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMessages.length, isLoadingSessionMessages, searchTarget]);
 
+  const refreshTokenUsage = useCallback(async () => {
+    const requestedSessionId = selectedSession?.id;
+    if (!selectedProject || !requestedSessionId) {
+      return;
+    }
+    try {
+      const url = `/api/projects/${selectedProject.projectId}/sessions/${requestedSessionId}/token-usage`;
+      const response = await authenticatedFetch(url);
+      if (response.ok) {
+        const usage = await response.json();
+        if (tokenUsageSessionRef.current === requestedSessionId) {
+          setTokenBudget(usage);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch session token usage:', error);
+    }
+  }, [selectedProject, selectedSession?.id]);
+
   // Initial token usage fetch for providers with file-backed usage data.
   useEffect(() => {
     if (!selectedProject || !selectedSession?.id) {
       setTokenBudget(null);
       return;
     }
-    const requestedSessionId = selectedSession.id;
-    const fetchInitialTokenUsage = async () => {
-      try {
-        // The backend resolves the provider from the indexed session row.
-        const url = `/api/projects/${selectedProject.projectId}/sessions/${requestedSessionId}/token-usage`;
-        const response = await authenticatedFetch(url);
-        // A non-ok response (e.g. 404 for a session with no transcript yet)
-        // must NOT clear the counter: another writer may already have set a
-        // good value, and session switches reset it explicitly anyway.
-        if (response.ok) {
-          const usage = await response.json();
-          if (tokenUsageSessionRef.current === requestedSessionId) {
-            setTokenBudget(usage);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch initial token usage:', error);
-      }
-    };
-    fetchInitialTokenUsage();
-  }, [selectedProject, selectedSession?.id]);
+    void refreshTokenUsage();
+  }, [selectedProject, selectedSession?.id, refreshTokenUsage]);
 
   const visibleMessages = useMemo(() => {
     if (chatMessages.length <= visibleMessageCount) return chatMessages;
@@ -800,23 +779,6 @@ export function useChatSessionState({
     if (!scrollContainerRef.current || chatMessages.length === 0) return;
     if (isLoadingMoreRef.current || isLoadingMoreMessages || pendingScrollRestoreRef.current) return;
     if (searchScrollActiveRef.current) return;
-
-    // A message was just sent: dock it near the top instead of chasing the
-    // bottom, and keep it pinned there while the reply streams in below.
-    if (pendingUserPinRef.current) {
-      pendingUserPinRef.current = false;
-      pinnedToUserMessageRef.current = true;
-      scrollNewestUserMessageToTop();
-      return;
-    }
-
-    if (pinnedToUserMessageRef.current) {
-      if (isNearBottom()) {
-        pinnedToUserMessageRef.current = false;
-      } else {
-        return;
-      }
-    }
 
     if (!isUserScrolledUp) {
       // Two frames instead of a 50ms timer: the first lands after React commits
@@ -839,7 +801,30 @@ export function useChatSessionState({
     const newHeight = container.scrollHeight;
     const heightDiff = newHeight - prevHeight;
     if (heightDiff > 0 && prevTop > 0) container.scrollTop = prevTop + heightDiff;
-  }, [chatMessages.length, isLoadingMoreMessages, isUserScrolledUp, isNearBottom, scrollToBottom, scrollNewestUserMessageToTop]);
+  }, [chatMessages.length, isLoadingMoreMessages, isProcessing, isUserScrolledUp, scrollToBottom]);
+
+  // Follow streamed content. The effect above is keyed on chatMessages.length,
+  // but during a live run the assistant message grows IN PLACE — the count
+  // doesn't change, the effect never re-fires, and new text renders below the
+  // fold while the viewport sits still. A ResizeObserver on the content
+  // wrapper sees every height change (streamed tokens, markdown/code reflow,
+  // images finishing) and keeps the view pinned to the bottom unless the user
+  // has deliberately scrolled up. The container itself is observed too, so a
+  // pane shrink (mobile keyboard, panel toggle) re-anchors the last message.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const content = container?.firstElementChild;
+    if (!container || !content) return;
+
+    const observer = new ResizeObserver(() => {
+      if (isUserScrolledUpRef.current) return;
+      if (pendingScrollRestoreRef.current || searchScrollActiveRef.current) return;
+      container.scrollTop = container.scrollHeight;
+    });
+    observer.observe(content);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [selectedSession?.id]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -929,6 +914,7 @@ export function useChatSessionState({
     setIsUserScrolledUp,
     tokenBudget,
     setTokenBudget,
+    refreshTokenUsage,
     visibleMessageCount,
     visibleMessages,
     loadEarlierMessages,

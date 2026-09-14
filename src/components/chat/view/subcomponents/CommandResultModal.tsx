@@ -590,7 +590,7 @@ function CostContent({ data }: { data: CostCommandData }) {
             // Cache read dominates the input number and costs a tenth of fresh
             // input, so the raw total reads as alarming without this line.
             ...(cacheRead > 0
-              ? { hint: `из них ${formatNumber(cacheRead)} — чтение кэша (в 10 раз дешевле)` }
+              ? { hint: `из них ${formatNumber(cacheRead)} — чтение кэша (дешевле свежего входа)` }
               : {}),
           },
           {

@@ -51,6 +51,12 @@ The old `/api/projects/:id/upload-images` endpoint is gone — chat image upload
 moved upstream to `POST /api/assets/images` (`server/modules/assets`).
 
 ### Merge history
+- **2026-09-11**: upstream **v1.37.3**. Did *not* merge. Ported three pieces onto
+  our `src/components` / `server/modules` layout: composer arrow-key history
+  (#1238), archived sessions surviving a rescan (#1220), plugin skills kept
+  beside commands (#1274). Skipped #1206 (702-file frontend move to
+  `src/modules`) and #1239 (their in-chat scheduled-messages module — we have
+  OS cron `server/modules/schedules` instead).
 - **2026-08-07**: upstream shipped **v1.37.0**; we did *not* merge it. The release is
   mostly a module-layout refactor (`server/modules/file-tree/*`) plus es/ko/zh-CN
   translations, and none of its small fixes apply to this fork any more: the

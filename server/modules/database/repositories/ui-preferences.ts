@@ -31,6 +31,7 @@ const ALLOWED_KEYS = new Set([
   'showRawParameters',
   'showThinking',
   'sendByCtrlEnter',
+  'sendByDoubleEnter',
   'sidebarVisible',
   'voiceEnabled',
 ]);

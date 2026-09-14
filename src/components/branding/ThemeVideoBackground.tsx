@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Живые обои темы: зацикленный ролик во весь экран под интерфейсом.
+ * Живые обои темы: ролик во весь экран под интерфейсом.
+ * Если роликов несколько, один не крутится сам — по `ended` вызывается
+ * `onEnded`, и хозяин ставит следующий. Один ролик без колбэка — обычный loop.
  *
  * Отличие от фото-фона (`theme-photo-bg`) не в красоте, а в цене. Лендинг
  * листают секунды, а в агентской системе сидят часами — поэтому ролик здесь
@@ -14,8 +16,9 @@ import { useEffect, useRef, useState } from 'react';
  *   — постер лежит ПОД видео и проявляется мгновенно, поэтому фон не мигает
  *     чёрным, пока ролик грузится, и остаётся на месте, если тот не запустился.
  *
- * Скрим берём тот же, что у фото-тем (`theme-photo-scrim`): он уже подобран
- * под читаемость интерфейса, в том числе на проекторе.
+ * Скрим у ролика свой (`.theme-video-scrim`), слабее фото-скрима: уголь и
+ * огонь уже чёрные, а фото-плёнка 72% гасила искры в тень. Текст держат
+ * сами панели, не эта вуаль.
  *
  * ЧЕГО ЗДЕСЬ НЕ ДЕЛАТЬ — купленная грабля 22.08.2026. Первая версия экономила
  * кадрами: ролик кодировался в 15 fps и проигрывался на 0.75, то есть 11 новых
@@ -25,19 +28,50 @@ import { useEffect, useRef, useState } from 'react';
  * тормозящее приложение, и никакая экономия батареи этого не окупает.
  * Экономить можно разрешением, битрейтом и паузой в фоне — но не плавностью.
  */
+const TALL_QUERY = '(orientation: portrait) and (max-width: 900px)';
+
 export default function ThemeVideoBackground({
   src,
   poster,
+  tallSrc = null,
+  tallPoster = null,
   rate = 1,
+  onEnded,
 }: {
   src: string;
   poster: string;
+  tallSrc?: string | null;
+  tallPoster?: string | null;
   rate?: number;
+  onEnded?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const endedOnceRef = useRef(false);
   const [playing, setPlaying] = useState(false);
+  const [useTall, setUseTall] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return Boolean(tallSrc) && window.matchMedia(TALL_QUERY).matches;
+  });
 
   useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const query = window.matchMedia(TALL_QUERY);
+    const sync = () => setUseTall(Boolean(tallSrc) && query.matches);
+    sync();
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', sync);
+      return () => query.removeEventListener('change', sync);
+    }
+    query.addListener(sync);
+    return () => query.removeListener(sync);
+  }, [tallSrc]);
+
+  const activeSrc = useTall && tallSrc ? tallSrc : src;
+  const activePoster = useTall && tallPoster ? tallPoster : poster;
+
+  useEffect(() => {
+    setPlaying(false);
+    endedOnceRef.current = false;
     const video = videoRef.current;
     if (!video) return undefined;
 
@@ -81,26 +115,32 @@ export default function ThemeVideoBackground({
       video.pause();
       mark(false);
     };
-  }, [src, rate]);
+  }, [activeSrc, rate]);
 
   return (
     <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-      <div className="theme-photo-bg theme-photo-bg--static" style={{ backgroundImage: `url(${poster})` }} />
+      <div className="theme-photo-bg theme-photo-bg--static" style={{ backgroundImage: `url(${activePoster})` }} />
       <video
+        key={activeSrc}
         ref={videoRef}
         className="theme-video-bg"
         style={{ opacity: playing ? 1 : 0 }}
-        src={src}
-        poster={poster}
+        src={activeSrc}
+        poster={activePoster}
         muted
-        loop
+        loop={!onEnded}
         playsInline
         preload="auto"
         tabIndex={-1}
         disablePictureInPicture
         disableRemotePlayback
+        onEnded={() => {
+          if (!onEnded || endedOnceRef.current) return;
+          endedOnceRef.current = true;
+          onEnded();
+        }}
       />
-      <div className="theme-photo-scrim" />
+      <div className="theme-video-scrim" />
     </div>
   );
 }

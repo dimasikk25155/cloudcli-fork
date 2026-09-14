@@ -2,6 +2,9 @@ import { Database } from 'better-sqlite3';
 
 import {
   APP_CONFIG_TABLE_SCHEMA_SQL,
+  AUDIT_LOG_GUARD_SQL,
+  AUDIT_LOG_INDEXES_SQL,
+  AUDIT_LOG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
@@ -516,6 +519,14 @@ export const runMigrations = (db: Database) => {
       // last used engine" behaviour.
       addColumnToTableIfNotExists(db, 'user_provider_preferences', preferencesColumnNames, 'default_provider', 'TEXT');
     }
+
+    // Audit log. Created here as well as in INIT_SCHEMA_SQL so that an existing
+    // ~/.cloudcli/auth.db gains the table (and its append-only triggers) on
+    // upgrade — `CREATE TABLE IF NOT EXISTS` in the init script does nothing for
+    // a database that already exists.
+    db.exec(AUDIT_LOG_TABLE_SCHEMA_SQL);
+    db.exec(AUDIT_LOG_INDEXES_SQL);
+    db.exec(AUDIT_LOG_GUARD_SQL);
 
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');

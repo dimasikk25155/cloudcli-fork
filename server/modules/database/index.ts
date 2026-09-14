@@ -2,6 +2,14 @@ export { initializeDatabase } from '@/modules/database/init-db.js';
 export { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
 export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
+export { auditDb } from '@/modules/database/repositories/audit.db.js';
+export type {
+  AppendAuditInput,
+  AuditActor,
+  AuditEvent,
+  AuditOutcome,
+  AuditRow,
+} from '@/modules/database/repositories/audit.db.js';
 export { credentialsDb } from '@/modules/database/repositories/credentials.js';
 export { githubTokensDb } from '@/modules/database/repositories/github-tokens.js';
 export { notificationChannelEndpointsDb } from '@/modules/database/repositories/notification-channel-endpoints.js';

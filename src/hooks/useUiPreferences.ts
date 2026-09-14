@@ -6,6 +6,7 @@ type UiPreferences = {
   showRawParameters: boolean;
   showThinking: boolean;
   sendByCtrlEnter: boolean;
+  sendByDoubleEnter: boolean;
   sidebarVisible: boolean;
   voiceEnabled: boolean;
 };
@@ -37,6 +38,7 @@ const DEFAULTS: UiPreferences = {
   showRawParameters: false,
   showThinking: true,
   sendByCtrlEnter: false,
+  sendByDoubleEnter: false,
   sidebarVisible: true,
   // On by default so the mic button appears out of the box wherever a voice
   // backend is configured. useVoiceAvailable still gates it on a healthy

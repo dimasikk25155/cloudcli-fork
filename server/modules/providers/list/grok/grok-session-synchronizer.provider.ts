@@ -4,9 +4,13 @@ import { readFile } from 'node:fs/promises';
 import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
 import {
+  GROK_UNTITLED_SESSION_TITLE,
+  readGrokFirstUserText,
+  resolveGrokSessionTitle,
+} from '@/modules/providers/list/grok/grok-session-title.js';
+import {
   findFilesRecursivelyCreatedAfter,
   getGrokHome,
-  normalizeSessionName,
   readObjectRecord,
 } from '@/shared/utils.js';
 
@@ -19,7 +23,6 @@ type ParsedSession = {
 };
 
 const HISTORY_FILE = 'chat_history.jsonl';
-const UNTITLED = 'Untitled Grok Session';
 
 /**
  * Session indexer for Grok Build CLI transcripts.
@@ -132,17 +135,21 @@ export class GrokSessionSynchronizer implements IProviderSessionSynchronizer {
       sessionsDb.assignProviderSessionId(pending.session_id, sessionId);
     }
 
-    // An existing app-set name (e.g. renamed in the UI) always wins over the
-    // CLI's auto title; otherwise use the CLI summary when it has one.
+    // Grok CLI auto-titles in English. Name the chat from the first words of
+    // the first user turn unless the user already renamed it (UI or /rename).
     const existing = sessionsDb.getSessionByProviderSessionId(sessionId)
       ?? sessionsDb.getSessionById(sessionId);
     const existingName = existing?.custom_name;
     const cliTitle = typeof summary.session_summary === 'string' && summary.session_summary.trim()
       ? summary.session_summary.trim()
       : undefined;
-    const sessionName = existingName && existingName !== UNTITLED
-      ? existingName
-      : normalizeSessionName(cliTitle, UNTITLED);
+    const firstUserText = await readGrokFirstUserText(filePath);
+    const sessionName = resolveGrokSessionTitle({
+      existingName,
+      cliTitle,
+      firstUserText,
+      titleIsManual: summary.title_is_manual === true,
+    }) || GROK_UNTITLED_SESSION_TITLE;
 
     return {
       sessionId,

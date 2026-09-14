@@ -1,5 +1,6 @@
 import {
   Brain,
+  CornerDownLeft,
   Eye,
   Languages,
   Mic,
@@ -40,6 +41,13 @@ export const INPUT_SETTING_TOGGLES: PreferenceToggleItem[] = [
     key: 'sendByCtrlEnter',
     labelKey: 'quickSettings.sendByCtrlEnter',
     icon: Languages,
+  },
+  // Клавиатурный режим — только для десктопа, на телефоне отправляют кнопкой.
+  {
+    key: 'sendByDoubleEnter',
+    labelKey: 'quickSettings.sendByDoubleEnter',
+    icon: CornerDownLeft,
+    desktopOnly: true,
   },
   {
     key: 'voiceEnabled',

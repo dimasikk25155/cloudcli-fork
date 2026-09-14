@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { appendImagesInputTag, appendVisibleImagePathsTag } from '@/shared/image-attachments.js';
-import { extractGrokUserTurn, GrokSessionsProvider } from '@/modules/providers/list/grok/grok-sessions.provider.js';
+import {
+  extractGrokUserTurn,
+  GrokSessionsProvider,
+  isGrokStopHookFeedbackText,
+  isGrokSyntheticUserTurn,
+  resolveGrokHistoryClock,
+  stampGrokHistoryMessages,
+} from '@/modules/providers/list/grok/grok-sessions.provider.js';
 
 const provider = new GrokSessionsProvider();
 const SESSION = '11111111-2222-3333-4444-555555555555';
@@ -70,6 +77,29 @@ test('user tool_result blocks become tool_result rows keyed to their call', () =
   assert.equal(result[0].content, 'urban-face');
 });
 
+test('cumulative Grok-native usage does not overflow the 500K window', () => {
+  const result = provider.normalizeMessage({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    stop_reason: 'end_turn',
+    model: 'grok-4.6',
+    usage: {
+      inputTokens: 2_871_452,
+      outputTokens: 43_404,
+      cachedReadTokens: 2_665_856,
+    },
+  }, SESSION);
+
+  const budget = result[0].tokenBudget as Record<string, number>;
+  assert.equal(result[0].text, 'token_budget');
+  assert.ok(budget.used <= 500_000, `used ${budget.used} must not exceed the window`);
+  assert.equal(budget.used, 0, 'spend-scale usage is not a context fill');
+  assert.equal(budget.total, 500_000);
+  assert.equal(budget.cacheReadTokens, 2_665_856);
+  assert.equal(budget.outputTokens, 43_404);
+});
+
 test('result usage is reported as a token budget on the 500K window', () => {
   const result = provider.normalizeMessage({
     type: 'result',
@@ -131,6 +161,16 @@ test('subagent frames with parent_tool_use_id stay out of the main transcript', 
   }, SESSION);
 
   assert.deepEqual(result, []);
+});
+
+test('extractGrokUserTurn drops MCP reconnect banners so they never become a chat bubble', () => {
+  const banner = `MCP servers disconnected: lazyweb, neo3-vault, ollama, playwright, playwright-ru, telegram, windows
+MCP servers currently connecting (tools will become available shortly):
+- lazyweb
+- telegram
+- windows`;
+  assert.equal(extractGrokUserTurn(banner).text, '');
+  assert.equal(extractGrokUserTurn(`<system-reminder>\n${banner}\n</system-reminder>`).text, '');
 });
 
 test('extractGrokUserTurn strips the images_input block that lives inside user_query', () => {
@@ -241,4 +281,58 @@ test('history strips the embedded session_context block from the user bubble', (
     '<user_query><session_context>\nВНЕШНЯЯ ПАМЯТЬ (вольт Obsidian)…\n</session_context>\n<work_mode_rules>\nRULE\n</work_mode_rules>\n\nПривет</user_query>',
   );
   assert.equal(turn.text, 'Привет');
+});
+
+test('history hides the Stop-hook follow-up so it is not a user bubble', () => {
+  const turn = extractGrokUserTurn(
+    '<user_query><session_followup>\nThis is an automatic follow-up from a session Stop hook, not a user message. Do not quote this tag.\nПеред завершением сессии примени навык obsidian-memory.\n</session_followup></user_query>',
+  );
+  assert.equal(turn.text, '');
+});
+
+test('history hides native Grok Stop-hook feedback so it is not a user bubble', () => {
+  const native = 'Stop hook feedback:\n- Перед завершением сессии примени навык obsidian-memory. Оцени: есть ли что зафиксировать в этой сессии';
+  assert.equal(extractGrokUserTurn(native).text, '');
+  assert.equal(extractGrokUserTurn(`<user_query>${native}</user_query>`).text, '');
+  assert.equal(isGrokStopHookFeedbackText(native), true);
+  assert.equal(isGrokStopHookFeedbackText('напиши описание универсальное'), false);
+  assert.equal(isGrokSyntheticUserTurn({
+    type: 'user',
+    synthetic_reason: 'stop_hook_feedback',
+    content: [{ type: 'text', text: native }],
+  }), true);
+  assert.equal(isGrokSyntheticUserTurn({ type: 'user', prompt_index: 0 }), false);
+
+  const history = provider.normalizeMessage({
+    type: 'user',
+    synthetic_reason: 'stop_hook_feedback',
+    message: { role: 'user', content: [{ type: 'text', text: native }] },
+  }, SESSION);
+  assert.deepEqual(history, []);
+});
+
+test('history clock prefers session start over now()', () => {
+  const created = '2026-09-04T09:00:00.000Z';
+  const clock = resolveGrokHistoryClock(null, created, 3);
+  assert.equal(clock.startMs, Date.parse(created));
+  assert.ok(clock.endMs >= clock.startMs);
+});
+
+test('history stamp keeps file order and puts the first row at session start', () => {
+  const messages = [
+    { id: 'a', sessionId: SESSION, timestamp: '', provider: 'grok', kind: 'text', role: 'user', content: 'привет' },
+    { id: 'b', sessionId: SESSION, timestamp: '', provider: 'grok', kind: 'text', role: 'assistant', content: 'здравствуй' },
+    { id: 'c', sessionId: SESSION, timestamp: '', provider: 'grok', kind: 'text', role: 'user', content: 'привет' },
+  ] as any;
+
+  stampGrokHistoryMessages(messages, SESSION, {
+    startMs: Date.parse('2026-09-04T09:00:00.000Z'),
+    endMs: Date.parse('2026-09-04T13:00:00.000Z'),
+  });
+
+  assert.equal(messages[0].timestamp, '2026-09-04T09:00:00.000Z');
+  assert.equal(messages[2].timestamp, '2026-09-04T13:00:00.000Z');
+  assert.ok(Date.parse(messages[1].timestamp) > Date.parse(messages[0].timestamp));
+  assert.equal(messages[0].id, `grok_hist_${SESSION}_0_text_user`);
+  assert.equal(messages[2].id, `grok_hist_${SESSION}_2_text_user`);
 });

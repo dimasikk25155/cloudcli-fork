@@ -37,7 +37,7 @@ export const THEMES = [
 // Там же лечится удалённая тема: ключа больше нет в THEMES, поэтому проверка
 // `THEMES.includes` сама откатывает такого пользователя на дефолт, а не
 // оставляет его с пустым оформлением.
-export const DEFAULT_THEME = 'glass';
+export const DEFAULT_THEME = 'ember';
 
 // Human-readable labels for the theme picker in Settings → Appearance.
 // Названия по ЦВЕТУ АКЦЕНТА, а не по образу: «Стекло» и «Гонка» ничего не
@@ -71,6 +71,20 @@ export const LIGHT_THEMES = ['editorial', 'glass'];
 // остальные — `<тема>-<id>.jpg`. Тема без записи здесь = один фон, и селектор
 // картинки для неё не показывается.
 export const THEME_BACKGROUNDS = {
+  // Живые обои оранжевой темы: первый пункт = штатный ember.mp4.
+  // `tall: true` — есть отдельный вертикальный файл `<тема>-<id>-tall.mp4`.
+  ember: [
+    { id: 'current', label: 'Текущий' },
+    { id: 'coals', label: 'Угольки', tall: true },
+    { id: 'bitcoin', label: 'Биткоин', tall: true },
+    { id: 'city', label: 'Город', tall: true },
+    { id: 'salute', label: 'Салют', tall: true },
+    { id: 'coin', label: 'Монета', tall: true },
+    { id: 'car', label: 'Машина', tall: true },
+    { id: 'vortex', label: 'Вихрь', tall: true },
+    { id: 'spark', label: 'Искра', tall: true },
+    { id: 'lightning', label: 'Молния', tall: true },
+  ],
   kineticType: [
     { id: 'corridor', label: 'Коридор' },
     { id: 'kinetic', label: 'Скорость' },
@@ -80,17 +94,90 @@ export const THEME_BACKGROUNDS = {
   ],
 };
 
+/** Темы, у которых фон — зацикленный ролик, а не фото. */
+export const VIDEO_THEMES = ['ember'];
+export const isVideoTheme = (themeKey) => VIDEO_THEMES.includes(themeKey);
+
 /** Варианты фона для темы (пустой массив = выбирать не из чего). */
 export const backgroundsForTheme = (themeKey) => THEME_BACKGROUNDS[themeKey] || [];
+
+/** Активный вариант фона: неизвестный id откатывается на первый в списке. */
+export const activeBackground = (themeKey, variantId) => {
+  const variants = backgroundsForTheme(themeKey);
+  const fallback = variants[0]?.id;
+  if (!fallback) return null;
+  return variants.some((variant) => variant.id === variantId) ? variantId : fallback;
+};
 
 /** Файл фона: дефолтный вариант живёт под именем самой темы. */
 export const backgroundFile = (themeKey, variantId) => {
   const variants = backgroundsForTheme(themeKey);
   const fallback = variants[0]?.id;
-  const active = variants.some((variant) => variant.id === variantId) ? variantId : fallback;
+  const active = activeBackground(themeKey, variantId);
   return !active || active === fallback
     ? `/theme-bg/${themeKey}.jpg`
     : `/theme-bg/${themeKey}-${active}.jpg`;
+};
+
+const themedMediaPath = (themeKey, variantId, ext, suffix = '') => {
+  const variants = backgroundsForTheme(themeKey);
+  const fallback = variants[0]?.id;
+  const active = activeBackground(themeKey, variantId);
+  const tail = `${suffix}.${ext}`;
+  return !active || active === fallback
+    ? `/theme-bg/${themeKey}${tail}`
+    : `/theme-bg/${themeKey}-${active}${tail}`;
+};
+
+/** Ролик живых обоев (десктоп / альбом). */
+export const videoFile = (themeKey, variantId) => themedMediaPath(themeKey, variantId, 'mp4');
+
+/** Постер того же ролика. */
+export const videoPosterFile = (themeKey, variantId) => themedMediaPath(themeKey, variantId, 'jpg');
+
+/** Вертикальный ролик, если у варианта есть `tall`. Иначе null — телефон берёт широкий. */
+export const videoTallFile = (themeKey, variantId) => {
+  const active = activeBackground(themeKey, variantId);
+  const meta = backgroundsForTheme(themeKey).find((variant) => variant.id === active);
+  if (!meta?.tall) return null;
+  return themedMediaPath(themeKey, variantId, 'mp4', '-tall');
+};
+
+export const videoTallPosterFile = (themeKey, variantId) => {
+  const active = activeBackground(themeKey, variantId);
+  const meta = backgroundsForTheme(themeKey).find((variant) => variant.id === active);
+  if (!meta?.tall) return null;
+  return themedMediaPath(themeKey, variantId, 'jpg', '-tall');
+};
+
+/** Значение выпадашки «Фон»: выкл + живые обои текущей темы. */
+export const LIVE_WALLPAPER_OFF = 'off';
+/** Отдельный пункт: ролики сами идут по кругу. Выбранный клип при этом не трогаем. */
+export const LIVE_WALLPAPER_AUTO = 'auto';
+
+export const isAutoWallpaper = (variantId) => variantId === LIVE_WALLPAPER_AUTO;
+
+/** Клипы, которые реально крутятся. «Автосмена» и «Отключить» сюда не входят. */
+export const wallpaperClipIds = (themeKey) =>
+  backgroundsForTheme(themeKey).map((variant) => variant.id);
+
+export const liveWallpaperSelectValue = (shaderEnabled, variantId, themeKey) => {
+  if (!shaderEnabled) return LIVE_WALLPAPER_OFF;
+  if (isAutoWallpaper(variantId)) return LIVE_WALLPAPER_AUTO;
+  return activeBackground(themeKey, variantId) || LIVE_WALLPAPER_OFF;
+};
+
+/**
+ * Следующий ролик в круге автосмены.
+ * «Отключить» и «Автосмена» в круг не входят — это не картинки.
+ * Неизвестный id откатывается на первый, с последнего прыгает на первый.
+ */
+export const nextLiveWallpaperId = (themeKey, variantId) => {
+  const ids = wallpaperClipIds(themeKey);
+  if (ids.length === 0) return null;
+  const current = ids.includes(variantId) ? variantId : ids[0];
+  const idx = Math.max(0, ids.indexOf(current));
+  return ids[(idx + 1) % ids.length];
 };
 
 // Масштаб интерфейса в процентах. Всё приложение свёрстано в rem, поэтому
@@ -118,7 +205,10 @@ const parseBackgroundMap = (raw) => {
     return Object.fromEntries(
       Object.entries(parsed).filter(([themeKey, variantId]) =>
         typeof variantId === 'string'
-        && backgroundsForTheme(themeKey).some((variant) => variant.id === variantId)
+        && (
+          variantId === LIVE_WALLPAPER_AUTO
+          || backgroundsForTheme(themeKey).some((variant) => variant.id === variantId)
+        )
       )
     );
   } catch {
@@ -138,6 +228,11 @@ export const ThemeProvider = ({ children }) => {
   // по темам, чтобы выбор не слетал при переключении туда-обратно.
   const [themeBackgrounds, setThemeBackgroundsRaw] = useState(
     () => parseBackgroundMap(localStorage.getItem('themeBackgrounds'))
+  );
+  // Какой клип сейчас на экране в режиме «Автосмена». В аккаунт не пишем —
+  // там лежит сам флаг `auto`, а курсор живёт только в этой вкладке.
+  const [cycleCursor, setCycleCursor] = useState(
+    () => wallpaperClipIds(DEFAULT_THEME)[0] || 'current'
   );
   // Ручная подстройка тем: { [themeKey]: { radius, fontUi, blur, … } }. Живёт
   // рядом с themeBackgrounds и по тем же правилам — localStorage для мгновенной
@@ -342,16 +437,68 @@ export const ThemeProvider = ({ children }) => {
     }, 400);
   };
 
+  // Ролики меняются каждые ~14 с. Писать это в аккаунт на каждый стык —
+  // десятки PUT в час. Локально (экран + localStorage) меняем сразу,
+  // на сервер откладываем: явный выбор в настройках — сразу, круг — пауза.
+  const backgroundSyncTimer = useRef(null);
+  const persistBackgrounds = (next, { debounce = false } = {}) => {
+    const send = () => {
+      authenticatedFetch('/api/settings/ui-preferences', {
+        method: 'PUT',
+        body: JSON.stringify({ themeBackgrounds: JSON.stringify(next) }),
+      }).catch((error) => {
+        console.warn('Failed to sync theme background preference to account:', error);
+      });
+    };
+    if (backgroundSyncTimer.current) {
+      clearTimeout(backgroundSyncTimer.current);
+      backgroundSyncTimer.current = null;
+    }
+    if (!debounce) {
+      send();
+      return;
+    }
+    backgroundSyncTimer.current = setTimeout(send, 8000);
+  };
+
   const setThemeBackground = (themeKey, variantId) => {
     const next = { ...themeBackgrounds, [themeKey]: variantId };
     setThemeBackgroundsRaw(next);
-    authenticatedFetch('/api/settings/ui-preferences', {
-      method: 'PUT',
-      // Карта уезжает строкой: сервер хранит только плоские значения.
-      body: JSON.stringify({ themeBackgrounds: JSON.stringify(next) }),
-    }).catch((error) => {
-      console.warn('Failed to sync theme background preference to account:', error);
-    });
+    persistBackgrounds(next);
+  };
+
+  /**
+   * Один селектор «Фон»: выкл / автосмена / текущий / угольки / … .
+   * `off` гасит картинку. `auto` крутит клипы по кругу. Любой другой id
+   * включает фон и оставляет выбранный ролик на месте.
+   * Свой загруженный снимок при выборе штатного не трогаем — его снимает
+   * отдельная кнопка «Вернуть штатный».
+   */
+  const setLiveWallpaper = (value) => {
+    if (value === LIVE_WALLPAPER_OFF) {
+      setShaderEnabled(false);
+      return;
+    }
+    if (!shaderEnabled) {
+      setShaderEnabled(true);
+    }
+    if (value === LIVE_WALLPAPER_AUTO) {
+      const clips = wallpaperClipIds(theme);
+      const current = themeBackgrounds[theme];
+      setCycleCursor(clips.includes(current) ? current : (clips[0] || 'current'));
+    }
+    setThemeBackground(theme, value);
+  };
+
+  const cycleLiveWallpaper = () => {
+    if (!shaderEnabled) {
+      setShaderEnabled(true);
+      return;
+    }
+    if (!isAutoWallpaper(themeBackgrounds[theme])) return;
+    const nextId = nextLiveWallpaperId(theme, cycleCursor);
+    if (!nextId) return;
+    setCycleCursor(nextId);
   };
 
   /**
@@ -419,7 +566,15 @@ export const ThemeProvider = ({ children }) => {
     // Выбор картинки внутри темы.
     themeBackgrounds,
     setThemeBackground,
+    setLiveWallpaper,
+    cycleLiveWallpaper,
     backgroundVariant: themeBackgrounds[theme] || backgroundsForTheme(theme)[0]?.id,
+    playingVariant: isAutoWallpaper(themeBackgrounds[theme])
+      ? (wallpaperClipIds(theme).includes(cycleCursor)
+        ? cycleCursor
+        : wallpaperClipIds(theme)[0])
+      : (activeBackground(theme, themeBackgrounds[theme]) || wallpaperClipIds(theme)[0]),
+    liveWallpaperAuto: shaderEnabled && isAutoWallpaper(themeBackgrounds[theme]),
     // Ручная подстройка темы (панель твиков).
     themeTweaks,
     setThemeTweaks,

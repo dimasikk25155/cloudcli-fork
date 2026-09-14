@@ -8,42 +8,40 @@ import {
   resolveGrokModePreset,
 } from '@/modules/providers/list/grok/grok-models.provider.js';
 
-test('the picker offers the five grok.com-style modes, in that order', () => {
+test('the picker offers Build and Fast, in that order', () => {
   const visible = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => !option.hidden);
 
   assert.deepEqual(visible.map((option) => option.value), [
-    'grok-mode-auto',
-    'grok-mode-fast',
-    'grok-mode-expert',
     'grok-mode-build',
-    'grok-mode-heavy',
+    'grok-mode-fast',
   ]);
   assert.deepEqual(visible.map((option) => option.label), [
-    'Авто',
-    'Быстрый',
-    'Эксперт',
-    'Build',
-    'Тяжёлый',
+    'Grok 4.6 Build',
+    'Grok Fast',
   ]);
   assert.equal(GROK_FALLBACK_MODELS.DEFAULT, 'grok-mode-build');
 });
 
-test('every offered mode says which model and which level is behind it', () => {
-  // Название режима само по себе не сообщает ничего: подпись под ним — это
-  // единственное место, где видно, что «Быстрый» — это 4.5 на низком уровне.
+test('visible mode names already say which model is behind them', () => {
   for (const option of GROK_FALLBACK_MODELS.OPTIONS.filter((entry) => !entry.hidden)) {
-    assert.ok(option.description, `${option.value} must carry a description`);
-    assert.match(option.description!, /Grok 4\.\d/);
+    assert.match(option.label, /Grok/);
+    assert.match(String(option.description), /Grok 4\.\d/);
   }
 });
 
-test('the raw models stay in the catalog, hidden but wired', () => {
+test('unused modes and raw models stay in the catalog, hidden but wired', () => {
   // Сессия или localStorage со старым id должны продолжать работать —
   // «спрятан» здесь значит «не предлагаем», а не «выпилен».
   const hidden = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => option.hidden);
 
-  assert.deepEqual(hidden.map((option) => option.value), ['grok-4.6', 'grok-4.5']);
-  for (const option of hidden) {
+  assert.deepEqual(hidden.map((option) => option.value), [
+    'grok-mode-auto',
+    'grok-mode-expert',
+    'grok-mode-heavy',
+    'grok-4.6',
+    'grok-4.5',
+  ]);
+  for (const option of hidden.filter((entry) => entry.value.startsWith('grok-4.'))) {
     assert.ok(option.effort?.values.length, `${option.value} must keep its effort levels`);
   }
 });
@@ -80,11 +78,15 @@ test('preset ids keep the grok- prefix the pricing table matches on', () => {
   }
 });
 
-test('only the heavy mode carries an extra rule, and it asks for a panel', () => {
-  const withRules = Object.entries(GROK_MODE_PRESETS).filter(([, preset]) => preset.rule);
-
-  assert.deepEqual(withRules.map(([id]) => id), ['grok-mode-heavy']);
+test('every mode carries an identity rule; only heavy asks for a panel', () => {
+  for (const [id, preset] of Object.entries(GROK_MODE_PRESETS)) {
+    assert.match(preset.rule || '', /MODEL IDENTITY/, `${id} needs an identity rule`);
+  }
   assert.match(GROK_MODE_PRESETS['grok-mode-heavy'].rule!, /parallel subagents/);
+  for (const [id, preset] of Object.entries(GROK_MODE_PRESETS)) {
+    if (id === 'grok-mode-heavy') continue;
+    assert.doesNotMatch(preset.rule || '', /parallel subagents/, `${id} must not emulate heavy`);
+  }
 });
 
 test('resolveGrokModePreset only claims ids it actually owns', () => {

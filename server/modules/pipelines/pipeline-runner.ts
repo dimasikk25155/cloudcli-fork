@@ -24,6 +24,8 @@ export type RunnerDeps = {
     prompt: string;
     userId: number;
     provider?: string;
+    /** What triggered the run, for the audit log. */
+    actor?: 'user' | 'schedule' | 'pipeline' | 'telegram' | 'api' | 'system';
   }) => Promise<{ sessionId: string | null; text: string }>;
   checkProjectAccess: (userId: number, projectPath: string) => ProjectAccessResult | Promise<ProjectAccessResult>;
 };
@@ -176,6 +178,7 @@ export async function runPipeline(runId: number, deps: RunnerDeps = defaultDeps)
           projectPath: access.projectPath,
           prompt: resolvedPrompt,
           userId: run.user_id,
+          actor: 'pipeline',
         });
 
         const output = typeof result?.text === 'string' ? result.text : '';

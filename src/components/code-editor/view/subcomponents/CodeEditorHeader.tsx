@@ -1,4 +1,4 @@
-import { Code2, Download, Eye, Link2, Loader2, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
+import { Check, Code2, Copy, Download, Eye, Link2, Loader2, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
 
 import type { CodeEditorFile } from '../../types/types';
 
@@ -14,6 +14,8 @@ type CodeEditorHeaderProps = {
   onToggleMarkdownPreview: () => void;
   onOpenHtmlPreview: () => void;
   onOpenSettings: () => void;
+  onCopyContent: () => void;
+  copySuccess: boolean;
   onDownload: () => void;
   onShareLink?: () => void;
   shareBusy?: boolean;
@@ -48,6 +50,8 @@ export default function CodeEditorHeader({
   onToggleMarkdownPreview,
   onOpenHtmlPreview,
   onOpenSettings,
+  onCopyContent,
+  copySuccess,
   onDownload,
   onShareLink,
   shareBusy = false,
@@ -112,8 +116,23 @@ export default function CodeEditorHeader({
           <SettingsIcon className="h-4 w-4" />
         </button>
 
-        {/* Скачать и «ссылка для друга» — с подписями: это то, ради чего файл
-            чаще всего и открывают, а голую иконку на телефоне никто не находит. */}
+        {/* Скачать, «Копировать» и «ссылка для друга» — с подписями: это то,
+            ради чего файл чаще всего и открывают, а голую иконку на телефоне
+            никто не находит. */}
+        <button
+          type="button"
+          onClick={onCopyContent}
+          className={`flex min-h-[32px] items-center gap-1.5 rounded-ui-md border px-2 py-1 text-xs transition-colors ${
+            copySuccess
+              ? 'border-success/40 bg-success/10 text-success'
+              : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
+          title="Скопировать весь текст файла в буфер"
+        >
+          {copySuccess ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">{copySuccess ? 'Скопировано' : 'Копировать'}</span>
+        </button>
+
         <button
           type="button"
           onClick={onDownload}

@@ -13,7 +13,7 @@ import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useConnectionWatchdog } from '../hooks/useConnectionWatchdog';
 import { useSessionStore } from '../../../stores/useSessionStore';
 import { decisionExitsPlanMode, permissionModeAfterPlanApproval } from '../utils/planMode';
-import { autoApprovedRequestIds } from '../utils/autoPlanMode';
+import { AUTO_PLAN_MODE, autoApprovedRequestIds, isAutoPlanMode } from '../utils/autoPlanMode';
 
 // Engines whose models share one list in the composer's model chip: picking
 // "Grok 4.6" right under "Fable 5" starts the chat on Grok, and picking Opus
@@ -44,6 +44,7 @@ function ChatInterface({
   showRawParameters,
   showThinking,
   sendByCtrlEnter,
+  sendByDoubleEnter,
   externalMessageUpdate,
   newSessionTrigger,
   onStartNewChat,
@@ -96,6 +97,7 @@ function ChatInterface({
     selectPermissionMode,
     workMode,
     selectWorkMode,
+    resetComposerModesAfterSend,
     supportsWorkModeForProvider,
     commitWorkModeToSession,
     availablePermissionModes,
@@ -115,6 +117,13 @@ function ChatInterface({
     selectedProject,
   });
 
+  // Claude's "plan + bypass" auto-approves ExitPlanMode during the SAME run
+  // that was started in that mode. The chip snaps back to ordinary + bypass
+  // the moment the send is dispatched, so auto-approve reads this latch
+  // instead of the chip — otherwise the plan prompt would sit waiting for
+  // a tap the user never meant to make.
+  const autoPlanRunActiveRef = useRef(false);
+
   const {
     chatMessages,
     addMessage,
@@ -131,6 +140,7 @@ function ChatInterface({
     setIsUserScrolledUp,
     tokenBudget,
     setTokenBudget,
+    refreshTokenUsage,
     visibleMessageCount,
     visibleMessages,
     loadEarlierMessages,
@@ -181,10 +191,10 @@ function ChatInterface({
   // in the URL — this id never changes again, so there is no later handoff.
   const handleSessionEstablished = useCallback<NonNullable<ChatInterfaceProps['onSessionEstablished']>>((sessionId, context) => {
     setCurrentSessionId(sessionId);
-    // Whatever permission mode was picked while composing (no session id
-    // yet) becomes this chat's own permanent record right now — see
-    // commitPermissionModeToSession for why this must happen at this exact
-    // moment rather than through any shared/global fallback.
+    // The chips picked while composing (no session id yet) become this
+    // chat's own record right now — see commitPermissionModeToSession.
+    // The send path then one-shot-resets them to ordinary + bypass, so
+    // this commit is the mode of the FIRST message, not a sticky default.
     commitPermissionModeToSession(sessionId);
     commitWorkModeToSession(sessionId);
     // Same story for the model and thinking level picked on the empty screen:
@@ -193,6 +203,13 @@ function ChatInterface({
     onSessionEstablished?.(sessionId, context);
     onNavigateToSession?.(sessionId);
   }, [setCurrentSessionId, commitPermissionModeToSession, commitWorkModeToSession, commitSessionModelAndEffort, onSessionEstablished, onNavigateToSession]);
+
+  const handleComposerModesConsumed = useCallback((sessionId: string) => {
+    if (isAutoPlanMode(permissionMode)) {
+      autoPlanRunActiveRef.current = true;
+    }
+    resetComposerModesAfterSend(sessionId);
+  }, [permissionMode, resetComposerModesAfterSend]);
 
   const {
     input,
@@ -263,8 +280,10 @@ function ChatInterface({
     tokenBudget,
     sendMessage,
     sendByCtrlEnter,
+    sendByDoubleEnter,
     onSessionProcessing,
     onSessionEstablished: handleSessionEstablished,
+    onComposerModesConsumed: handleComposerModesConsumed,
     onInputFocusChange,
     onFileOpen,
     onShowSettings,
@@ -275,13 +294,15 @@ function ChatInterface({
     resolvePermissionModeForProvider,
   });
 
-  // On WebSocket reconnect, re-fetch the current session's messages from the
-  // server so missed streaming events are shown, then re-subscribe — the
-  // `chat_subscribed` ack restores or clears the activity indicator, replays
-  // missed live events, and re-attaches a still-running stream to this socket.
+  // On WebSocket reconnect, re-subscribe so missed live events replay and a
+  // still-running stream re-attaches to this socket. Do NOT REST-refresh
+  // while a run is in flight: JSONL lags the live stream, and merging that
+  // snapshot into the pane was the "looks broken until I reload" bug.
   const handleWebSocketReconnect = useCallback(async () => {
     if (!selectedProject || !selectedSession) return;
-    await sessionStore.refreshFromServer(selectedSession.id);
+    if (!isProcessing) {
+      await sessionStore.refreshFromServer(selectedSession.id);
+    }
     statusCheckSentAtRef.current.set(selectedSession.id, Date.now());
     sendMessage({
       type: 'chat.subscribe',
@@ -290,7 +311,7 @@ function ChatInterface({
         lastSeq: lastSeqRef.current.get(selectedSession.id) ?? 0,
       }],
     });
-  }, [selectedProject, selectedSession, sendMessage, sessionStore]);
+  }, [selectedProject, selectedSession, sendMessage, sessionStore, isProcessing]);
 
   // Detects half-open sockets (mobile sleep, network blips) that never fire
   // `onclose` and would otherwise freeze the UI mid-run.
@@ -308,6 +329,7 @@ function ChatInterface({
     selectedSession,
     currentSessionId,
     setTokenBudget,
+    refreshTokenUsage,
     pendingPermissionRequests,
     setPendingPermissionRequests,
     streamTimerRef,
@@ -417,7 +439,8 @@ function ChatInterface({
   // render, and a double answer to one requestId is a protocol error.
   const autoAnsweredRequestIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const ids = autoApprovedRequestIds(permissionMode, pendingPermissionRequests)
+    const modeForAutoApprove = autoPlanRunActiveRef.current ? AUTO_PLAN_MODE : permissionMode;
+    const ids = autoApprovedRequestIds(modeForAutoApprove, pendingPermissionRequests)
       .filter((requestId) => !autoAnsweredRequestIdsRef.current.has(requestId));
     if (ids.length === 0) {
       return;
@@ -426,6 +449,15 @@ function ChatInterface({
     ids.forEach((requestId) => autoAnsweredRequestIdsRef.current.add(requestId));
     handlePermissionDecision(ids, { allow: true });
   }, [permissionMode, pendingPermissionRequests, handlePermissionDecision]);
+
+  const wasProcessingRef = useRef(isProcessing);
+  useEffect(() => {
+    const wasProcessing = wasProcessingRef.current;
+    wasProcessingRef.current = isProcessing;
+    if (wasProcessing && !isProcessing && pendingPermissionRequests.length === 0) {
+      autoPlanRunActiveRef.current = false;
+    }
+  }, [isProcessing, pendingPermissionRequests]);
 
   useEffect(() => {
     // Ids are unique per run; a new chat starts with a clean slate so the set

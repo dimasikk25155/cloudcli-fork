@@ -1,7 +1,5 @@
 import { APP_NAME, CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../constants/branding';
-import Neo3Logo from '../../branding/Neo3Logo';
-
-const loadingDotAnimationDelays = ['0s', '0.15s', '0.3s'];
+import CircleFadeSpinner from '../../branding/CircleFadeSpinner';
 
 export default function AuthLoadingScreen() {
   return (
@@ -12,25 +10,16 @@ export default function AuthLoadingScreen() {
 
       <div className="relative text-center" role="status" aria-live="polite">
         <div className="mb-5 flex justify-center">
-          <Neo3Logo className="h-20 w-20" animated />
+          <CircleFadeSpinner size={48} />
         </div>
 
         <h1
-          className="mb-4 text-2xl font-bold tracking-tight text-foreground"
+          className="text-2xl font-bold tracking-tight text-foreground"
           style={{ fontFamily: CLOUDCLI_WORDMARK_FONT_FAMILY }}
         >
           {APP_NAME}
         </h1>
         <p className="sr-only">Loading authentication state…</p>
-        <div aria-hidden className="flex items-center justify-center gap-2">
-          {loadingDotAnimationDelays.map((delay) => (
-            <div
-              key={delay}
-              className="h-2 w-2 animate-bounce rounded-full bg-primary"
-              style={{ animationDelay: delay }}
-            />
-          ))}
-        </div>
       </div>
     </div>
   );

@@ -97,6 +97,8 @@
     "sendByCtrlEnter": "Send by Ctrl+Enter",
     "voiceEnabled": "Voice (mic + read aloud)",
     "sendByCtrlEnterDescription": "When enabled, pressing Ctrl+Enter will send the message instead of just Enter. This is useful for IME users to avoid accidental sends.",
+    "sendByDoubleEnter": "Send by double Enter",
+    "sendByDoubleEnterDescription": "When enabled, a single Enter adds a line break and the message is sent by pressing Enter twice in a row. Prevents accidental sends of half-typed messages.",
     "dragHandle": {
       "dragging": "Dragging handle",
       "closePanel": "Close settings panel",
@@ -212,6 +214,13 @@
     "themeBackground": {
       "label": "Background image",
       "description": "Which of the theme's images to show behind the app"
+    },
+    "liveWallpaper": {
+      "label": "Background",
+      "description": "Off removes the picture. Auto rotate plays the clips in a loop. Any other item stays as picked",
+      "off": "Off",
+      "auto": "Auto rotate",
+      "next": "Next background"
     },
     "showBackground": {
       "enable": {
@@ -748,5 +757,11 @@
       "label": "Open new chats on this engine",
       "description": "Every new chat starts on this engine. Off everywhere: a new chat sticks to the engine used last."
     }
+  },
+  "about": {
+    "guide": "Interface guide",
+    "replay": "Replay the first-run tour",
+    "replayHelp": "The short story a new person sees on first login. It can be skipped.",
+    "replayError": "Could not open the tour. Try again."
   }
 }

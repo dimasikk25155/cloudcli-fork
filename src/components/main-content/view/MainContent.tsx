@@ -27,6 +27,8 @@ import ErrorBoundary from './ErrorBoundary';
 function MainContent({
   selectedProject,
   selectedSession,
+  projects = [],
+  onProjectSelect,
   activeTab,
   setActiveTab,
   ws,
@@ -41,12 +43,14 @@ function MainContent({
   onNavigateToSession,
   onSessionEstablished,
   onShowSettings,
+  onGoHome,
+  onToggleStarProject,
   externalMessageUpdate,
   newSessionTrigger,
   onStartNewChat,
 }: MainContentProps) {
   const { preferences } = useUiPreferences();
-  const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
+  const { showRawParameters, showThinking, sendByCtrlEnter, sendByDoubleEnter } = preferences;
 
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
   // Terminal tab: agent CLI session (default) vs a real interactive shell.
@@ -172,7 +176,17 @@ function MainContent({
   }
 
   if (!selectedProject) {
-    return <MainContentStateView mode="empty" isMobile={isMobile} onMenuClick={onMenuClick} />;
+    return (
+      <MainContentStateView
+        mode="empty"
+        isMobile={isMobile}
+        onMenuClick={onMenuClick}
+        projects={projects}
+        onProjectSelect={onProjectSelect}
+        onShowSettings={onShowSettings}
+        onToggleStarProject={onToggleStarProject}
+      />
+    );
   }
 
   return (
@@ -186,6 +200,7 @@ function MainContent({
         shouldShowAutopilotTab={autopilot.available}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
+        onGoHome={onGoHome}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -208,6 +223,7 @@ function MainContent({
                 showRawParameters={showRawParameters}
                 showThinking={showThinking}
                 sendByCtrlEnter={sendByCtrlEnter}
+                sendByDoubleEnter={sendByDoubleEnter}
                 externalMessageUpdate={externalMessageUpdate}
                 newSessionTrigger={newSessionTrigger}
                 onStartNewChat={selectedProject ? () => onStartNewChat?.(selectedProject) : undefined}

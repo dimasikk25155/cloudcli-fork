@@ -34,6 +34,7 @@ function Sidebar({
   settingsInitialTab,
   onCloseSettings,
   isMobile,
+  onGoHome,
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { isPWA } = useDeviceSettings({ trackMobile: false });
@@ -48,7 +49,7 @@ function Sidebar({
   const {
     isSidebarCollapsed,
     expandedProjects,
-    collapsedProjects,
+    expandedJournalProjects,
     editingProject,
     showNewProject,
     editingName,
@@ -63,6 +64,7 @@ function Sidebar({
     runningSessionsCount,
     recentSessionsCount,
     hideSessionFromRecent,
+    expandJournalProject,
     deletingProjects,
     deleteConfirmation,
     sessionDeleteConfirmation,
@@ -139,7 +141,7 @@ function Sidebar({
     isLoading,
     loadingProgress,
     expandedProjects,
-    collapsedProjects,
+    expandedJournalProjects,
     editingProject,
     editingName,
     initialSessionsLoaded,
@@ -151,7 +153,7 @@ function Sidebar({
     loadingMoreProjects,
     activeSessions,
     attentionSessionIds,
-    forceExpanded: searchMode === 'running' || searchMode === 'recent',
+    isJournalView: searchMode === 'running' || searchMode === 'recent',
     isRecentView: searchMode === 'recent',
     isProjectStarred,
     onEditingNameChange: setEditingName,
@@ -166,7 +168,10 @@ function Sidebar({
     onSessionSelect: handleSessionClick,
     onReorderSessions: reorderProjectSessions,
     onLoadMoreSessions: loadMoreSessionsForProject,
-    onNewSession,
+    onNewSession: (project) => {
+      expandJournalProject(project.projectId);
+      onNewSession(project);
+    },
     onEditingSessionNameChange: setEditingSessionName,
     onStartEditingSession: (sessionId, initialName) => {
       setEditingSession(sessionId);
@@ -214,6 +219,7 @@ function Sidebar({
         <SidebarCollapsed
           onExpand={handleExpandSidebar}
           onShowSettings={onShowSettings}
+          onGoHome={onGoHome}
           restartRequired={restartRequired}
           t={t}
         />
@@ -256,6 +262,7 @@ function Sidebar({
             restartRequired={restartRequired}
             currentVersion={currentVersion}
             onShowSettings={onShowSettings}
+            onGoHome={onGoHome}
             projectListProps={projectListProps}
             t={t}
           />

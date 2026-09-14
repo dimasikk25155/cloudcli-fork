@@ -20,37 +20,27 @@ export const readProjectSortOrder = (): ProjectSortOrder => {
 /**
  * Decides whether a session belongs in the Recent journal.
  *
- * Hiding a card is a decision about the card itself, so the entry survives any
- * later transcript activity: an idle CLI process keeps touching its JSONL file
- * (same content, newer mtime) long after the conversation is finished, and the
- * old "hidden until the transcript moves" rule un-hid everything on its own.
- * A running session is always listed, so a job that resumes by itself cannot go
- * unnoticed.
+ * Hiding a card is a decision about the card itself. An idle CLI process keeps
+ * touching its JSONL file (same content, newer mtime) and can sit in the
+ * "running" set for hours after the conversation is finished, so neither
+ * "newer than the hide timestamp" nor "currently running" may bring a hidden
+ * card back. It returns only when the user opens that session again.
  */
 export const isSessionVisibleInRecentJournal = (
   session: SessionWithProvider,
   hiddenSessions: Record<string, string>,
-  activeSessionIds: ReadonlySet<string>,
-): boolean => {
-  const sessionId = String(session.id);
+): boolean => !hiddenSessions[String(session.id)];
 
-  if (activeSessionIds.has(sessionId)) {
-    return true;
-  }
-
-  return !hiddenSessions[sessionId];
-};
-
-const COLLAPSED_PROJECTS_STORAGE_KEY = 'sidebar-collapsed-projects';
+const EXPANDED_JOURNAL_PROJECTS_STORAGE_KEY = 'sidebar-expanded-journal-projects';
 
 /**
- * Reads the project groups the user folded away in the Running/Recent views.
- * Those two views open every group by default, so what has to be remembered is
- * the opposite of `expandedProjects`: which folders were explicitly closed.
+ * Reads which project folders the user opened in the Running/Recent views.
+ * Those views keep every group folded until a click, so what has to be
+ * remembered is the opposite of the old "all open, remember the closed ones".
  */
-export const readCollapsedProjectIds = (): string[] => {
+export const readExpandedJournalProjectIds = (): string[] => {
   try {
-    const saved = localStorage.getItem(COLLAPSED_PROJECTS_STORAGE_KEY);
+    const saved = localStorage.getItem(EXPANDED_JOURNAL_PROJECTS_STORAGE_KEY);
     if (!saved) {
       return [];
     }
@@ -68,9 +58,9 @@ export const readCollapsedProjectIds = (): string[] => {
   }
 };
 
-export const writeCollapsedProjectIds = (projectIds: string[]) => {
+export const writeExpandedJournalProjectIds = (projectIds: string[]) => {
   try {
-    localStorage.setItem(COLLAPSED_PROJECTS_STORAGE_KEY, JSON.stringify(projectIds));
+    localStorage.setItem(EXPANDED_JOURNAL_PROJECTS_STORAGE_KEY, JSON.stringify(projectIds));
   } catch {
     // Keep UI responsive even if storage is unavailable.
   }
@@ -159,9 +149,73 @@ export const createSessionViewModel = (
  * Creation time drives the *default* sidebar order. Sorting by last activity
  * (the old behaviour) made cards swap places every time a message landed, so
  * running several sessions at once turned the list into a slot machine.
+ *
+ * Never fall back to `lastActivity` here: the API used to omit `createdAt`
+ * and this helper then sorted by a timestamp that ticks on every token.
  */
 export const getSessionCreatedDate = (session: SessionWithProvider): Date => {
-  return new Date(getCreatedTimestamp(session) || getUpdatedTimestamp(session) || 0);
+  const created = getCreatedTimestamp(session);
+  if (!created) {
+    return new Date(0);
+  }
+
+  const date = new Date(created);
+  return Number.isNaN(date.getTime()) ? new Date(0) : date;
+};
+
+const readCreatedTimestamp = (session: ProjectSession | undefined): string => {
+  if (!session) {
+    return '';
+  }
+
+  const value = session.createdAt || session.created_at;
+  return typeof value === 'string' && value.trim() ? value : '';
+};
+
+/**
+ * Pins a session's creation time so later activity ticks cannot reshuffle it.
+ *
+ * Server payloads historically sent only `lastActivity`. The first value we
+ * see is frozen as `createdAt`; later upserts may refresh `lastActivity` for
+ * the "9m ago" label but must not rewrite the sort key. A real `createdAt`
+ * from the server always wins.
+ */
+export const preserveSessionCreatedAt = (
+  incoming: ProjectSession,
+  previous?: ProjectSession,
+): ProjectSession => {
+  const fromIncoming = readCreatedTimestamp(incoming);
+  if (fromIncoming) {
+    return { ...incoming, createdAt: fromIncoming, created_at: fromIncoming };
+  }
+
+  const fromPrevious = readCreatedTimestamp(previous);
+  if (fromPrevious) {
+    return { ...incoming, createdAt: fromPrevious, created_at: fromPrevious };
+  }
+
+  const fallback =
+    (typeof incoming.lastActivity === 'string' && incoming.lastActivity.trim())
+      ? incoming.lastActivity
+      : new Date().toISOString();
+
+  return { ...incoming, createdAt: fallback, created_at: fallback };
+};
+
+export const preserveProjectSessionsCreatedAt = (
+  incoming: Project,
+  previous?: Project,
+): Project => {
+  const previousById = new Map(
+    (previous?.sessions ?? []).map((session) => [String(session.id), session]),
+  );
+
+  return {
+    ...incoming,
+    sessions: (incoming.sessions ?? []).map((session) =>
+      preserveSessionCreatedAt(session, previousById.get(String(session.id))),
+    ),
+  };
 };
 
 export const getAllSessions = (project: Project): SessionWithProvider[] => {
@@ -222,16 +276,73 @@ export const applyManualSessionOrder = (
   return [...newcomers, ...pinned, ...older];
 };
 
-export const getProjectLastActivity = (project: Project): Date => {
-  const sessions = getAllSessions(project);
+export const getProjectNewestCreated = (project: Project): Date => {
+  const sessions = project.sessions ?? [];
   if (sessions.length === 0) {
     return new Date(0);
   }
 
   return sessions.reduce((latest, session) => {
-    const sessionDate = getSessionDate(session);
-    return sessionDate > latest ? sessionDate : latest;
+    const created = getSessionCreatedDate(session as SessionWithProvider);
+    return created > latest ? created : latest;
   }, new Date(0));
+};
+
+/**
+ * Sort key for project folders. Used to be max(`lastActivity`), which ticks
+ * on every streamed token and swapped two busy folders with each other.
+ */
+export const getProjectLastActivity = (project: Project): Date => getProjectNewestCreated(project);
+
+const compareProjectsByNewestCreated = (projectA: Project, projectB: Project): number => {
+  const byCreated = getProjectNewestCreated(projectB).getTime() - getProjectNewestCreated(projectA).getTime();
+  if (byCreated !== 0) {
+    return byCreated;
+  }
+
+  const byName = (projectA.displayName || projectA.projectId).localeCompare(
+    projectB.displayName || projectB.projectId,
+  );
+  if (byName !== 0) {
+    return byName;
+  }
+
+  return projectA.projectId.localeCompare(projectB.projectId);
+};
+
+const getProjectPath = (project: Project): string => project.path || project.fullPath || '';
+
+/**
+ * Codex desktop / ChatGPT desktop drop each thread into
+ * `~/Documents/Codex/...` or `~/Documents/ChatGPT/...`. Those folders are
+ * real session homes, but they are not the agency's project list — they
+ * used to sit alphabetically between Tyres and generate and bury the
+ * actual workspaces.
+ */
+export const isCodexInboxProject = (project: Project): boolean => {
+  const projectPath = getProjectPath(project);
+  if (!projectPath) {
+    return false;
+  }
+
+  return /\/Documents\/Codex\//.test(projectPath) || /\/Documents\/ChatGPT\//.test(projectPath);
+};
+
+export const partitionCodexInboxProjects = (
+  projects: Project[],
+): { workspaceProjects: Project[]; codexInboxProjects: Project[] } => {
+  const workspaceProjects: Project[] = [];
+  const codexInboxProjects: Project[] = [];
+
+  for (const project of projects) {
+    if (isCodexInboxProject(project)) {
+      codexInboxProjects.push(project);
+    } else {
+      workspaceProjects.push(project);
+    }
+  }
+
+  return { workspaceProjects, codexInboxProjects };
 };
 
 export const sortProjects = (
@@ -253,14 +364,87 @@ export const sortProjects = (
       return 1;
     }
 
+    // Unstarred Codex inbox folders stay below real workspaces. Starring one
+    // still lifts it — the star is an explicit "keep this in my face".
+    const aCodexInbox = isCodexInboxProject(projectA);
+    const bCodexInbox = isCodexInboxProject(projectB);
+    if (aCodexInbox !== bCodexInbox) {
+      return aCodexInbox ? 1 : -1;
+    }
+
     if (projectSortOrder === 'date') {
-      return getProjectLastActivity(projectB).getTime() - getProjectLastActivity(projectA).getTime();
+      return compareProjectsByNewestCreated(projectA, projectB);
     }
 
     return (projectA.displayName || projectA.projectId).localeCompare(projectB.displayName || projectB.projectId);
   });
 
   return byName;
+};
+
+export const RECENT_JOURNAL_LIMIT = 20;
+
+/**
+ * Builds the Recent journal: which sessions appear is decided by activity,
+ * how folders and cards are stacked is decided by creation time (or a pinned
+ * drag order). Two parallel runs therefore cannot swap places mid-reply.
+ */
+export const buildRecentProjects = (
+  sortedProjects: Project[],
+  hiddenSessions: Record<string, string>,
+  sessionOrderByProject: Record<string, string[]>,
+  limit: number = RECENT_JOURNAL_LIMIT,
+): Project[] => {
+  const flattened = sortedProjects.flatMap((project) =>
+    getAllSessions(project).map((session) => ({ project, session })),
+  );
+
+  flattened.sort(
+    (a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime(),
+  );
+
+  const visible = flattened.filter(({ session }) =>
+    isSessionVisibleInRecentJournal(session, hiddenSessions),
+  );
+
+  const top = visible.slice(0, limit);
+
+  const byProjectId = new Map<string, Project>();
+  for (const { project, session } of top) {
+    const existing = byProjectId.get(project.projectId);
+    if (existing) {
+      existing.sessions = [...(existing.sessions ?? []), session];
+      continue;
+    }
+    byProjectId.set(project.projectId, {
+      ...project,
+      sessions: [session],
+      sessionMeta: {
+        ...project.sessionMeta,
+        hasMore: false,
+      },
+    });
+  }
+
+  return [...byProjectId.values()]
+    .sort(compareProjectsByNewestCreated)
+    .map((project) => {
+      const sessions = [...(project.sessions ?? [])].sort(
+        (a, b) =>
+          getSessionCreatedDate(b as SessionWithProvider).getTime()
+          - getSessionCreatedDate(a as SessionWithProvider).getTime(),
+      ) as SessionWithProvider[];
+
+      return {
+        ...project,
+        sessions: applyManualSessionOrder(sessions, sessionOrderByProject[project.projectId]),
+        sessionMeta: {
+          ...project.sessionMeta,
+          total: sessions.length,
+          hasMore: false,
+        },
+      };
+    });
 };
 
 /**
@@ -281,7 +465,7 @@ const SCRATCH_PATH_PATTERNS = [
 ];
 
 export const isScratchProject = (project: Project): boolean => {
-  const projectPath = project.path || project.fullPath || '';
+  const projectPath = getProjectPath(project);
   if (!projectPath) {
     return false;
   }

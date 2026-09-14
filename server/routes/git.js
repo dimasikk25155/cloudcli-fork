@@ -4,8 +4,10 @@ import spawn from 'cross-spawn';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { projectsDb, userProjectAccessDb } from '../modules/database/index.js';
+import { newRunId, recordAuditEvent, RunMeter } from '../modules/governance/index.js';
 import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
+import { spawnGrok } from '../grok-cli.js';
 
 const router = express.Router();
 const COMMIT_DIFF_CHARACTER_LIMIT = 500_000;
@@ -1012,15 +1014,15 @@ router.get('/commit-diff', async (req, res) => {
 
 // Generate commit message based on staged changes using AI
 router.post('/generate-commit-message', async (req, res) => {
-  const { project, files, provider = 'claude' } = req.body;
+  const { project, files, provider = 'grok' } = req.body;
 
   if (!project || !files || files.length === 0) {
     return res.status(400).json({ error: 'Project id and files are required' });
   }
 
   // Validate provider
-  if (!['claude', 'cursor'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude" or "cursor"' });
+  if (!['claude', 'cursor', 'grok'].includes(provider)) {
+    return res.status(400).json({ error: 'provider must be "claude", "cursor" or "grok"' });
   }
 
   try {
@@ -1066,8 +1068,10 @@ router.post('/generate-commit-message', async (req, res) => {
       }
     }
 
-    // Generate commit message using AI
-    const message = await generateCommitMessageWithAI(files, diffContext, provider, projectPath);
+    // Generate commit message using AI. The user is passed through so the spend
+    // this run produces is attributable — an anonymous cost row is a cost row
+    // nobody can act on.
+    const message = await generateCommitMessageWithAI(files, diffContext, provider, projectPath, req.user?.id ?? null);
 
     res.json({ message });
   } catch (error) {
@@ -1080,11 +1084,11 @@ router.post('/generate-commit-message', async (req, res) => {
  * Generates a commit message using AI (Claude SDK or Cursor CLI)
  * @param {Array<string>} files - List of changed files
  * @param {string} diffContext - Git diff content
- * @param {string} provider - 'claude' or 'cursor'
+ * @param {string} provider - 'claude', 'cursor' or 'grok'
  * @param {string} projectPath - Project directory path
  * @returns {Promise<string>} Generated commit message
  */
-async function generateCommitMessageWithAI(files, diffContext, provider, projectPath) {
+async function generateCommitMessageWithAI(files, diffContext, provider, projectPath, userId = null) {
   // Create the prompt
   const prompt = `Generate a conventional commit message for these changes.
 
@@ -1112,31 +1116,28 @@ Generate the commit message:`;
       send: (data) => {
         try {
           const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-          console.log('🔍 Writer received message type:', parsed.type);
 
-          // Handle different message formats from Claude SDK and Cursor CLI
-          // Claude SDK sends: {type: 'claude-response', data: {message: {content: [...]}}}
-          if (parsed.type === 'claude-response' && parsed.data) {
+          // Normalized envelope every current engine emits ({ kind, role, content }).
+          // The legacy `claude-response` shape is dead — collecting only that
+          // left commit messages empty on both Claude and Grok.
+          if (parsed.kind === 'text' && parsed.role !== 'user' && typeof parsed.content === 'string') {
+            responseText += parsed.content;
+          }
+          // Cursor CLI sends: {type: 'cursor-output', output: '...'}
+          else if (parsed.type === 'cursor-output' && parsed.output) {
+            responseText += parsed.output;
+          }
+          // Legacy Claude SDK shape, kept so an older dist-server still works.
+          else if (parsed.type === 'claude-response' && parsed.data) {
             const message = parsed.data.message || parsed.data;
-            console.log('📦 Claude response message:', JSON.stringify(message, null, 2).substring(0, 500));
             if (message.content && Array.isArray(message.content)) {
-              // Extract text from content array
               for (const item of message.content) {
                 if (item.type === 'text' && item.text) {
-                  console.log('✅ Extracted text chunk:', item.text.substring(0, 100));
                   responseText += item.text;
                 }
               }
             }
-          }
-          // Cursor CLI sends: {type: 'cursor-output', output: '...'}
-          else if (parsed.type === 'cursor-output' && parsed.output) {
-            console.log('✅ Cursor output:', parsed.output.substring(0, 100));
-            responseText += parsed.output;
-          }
-          // Also handle direct text messages
-          else if (parsed.type === 'text' && parsed.text) {
-            console.log('✅ Direct text:', parsed.text.substring(0, 100));
+          } else if (parsed.type === 'text' && parsed.text) {
             responseText += parsed.text;
           }
         } catch (e) {
@@ -1150,18 +1151,55 @@ Generate the commit message:`;
     console.log('🚀 Calling AI agent with provider:', provider);
     console.log('📝 Prompt length:', prompt.length);
 
-    // Call the appropriate agent
-    if (provider === 'claude') {
-      await queryClaudeSDK(prompt, {
-        cwd: projectPath,
-        permissionMode: 'bypassPermissions',
-        model: 'sonnet'
-      }, writer);
-    } else if (provider === 'cursor') {
-      await spawnCursor(prompt, {
-        cwd: projectPath,
-        skipPermissions: true
-      }, writer);
+    // Small, frequent and easy to forget: writing a commit message is a real
+    // model call that costs real money. Without this row the spend panel would
+    // show a gap nobody could account for.
+    const auditRunId = newRunId();
+    const auditMeter = new RunMeter();
+    const auditStartedAt = Date.now();
+
+    try {
+      // Call the appropriate agent
+      if (provider === 'claude') {
+        await queryClaudeSDK(prompt, {
+          cwd: projectPath,
+          permissionMode: 'bypassPermissions',
+          model: 'sonnet',
+          meter: auditMeter
+        }, writer);
+      } else if (provider === 'cursor') {
+        await spawnCursor(prompt, {
+          cwd: projectPath,
+          skipPermissions: true
+        }, writer);
+      } else if (provider === 'grok') {
+        await spawnGrok(prompt, {
+          cwd: projectPath,
+          permissionMode: 'bypassPermissions',
+          meter: auditMeter,
+          skipStopHooks: true,
+        }, writer);
+      }
+    } finally {
+      const auditCost = auditMeter.finish();
+      recordAuditEvent({
+        actor: 'git-helper',
+        event: 'run.finish',
+        userId: userId ?? null,
+        projectPath,
+        runId: auditRunId,
+        provider,
+        model: auditCost.model ?? (provider === 'grok' ? 'grok-4.6' : 'sonnet'),
+        outcome: 'ok',
+        detail: 'commit message generation',
+        tokensIn: auditCost.breakdown.inputTokens,
+        tokensOut: auditCost.breakdown.outputTokens,
+        cacheRead: auditCost.breakdown.cacheReadTokens,
+        cacheWrite5m: auditCost.breakdown.cacheWrite5mTokens,
+        cacheWrite1h: auditCost.breakdown.cacheWrite1hTokens,
+        costMicroUsd: auditCost.costMicroUsd,
+        durationMs: Date.now() - auditStartedAt,
+      });
     }
 
     console.log('📊 Total response text collected:', responseText.length, 'characters');

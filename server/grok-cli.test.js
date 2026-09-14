@@ -1,7 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildGrokArgs, buildGrokRules, embedGrokRulesInPrompt, resolveGrokEffort, resolveGrokPermissionMode } from './grok-cli.js';
+import {
+  buildGrokArgs,
+  buildGrokRules,
+  consumeGrokPlanBypassAwaitingAnswers,
+  embedGrokFollowupPrompt,
+  embedGrokRulesInPrompt,
+  grokHangReason,
+  grokHangUserMessage,
+  grokPromptFitsArgv,
+  GROK_FIRST_BYTE_MS,
+  GROK_IDLE_SILENCE_MS,
+  markGrokPlanBypassAwaitingAnswers,
+  MAX_GROK_PROMPT_ARGV_CHARS,
+  parseStopHookDecision,
+  resetGrokPlanBypassStateForTests,
+  resolveGrokEffort,
+  resolveGrokPermissionMode,
+  resolveGrokPlanBypassPhase,
+  SESSION_FOLLOWUP_CLOSE_TAG,
+  SESSION_FOLLOWUP_OPEN_TAG,
+} from './grok-cli.js';
 import {
   GROK_FALLBACK_MODELS,
   GROK_MODE_PRESETS,
@@ -15,7 +35,7 @@ import {
  */
 test('resolveGrokPermissionMode maps the UI modes onto usable CLI modes', () => {
   assert.equal(resolveGrokPermissionMode('bypassPermissions'), 'bypassPermissions');
-  assert.equal(resolveGrokPermissionMode('plan'), 'plan');
+  assert.equal(resolveGrokPermissionMode('plan'), 'bypassPermissions');
   assert.equal(resolveGrokPermissionMode('acceptEdits'), 'acceptEdits');
   assert.equal(resolveGrokPermissionMode('default'), 'auto');
   assert.equal(resolveGrokPermissionMode(undefined), 'auto');
@@ -35,13 +55,14 @@ test('buildGrokArgs names a new session and always requests the wire format', ()
     permissionMode: 'default',
   });
 
-  assert.deepEqual(args, [
-    '-p', 'hello',
-    '--output-format', 'streaming-messages-json',
-    '--permission-mode', 'auto',
-    '-s', '11111111-2222-3333-4444-555555555555',
-    '-m', 'grok-4.6',
-  ]);
+  assert.equal(args[args.indexOf('--output-format') + 1], 'streaming-messages-json');
+  assert.equal(args[args.indexOf('--permission-mode') + 1], 'auto');
+  assert.equal(args[args.indexOf('-s') + 1], '11111111-2222-3333-4444-555555555555');
+  assert.equal(args[args.indexOf('-m') + 1], 'grok-4.6');
+  // Raw model id still gets an identity rule so the agent does not self-report
+  // as "Grok 4.6 Build" from xAI's hardcoded system line alone.
+  assert.match(args[args.indexOf('-p') + 1], /MODEL IDENTITY/);
+  assert.match(args[args.indexOf('-p') + 1], /hello$/);
 });
 
 test('buildGrokArgs resumes an existing session instead of naming a new one', () => {
@@ -71,7 +92,7 @@ test('buildGrokArgs omits optional flags when nothing is selected', () => {
 
   assert.ok(!args.includes('-m'));
   assert.ok(!args.includes('--reasoning-effort'));
-  assert.equal(args[args.indexOf('--permission-mode') + 1], 'plan');
+  assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions');
 });
 
 /**
@@ -134,18 +155,30 @@ test('resolveGrokPermissionMode runs planBypass with permissions granted', () =>
 });
 
 test('buildGrokRules carries the work mode and the plan instruction', () => {
-  assert.equal(buildGrokRules({ workMode: 'autopilot', permissionMode: 'default' }), null);
+  const idle = buildGrokRules({ workMode: 'autopilot', permissionMode: 'default' });
+  assert.match(idle, /ask_user_question/);
+  assert.doesNotMatch(idle, /WORK MODE:/);
 
   const planned = buildGrokRules({ workMode: 'autopilot', permissionMode: 'planBypass' });
-  assert.match(planned, /PLAN FIRST/);
+  assert.match(planned, /QUESTIONS FIRST/);
+  assert.doesNotMatch(planned, /HAS ANSWERED/);
+
+  const running = buildGrokRules({ workMode: 'autopilot', permissionMode: 'planBypass', planBypassPhase: 'run' });
+  assert.match(running, /HAS ANSWERED/);
+  assert.doesNotMatch(running, /QUESTIONS FIRST/);
 
   const briefed = buildGrokRules({ workMode: 'checkpoints', permissionMode: 'default' });
   assert.match(briefed, /WORK MODE: STAGED BRIEFINGS/);
-  assert.doesNotMatch(briefed, /PLAN FIRST/);
+  assert.doesNotMatch(briefed, /QUESTIONS FIRST/);
 
   const both = buildGrokRules({ workMode: 'checkpoints', permissionMode: 'planBypass' });
-  assert.match(both, /PLAN FIRST/);
+  assert.match(both, /QUESTIONS FIRST/);
   assert.match(both, /WORK MODE: STAGED BRIEFINGS/);
+
+  const plainPlan = buildGrokRules({ workMode: 'autopilot', permissionMode: 'plan' });
+  assert.match(plainPlan, /PLAN MODE/);
+  assert.doesNotMatch(plainPlan, /QUESTIONS FIRST/);
+  assert.doesNotMatch(plainPlan, /HAS ANSWERED/);
 });
 
 test('buildGrokArgs passes the rules and never leaves planBypass on the wire', () => {
@@ -160,7 +193,8 @@ test('buildGrokArgs passes the rules and never leaves planBypass on the wire', (
 
   // The CLI would reject `planBypass` — it is ours, not xAI's.
   assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions');
-  assert.match(args[args.indexOf('--rules') + 1], /PLAN FIRST/);
+  assert.match(args[args.indexOf('--rules') + 1], /QUESTIONS FIRST/);
+  assert.equal(args[args.indexOf('--disallowed-tools') + 1], 'search_replace,write');
 
   const plain = buildGrokArgs({
     prompt: 'go',
@@ -170,7 +204,10 @@ test('buildGrokArgs passes the rules and never leaves planBypass on the wire', (
     permissionMode: 'default',
     workMode: 'autopilot',
   });
-  assert.ok(!plain.includes('--rules'), 'autopilot in a normal run adds no system rules');
+  // Autopilot alone adds no work-mode text, but a selected model always gets
+  // an identity rule (xAI's system line always claims "Grok 4.6").
+  assert.match(plain[plain.indexOf('--rules') + 1], /MODEL IDENTITY/);
+  assert.doesNotMatch(plain[plain.indexOf('--rules') + 1], /WORK MODE/);
 });
 
 /**
@@ -217,7 +254,8 @@ test('every mode preset expands into flags the CLI actually accepts', () => {
 test('the catalog offers Build and Fast and keeps the other modes wired', () => {
   const visible = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => !option.hidden);
   assert.deepEqual(visible.map((option) => option.value), ['grok-mode-build', 'grok-mode-fast']);
-  visible.forEach((option) => assert.match(option.label, /Grok 4\.\d/));
+  assert.equal(visible[0].label, 'Grok 4.6 Build');
+  assert.equal(visible[1].label, 'Grok Fast');
   // Старые чаты на спрятанных режимах и сырых моделях должны продолжать работать.
   const hidden = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => option.hidden).map((o) => o.value);
   assert.deepEqual(hidden, [
@@ -228,6 +266,8 @@ test('the catalog offers Build and Fast and keeps the other modes wired', () => 
     'grok-4.5',
   ]);
   assert.ok(GROK_MODE_PRESETS[GROK_FALLBACK_MODELS.DEFAULT], 'the default must be one of the modes');
+  assert.equal(GROK_MODE_PRESETS['grok-mode-build'].model, 'grok-4.6');
+  assert.equal(GROK_MODE_PRESETS['grok-mode-fast'].model, 'grok-4.5');
 });
 
 test('a preset owns its level — the effort chip cannot override it', () => {
@@ -241,16 +281,24 @@ test('a preset owns its level — the effort chip cannot override it', () => {
   assert.ok(!auto.includes('--reasoning-effort'));
 });
 
-test('the heavy mode ships its panel rule, the others do not', () => {
+test('every visible mode ships an identity rule; heavy also ships the panel rule', () => {
   const heavy = argsForModel('grok-mode-heavy', { workMode: 'autopilot' });
   assert.match(heavy[heavy.indexOf('--rules') + 1], /HEAVY MODE/);
+  assert.match(heavy[heavy.indexOf('--rules') + 1], /MODEL IDENTITY/);
 
   const expert = argsForModel('grok-mode-expert', { workMode: 'autopilot' });
-  assert.ok(!expert.includes('--rules'));
+  assert.match(expert[expert.indexOf('--rules') + 1], /MODEL IDENTITY/);
+  assert.match(expert[expert.indexOf('--rules') + 1], /Grok 4\.5/);
+
+  const fast = argsForModel('grok-mode-fast', { workMode: 'autopilot' });
+  assert.match(fast[fast.indexOf('--rules') + 1], /Grok Fast/);
+
+  const build = argsForModel('grok-mode-build', { workMode: 'autopilot' });
+  assert.match(build[build.indexOf('--rules') + 1], /Grok 4\.6 Build/);
 
   // Правило режима и режим работы едут вместе, не вытесняя друг друга.
   const both = buildGrokRules({ workMode: 'checkpoints', permissionMode: 'planBypass', model: 'grok-mode-heavy' });
-  assert.match(both, /PLAN FIRST/);
+  assert.match(both, /QUESTIONS FIRST/);
   assert.match(both, /HEAVY MODE/);
   assert.match(both, /WORK MODE: STAGED BRIEFINGS/);
 });
@@ -261,6 +309,22 @@ test('rules sent to Grok never name a tool it does not have', () => {
     assert.doesNotMatch(rules, /AskUserQuestion/);
     assert.doesNotMatch(rules, /Skill tool/);
   }
+});
+
+test('interactive Grok rules tell the model to call ask_user_question', () => {
+  const checkpoints = buildGrokRules({ workMode: 'checkpoints', permissionMode: 'default' });
+  assert.match(checkpoints, /ask_user_question/);
+  assert.doesNotMatch(checkpoints, /AskUserQuestion/);
+
+  const askPhase = buildGrokRules({
+    workMode: 'autopilot',
+    permissionMode: 'planBypass',
+    planBypassPhase: 'ask',
+  });
+  assert.match(askPhase, /ask_user_question/);
+
+  const silent = buildGrokRules({ workMode: 'autopilot', permissionMode: 'bypassPermissions' });
+  assert.equal(silent, null);
 });
 
 test('raw model ids still work for sessions and localStorage that hold them', () => {
@@ -276,13 +340,16 @@ test('plan mode strips the file-writing tool so it is actually read-only', () =>
     model: 'grok-mode-fast',
     permissionMode: 'plan',
   });
+  assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions');
   const i = args.indexOf('--disallowed-tools');
-  assert.notEqual(i, -1, 'plan run must disallow search_replace');
+  assert.notEqual(i, -1, 'plan run must disallow file-writing tools');
   assert.match(args[i + 1], /search_replace/);
+  assert.match(args[i + 1], /write/);
+  assert.match(args[args.indexOf('--rules') + 1], /PLAN MODE/);
 });
 
 test('non-plan modes do not strip tools', () => {
-  for (const permissionMode of ['default', 'bypassPermissions', 'planBypass', 'acceptEdits']) {
+  for (const permissionMode of ['default', 'bypassPermissions', 'acceptEdits']) {
     const args = buildGrokArgs({
       prompt: 'x',
       resolvedSessionId: '00000000-0000-4000-8000-000000000000',
@@ -291,6 +358,75 @@ test('non-plan modes do not strip tools', () => {
     });
     assert.equal(args.includes('--disallowed-tools'), false, `${permissionMode} must keep all tools`);
   }
+});
+
+test('planBypass ask phase is read-only; the answer turn gets the tools back', () => {
+  const ask = buildGrokArgs({
+    prompt: 'привет',
+    resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+    model: 'grok-mode-fast',
+    permissionMode: 'planBypass',
+    planBypassPhase: 'ask',
+  });
+  assert.equal(ask[ask.indexOf('--permission-mode') + 1], 'bypassPermissions');
+  assert.equal(ask[ask.indexOf('--disallowed-tools') + 1], 'search_replace,write');
+  assert.match(ask[ask.indexOf('--rules') + 1], /QUESTIONS FIRST/);
+
+  const run = buildGrokArgs({
+    prompt: '1',
+    resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+    model: 'grok-mode-fast',
+    permissionMode: 'planBypass',
+    planBypassPhase: 'run',
+  });
+  assert.equal(run[run.indexOf('--permission-mode') + 1], 'bypassPermissions');
+  assert.equal(run.includes('--disallowed-tools'), false);
+  assert.match(run[run.indexOf('--rules') + 1], /HAS ANSWERED/);
+});
+
+test('planBypass awaiting-answers latch flips ask to run once', () => {
+  resetGrokPlanBypassStateForTests();
+  assert.equal(consumeGrokPlanBypassAwaitingAnswers('sess-1'), false);
+  markGrokPlanBypassAwaitingAnswers('sess-1');
+  assert.equal(consumeGrokPlanBypassAwaitingAnswers('sess-1'), true);
+  assert.equal(consumeGrokPlanBypassAwaitingAnswers('sess-1'), false);
+  resetGrokPlanBypassStateForTests();
+});
+
+test('after the chip snaps to bypass, the latch still runs the answer turn', () => {
+  resetGrokPlanBypassStateForTests();
+  consumeGrokPlanBypassAwaitingAnswers('sess-idle');
+  assert.equal(resolveGrokPlanBypassPhase('planBypass', 'sess-idle'), 'ask');
+  markGrokPlanBypassAwaitingAnswers('sess-idle');
+  assert.equal(resolveGrokPlanBypassPhase('bypassPermissions', 'sess-idle'), 'run');
+  assert.equal(resolveGrokPlanBypassPhase('bypassPermissions', 'sess-idle'), null);
+  resetGrokPlanBypassStateForTests();
+});
+
+test('buildGrokRules still emits the run instruction when the chip is already idle', () => {
+  const running = buildGrokRules({
+    workMode: 'autopilot',
+    permissionMode: 'bypassPermissions',
+    planBypassPhase: 'run',
+  });
+  assert.match(running, /HAS ANSWERED/);
+  assert.doesNotMatch(running, /QUESTIONS FIRST/);
+});
+
+test('buildGrokArgs uses --prompt-file instead of stuffing a huge payload onto argv', () => {
+  assert.equal(grokPromptFitsArgv('x'.repeat(MAX_GROK_PROMPT_ARGV_CHARS)), true);
+  assert.equal(grokPromptFitsArgv('x'.repeat(MAX_GROK_PROMPT_ARGV_CHARS + 1)), false);
+
+  const args = buildGrokArgs({
+    prompt: 'смотри фото',
+    promptFile: '/tmp/grok-prompt-test/prompt.txt',
+    resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+    model: 'grok-mode-fast',
+    permissionMode: 'default',
+  });
+  assert.equal(args[args.indexOf('--prompt-file') + 1], '/tmp/grok-prompt-test/prompt.txt');
+  assert.equal(args.includes('-p'), false);
+  assert.equal(args.includes('--prompt-json'), false);
 });
 
 test('work-mode rules ride inside the prompt because --rules never reaches the model', () => {
@@ -309,15 +445,18 @@ test('work-mode rules ride inside the prompt because --rules never reaches the m
   assert.notEqual(args.indexOf('--rules'), -1);
 });
 
-test('a plain run embeds no rules tag into the prompt', () => {
+test('a plain Fast run embeds only the identity rule into the prompt', () => {
   const args = buildGrokArgs({
     prompt: 'просто вопрос',
     resolvedSessionId: '00000000-0000-4000-8000-000000000000',
     model: 'grok-mode-fast',
     permissionMode: 'default',
   });
-  assert.equal(args[args.indexOf('-p') + 1], 'просто вопрос');
-  assert.equal(args.includes('--rules'), false);
+  const prompt = args[args.indexOf('-p') + 1];
+  assert.match(prompt, /^<work_mode_rules>\n/);
+  assert.match(prompt, /Grok Fast/);
+  assert.match(prompt, /<\/work_mode_rules>\n\nпросто вопрос$/);
+  assert.notEqual(args.indexOf('--rules'), -1);
 });
 
 test('hook context rides in a session_context block before the rules', () => {
@@ -331,4 +470,80 @@ test('hook context embeds even when no work-mode rules exist', () => {
   assert.match(prompt, /^<session_context>\n/);
   assert.match(prompt, /<\/session_context>\n\nвопрос$/);
   assert.equal(prompt.includes('<work_mode_rules>'), false);
+});
+
+test('parseStopHookDecision only wakes on decision:block with a reason', () => {
+  assert.equal(
+    parseStopHookDecision('{"decision":"block","reason":"Перед завершением сессии примени навык obsidian-memory."}'),
+    'Перед завершением сессии примени навык obsidian-memory.',
+  );
+  assert.equal(parseStopHookDecision('{"decision":"approve"}'), '');
+  assert.equal(parseStopHookDecision('not json'), '');
+  assert.equal(parseStopHookDecision(''), '');
+});
+
+test('embedGrokFollowupPrompt wraps the Stop reason in a strippable tag', () => {
+  const wrapped = embedGrokFollowupPrompt('запиши в вольт');
+  assert.match(wrapped, new RegExp(`^${SESSION_FOLLOWUP_OPEN_TAG}\\n`));
+  assert.match(wrapped, /запиши в вольт/);
+  assert.match(wrapped, new RegExp(`${SESSION_FOLLOWUP_CLOSE_TAG}$`));
+});
+
+test('buildGrokArgs switches -p to --prompt-json and never sends both', () => {
+  const withImages = buildGrokArgs({
+    prompt: 'какой цвет',
+    promptJson: JSON.stringify([{ type: 'text', text: 'какой цвет' }, { type: 'image', mimeType: 'image/png', data: 'aa' }]),
+    resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+    model: 'grok-mode-fast',
+    permissionMode: 'default',
+  });
+  assert.ok(withImages.includes('--prompt-json'));
+  assert.equal(withImages.includes('-p'), false);
+  const payload = JSON.parse(withImages[withImages.indexOf('--prompt-json') + 1]);
+  assert.equal(payload[1].type, 'image');
+  assert.equal(payload[1].mimeType, 'image/png');
+
+  const textOnly = buildGrokArgs({
+    prompt: 'привет',
+    resolvedSessionId: '00000000-0000-4000-8000-000000000000',
+    model: 'grok-mode-fast',
+    permissionMode: 'default',
+  });
+  assert.ok(textOnly.includes('-p'));
+  assert.equal(textOnly.includes('--prompt-json'), false);
+});
+
+test('hang watchdog trips when Grok never prints a first byte', () => {
+  const spawnedAt = 1_000_000;
+  assert.equal(grokHangReason({
+    spawnedAt, firstByteAt: null, lastStdoutAt: null, now: spawnedAt + GROK_FIRST_BYTE_MS - 1, hasChildren: false,
+  }), null);
+  assert.equal(grokHangReason({
+    spawnedAt, firstByteAt: null, lastStdoutAt: null, now: spawnedAt + GROK_FIRST_BYTE_MS, hasChildren: false,
+  }), 'first_byte');
+  // A long tool call that has not streamed yet still counts as first-byte hang
+  // if the CLI itself printed nothing — children do not excuse a silent spawn.
+  assert.equal(grokHangReason({
+    spawnedAt, firstByteAt: null, lastStdoutAt: null, now: spawnedAt + GROK_FIRST_BYTE_MS, hasChildren: true,
+  }), 'first_byte');
+});
+
+test('hang watchdog ignores long tool calls that have children, trips idle silence without them', () => {
+  const spawnedAt = 1_000_000;
+  const firstByteAt = spawnedAt + 1_000;
+  assert.equal(grokHangReason({
+    spawnedAt, firstByteAt, lastStdoutAt: firstByteAt, now: firstByteAt + GROK_IDLE_SILENCE_MS, hasChildren: true,
+  }), null);
+  assert.equal(grokHangReason({
+    spawnedAt, firstByteAt, lastStdoutAt: firstByteAt, now: firstByteAt + GROK_IDLE_SILENCE_MS - 1, hasChildren: false,
+  }), null);
+  assert.equal(grokHangReason({
+    spawnedAt, firstByteAt, lastStdoutAt: firstByteAt, now: firstByteAt + GROK_IDLE_SILENCE_MS, hasChildren: false,
+  }), 'idle_silence');
+});
+
+test('hang watchdog user copy names the hole and tells Dima not to resume', () => {
+  assert.match(grokHangUserMessage('first_byte'), /завис на старте/);
+  assert.match(grokHangUserMessage('first_byte'), /новый/);
+  assert.match(grokHangUserMessage('idle_silence'), /8 минут/);
 });

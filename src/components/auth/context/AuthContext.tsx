@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+
 import { IS_PLATFORM } from '../../../constants/config';
 import { api } from '../../../utils/api';
 import { AUTH_ERROR_MESSAGES, AUTH_TOKEN_STORAGE_KEY } from '../constants';
 import type {
+  AuthActionResult,
   AuthContextValue,
   AuthProviderProps,
   AuthSessionPayload,
@@ -183,6 +185,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [checkOnboardingStatus, setSession],
   );
 
+  const restartOnboarding = useCallback(async (): Promise<AuthActionResult> => {
+    try {
+      const response = await api.user.resetOnboarding();
+      if (!response.ok) {
+        return { success: false, error: AUTH_ERROR_MESSAGES.networkError };
+      }
+      setHasCompletedOnboarding(false);
+      return { success: true };
+    } catch (caughtError) {
+      console.error('Error resetting onboarding:', caughtError);
+      return { success: false, error: AUTH_ERROR_MESSAGES.networkError };
+    }
+  }, []);
+
   const logout = useCallback(() => {
     const tokenToInvalidate = token;
     clearSession();
@@ -207,6 +223,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       register,
       logout,
       refreshOnboardingStatus,
+      restartOnboarding,
     }),
     [
       error,
@@ -217,6 +234,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       needsSetup,
       terminalDisabled,
       refreshOnboardingStatus,
+      restartOnboarding,
       register,
       token,
       user,

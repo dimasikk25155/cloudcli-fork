@@ -59,9 +59,10 @@ test('other modes keep asking', () => {
   assert.equal(isAutoPlanMode(AUTO_PLAN_MODE), true);
 });
 
-test('the chip stays on auto-plan, so the next message plans again', () => {
-  // Plain plan mode hands the chat to bypass after approval; auto-plan must not,
-  // or the mode would silently degrade into "bypass" after the first task.
+test('planBypass does not exit through this helper — the send path one-shots the chip', () => {
+  // Native plan still flips the chip on Build. planBypass snaps back to
+  // ordinary + bypass in resetComposerModesAfterSend instead, so this helper
+  // must not treat it as plan (or a late Build click would fight the reset).
   assert.equal(decisionExitsPlanMode(AUTO_PLAN_MODE, [exitPlanRequest], 'req-1', true), false);
   assert.equal(decisionExitsPlanMode('plan', [exitPlanRequest], 'req-1', true), true);
 });

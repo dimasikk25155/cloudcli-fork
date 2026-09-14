@@ -22,6 +22,11 @@ export type ModelRates = {
   output: number;
   /** Context window in tokens. */
   contextWindow: number;
+  /**
+   * USD per 1M cache-read tokens. When omitted, billed at 0.1× the fresh
+   * input rate (Anthropic). Grok publishes an absolute cache price instead.
+   */
+  cacheRead?: number;
 };
 
 const CACHE_READ_MULTIPLIER = 0.1;
@@ -68,9 +73,13 @@ const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: numb
   ['gpt-', null, 400_000],
   ['o3', null, 200_000],
   ['gemini', null, 1_000_000],
-  // Grok 4.6 / 4.5 through the SuperGrok subscription — 500K window, and the
-  // native id can arrive as `grok-4.6-build` (what the CLI records on disk).
-  ['grok', null, 500_000],
+  // Grok — published API rates (docs.x.ai/developers/pricing, 24.08.2026).
+  // Native CLI ids arrive as `grok-4.6-build`; longest prefix still wins.
+  ['grok-4.6', { input: 2, output: 6, contextWindow: 500_000, cacheRead: 0.50 }, 500_000],
+  ['grok-4.5', { input: 2, output: 6, contextWindow: 500_000, cacheRead: 0.30 }, 500_000],
+  ['grok-4.3', { input: 1.25, output: 2.50, contextWindow: 1_000_000 }, 1_000_000],
+  ['grok-build-0.1', { input: 1, output: 2, contextWindow: 256_000 }, 256_000],
+  ['grok', { input: 2, output: 6, contextWindow: 500_000, cacheRead: 0.50 }, 500_000],
 ];
 
 /**
@@ -191,7 +200,9 @@ export function estimateCostUsd(
 
   const inputUsd = breakdown.inputTokens * perToken;
   const outputUsd = (breakdown.outputTokens * rates.output) / 1_000_000;
-  const cacheReadUsd = breakdown.cacheReadTokens * perToken * CACHE_READ_MULTIPLIER;
+  const cacheReadUsd = rates.cacheRead != null
+    ? (breakdown.cacheReadTokens * rates.cacheRead) / 1_000_000
+    : breakdown.cacheReadTokens * perToken * CACHE_READ_MULTIPLIER;
   const cacheWriteUsd =
     breakdown.cacheWrite5mTokens * perToken * CACHE_WRITE_5M_MULTIPLIER +
     breakdown.cacheWrite1hTokens * perToken * CACHE_WRITE_1H_MULTIPLIER;
@@ -231,7 +242,82 @@ export function readCacheCreationSplit(usage: Record<string, any> | null | undef
 
   // Older schema: no TTL split available — assume the cheaper 5-minute write.
   return {
-    cacheWrite5mTokens: num(usage?.cache_creation_input_tokens ?? usage?.cacheCreationInputTokens),
+    cacheWrite5mTokens: num(usage?.cache_creation_input_tokens ?? usage?.cacheCreationInputTokens ?? usage?.cacheCreationTokens),
     cacheWrite1hTokens: 0,
+  };
+}
+
+export type UsageBreakdown = {
+  /** Uncached prompt tokens. */
+  freshInput: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite5m: number;
+  cacheWrite1h: number;
+};
+
+const EMPTY_USAGE_BREAKDOWN: UsageBreakdown = {
+  freshInput: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite5m: 0,
+  cacheWrite1h: 0,
+};
+
+/**
+ * Normalises a usage row from Claude (snake_case, fresh input) or Grok
+ * (camelCase; `inputTokens` already includes cache reads).
+ *
+ * Using Grok's `inputTokens` as fresh input would bill cache at the full
+ * input rate and also paint the context badge at 500%+ of the 500K window.
+ */
+export function readUsageBreakdown(usage: Record<string, unknown> | null | undefined): UsageBreakdown {
+  if (!usage || typeof usage !== 'object') {
+    return { ...EMPTY_USAGE_BREAKDOWN };
+  }
+
+  const num = (value: unknown): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  };
+
+  const cacheRead = num(
+    usage.cache_read_input_tokens
+      ?? usage.cacheReadInputTokens
+      ?? usage.cachedReadTokens
+      ?? usage.inputCacheRead,
+  );
+  const output = num(usage.output_tokens ?? usage.outputTokens ?? usage.output);
+  const rawInput = num(usage.input_tokens ?? usage.inputTokens ?? usage.inputOther);
+  const split = readCacheCreationSplit(usage);
+  // Grok native `turn_completed.usage` has no snake_case `input_tokens` and
+  // `inputTokens` is the inclusive prompt (fresh + cache). Anthropic rows
+  // always carry `input_tokens` as the uncached slice.
+  const grokNativeInclusive = usage.input_tokens == null
+    && usage.cachedReadTokens != null
+    && cacheRead > 0
+    && rawInput >= cacheRead;
+
+  return {
+    freshInput: grokNativeInclusive ? Math.max(0, rawInput - cacheRead) : rawInput,
+    output,
+    cacheRead,
+    cacheWrite5m: split.cacheWrite5mTokens,
+    cacheWrite1h: split.cacheWrite1hTokens,
+  };
+}
+
+/** How many tokens this row occupies as a context-window snapshot. */
+export function usageFootprint(row: UsageBreakdown): number {
+  return row.freshInput + row.output + row.cacheRead + row.cacheWrite5m + row.cacheWrite1h;
+}
+
+export function toTokenBreakdown(row: UsageBreakdown): TokenBreakdown {
+  return {
+    inputTokens: row.freshInput,
+    outputTokens: row.output,
+    cacheReadTokens: row.cacheRead,
+    cacheWrite5mTokens: row.cacheWrite5m,
+    cacheWrite1hTokens: row.cacheWrite1h,
   };
 }

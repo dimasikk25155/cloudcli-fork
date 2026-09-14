@@ -240,6 +240,10 @@ export const api = {
       authenticatedFetch('/api/user/complete-onboarding', {
         method: 'POST',
       }),
+    resetOnboarding: () =>
+      authenticatedFetch('/api/user/reset-onboarding', {
+        method: 'POST',
+      }),
   },
 
   // Generic GET method for any endpoint

@@ -151,6 +151,7 @@ export interface ChatInterfaceProps {
   showRawParameters?: boolean;
   showThinking?: boolean;
   sendByCtrlEnter?: boolean;
+  sendByDoubleEnter?: boolean;
   externalMessageUpdate?: number;
   newSessionTrigger?: number;
   /**

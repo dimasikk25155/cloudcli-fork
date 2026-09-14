@@ -77,9 +77,18 @@ test('an unknown dialect speaks Claude, and Claude is what callers get by defaul
 test('the Claude wording is unchanged where the dialect was spliced in', () => {
   // Движок, который работает, не должен пострадать от появления второго
   // диалекта: проверяются оба стыка, где текст теперь склеивается из кусков.
+  //
+  // «Брифы» переписаны 23.08: бриф — нарратив, агент продолжает сам, вопрос
+  // только на настоящей развилке. Дословный якорь ниже держит именно это,
+  // чтобы регресс к «спроси continue/adjust после каждой стадии» не прополз
+  // обратно незамеченным — Дима прокликал пять таких кнопок подряд.
   assert.match(
     workModeInstruction('checkpoints')!,
-    /next stage: ask with AskUserQuestion \(options along the lines of "continue" \/ "adjust the plan"\)\. Do not chain stages together silently\./,
+    /Then continue into the next stage YOURSELF, immediately\. Never ask permission to continue/,
+  );
+  assert.match(
+    workModeInstruction('checkpoints')!,
+    /Stop and ask ONLY at a genuine fork: .* There, ask with AskUserQuestion, and make the options the actual variants at stake/,
   );
   assert.match(
     workModeInstruction('interrogate')!,
@@ -92,9 +101,8 @@ test('the Claude wording is unchanged where the dialect was spliced in', () => {
 });
 
 test('the grok dialect never names a tool Grok Build does not have', () => {
-  // Grok's toolset (1.0.5) has no AskUserQuestion and no Skill tool. Naming one
-  // is not a cosmetic mismatch — it sends the agent through a door that is not
-  // there, which is exactly how "Брифы" and "Автопилот" silently degraded.
+  // Claude's AskUserQuestion / Skill tool names must not appear: Grok's live
+  // tool is `ask_user_question`, and skills are discovered by name, not Skill.
   for (const mode of WORK_MODES) {
     const instruction = workModeInstruction(mode, 'default', 'grok');
     if (!instruction) {
@@ -108,10 +116,8 @@ test('the grok dialect never names a tool Grok Build does not have', () => {
 test('the grok dialect tells the agent how to ask and how to reach the skill', () => {
   for (const mode of ['checkpoints', 'interrogate']) {
     const instruction = workModeInstruction(mode, 'default', 'grok')!;
-    // Вопрос без остановки хода — не вопрос: у Grok нет инструмента вопросов,
-    // поэтому единственный способ дождаться Диму — закончить ход.
-    assert.match(instruction, /end your turn/);
-    assert.match(instruction, /plain text/);
+    assert.match(instruction, /ask_user_question/);
+    assert.match(instruction, /Do not write the options as numbered chat text/);
   }
 
   const build = workModeInstruction('build', 'bypassPermissions', 'grok')!;

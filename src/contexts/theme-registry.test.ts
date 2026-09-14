@@ -67,4 +67,32 @@ describe('реестр тем', () => {
     assert.ok(match, 'не нашёл DEFAULT_THEME');
     assert.ok(themes.includes(match[1]), `тема по умолчанию ${match[1]} отсутствует в THEMES`);
   });
+
+  it('по умолчанию оранжевая, не стекло', () => {
+    const match = contextSource.match(/export const DEFAULT_THEME = '([^']+)'/);
+    assert.equal(match?.[1], 'ember');
+  });
+
+  it('у оранжевой темы в списке живых обоев есть угольки, биткоин и город', () => {
+    assert.match(contextSource, /id: 'coals',\s*label: 'Угольки'/);
+    assert.match(contextSource, /id: 'bitcoin',\s*label: 'Биткоин'/);
+    assert.match(contextSource, /id: 'city',\s*label: 'Город'/);
+    assert.match(contextSource, /id: 'salute',\s*label: 'Салют'/);
+    assert.match(contextSource, /id: 'coin',\s*label: 'Монета'/);
+    assert.match(contextSource, /id: 'car',\s*label: 'Машина'/);
+    assert.match(contextSource, /id: 'vortex',\s*label: 'Вихрь'/);
+    assert.match(contextSource, /id: 'spark',\s*label: 'Искра'/);
+    assert.match(contextSource, /id: 'lightning',\s*label: 'Молния'/);
+    assert.match(contextSource, /VIDEO_THEMES = \['ember'\]/);
+    assert.match(contextSource, /LIVE_WALLPAPER_AUTO = 'auto'/);
+  });
+
+  it('круг живых обоев прыгает с последнего на первый и не включает выкл и автосмену', () => {
+    const match = contextSource.match(
+      /export const nextLiveWallpaperId = \([\s\S]*?\n\};\n/
+    );
+    assert.ok(match, 'не нашёл nextLiveWallpaperId');
+    assert.match(match[0], /ids\[\(idx \+ 1\) % ids\.length\]/);
+    assert.doesNotMatch(match[0], /LIVE_WALLPAPER_OFF|'off'|LIVE_WALLPAPER_AUTO|'auto'/);
+  });
 });
