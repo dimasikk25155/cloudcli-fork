@@ -35,10 +35,11 @@ export function withAutoPlanMode(modes: readonly PermissionMode[]): PermissionMo
  * Runtimes that emulate "plan + auto-run" themselves instead of having the
  * client answer an ExitPlanMode prompt. Grok Build has no permission prompts
  * to answer and a headless `plan` run dies at the first tool call, so its
- * runtime takes `planBypass` verbatim and turns the plan into a system rule
+ * runtime takes `planBypass` verbatim and runs it in two phases: clarifying
+ * questions, then (after the user answers) a real plan plus execution
  * (see resolveGrokPermissionMode / buildGrokRules in server/grok-cli.js).
  */
-const AUTO_PLAN_EMULATING_PROVIDERS = new Set(['grok']);
+const AUTO_PLAN_EMULATING_PROVIDERS = new Set(['grok', 'codex']);
 
 /**
  * What the backend is told to run. The auto-plan mode is plain `plan` there —

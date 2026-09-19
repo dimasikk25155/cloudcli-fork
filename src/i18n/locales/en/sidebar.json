@@ -13,6 +13,16 @@
     "untitledSession": "Untitled Session",
     "newSession": "New Session",
     "codexSession": "Codex Session",
+    "codexChats": "Codex chats",
+    "providers": {
+      "claude": "Claude",
+      "cursor": "Cursor",
+      "codex": "Codex",
+      "opencode": "OpenCode",
+      "kimi": "Kimi",
+      "gemini": "Gemini",
+      "grok": "Grok"
+    },
     "fetchingProjects": "Fetching your Claude projects and sessions",
     "projects": "projects",
     "noMatchingProjects": "No matching projects",
@@ -37,6 +47,7 @@
   "tooltips": {
     "viewEnvironments": "View Environments",
     "hideSidebar": "Hide sidebar",
+    "goHome": "Home — project grid",
     "createProject": "Create new project",
     "refresh": "Refresh projects and sessions (Ctrl+R)",
     "renameProject": "Rename project (F2)",

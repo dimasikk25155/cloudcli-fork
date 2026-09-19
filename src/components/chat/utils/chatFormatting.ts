@@ -84,3 +84,44 @@ export function formatUsageLimitText(text: string) {
     return text;
   }
 }
+
+const DISPLAY_ATTACHMENT_TAG_PATTERN = /\s*<(images_input|attached_files)>[\s\S]*?<\/\1>\s*/gi;
+
+/**
+ * Drops the gateway's attachment-reference blocks from text shown in a user
+ * bubble. The model still sees the tag in the prompt; this is display-only,
+ * so a leak from any provider history parser cannot paint the machinery.
+ */
+export function stripAttachmentDisplayTags(text: string): string {
+  if (typeof text !== 'string' || text.length === 0) {
+    return text;
+  }
+  if (!text.includes('<images_input>') && !text.includes('<attached_files>')) {
+    return text;
+  }
+  return text.replace(DISPLAY_ATTACHMENT_TAG_PATTERN, '\n').trim();
+}
+
+/**
+ * Grok CLI 1.0.13+ (and our Stop-hook follow-up) injects a fake user turn so
+ * the model keeps working. The chat must never paint it as if Dima typed it.
+ */
+export function isStopHookFeedbackText(text: string): boolean {
+  const trimmed = (text || '').trim();
+  return /^Stop hook feedback:/i.test(trimmed)
+    || /^This is an automatic follow-up from a session Stop hook/i.test(trimmed);
+}
+
+/** Display-only: keep provider provenance on disk, outside the chat/copy/TTS. */
+export function stripMemoryCitations(text: string): string {
+  const opening = '<oai-mem-citation>';
+  // Protect literal examples in fenced and inline code. An open citation hides
+  // everything until its close (or stream end), so metadata never flashes.
+  return text.replace(
+    /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)|<oai-mem-citation>[\s\S]*?(?:<\/oai-mem-citation>|$)|<oai-[a-z-]*>?$/gi,
+    (match, code: string | undefined) => {
+      if (code) return code;
+      return match.toLowerCase().startsWith(opening) || opening.startsWith(match.toLowerCase()) ? '' : match;
+    },
+  ).trimEnd();
+}

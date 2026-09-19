@@ -14,6 +14,7 @@ import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
 import { api } from '../../utils/api';
 import { useTheme } from '../../contexts/ThemeContext';
 import ThemeBackground from '../branding/ThemeBackground';
+import LiveWallpaperCycleButton from '../branding/LiveWallpaperCycleButton';
 import { computeKeyboardInsets } from './keyboard-insets';
 
 type RunningSessionApiItem = {
@@ -56,7 +57,7 @@ function AppContentInner() {
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { ws, sendMessage, subscribe } = useWebSocket();
-  const { shaderEnabled, theme, backgroundVariant, customBackgroundUrl } = useTheme();
+  const { shaderEnabled, theme, playingVariant, customBackgroundUrl, cycleLiveWallpaper, liveWallpaperAuto } = useTheme();
 
   const {
     processingSessions,
@@ -81,6 +82,10 @@ function AppContentInner() {
     registerOptimisticSession,
     sidebarSharedProps,
     handleNewSession,
+    handleProjectSelect,
+    goHome,
+    handleToggleStar,
+    projects,
   } = useProjectsState({
     sessionId,
     navigate,
@@ -172,6 +177,11 @@ function AppContentInner() {
         return;
       }
 
+      if (typeof message.urlPath === 'string' && message.urlPath.startsWith('/session/')) {
+        navigate(message.urlPath);
+        return;
+      }
+
       // No resolvable session id in the payload. Never yank the user off a
       // session they're already viewing onto the empty New Session screen —
       // that's the "idle redirect" bug. Only fall back to the root when we
@@ -247,13 +257,14 @@ function AppContentInner() {
         <ThemeBackground
           theme={theme}
           enabled={shaderEnabled}
-          variant={backgroundVariant}
+          variant={playingVariant}
           customUrl={customBackgroundUrl}
+          onVideoEnded={liveWallpaperAuto ? cycleLiveWallpaper : undefined}
         />
       )}
       {!isMobile ? (
         <div className="app-sidebar relative z-10 h-full flex-shrink-0 border-r border-border/50">
-          <Sidebar {...sidebarSharedProps} />
+          <Sidebar {...sidebarSharedProps} onGoHome={goHome} />
         </div>
       ) : (
         <div
@@ -279,15 +290,18 @@ function AppContentInner() {
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
           >
-            <Sidebar {...sidebarSharedProps} />
+            <Sidebar {...sidebarSharedProps} onGoHome={goHome} />
           </div>
         </div>
       )}
 
       <div className="relative z-10 flex min-w-0 flex-1 flex-col">
+        <LiveWallpaperCycleButton />
         <MainContent
           selectedProject={selectedProject}
           selectedSession={selectedSession}
+          projects={projects}
+          onProjectSelect={handleProjectSelect}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           ws={ws}
@@ -306,6 +320,8 @@ function AppContentInner() {
             registerOptimisticSession({ sessionId: targetSessionId, ...context })
           }
           onShowSettings={openSettings}
+          onGoHome={goHome}
+          onToggleStarProject={handleToggleStar}
           externalMessageUpdate={externalMessageUpdate}
           newSessionTrigger={newSessionTrigger}
           onStartNewChat={handleNewSession}

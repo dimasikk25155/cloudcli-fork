@@ -33,10 +33,13 @@ const MODEL_PROVIDER_LABELS = {
 // Raw transcript model ids → human labels. Catalog values (`opus[1m]`,
 // `kimi-k3`, …) are labeled via findClaudeModelOption instead.
 const RAW_MODEL_LABELS = {
+  "claude-opus-5": "Opus 5",
   "claude-opus-4-8": "Opus 4.8",
   "claude-sonnet-5": "Sonnet 5",
   "claude-sonnet-4-6": "Sonnet 4.6",
+  "claude-fable-5-1": "Fable 5.1",
   "claude-fable-5": "Fable 5",
+  "claude-haiku-4-5-20251001": "Haiku 4.5",
   k3: "Kimi K3",
   "kimi-for-coding": "Kimi K2.7 Coding",
   "kimi-for-coding-highspeed": "Kimi K2.7 Coding Highspeed",

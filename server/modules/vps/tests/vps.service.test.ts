@@ -6,6 +6,8 @@ import {
   classifyHealth,
   explainFailure,
   groupErrors,
+  getBotsHealth,
+  interpretHeartbeat,
   isControllable,
   parseJournalLine,
   parseLogFilePath,
@@ -195,5 +197,50 @@ describe('панель сервера: разбор вывода systemd', () =>
 
   it('пропускает пустые блоки вместо того, чтобы падать', () => {
     assert.deepEqual(parseShowBlocks('\n\n'), []);
+  });
+});
+
+describe('панель сервера: пульс WhatsApp-ботов', () => {
+  const now = 1_789_100_000_000;
+
+  it('считает свежий connected=true живым', () => {
+    const row = interpretHeartbeat(
+      'tyres-wa-kz',
+      'Tyres KZ',
+      JSON.stringify({ connected: true, ts: now - 15_000 }),
+      now,
+    );
+    assert.equal(row.ok, true);
+    assert.equal(row.detail, 'на связи');
+  });
+
+  it('ловит протухший пульс, даже если connected ещё true', () => {
+    const row = interpretHeartbeat(
+      'tyres-wa-7su',
+      '7su',
+      JSON.stringify({ connected: true, ts: now - 120_000 }),
+      now,
+    );
+    assert.equal(row.ok, false);
+    assert.equal(row.detail, 'завис или не стучится');
+  });
+
+  it('отличает отвал WhatsApp от пропавшего файла', () => {
+    const disconnected = interpretHeartbeat(
+      'tyres-wa-kz',
+      'Tyres KZ',
+      JSON.stringify({ connected: false, ts: now }),
+      now,
+    );
+    assert.equal(disconnected.detail, 'WhatsApp отвалился');
+
+    const missing = interpretHeartbeat('tyres-wa-7su', '7su', null, now);
+    assert.equal(missing.ok, false);
+    assert.equal(missing.detail, 'нет пульса');
+  });
+
+  it('показывает все четыре WhatsApp-линии, даже когда у какой-то нет пульса', () => {
+    const ids = getBotsHealth().bots.map((bot) => bot.id);
+    assert.deepEqual(ids, ['tyres-wa-kz', 'tyres-wa-7su', 'tyres-wa-7su-kira', 'tyres-wa-store']);
   });
 });

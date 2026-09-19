@@ -70,7 +70,9 @@ const upload = multer({
   // referenced by path so the agent reads it with its own tools. Size is the
   // only gate here (per-file cap below).
   limits: {
-    fileSize: 25 * 1024 * 1024, // 25MB
+    // 100 МБ: столько же стоит в композере (MAX_ATTACHMENT_MB). Выше поднимать
+    // нет смысла — упрёмся уже не сюда, а в терпение на аплоаде.
+    fileSize: 100 * 1024 * 1024,
     files: MAX_ATTACHED_FILES,
   },
 });

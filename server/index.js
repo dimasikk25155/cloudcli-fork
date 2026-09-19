@@ -16,6 +16,7 @@ import Database from 'better-sqlite3';
 
 import { AppError, WORKSPACES_ROOT, getOpenCodeDatabasePath, validateWorkspacePath } from '@/shared/utils.js';
 import { getContextWindow } from '@/shared/token-pricing.js';
+import { getSessionCostSnapshot, snapshotToComposerBudget } from '@/shared/session-usage.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
 
@@ -71,6 +72,7 @@ import usageRoutes from './routes/usage.js';
 import agentRoutes from './routes/agent.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
 import notificationRoutes from './modules/notifications/notifications.routes.js';
+import governanceRoutes from './modules/governance/governance.routes.js';
 import nightshiftRoutes from './modules/nightshift/nightshift.routes.js';
 import pipelinesRoutes from './modules/pipelines/pipelines.routes.js';
 import schedulesRoutes from './modules/schedules/schedules.routes.js';
@@ -78,6 +80,7 @@ import telegramRoutes from './modules/telegram/telegram.routes.js';
 import telegramWebhookRoutes from './modules/telegram/telegram-webhook.routes.js';
 import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
+import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -235,6 +238,9 @@ app.use('/api/pipelines', authenticateToken, pipelinesRoutes);
 // Recurring runs owned by the app itself (protected)
 app.use('/api/schedules', authenticateToken, schedulesRoutes);
 
+// Audit feed and spend — what ran, who triggered it, what it cost (protected)
+app.use('/api/governance', authenticateToken, governanceRoutes);
+
 // Telegram binding management (protected)
 app.use('/api/telegram', authenticateToken, telegramRoutes);
 
@@ -255,6 +261,9 @@ app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 // swallowed by the admin-only JWT check: a reporting machine has no login.
 app.use('/api/vps/ingest', vpsIngestRouter);
 app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
+// Sticky phone pushes (Consigliere tasks + dead bots). Public by design:
+// the service worker has no JWT, and the Mac/VPS reminder job has only a shared token.
+app.use('/api/sticky-push', stickyPushRoutes);
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);
@@ -1342,6 +1351,16 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
                 unsupported: true,
                 message: 'Token usage tracking not available for Cursor sessions'
             });
+        }
+
+        if (provider === 'grok') {
+            const snapshot = await getSessionCostSnapshot(providerNativeSessionId, {
+                projectPath: sessionRow.project_path,
+            });
+            if (!snapshot) {
+                return res.status(404).json({ error: 'Grok session usage not found', sessionId: safeSessionId });
+            }
+            return res.json(snapshotToComposerBudget(snapshot));
         }
 
         if (provider === 'opencode') {

@@ -180,6 +180,14 @@ export const userDb = {
     ).run(userId);
   },
 
+  /** Reopens the first-run tour for the given user. */
+  resetOnboarding(userId: number): void {
+    const db = getConnection();
+    db.prepare(
+      'UPDATE users SET has_completed_onboarding = 0 WHERE id = ?'
+    ).run(userId);
+  },
+
   /** Returns true if the user has finished the onboarding flow. */
   hasCompletedOnboarding(userId: number): boolean {
     const db = getConnection();

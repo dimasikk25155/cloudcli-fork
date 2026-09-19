@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { appConfigDb, telegramDb } from '@/modules/database/index.js';
 import { isBotConfigured, telegramApi } from '@/modules/telegram/index.js';
+import { maybeSyncConsigliere, syncDeadBots } from '@/modules/sticky-push/sticky-push.service.js';
 import { listRemoteHosts } from '@/modules/vps/vps-reports.service.js';
 import { getOverview, listServices } from '@/modules/vps/vps.service.js';
 
@@ -185,31 +186,28 @@ export async function runCheck({ announce = true }: { announce?: boolean } = {})
   const sent: string[] = [];
   const problems = await collectProblems(settings);
 
-  if (!settings.enabled) {
-    return { problems, sent };
-  }
-
-  const chatId = resolveChatId(settings);
-  const canSend = Boolean(chatId) && isBotConfigured();
-
   const current = new Map(problems.map((problem) => [problem.key, problem]));
   const appeared = problems.filter((problem) => !state[problem.key]);
   const resolved = Object.entries(state).filter(([key]) => !current.has(key));
 
-  if (canSend && chatId) {
-    if (!announce && appeared.length > 0) {
-      // Сводка после запуска — одним сообщением, а не пачкой.
-      const lines = appeared.map((problem) => `• ${problem.text}`).join('\n');
-      await send(chatId, `🔴 <b>Neo3 запущен, есть проблемы</b>\n${lines}`).catch(() => undefined);
-      sent.push('startup-summary');
-    } else if (announce) {
-      for (const problem of appeared) {
-        await send(chatId, `🔴 ${problem.text}`).catch(() => undefined);
-        sent.push(problem.key);
-      }
-      for (const [key, previous] of resolved) {
-        await send(chatId, `🟢 починилось: ${previous.text}`).catch(() => undefined);
-        sent.push(`resolved:${key}`);
+  if (settings.enabled) {
+    const chatId = resolveChatId(settings);
+    const canSend = Boolean(chatId) && isBotConfigured();
+    if (canSend && chatId) {
+      if (!announce && appeared.length > 0) {
+        // Сводка после запуска — одним сообщением, а не пачкой.
+        const lines = appeared.map((problem) => `• ${problem.text}`).join('\n');
+        await send(chatId, `🔴 <b>Neo3 запущен, есть проблемы</b>\n${lines}`).catch(() => undefined);
+        sent.push('startup-summary');
+      } else if (announce) {
+        for (const problem of appeared) {
+          await send(chatId, `🔴 ${problem.text}`).catch(() => undefined);
+          sent.push(problem.key);
+        }
+        for (const [key, previous] of resolved) {
+          await send(chatId, `🟢 починилось: ${previous.text}`).catch(() => undefined);
+          sent.push(`resolved:${key}`);
+        }
       }
     }
   }
@@ -220,6 +218,18 @@ export async function runCheck({ announce = true }: { announce?: boolean } = {})
   }
   state = next;
   await persistState();
+
+  const forPush = problems.map((problem) => ({
+    key: problem.key,
+    text: problem.text,
+    since: state[problem.key]?.since,
+  }));
+  await syncDeadBots(forPush).catch((error) => {
+    console.error('[sticky-push] bots failed:', error instanceof Error ? error.message : error);
+  });
+  await maybeSyncConsigliere().catch((error) => {
+    console.error('[sticky-push] consigliere failed:', error instanceof Error ? error.message : error);
+  });
 
   return { problems, sent };
 }

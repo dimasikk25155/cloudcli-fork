@@ -35,8 +35,11 @@ function PinnedUserMessage({ scrollContainerRef, revision }: PinnedUserMessagePr
     const containerTop = container.getBoundingClientRect().top;
     const messages = container.querySelectorAll<HTMLElement>('.chat-message.user');
 
-    // DOM order is visual order, so the last message still above the top edge
-    // is the one to pin; everything after it is on screen already.
+    // Pin whichever user bubble has scrolled past the top — including the one
+    // just sent. Auto-scroll follows the answer, so that prompt leaves the
+    // pane; skipping it here made follow-up messages look deleted (only the
+    // first prompt stayed on the sticky bar). The bar is a compact overlay,
+    // not a second copy in the list.
     let current: HTMLElement | null = null;
     for (let i = 0; i < messages.length; i += 1) {
       const node = messages[i];

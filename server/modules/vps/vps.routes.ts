@@ -23,6 +23,7 @@ import {
   diagnose,
   getInventory,
   getLogs,
+  getBotsHealth,
   getOverview,
   getRecentErrors,
   getWindows,
@@ -43,6 +44,13 @@ router.get(
   '/overview',
   asyncHandler(async (_req, res) => {
     res.json(createApiSuccessResponse(await getOverview()));
+  }),
+);
+
+router.get(
+  '/bots-health',
+  asyncHandler(async (_req: Request, res: Response) => {
+    res.json(createApiSuccessResponse(getBotsHealth()));
   }),
 );
 

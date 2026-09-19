@@ -1,4 +1,12 @@
-import { backgroundFile } from '../../contexts/ThemeContext';
+import {
+  backgroundFile,
+  backgroundsForTheme,
+  isVideoTheme,
+  videoFile,
+  videoPosterFile,
+  videoTallFile,
+  videoTallPosterFile,
+} from '../../contexts/ThemeContext';
 
 import ShaderBackground from './ShaderBackground';
 import ThemeVideoBackground from './ThemeVideoBackground';
@@ -38,7 +46,7 @@ const PHOTO_THEMES = new Set([
  * шейдер за ними эту работу ломают. Без этого списка любая новая тема
  * молча проваливалась бы в WebGL-фон из ветки по умолчанию.
  */
-const FLAT_THEMES = new Set(['gt', 'editorial', 'glass']);
+const FLAT_THEMES = new Set(['codex', 'gt', 'editorial', 'glass']);
 
 /**
  * Темы с живыми обоями — зацикленный ролик вместо фотографии.
@@ -49,21 +57,22 @@ const FLAT_THEMES = new Set(['gt', 'editorial', 'glass']);
  * тот же скрим, что и фотографии кино-тем. Решение принято владельцем продукта
  * явно, поэтому старое правило здесь отменено осознанно, а не потеряно.
  *
- * Цена движения оплачена в самом ролике и в компоненте: 15 кадров в секунду,
- * замедление 0.75 и пауза при уходе окна в фон — см. `ThemeVideoBackground`.
+ * Цена движения оплачена в самом ролике и в компоненте: родные 24 кадра,
+ * без замедления, пауза при уходе окна в фон — см. `ThemeVideoBackground`.
  */
-const VIDEO_THEMES = new Set(['ember']);
 
 export default function ThemeBackground({
   theme = 'default',
   enabled = true,
   variant,
   customUrl,
+  onVideoEnded,
 }: {
   theme?: string;
   enabled?: boolean;
   variant?: string;
   customUrl?: string | null;
+  onVideoEnded?: () => void;
 }) {
   if (!enabled) {
     return null;
@@ -84,8 +93,17 @@ export default function ThemeBackground({
     );
   }
 
-  if (VIDEO_THEMES.has(theme)) {
-    return <ThemeVideoBackground src={`/theme-bg/${theme}.mp4`} poster={`/theme-bg/${theme}.jpg`} />;
+  if (isVideoTheme(theme)) {
+    const playlist = Boolean(onVideoEnded) && backgroundsForTheme(theme).length > 1;
+    return (
+      <ThemeVideoBackground
+        src={videoFile(theme, variant)}
+        poster={videoPosterFile(theme, variant)}
+        tallSrc={videoTallFile(theme, variant)}
+        tallPoster={videoTallPosterFile(theme, variant)}
+        onEnded={playlist ? onVideoEnded : undefined}
+      />
+    );
   }
 
   if (FLAT_THEMES.has(theme)) {

@@ -647,7 +647,7 @@ function findEnvironmentByUrl(environmentUrl) {
   }) || null;
 }
 
-async function openNotificationTarget({ environmentUrl, sessionId = null }) {
+async function openNotificationTarget({ environmentUrl, sessionId = null, panel = null }) {
   const window = desktopWindow?.getMainWindow();
   if (window) {
     if (window.isMinimized()) window.restore();
@@ -667,7 +667,13 @@ async function openNotificationTarget({ environmentUrl, sessionId = null }) {
     });
   }
 
-  const targetUrl = new URL(sessionId ? `/session/${encodeURIComponent(sessionId)}` : '/', environmentUrl).toString();
+  let path = '/';
+  if (sessionId) {
+    path = `/session/${encodeURIComponent(sessionId)}`;
+  } else if (panel) {
+    path = `/?panel=${encodeURIComponent(panel)}`;
+  }
+  const targetUrl = new URL(path, environmentUrl).toString();
   await desktopWindow.navigateActiveView(targetUrl);
   return getDesktopState();
 }

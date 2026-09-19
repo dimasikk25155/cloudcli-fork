@@ -8,6 +8,7 @@ import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
 import { createSessionViewModel } from '../../utils/utils';
+import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
 type SidebarSessionItemProps = {
   project: Project;
@@ -95,6 +96,15 @@ export default function SidebarSessionItem({
   const mobileEditingContainerRef = useRef<HTMLDivElement>(null);
   const showAttentionIndicator = needsAttention && !isSelected;
   const showRecentIndicator = !showAttentionIndicator && !isProcessing && sessionView.isActive;
+  const providerLabel = t(`projects.providers.${session.__provider}`, session.__provider);
+
+  const ProviderMark = () => (
+    <Tooltip content={providerLabel} position="top">
+      <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-muted-foreground" aria-label={providerLabel}>
+        <SessionProviderLogo provider={session.__provider} className="h-3.5 w-3.5" />
+      </span>
+    </Tooltip>
+  );
 
   const saveEditedSession = () => {
     onSaveEditingSession(project.projectId, session.id, editingSessionName, session.__provider);
@@ -252,6 +262,7 @@ export default function SidebarSessionItem({
               <>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
+                    <ProviderMark />
                     <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>
                     {isProcessing ? (
                       <span className="ml-auto flex-shrink-0">
@@ -330,6 +341,7 @@ export default function SidebarSessionItem({
         >
           <div className="flex w-full min-w-0 items-center gap-2">
             <RankMark />
+            <ProviderMark />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>

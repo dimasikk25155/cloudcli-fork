@@ -8,5 +8,8 @@
  */
 export const APP_NAME = 'Neo3 Agent System';
 
+/** Публичный гайд по экранам — живёт на витрине, не на сервере клиента. */
+export const GUIDE_URL = 'https://cli.neo3.ru/guide';
+
 export const CLOUDCLI_WORDMARK_FONT_FAMILY =
   'ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji';

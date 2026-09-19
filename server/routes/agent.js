@@ -15,6 +15,7 @@ import { spawnGemini } from '../gemini-cli.js';
 import { spawnGrok } from '../grok-cli.js';
 import { Octokit } from '@octokit/rest';
 import { providerModelsService } from '../modules/providers/services/provider-models.service.js';
+import { newRunId, recordAuditEvent, RunMeter } from '../modules/governance/index.js';
 import { IS_PLATFORM } from '../constants/config.js';
 import { normalizeProjectPath } from '../shared/utils.js';
 import { SUPPORTED_PROVIDERS, isSupportedProvider } from '../shared/providers.js';
@@ -672,8 +673,8 @@ export class ResponseCollector {
  *                          - Source for auto-generated branch names (if createBranch=true and no branchName)
  *                          - Fallback for PR title if no commits are made
  *
- * @param {string} provider - (Optional) AI provider to use. Options: 'claude' | 'cursor' | 'codex' | 'opencode'
- *                           Default: 'claude'
+ * @param {string} provider - (Optional) AI provider to use. Options: 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini' | 'grok'
+ *                           Default: 'grok'
  *
  * @param {boolean} stream - (Optional) Enable Server-Sent Events (SSE) streaming for real-time updates.
  *                          Default: true
@@ -687,7 +688,7 @@ export class ResponseCollector {
  *                                       'composer-1', 'auto', 'gpt-5.1', 'gpt-5.1-high',
  *                                       'gpt-5.1-codex', 'gpt-5.1-codex-high', 'gpt-5.1-codex-max',
  *                                       'gpt-5.1-codex-max-high', 'opus-4.1', 'grok', and thinking variants
- *                        Codex models: 'gpt-5.4' (default), 'gpt-5.5', 'gpt-5.4-mini'
+ *                        Codex models: 'gpt-5.6-sol' (default), 'gpt-5.6-terra', 'gpt-5.6-luna'
  *
  * @param {string} effort - (Optional) Reasoning effort for providers/models that support it.
  *                          Claude supports: 'low', 'medium', 'high', 'xhigh', 'max' depending on model.
@@ -884,7 +885,7 @@ export class ResponseCollector {
  *   }
  */
 export async function handleAgentRun(req, res) {
-  const { githubUrl, projectPath, message, provider = 'claude', model, githubToken, branchName, sessionId } = req.body;
+  const { githubUrl, projectPath, message, provider = 'grok', model, githubToken, branchName, sessionId } = req.body;
   const effort = typeof req.body.effort === 'string' && req.body.effort.trim()
     ? req.body.effort.trim()
     : undefined;
@@ -988,6 +989,28 @@ export async function handleAgentRun(req, res) {
     const codexModels = (await providerModelsService.getProviderModels('codex')).models;
     const opencodeModels = (await providerModelsService.getProviderModels('opencode')).models;
 
+    // Every run leaves a trace, including the ones nobody is watching. The
+    // audit rows are scoped to the engine dispatch below rather than the whole
+    // handler: the GitHub branch/PR work that follows is not agent burn.
+    const auditRunId = newRunId();
+    const auditMeter = new RunMeter();
+    const auditStartedAt = Date.now();
+    let auditOutcome = 'ok';
+    let auditFailure = null;
+
+    recordAuditEvent({
+      actor: 'api',
+      event: 'run.start',
+      userId: req.user?.id ?? null,
+      projectPath: finalProjectPath,
+      sessionId: sessionId || null,
+      runId: auditRunId,
+      provider,
+      model: model ?? null,
+      detail: message,
+    });
+
+    try {
     // Start the appropriate session
     if (provider === 'claude') {
       console.log('🤖 Starting Claude SDK session');
@@ -998,7 +1021,8 @@ export async function handleAgentRun(req, res) {
         sessionId: sessionId || null,
         model: model,
         effort,
-        permissionMode: 'bypassPermissions' // Bypass all permissions for API calls
+        permissionMode: 'bypassPermissions', // Bypass all permissions for API calls
+        meter: auditMeter
       }, writer);
 
     } else if (provider === 'cursor') {
@@ -1065,8 +1089,35 @@ export async function handleAgentRun(req, res) {
         sessionId: sessionId || null,
         model: model || grokModels.DEFAULT,
         effort,
-        permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
+        permissionMode: 'bypassPermissions', // Agent runs are non-interactive, like the other providers above
+        meter: auditMeter,
       }, writer);
+    }
+    } catch (engineError) {
+      auditOutcome = 'error';
+      auditFailure = engineError?.message ?? String(engineError);
+      throw engineError;
+    } finally {
+      const auditCost = auditMeter.finish();
+      recordAuditEvent({
+        actor: 'api',
+        event: auditOutcome === 'error' ? 'run.error' : 'run.finish',
+        userId: req.user?.id ?? null,
+        projectPath: finalProjectPath,
+        sessionId: sessionId || null,
+        runId: auditRunId,
+        provider,
+        model: auditCost.model ?? model ?? null,
+        outcome: auditOutcome,
+        detail: auditFailure,
+        tokensIn: auditCost.breakdown.inputTokens,
+        tokensOut: auditCost.breakdown.outputTokens,
+        cacheRead: auditCost.breakdown.cacheReadTokens,
+        cacheWrite5m: auditCost.breakdown.cacheWrite5mTokens,
+        cacheWrite1h: auditCost.breakdown.cacheWrite1hTokens,
+        costMicroUsd: auditCost.costMicroUsd,
+        durationMs: Date.now() - auditStartedAt,
+      });
     }
 
     // Handle GitHub branch and PR creation after successful agent completion

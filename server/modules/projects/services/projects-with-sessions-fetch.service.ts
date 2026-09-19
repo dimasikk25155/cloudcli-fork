@@ -12,6 +12,7 @@ type SessionSummary = {
   provider: string;
   summary: string;
   messageCount: number;
+  createdAt: string;
   lastActivity: string;
   model: string | null;
   effort: string | null;
@@ -147,12 +148,14 @@ function normalizeSessionPagination(options: SessionPaginationOptions = {}): { l
 }
 
 function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
+  const createdAt = row.created_at ?? row.updated_at ?? new Date().toISOString();
   return {
     id: row.session_id,
     provider: row.provider,
     summary: row.custom_name || '',
     messageCount: 0,
-    lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+    createdAt,
+    lastActivity: row.updated_at ?? createdAt,
     model: row.model ?? null,
     effort: row.effort ?? null,
   };

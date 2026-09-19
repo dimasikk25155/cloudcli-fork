@@ -20,6 +20,7 @@ async function writeGrokSession(
   home: string,
   sessionId: string,
   summary: Record<string, unknown> = {},
+  userText = 'hi',
 ): Promise<string> {
   const sessionDir = path.join(home, 'sessions', encodeURIComponent(WORK_DIR), sessionId);
   await mkdir(sessionDir, { recursive: true });
@@ -35,7 +36,7 @@ async function writeGrokSession(
     }),
   );
   const historyPath = path.join(sessionDir, 'chat_history.jsonl');
-  await writeFile(historyPath, '{"role":"user","content":"hi"}\n');
+  await writeFile(historyPath, `${JSON.stringify({ type: 'user', content: userText })}\n`);
   return historyPath;
 }
 
@@ -89,7 +90,23 @@ test('app-started Grok sessions claim the pending app row and get indexed', asyn
     // Путь берётся из summary.json, а не из имени папки, — иначе в сайдбаре
     // оказался бы %2Fworkspace%2Fdemo.
     assert.equal(rows[0]?.project_path, WORK_DIR);
-    assert.equal(rows[0]?.custom_name, 'Disk Title');
+    // First user turn wins over Grok CLI's English auto-title.
+    assert.equal(rows[0]?.custom_name, 'Hi');
+  });
+});
+
+test('a Russian first prompt becomes a short Russian sidebar name', async () => {
+  await withIsolatedEnv(async (home, sync) => {
+    sessionsDb.createAppSession('app-grok-ru', 'grok', WORK_DIR);
+    const historyPath = await writeGrokSession(
+      home,
+      'b2111111-2222-3333-4444-555555555555',
+      { session_summary: 'One-Word Russian Hello Greeting Request' },
+      'короче, сделай названия сессий на русском',
+    );
+
+    assert.equal(await sync.synchronizeFile(historyPath), 'app-grok-ru');
+    assert.equal(sessionsDb.getAllSessions()[0]?.custom_name, 'Короче, сделай названия сессий на русском');
   });
 });
 

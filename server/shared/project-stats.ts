@@ -14,6 +14,8 @@ export type ProjectStats = {
   languages: { ext: string; files: number; lines: number }[];
   sessions: number;
   tokens: number;
+  tokensIn: number;
+  tokensOut: number;
   costUsd: number | null;
   lastActivity: string | null;
   /** True when the walk hit MAX_FILES and the numbers are a floor, not a total. */
@@ -153,6 +155,7 @@ export async function getProjectStats(projectPath: string): Promise<ProjectStats
 
   let sessions = 0;
   let tokens = 0;
+  let tokensOut = 0;
   let costUsd: number | null = null;
   let lastActivity: string | null = null;
   try {
@@ -167,6 +170,7 @@ export async function getProjectStats(projectPath: string): Promise<ProjectStats
           sessions += 1;
         }
         tokens += s.tokens;
+        tokensOut += s.output;
         if (s.costUsd !== null) costUsd = (costUsd ?? 0) + s.costUsd;
         if (!lastActivity || s.lastActivity > lastActivity) lastActivity = s.lastActivity;
       }
@@ -184,6 +188,8 @@ export async function getProjectStats(projectPath: string): Promise<ProjectStats
     languages: walked.languages,
     sessions,
     tokens,
+    tokensIn: Math.max(0, tokens - tokensOut),
+    tokensOut,
     costUsd,
     lastActivity,
     truncated: walked.truncated,

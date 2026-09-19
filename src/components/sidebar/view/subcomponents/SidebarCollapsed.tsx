@@ -1,4 +1,4 @@
-import { Settings, PanelLeftOpen, Bug, AlertTriangle } from 'lucide-react';
+import { Settings, PanelLeftOpen, Bug, AlertTriangle, Home } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 const DISCORD_INVITE_URL = 'https://discord.gg/buxwujPNRE';
@@ -15,6 +15,7 @@ function DiscordIcon({ className }: { className?: string }) {
 type SidebarCollapsedProps = {
   onExpand: () => void;
   onShowSettings: () => void;
+  onGoHome?: () => void;
   restartRequired: boolean;
   t: TFunction;
 };
@@ -22,6 +23,7 @@ type SidebarCollapsedProps = {
 export default function SidebarCollapsed({
   onExpand,
   onShowSettings,
+  onGoHome,
   restartRequired,
   t,
 }: SidebarCollapsedProps) {
@@ -38,6 +40,18 @@ export default function SidebarCollapsed({
       </button>
 
       <div className="nav-divider my-1 w-6" />
+
+      {onGoHome && (
+        <button
+          type="button"
+          onClick={onGoHome}
+          className="group flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
+          aria-label={t('tooltips.goHome', 'Home screen')}
+          title={t('tooltips.goHome', 'Home screen')}
+        >
+          <Home className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+        </button>
+      )}
 
       {/* Settings */}
       <button

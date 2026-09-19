@@ -14,48 +14,68 @@ import {
   writeProviderSessionActiveModelChange,
 } from '@/shared/utils.js';
 
+// Everything the Claude Code `/model` picker offers on the Max subscription
+// (verified live on 2.1.273, 17.09.2026, each entry answered a one-word
+// prompt). Values are what `claude --model` takes: `opus[1m]`-style aliases
+// resolve to the newest model of that family, so `fable` is Fable 5.1 today.
+// Sonnet 4.6 is deliberately WITHOUT `[1m]` — the CLI answers "Usage credits
+// required for 1M context" on the subscription for that one.
+const CLAUDE_EFFORT_FIVE = {
+  default: 'high',
+  values: [
+    { value: 'low' },
+    { value: 'medium' },
+    { value: 'high' },
+    { value: 'xhigh' },
+    { value: 'max' },
+  ],
+};
+
 export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
       value: 'opus[1m]',
       label: 'Opus 5',
-      description: 'Opus 5 · Most capable for complex work · $5/$25 per Mtok',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'xhigh' },
-          { value: 'max' },
-        ],
-      },
+      description: 'Opus 5 · Best for everyday, complex tasks · 1M context · $5/$25 per Mtok',
+      effort: CLAUDE_EFFORT_FIVE,
     },
     {
       value: 'sonnet[1m]',
       label: 'Sonnet 5',
-      description: 'Sonnet 5 for long sessions · $3/$15 per Mtok',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'max' },
-        ],
-      },
+      description: 'Sonnet 5 · Efficient for routine tasks · 1M context · $2/$10 per Mtok',
+      effort: CLAUDE_EFFORT_FIVE,
     },
     {
       value: 'fable',
-      label: 'Fable 5',
-      description: 'Fable 5 · Most capable for your hardest and longest-running tasks · Uses your limits ~2× faster than Opus',
+      label: 'Fable 5.1',
+      description: 'Fable 5.1 · Most capable for your hardest and longest-running tasks · Uses your limits ~2× faster than Opus',
+      effort: CLAUDE_EFFORT_FIVE,
+    },
+    // No `effort` block: Haiku 4.5 rejects the effort parameter, and omitting
+    // it makes resolveClaudeEffort strip whatever the UI sends.
+    {
+      value: 'haiku',
+      label: 'Haiku 4.5',
+      description: 'Haiku 4.5 · Fastest for quick answers · 200K context · $1/$5 per Mtok',
+    },
+    // Previous generation — still served on the subscription, kept for the
+    // people who prefer their behaviour on a specific task.
+    {
+      value: 'claude-opus-4-8[1m]',
+      label: 'Opus 4.8',
+      description: 'Opus 4.8 · Previous Opus version · 1M context · $5/$25 per Mtok',
+      effort: CLAUDE_EFFORT_FIVE,
+    },
+    {
+      value: 'claude-sonnet-4-6',
+      label: 'Sonnet 4.6',
+      description: 'Sonnet 4.6 · Previous Sonnet version · 200K context (1M needs usage credits) · $3/$15 per Mtok',
       effort: {
         default: 'high',
         values: [
           { value: 'low' },
           { value: 'medium' },
           { value: 'high' },
-          { value: 'xhigh' },
           { value: 'max' },
         ],
       },
@@ -65,8 +85,8 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     // every turn reprocesses the whole history, so keep sessions short.
     // No `effort` block — Ollama has no effort control, and omitting it makes
     // resolveClaudeEffort strip whatever the UI sends.
-    // `hidden` since 21.08.2026: the picker shows only the models actually in
-    // daily rotation (Opus/Sonnet/Fable + Grok). Flip the flag to bring one
+    // `hidden` since 21.08.2026: the picker shows only the subscription
+    // models (Anthropic / OpenAI / xAI). Flip the flag to bring one
     // back — nothing else has to change.
     {
       value: 'local-ornith-9b',

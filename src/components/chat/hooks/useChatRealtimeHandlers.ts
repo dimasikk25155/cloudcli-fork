@@ -8,6 +8,7 @@ import type { MarkSessionIdle, MarkSessionProcessing } from '../../../hooks/useS
 import type { PendingPermissionRequest } from '../types/types';
 import type { ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
+import { classifyIdleAck, CONNECTION_LOST_MESSAGE } from '../utils/idleAck';
 
 const isActionablePermissionRequest = (request: { toolName?: unknown } | null | undefined): boolean => {
   return request?.toolName !== 'ExitPlanMode' && request?.toolName !== 'exit_plan_mode';
@@ -22,7 +23,8 @@ interface UseChatRealtimeHandlersArgs {
   provider: LLMProvider;
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
-  setTokenBudget: (budget: Record<string, unknown> | null) => void;
+  setTokenBudget: Dispatch<SetStateAction<Record<string, unknown> | null>>;
+  refreshTokenUsage?: () => Promise<void> | void;
   pendingPermissionRequests: PendingPermissionRequest[];
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
   streamTimerRef: MutableRefObject<number | null>;
@@ -61,6 +63,7 @@ export function useChatRealtimeHandlers({
   selectedSession,
   currentSessionId,
   setTokenBudget,
+  refreshTokenUsage,
   pendingPermissionRequests,
   setPendingPermissionRequests,
   streamTimerRef,
@@ -118,21 +121,38 @@ export function useChatRealtimeHandlers({
           if (msg.isProcessing) {
             onSessionProcessing?.(sid);
           } else {
-            // Idle ack: ignore it if a newer request started after the
-            // subscribe was sent — the ack describes the older state.
-            onSessionIdle?.(sid, {
+            // Idle ack: the server lastSeq is authoritative for a run that
+            // finished while this socket was down. Classify before warning —
+            // a seq gap means "refresh the tail", not "connection died".
+            const knownSeq = lastSeqRef.current.get(sid) ?? 0;
+            const serverLastSeq = typeof msg.lastSeq === 'number' ? msg.lastSeq : null;
+            const idleResult = onSessionIdle?.(sid, {
               ifStartedBefore: statusCheckSentAtRef.current.get(sid),
+            }) ?? 'already_idle';
+            const decision = classifyIdleAck({
+              locallyProcessing: idleResult === 'cleared',
+              ackIsStale: idleResult === 'stale',
+              knownSeq,
+              serverLastSeq,
             });
 
-            // A run that finished while this client was disconnected leaves a
-            // gap: completed runs are never replayed over WS (history comes
-            // over REST), so when the server's seq is ahead of what we saw
-            // live — and we had been watching the stream — the tail exists
-            // only server-side. Re-fetch it.
-            const knownSeq = lastSeqRef.current.get(sid) ?? 0;
-            if (typeof msg.lastSeq === 'number' && knownSeq > 0 && msg.lastSeq > knownSeq) {
-              lastSeqRef.current.set(sid, msg.lastSeq);
+            if (decision.refreshHistory && serverLastSeq !== null) {
+              lastSeqRef.current.set(sid, serverLastSeq);
+              // A failed REST refresh must not resurrect the false
+              // connection-lost warning: the next reconnect or page reload
+              // can pick the transcript up again.
               void sessionStore.refreshFromServer(sid);
+            }
+
+            if (decision.warnOrphaned) {
+              sessionStore.appendRealtime(sid, {
+                id: `run_orphaned_${Date.now()}`,
+                sessionId: sid,
+                timestamp: new Date().toISOString(),
+                provider,
+                kind: 'error',
+                content: CONNECTION_LOST_MESSAGE,
+              } as NormalizedMessage);
             }
           }
 
@@ -253,9 +273,14 @@ export function useChatRealtimeHandlers({
             // `complete` arrived — that would hide the only way to respond and
             // silently skip the action. An actionable request is removed ONLY by an
             // explicit `permission_cancelled` (server abort/resolve) or by the user
-            // answering it. Drop just the non-actionable leftovers (e.g. ExitPlanMode).
+            // answering it. Keep ExitPlanMode too: Grok emits it AFTER the process
+            // exits, so complete would otherwise drop the Build/Revise buttons.
             const nextPending = pendingPermissionRequestsRef.current.filter(
-              (request) => isActionablePermissionRequest(request),
+              (request) => (
+                isActionablePermissionRequest(request)
+                || request.toolName === 'ExitPlanMode'
+                || request.toolName === 'exit_plan_mode'
+              ),
             );
             pendingPermissionRequestsRef.current = nextPending;
             setPendingPermissionRequests(nextPending);
@@ -284,6 +309,13 @@ export function useChatRealtimeHandlers({
                 setTokenBudget(slot.tokenUsage as Record<string, unknown>);
               }
             });
+            // Grok's composer chip reads the disk snapshot, not the stream.
+            // Wait a beat so turn_completed lands in updates.jsonl first.
+            window.setTimeout(() => {
+              if (sid === activeViewSessionIdRef.current) {
+                void refreshTokenUsage?.();
+              }
+            }, 400);
           }
 
           break;
@@ -339,7 +371,26 @@ export function useChatRealtimeHandlers({
             // being viewed may drive the composer counter, otherwise numbers
             // from background runs "jump" into the current chat.
             if (sid === activeViewSessionId) {
-              setTokenBudget(msg.tokenBudget as Record<string, unknown>);
+              const incoming = msg.tokenBudget as Record<string, unknown>;
+              setTokenBudget((prev) => {
+                if (!prev) {
+                  return incoming;
+                }
+                const nextUsed = Number(incoming.used);
+                const nextTotal = Number(incoming.total);
+                const nextIn = Number(incoming.inputTokens);
+                const nextOut = Number(incoming.outputTokens);
+                const prevIn = Number(prev.inputTokens);
+                const prevOut = Number(prev.outputTokens);
+                return {
+                  ...prev,
+                  ...incoming,
+                  used: nextUsed > 0 ? nextUsed : prev.used,
+                  total: nextTotal > 0 ? nextTotal : prev.total,
+                  inputTokens: nextIn > prevIn ? nextIn : prev.inputTokens,
+                  outputTokens: nextOut > prevOut ? nextOut : prev.outputTokens,
+                };
+              });
             }
           } else if (msg.text && sid) {
             onSessionProcessing?.(sid, {
@@ -350,7 +401,24 @@ export function useChatRealtimeHandlers({
           break;
         }
 
-        // text, tool_use, tool_result, thinking, interactive_prompt, task_notification
+        case 'thinking':
+          if (sid) {
+            onSessionProcessing?.(sid, { activityKind: 'thinking', toolName: null });
+          }
+          break;
+
+        case 'tool_use':
+          if (sid) {
+            onSessionProcessing?.(sid, {
+              activityKind: 'tools',
+              toolName: typeof msg.toolName === 'string' && msg.toolName.trim()
+                ? msg.toolName
+                : null,
+            });
+          }
+          break;
+
+        // text, tool_result, interactive_prompt, task_notification
         // → already routed to store above, no UI side effects needed
         default:
           break;
@@ -364,6 +432,7 @@ export function useChatRealtimeHandlers({
     selectedSession,
     currentSessionId,
     setTokenBudget,
+    refreshTokenUsage,
     pendingPermissionRequests,
     setPendingPermissionRequests,
     streamTimerRef,

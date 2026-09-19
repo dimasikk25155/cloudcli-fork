@@ -6,7 +6,7 @@
 // same bypassPermissions posture — because an unattended run has no human to
 // answer a permission prompt.
 
-import { projectsDb, userDb, userProjectAccessDb } from '../database/index.js';
+import { projectsDb, userDb, userProjectAccessDb, providerPreferencesDb } from '../database/index.js';
 import { queryClaudeSDK } from '../../claude-sdk.js';
 import { spawnCursor } from '../../cursor-cli.js';
 import { queryCodex } from '../../openai-codex.js';
@@ -15,10 +15,61 @@ import { spawnKimi } from '../../kimi-cli.js';
 import { spawnGemini } from '../../gemini-cli.js';
 import { spawnGrok } from '../../grok-cli.js';
 import { providerModelsService } from '../providers/index.js';
+import { newRunId, recordAuditEvent, RunMeter } from '../governance/index.js';
 import { normalizeProjectPath } from '../../shared/utils.js';
 import { SUPPORTED_PROVIDERS } from '../../shared/providers.js';
 
 export { SUPPORTED_PROVIDERS };
+
+/**
+ * Engine a background run uses when nobody picked one.
+ *
+ * Claude used to be this fallback. The Max subscription that backed it is gone,
+ * so an omitted provider would start a run that dies on the first token.
+ */
+export const DEFAULT_UNATTENDED_PROVIDER = 'grok';
+
+/**
+ * Picks the engine for a run that has no human sitting on the composer.
+ *
+ * Order: the caller’s explicit provider → the user’s “open new chats on this
+ * engine” setting → Grok. Exported for tests.
+ *
+ * @param {object} [options]
+ * @param {string} [options.requestedProvider]
+ * @param {string} [options.requestedModel]
+ * @param {string} [options.requestedEffort]
+ * @param {{ defaultProvider?: string|null, models?: Record<string,string>, efforts?: Record<string,string> }} [options.preferences]
+ */
+export function resolveRunEngine({
+  requestedProvider,
+  requestedModel,
+  requestedEffort,
+  preferences,
+} = {}) {
+  const prefs = preferences && typeof preferences === 'object'
+    ? preferences
+    : { models: {}, efforts: {}, defaultProvider: null };
+  const explicit = typeof requestedProvider === 'string' && SUPPORTED_PROVIDERS.includes(requestedProvider)
+    ? requestedProvider
+    : null;
+  const preferred = typeof prefs.defaultProvider === 'string' && SUPPORTED_PROVIDERS.includes(prefs.defaultProvider)
+    ? prefs.defaultProvider
+    : null;
+  const provider = explicit || preferred || DEFAULT_UNATTENDED_PROVIDER;
+  const models = prefs.models && typeof prefs.models === 'object' ? prefs.models : {};
+  const efforts = prefs.efforts && typeof prefs.efforts === 'object' ? prefs.efforts : {};
+  const model = (typeof requestedModel === 'string' && requestedModel) || models[provider] || undefined;
+  const effort = (typeof requestedEffort === 'string' && requestedEffort) || efforts[provider] || undefined;
+  return { provider, model, effort };
+}
+
+/**
+ * Triggers allowed to identify themselves in the audit log. An unrecognised
+ * value collapses to 'system' rather than being written through, so a typo
+ * cannot silently create a new actor class nobody ever filters on.
+ */
+const KNOWN_ACTORS = new Set(['user', 'schedule', 'pipeline', 'telegram', 'api', 'git-helper', 'system']);
 
 /**
  * Collects engine output instead of streaming it to an HTTP response.
@@ -142,11 +193,15 @@ export function checkProjectAccess(userId, projectPath) {
  * @param {string} options.projectPath   Absolute path of an already-registered project.
  * @param {string} options.prompt        What to ask.
  * @param {number} options.userId        Whose permissions this run borrows.
- * @param {string} [options.provider]    One of SUPPORTED_PROVIDERS. Defaults to claude.
+ * @param {string} [options.provider]    One of SUPPORTED_PROVIDERS. Omitted → user default engine, else Grok.
  * @param {string} [options.model]       Engine-specific model id.
  * @param {string} [options.effort]      Reasoning effort, where the engine supports it.
  * @param {string} [options.sessionId]   Resume an existing session instead of starting fresh.
  * @param {(event: object) => void} [options.onEvent]  Progress callback, best-effort.
+ * @param {'schedule'|'pipeline'|'telegram'|'api'|'user'|'system'} [options.actor]
+ *        What triggered this run, for the audit log. A schedule runs on behalf
+ *        of a user but was not started by them; without this the feed cannot
+ *        tell a nightly job from someone typing. Unset degrades to 'system'.
  * @returns {Promise<{ sessionId: string|null, text: string, messages: object[] }>}
  */
 export async function runHeadlessPrompt(options) {
@@ -154,11 +209,12 @@ export async function runHeadlessPrompt(options) {
     projectPath,
     prompt,
     userId,
-    provider = 'claude',
-    model,
-    effort,
+    provider: requestedProvider,
+    model: requestedModel,
+    effort: requestedEffort,
     sessionId = null,
     onEvent = null,
+    actor,
   } = options || {};
 
   const trimmedPrompt = typeof prompt === 'string' ? prompt.trim() : '';
@@ -166,39 +222,108 @@ export async function runHeadlessPrompt(options) {
     throw new Error('prompt is required');
   }
 
-  if (!SUPPORTED_PROVIDERS.includes(provider)) {
+  if (requestedProvider && !SUPPORTED_PROVIDERS.includes(requestedProvider)) {
     throw new Error(`provider must be one of: ${SUPPORTED_PROVIDERS.join(', ')}`);
   }
+
+  let preferences = { models: {}, efforts: {}, workMode: null, defaultProvider: null };
+  try {
+    preferences = providerPreferencesDb.getProviderPreferences(userId);
+  } catch {
+    // Callers without a DB (unit tests of neighbouring modules) still have to
+    // resolve an engine; the Grok fallback covers them.
+  }
+  const { provider, model, effort } = resolveRunEngine({
+    requestedProvider,
+    requestedModel,
+    requestedEffort,
+    preferences,
+  });
 
   const access = checkProjectAccess(userId, projectPath);
   if (!access.ok) {
     throw new Error(access.error);
   }
 
+  // Who pressed the button. A schedule runs *on behalf of* a user but was not
+  // started by them, and the audit feed is worthless if it cannot tell the two
+  // apart. Defaults rather than throws: a missing actor should degrade the log,
+  // never kill the run.
+  const resolvedActor = KNOWN_ACTORS.has(actor) ? actor : 'system';
+  if (!actor) {
+    console.warn('runHeadlessPrompt called without an actor — audit will read "system"');
+  }
+
   const cwd = access.projectPath;
   const collector = new RunCollector(onEvent);
   const base = { projectPath: cwd, cwd, sessionId: sessionId || null };
 
-  if (provider === 'claude') {
-    await queryClaudeSDK(trimmedPrompt, { ...base, model, effort, permissionMode: 'bypassPermissions' }, collector);
-  } else if (provider === 'cursor') {
-    await spawnCursor(trimmedPrompt, { ...base, model: model || undefined, skipPermissions: true }, collector);
-  } else if (provider === 'codex') {
-    const models = (await providerModelsService.getProviderModels('codex')).models;
-    await spawnCodexCompat(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions' }, collector);
-  } else if (provider === 'opencode') {
-    const models = (await providerModelsService.getProviderModels('opencode')).models;
-    await spawnOpenCode(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions' }, collector);
-  } else if (provider === 'kimi') {
-    const models = (await providerModelsService.getProviderModels('kimi')).models;
-    // Headless kimi -p is always fully autonomous — it has no permissionMode to map.
-    await spawnKimi(trimmedPrompt, { ...base, model: model || models.DEFAULT }, collector);
-  } else if (provider === 'gemini') {
-    const models = (await providerModelsService.getProviderModels('gemini')).models;
-    await spawnGemini(trimmedPrompt, { ...base, model: model || models.DEFAULT, permissionMode: 'bypassPermissions' }, collector);
-  } else if (provider === 'grok') {
-    const models = (await providerModelsService.getProviderModels('grok')).models;
-    await spawnGrok(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions' }, collector);
+  const runId = newRunId();
+  const meter = new RunMeter();
+  const startedAt = Date.now();
+
+  recordAuditEvent({
+    actor: resolvedActor,
+    event: 'run.start',
+    userId,
+    projectPath: cwd,
+    sessionId: sessionId || null,
+    runId,
+    provider,
+    model: model ?? null,
+    detail: trimmedPrompt,
+  });
+
+  let outcome = 'ok';
+  let failureDetail = null;
+
+  try {
+    if (provider === 'claude') {
+      await queryClaudeSDK(trimmedPrompt, { ...base, model, effort, permissionMode: 'bypassPermissions', meter }, collector);
+    } else if (provider === 'cursor') {
+      await spawnCursor(trimmedPrompt, { ...base, model: model || undefined, skipPermissions: true }, collector);
+    } else if (provider === 'codex') {
+      const models = (await providerModelsService.getProviderModels('codex')).models;
+      await spawnCodexCompat(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions' }, collector);
+    } else if (provider === 'opencode') {
+      const models = (await providerModelsService.getProviderModels('opencode')).models;
+      await spawnOpenCode(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions' }, collector);
+    } else if (provider === 'kimi') {
+      const models = (await providerModelsService.getProviderModels('kimi')).models;
+      // Headless kimi -p is always fully autonomous — it has no permissionMode to map.
+      await spawnKimi(trimmedPrompt, { ...base, model: model || models.DEFAULT }, collector);
+    } else if (provider === 'gemini') {
+      const models = (await providerModelsService.getProviderModels('gemini')).models;
+      await spawnGemini(trimmedPrompt, { ...base, model: model || models.DEFAULT, permissionMode: 'bypassPermissions' }, collector);
+    } else if (provider === 'grok') {
+      const models = (await providerModelsService.getProviderModels('grok')).models;
+      await spawnGrok(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions', meter }, collector);
+    }
+  } catch (err) {
+    outcome = 'error';
+    failureDetail = err?.message ?? String(err);
+    throw err;
+  } finally {
+    const cost = meter.finish();
+    recordAuditEvent({
+      actor: resolvedActor,
+      event: outcome === 'error' ? 'run.error' : 'run.finish',
+      userId,
+      projectPath: cwd,
+      sessionId: collector.getSessionId() || sessionId || null,
+      runId,
+      provider,
+      model: cost.model ?? model ?? null,
+      outcome,
+      detail: failureDetail,
+      tokensIn: cost.breakdown.inputTokens,
+      tokensOut: cost.breakdown.outputTokens,
+      cacheRead: cost.breakdown.cacheReadTokens,
+      cacheWrite5m: cost.breakdown.cacheWrite5mTokens,
+      cacheWrite1h: cost.breakdown.cacheWrite1hTokens,
+      costMicroUsd: cost.costMicroUsd,
+      durationMs: Date.now() - startedAt,
+    });
   }
 
   return {

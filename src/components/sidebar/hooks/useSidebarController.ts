@@ -16,23 +16,18 @@ import type {
 } from '../types/types';
 import {
   applyManualSessionOrder,
+  buildRecentProjects,
   clearLegacyStarredProjectIds,
   filterProjects,
   getAllSessions,
-  getSessionCreatedDate,
-  getSessionDate,
+  getProjectNewestCreated,
   isScratchProject,
-  isSessionVisibleInRecentJournal,
-  readCollapsedProjectIds,
+  readExpandedJournalProjectIds,
   readLegacyStarredProjectIds,
   readProjectSortOrder,
   sortProjects,
-  writeCollapsedProjectIds,
+  writeExpandedJournalProjectIds,
 } from '../utils/utils';
-
-// How many most-recent sessions (across every project) the Recent journal keeps
-// visible. Currently-running sessions are always shown on top of this budget.
-const RECENT_JOURNAL_LIMIT = 20;
 
 type ArchivedSessionsApiPayload = {
   success?: boolean;
@@ -106,12 +101,14 @@ export function useSidebarController({
   // Map of sessionId -> ISO timestamp of the moment the user hid it from the
   // Recent journal. Synced to the server so the choice applies on every device.
   // Presence in the map is what hides a card: it stays hidden until the user
-  // opens that session again or a new run starts in it.
+  // opens that session again.
   const [hiddenRecentSessions, setHiddenRecentSessions] = useState<Record<string, string>>({});
   const hiddenRecentSessionsRef = useRef<Record<string, string>>({});
-  // Project groups folded away by the user in the Running/Recent views, where
-  // every group is unfolded by default (see `toggleProject`).
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set(readCollapsedProjectIds()));
+  // Project groups the user unfolded in the Running/Recent views. Those views
+  // keep every folder shut until a click, so this set is opt-in, not opt-out.
+  const [expandedJournalProjects, setExpandedJournalProjects] = useState<Set<string>>(
+    () => new Set(readExpandedJournalProjectIds()),
+  );
   // Pinned card order per project ({ projectId -> sessionId[] }), also synced to
   // the server so the arrangement is the same on desktop and phone.
   const [sessionOrderByProject, setSessionOrderByProject] = useState<Record<string, string[]>>({});
@@ -119,7 +116,6 @@ export function useSidebarController({
   const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, boolean>>(new Map());
   const [loadingMoreProjects, setLoadingMoreProjects] = useState<Set<string>>(new Set());
   const starToggleSequenceByProjectRef = useRef<Map<string, number>>(new Map());
-  const previousActiveSessionIdsRef = useRef<Set<string> | null>(null);
   const migrationStartedRef = useRef(false);
   const onRefreshRef = useRef(onRefresh);
 
@@ -139,8 +135,6 @@ export function useSidebarController({
     setInitialSessionsLoaded(new Set());
   }, [projects]);
 
-  const hasSelectedSession = Boolean(selectedSession);
-
   useEffect(() => {
     // Auto-expand only when the selected project identity changes.
     // Depending on the full `selectedProject` object (or `selectedSession`) causes
@@ -150,23 +144,15 @@ export function useSidebarController({
       return;
     }
 
-    // A project alone is not a reason to unfold its sessions: on a cold start
-    // (fresh login, cleared cookies) the sidebar must show projects only. The
-    // list opens when an actual conversation is on screen, or when the user
-    // taps the project themselves (see `toggleProject`).
-    if (!hasSelectedSession) {
-      return;
-    }
-
+    // Home-screen tap selects a project with no session yet — unfold that
+    // one folder so the session tree is on the left, everything else stays shut.
     setExpandedProjects((prev) => {
-      if (prev.has(selectedProjectId)) {
+      if (prev.size === 1 && prev.has(selectedProjectId)) {
         return prev;
       }
-      const next = new Set(prev);
-      next.add(selectedProjectId);
-      return next;
+      return new Set([selectedProjectId]);
     });
-  }, [hasSelectedSession, selectedProject?.projectId]);
+  }, [selectedProject?.projectId]);
 
   useEffect(() => {
     if (projects.length > 0 && !isLoading) {
@@ -325,23 +311,18 @@ export function useSidebarController({
     [mutateHiddenRecentSessions],
   );
 
-  useEffect(() => {
-    const previousActiveIds = previousActiveSessionIdsRef.current;
-    previousActiveSessionIdsRef.current = new Set(activeSessionIds);
-
-    if (!previousActiveIds) {
-      return;
-    }
-
-    for (const sessionId of activeSessionIds) {
-      if (!previousActiveIds.has(sessionId)) {
-        // A run that just started (a resumed chat, a scheduled job) is real
-        // activity, unlike a transcript file being touched, so the session
-        // returns to the journal for good instead of only while it runs.
-        unhideSessionFromRecent(sessionId);
+  const expandJournalProject = useCallback((projectId: string) => {
+    setExpandedJournalProjects((previous) => {
+      if (previous.has(projectId)) {
+        return previous;
       }
-    }
-  }, [activeSessionIds, unhideSessionFromRecent]);
+
+      const next = new Set(previous);
+      next.add(projectId);
+      writeExpandedJournalProjectIds([...next]);
+      return next;
+    });
+  }, []);
 
   const fetchSessionOrder = useCallback(async () => {
     try {
@@ -490,16 +471,17 @@ export function useSidebarController({
   const toggleProject = useCallback(
     (projectId: string) => {
       if (searchMode === 'running' || searchMode === 'recent') {
-        // These two views unfold every group by default, so a tap on the folder
-        // has to record what the user closed — otherwise the click looks dead.
-        setCollapsedProjects((prev) => {
+        // These two views keep every group folded until a tap, so the click
+        // records what the user opened — otherwise every refresh dumps the
+        // session lists back open.
+        setExpandedJournalProjects((prev) => {
           const next = new Set(prev);
           if (next.has(projectId)) {
             next.delete(projectId);
           } else {
             next.add(projectId);
           }
-          writeCollapsedProjectIds([...next]);
+          writeExpandedJournalProjectIds([...next]);
           return next;
         });
         return;
@@ -521,11 +503,12 @@ export function useSidebarController({
       // Opening a hidden session means it is back in play, so it returns to the
       // Recent journal instead of staying invisible while being worked on.
       unhideSessionFromRecent(String(session.id));
+      expandJournalProject(projectId);
       // Tag the session with its owning projectId so downstream handlers
       // can correlate it with the selectedProject in the app state.
       onSessionSelect({ ...session, __projectId: projectId });
     },
-    [onSessionSelect, unhideSessionFromRecent],
+    [expandJournalProject, onSessionSelect, unhideSessionFromRecent],
   );
 
   const resolveProjectStarState = useCallback(
@@ -697,64 +680,22 @@ export function useSidebarController({
         },
       });
       return acc;
-    }, []);
+    }, []).sort((projectA, projectB) => {
+      const byCreated = getProjectNewestCreated(projectB).getTime() - getProjectNewestCreated(projectA).getTime();
+      if (byCreated !== 0) {
+        return byCreated;
+      }
+      return (projectA.displayName || projectA.projectId).localeCompare(projectB.displayName || projectB.projectId);
+    });
   }, [activeSessionIds, sortedProjects]);
 
   // The Recent journal: the most-recently-active sessions across every project,
   // minus the ones the user hid, re-grouped back under their projects so the
   // view reads like the Running tab but persists after a run finishes.
-  const recentProjects = useMemo(() => {
-    const flattened = sortedProjects.flatMap((project) =>
-      getAllSessions(project).map((session) => ({ project, session })),
-    );
-
-    flattened.sort(
-      (a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime(),
-    );
-
-    const visible = flattened.filter(({ session }) =>
-      isSessionVisibleInRecentJournal(session, hiddenRecentSessions, activeSessionIds),
-    );
-
-    const top = visible.slice(0, RECENT_JOURNAL_LIMIT);
-
-    const byProjectId = new Map<string, Project>();
-    for (const { project, session } of top) {
-      const existing = byProjectId.get(project.projectId);
-      if (existing) {
-        existing.sessions = [...(existing.sessions ?? []), session];
-        continue;
-      }
-      byProjectId.set(project.projectId, {
-        ...project,
-        sessions: [session],
-        sessionMeta: {
-          ...project.sessionMeta,
-          hasMore: false,
-        },
-      });
-    }
-
-    // Which sessions make the journal is decided by activity above; how they are
-    // *stacked* is the pinned order, so a running session never pushes the cards
-    // below it around.
-    return [...byProjectId.values()].map((project) => {
-      const sessions = [...(project.sessions ?? [])].sort(
-        (a, b) => getSessionCreatedDate(b as SessionWithProvider).getTime()
-          - getSessionCreatedDate(a as SessionWithProvider).getTime(),
-      ) as SessionWithProvider[];
-
-      return {
-        ...project,
-        sessions: applyManualSessionOrder(sessions, sessionOrderByProject[project.projectId]),
-        sessionMeta: {
-          ...project.sessionMeta,
-          total: sessions.length,
-          hasMore: false,
-        },
-      };
-    });
-  }, [sortedProjects, activeSessionIds, hiddenRecentSessions, sessionOrderByProject]);
+  const recentProjects = useMemo(
+    () => buildRecentProjects(sortedProjects, hiddenRecentSessions, sessionOrderByProject),
+    [sortedProjects, hiddenRecentSessions, sessionOrderByProject],
+  );
 
   const recentSessionsCount = useMemo(
     () => recentProjects.reduce((count, project) => count + (project.sessions?.length ?? 0), 0),
@@ -1081,7 +1022,7 @@ export function useSidebarController({
   return {
     isSidebarCollapsed,
     expandedProjects,
-    collapsedProjects,
+    expandedJournalProjects,
     editingProject,
     showNewProject,
     editingName,
@@ -1100,6 +1041,7 @@ export function useSidebarController({
     runningSessionsCount,
     recentSessionsCount,
     hideSessionFromRecent,
+    expandJournalProject,
     archivedProjects: filteredArchivedProjects,
     archivedSessions: filteredArchivedSessions,
     archivedSessionsCount: archivedProjects.length + archivedSessions.length,

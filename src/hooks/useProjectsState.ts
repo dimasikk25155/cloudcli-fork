@@ -11,6 +11,7 @@ import type {
   ProjectSession,
 } from '../types/app';
 
+import { preserveProjectSessionsCreatedAt, preserveSessionCreatedAt } from '../components/sidebar/utils/utils';
 import type { SessionActivityMap } from './useSessionProtection';
 
 type UseProjectsStateArgs = {
@@ -129,7 +130,7 @@ const mergeSessionProviderLists = (baseSessions: ProjectSession[], additionalSes
 
 const mergeExpandedSessionPages = (previousProjects: Project[], incomingProjects: Project[]): Project[] => {
   if (previousProjects.length === 0) {
-    return incomingProjects;
+    return incomingProjects.map((project) => preserveProjectSessionsCreatedAt(project));
   }
 
   const previousByProjectId = new Map(previousProjects.map((project) => [project.projectId, project]));
@@ -137,13 +138,13 @@ const mergeExpandedSessionPages = (previousProjects: Project[], incomingProjects
   return incomingProjects.map((incomingProject) => {
     const previousProject = previousByProjectId.get(incomingProject.projectId);
     if (!previousProject) {
-      return incomingProject;
+      return preserveProjectSessionsCreatedAt(incomingProject);
     }
 
     const previousLoadedCount = countLoadedProjectSessions(previousProject);
     const incomingLoadedCount = countLoadedProjectSessions(incomingProject);
     if (previousLoadedCount <= incomingLoadedCount) {
-      return incomingProject;
+      return preserveProjectSessionsCreatedAt(incomingProject, previousProject);
     }
 
     const mergedProject: Project = {
@@ -158,7 +159,7 @@ const mergeExpandedSessionPages = (previousProjects: Project[], incomingProjects
       hasMore: countLoadedProjectSessions(mergedProject) < totalSessions,
     };
 
-    return mergedProject;
+    return preserveProjectSessionsCreatedAt(mergedProject, previousProject);
   });
 };
 
@@ -170,16 +171,17 @@ const mergeProjectSessionPage = (
     ...existingProject,
     sessions: mergeSessionProviderLists(existingProject.sessions ?? [], sessionsPage.sessions ?? []),
   };
+  const withCreatedAt = preserveProjectSessionsCreatedAt(mergedProject, existingProject);
 
   const totalSessions = Number(sessionsPage.sessionMeta?.total ?? existingProject.sessionMeta?.total ?? 0);
-  mergedProject.sessionMeta = {
+  withCreatedAt.sessionMeta = {
     ...existingProject.sessionMeta,
     ...sessionsPage.sessionMeta,
     total: totalSessions,
-    hasMore: countLoadedProjectSessions(mergedProject) < totalSessions,
+    hasMore: countLoadedProjectSessions(withCreatedAt) < totalSessions,
   };
 
-  return mergedProject;
+  return withCreatedAt;
 };
 
 const getSessionAliasIds = (event: SessionUpsertedEvent): Set<string> => {
@@ -227,7 +229,7 @@ const upsertSessionIntoProject = (project: Project, event: SessionUpsertedEvent)
 
     for (const [index, session] of sessions.entries()) {
       if (index === existingIndex) {
-        const updated = { ...session, ...normalizedSession };
+        const updated = preserveSessionCreatedAt({ ...session, ...normalizedSession }, session);
         // Never let a later upsert that carries an empty summary blank out a
         // title we already have. Fresh sessions momentarily broadcast an empty
         // custom_name before the disk indexer fills it in, which would
@@ -254,7 +256,7 @@ const upsertSessionIntoProject = (project: Project, event: SessionUpsertedEvent)
       return project;
     }
   } else {
-    nextSessions = [normalizedSession, ...sessions];
+    nextSessions = [preserveSessionCreatedAt(normalizedSession), ...sessions];
     inserted = true;
   }
 
@@ -767,6 +769,46 @@ export function useProjectsState({
     [isMobile, navigate],
   );
 
+  const goHome = useCallback(() => {
+    setSelectedProject(null);
+    setSelectedSession(null);
+    navigate('/');
+  }, [navigate]);
+
+  const handleToggleStar = useCallback((projectId: string) => {
+    let previousStar = false;
+    setProjects((previousProjects) => {
+      const current = previousProjects.find((project) => project.projectId === projectId);
+      previousStar = Boolean(current?.isStarred);
+      return previousProjects.map((project) => (
+        project.projectId === projectId
+          ? { ...project, isStarred: !previousStar }
+          : project
+      ));
+    });
+
+    void api.toggleProjectStar(projectId)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('star-failed');
+        }
+        const payload = (await response.json()) as { isStarred?: boolean };
+        setProjects((previousProjects) => previousProjects.map((project) => (
+          project.projectId === projectId
+            ? { ...project, isStarred: Boolean(payload.isStarred) }
+            : project
+        )));
+      })
+      .catch((error) => {
+        console.error('[projects] Failed to toggle star:', error);
+        setProjects((previousProjects) => previousProjects.map((project) => (
+          project.projectId === projectId
+            ? { ...project, isStarred: previousStar }
+            : project
+        )));
+      });
+  }, []);
+
   const handleSessionSelect = useCallback(
     (session: ProjectSession) => {
       clearSessionAttention(session.id);
@@ -1002,6 +1044,8 @@ export function useProjectsState({
     registerOptimisticSession,
     sidebarSharedProps,
     handleProjectSelect,
+    goHome,
+    handleToggleStar,
     handleSessionSelect,
     handleNewSession,
     handleSessionDelete,

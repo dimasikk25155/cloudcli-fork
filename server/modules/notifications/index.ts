@@ -4,6 +4,7 @@ export {
   notifyUserIfEnabled,
   notifyRunFailed,
   notifyRunStopped,
+  sendWebPushPayload,
 } from '@/modules/notifications/services/notification-orchestrator.service.js';
 export {
   registerDesktopNotificationClient,

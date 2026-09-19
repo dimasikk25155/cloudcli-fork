@@ -10,6 +10,7 @@ import {
   appendVisibleImagePathsTag,
   buildClaudeUserContent,
   buildCodexInputItems,
+  buildGrokUserContent,
   isAllowedImageSourcePath,
   isImageDescriptor,
   normalizeImageDescriptors,
@@ -187,6 +188,30 @@ test('buildClaudeUserContent reads image bytes into base64 blocks', async () => 
   }
 });
 
+test('buildGrokUserContent uses ACP image blocks, not Claude source shape', async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'image-attachments-'));
+  try {
+    await writeFile(path.join(tempDir, 'shot.png'), PNG_BYTES);
+
+    const content = await buildGrokUserContent(
+      'What colour is this?',
+      [{ path: 'shot.png', mimeType: 'image/png' }],
+      tempDir,
+    );
+
+    assert.equal(content.length, 2);
+    assert.deepEqual(content[0], { type: 'text', text: 'What colour is this?' });
+    assert.deepEqual(content[1], {
+      type: 'image',
+      mimeType: 'image/png',
+      data: PNG_BYTES.toString('base64'),
+    });
+    assert.equal('source' in content[1], false);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('buildClaudeUserContent skips unsupported types and unreadable files', async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'image-attachments-'));
   try {
@@ -301,6 +326,13 @@ test('provider builders refuse descriptors outside the allowed roots', async () 
     cwd,
   );
   assert.deepEqual(claudeContent, [{ type: 'text', text: 'prompt' }]);
+
+  const grokContent = await buildGrokUserContent(
+    'prompt',
+    [{ path: outsidePath, mimeType: 'image/png' }],
+    cwd,
+  );
+  assert.deepEqual(grokContent, [{ type: 'text', text: 'prompt' }]);
 });
 
 test('isImageDescriptor uses mime type then extension', () => {

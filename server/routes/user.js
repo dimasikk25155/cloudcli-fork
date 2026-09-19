@@ -106,6 +106,21 @@ router.post('/complete-onboarding', authenticateToken, async (req, res) => {
   }
 });
 
+router.post('/reset-onboarding', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    userDb.resetOnboarding(userId);
+
+    res.json({
+      success: true,
+      message: 'Onboarding reset'
+    });
+  } catch (error) {
+    console.error('Error resetting onboarding:', error);
+    res.status(500).json({ error: 'Failed to reset onboarding' });
+  }
+});
+
 router.get('/onboarding-status', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;

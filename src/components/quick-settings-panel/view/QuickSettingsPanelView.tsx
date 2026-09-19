@@ -27,9 +27,11 @@ export default function QuickSettingsPanelView() {
     showRawParameters: preferences.showRawParameters,
     showThinking: preferences.showThinking,
     sendByCtrlEnter: preferences.sendByCtrlEnter,
+    sendByDoubleEnter: preferences.sendByDoubleEnter,
     voiceEnabled: preferences.voiceEnabled,
   }), [
     preferences.sendByCtrlEnter,
+    preferences.sendByDoubleEnter,
     preferences.showRawParameters,
     preferences.showThinking,
     preferences.voiceEnabled,
@@ -74,6 +76,7 @@ export default function QuickSettingsPanelView() {
           <QuickSettingsContent
             isDarkMode={isDarkMode}
             preferences={quickSettingsPreferences}
+            isMobile={isMobile}
             onPreferenceChange={handlePreferenceChange}
           />
         </div>

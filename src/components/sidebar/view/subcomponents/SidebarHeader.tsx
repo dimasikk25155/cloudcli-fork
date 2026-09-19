@@ -1,4 +1,4 @@
-import { Activity, Folder, FolderPlus, History, Plus, RefreshCw, Search, X, PanelLeftClose, type LucideIcon } from 'lucide-react';
+import { Activity, Folder, FolderPlus, History, Home, Plus, RefreshCw, Search, X, PanelLeftClose, type LucideIcon } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button, Input } from '../../../../shared/view/ui';
@@ -31,6 +31,7 @@ type SidebarHeaderProps = {
   isRefreshing: boolean;
   onCreateProject: () => void;
   onCollapseSidebar: () => void;
+  onGoHome?: () => void;
   t: TFunction;
 };
 
@@ -52,6 +53,7 @@ export default function SidebarHeader({
   isRefreshing,
   onCreateProject,
   onCollapseSidebar,
+  onGoHome,
   t,
 }: SidebarHeaderProps) {
   const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0 || recentSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
@@ -151,10 +153,28 @@ export default function SidebarHeader({
               <LogoBlock />
             </a>
           ) : (
-            <LogoBlock />
+            <button
+              type="button"
+              className="flex min-w-0 items-center gap-2.5 rounded-lg text-left outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={onGoHome}
+              title={t('tooltips.goHome', 'Home screen')}
+            >
+              <LogoBlock />
+            </button>
           )}
 
           <div className="flex flex-shrink-0 items-center gap-0.5">
+            {onGoHome && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground"
+                onClick={onGoHome}
+                title={t('tooltips.goHome', 'Home screen')}
+              >
+                <Home className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -249,10 +269,28 @@ export default function SidebarHeader({
               <LogoBlock />
             </a>
           ) : (
-            <LogoBlock />
+            <button
+              type="button"
+              className="flex min-w-0 items-center gap-2.5 text-left"
+              onClick={onGoHome}
+              title={t('tooltips.goHome', 'Home screen')}
+            >
+              <LogoBlock />
+            </button>
           )}
 
           <div className="flex flex-shrink-0 gap-1.5">
+            {onGoHome && (
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
+                onClick={onGoHome}
+                title={t('tooltips.goHome', 'Home screen')}
+                aria-label={t('tooltips.goHome', 'Home screen')}
+              >
+                <Home className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
               onClick={onRefresh}

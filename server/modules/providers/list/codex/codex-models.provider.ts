@@ -19,34 +19,62 @@ import {
   writeProviderSessionActiveModelChange,
 } from '@/shared/utils.js';
 
+const CODEX_FALLBACK_EFFORT = {
+  default: 'medium',
+  values: [
+    { value: 'low' },
+    { value: 'medium' },
+    { value: 'high' },
+    { value: 'xhigh' },
+    { value: 'max' },
+  ],
+};
+
+const CODEX_FALLBACK_EFFORT_WITH_ULTRA = {
+  ...CODEX_FALLBACK_EFFORT,
+  values: [...CODEX_FALLBACK_EFFORT.values, { value: 'ultra' }],
+};
+
+// Mirrors what `codex` 0.154 lists on the ChatGPT subscription
+// (~/.codex/models_cache.json, `visibility: "list"`, 17.09.2026). GPT-5.5 is
+// the previous generation and the only one without `max`/`ultra` effort.
 export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
+      value: 'gpt-6-astra',
+      label: 'GPT-6 Astra',
+      description: 'Our most capable model for complex, demanding work.',
+      effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
+    },
+    {
+      value: 'gpt-5.6-sol',
+      label: 'GPT-5.6 Sol',
+      description: 'Reliable agentic workhorse for everyday tasks.',
+      effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
+    },
+    {
+      value: 'gpt-5.6-terra',
+      label: 'GPT-5.6 Terra',
+      description: 'Balanced agentic coding model for everyday work.',
+      effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
+    },
+    {
+      value: 'gpt-5.6-luna',
+      label: 'GPT-5.6 Luna',
+      description: 'Fast and affordable agentic coding model.',
+      effort: CODEX_FALLBACK_EFFORT,
+    },
+    {
       value: 'gpt-5.5',
-      label: 'gpt-5.5',
+      label: 'GPT-5.5',
+      description: 'Proven previous-generation model for coding and general work.',
       effort: {
-        default: 'medium',
-        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
-      },
-    },
-    {
-      value: 'gpt-5.4',
-      label: 'gpt-5.4',
-      effort: {
-        default: 'medium',
-        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
-      },
-    },
-    {
-      value: 'gpt-5.4-mini',
-      label: 'gpt-5.4-mini',
-      effort: {
-        default: 'medium',
-        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
+        ...CODEX_FALLBACK_EFFORT,
+        values: CODEX_FALLBACK_EFFORT.values.filter((level) => level.value !== 'max'),
       },
     },
   ],
-  DEFAULT: 'gpt-5.4',
+  DEFAULT: 'gpt-5.6-sol',
 };
 
 type CodexCachedModel = {
@@ -105,31 +133,41 @@ const mapCodexModel = (model: CodexCachedModel): ProviderModelOption => {
   };
 };
 
-const buildCodexModelsDefinition = (models: CodexCachedModel[]): ProviderModelsDefinition => {
+export const buildCodexModelsDefinition = (models: CodexCachedModel[]): ProviderModelsDefinition => {
   const sortedModels = [...models]
     .filter((model) => model.visibility === 'list' && model.supported_in_api !== false)
     .sort((left, right) => readCodexPriority(left.priority) - readCodexPriority(right.priority));
 
-  const options: ProviderModelOption[] = [];
-  const seenValues = new Set<string>();
+  const discoveredOptions = new Map<string, ProviderModelOption>();
 
   for (const model of sortedModels) {
     const mappedModel = mapCodexModel(model);
-    if (seenValues.has(mappedModel.value)) {
+    if (discoveredOptions.has(mappedModel.value)) {
       continue;
     }
 
-    seenValues.add(mappedModel.value);
-    options.push(mappedModel);
+    discoveredOptions.set(mappedModel.value, mappedModel);
   }
 
-  if (options.length === 0) {
-    return CODEX_FALLBACK_MODELS;
+  // The local Codex cache is refreshed independently from Neo3 and can be
+  // absent, stale, or only partially populated. Keep the five subscription
+  // Codex models visible in the shared picker in every case, while still
+  // appending any additional models the installed CLI explicitly exposes.
+  const options: ProviderModelOption[] = CODEX_FALLBACK_MODELS.OPTIONS.map((fallback) => {
+    const discovered = discoveredOptions.get(fallback.value);
+    discoveredOptions.delete(fallback.value);
+    return discovered
+      ? { ...fallback, ...discovered, label: fallback.label }
+      : fallback;
+  });
+
+  for (const discovered of discoveredOptions.values()) {
+    options.push(discovered);
   }
 
   return {
     OPTIONS: options,
-    DEFAULT: options[0]?.value ?? CODEX_FALLBACK_MODELS.DEFAULT,
+    DEFAULT: CODEX_FALLBACK_MODELS.DEFAULT,
   };
 };
 

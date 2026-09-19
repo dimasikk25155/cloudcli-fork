@@ -154,3 +154,6 @@ cloudcli-sidebar-app-source.tar.gz
 cloudcli-sidebar.html
 electron/*.tar.gz
 .neo3-deployed-server
+
+# Local environment backups may contain live credentials
+.env.bak*

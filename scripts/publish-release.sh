@@ -23,7 +23,7 @@
 #   --keep N        how many versioned archives to keep on the host (default 5)
 #
 # Environment:
-#   RELEASE_VPS         ssh target of the download host (default root@185.199.197.210)
+#   RELEASE_VPS         ssh target of the download host (default root@45.86.62.59)
 #   RELEASE_VPS_KEY     ssh key                          (default ~/.ssh/id_brand_vps)
 #   RELEASE_REMOTE_DIR  served directory                 (default /opt/cloudcli-dl/html)
 #   DL_USER / DL_PASS   Basic Auth credentials, only used to verify over HTTPS
@@ -31,7 +31,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RELEASE_VPS="${RELEASE_VPS:-root@185.199.197.210}"
+RELEASE_VPS="${RELEASE_VPS:-root@45.86.62.59}"
 RELEASE_VPS_KEY="${RELEASE_VPS_KEY:-$HOME/.ssh/id_brand_vps}"
 RELEASE_REMOTE_DIR="${RELEASE_REMOTE_DIR:-/opt/cloudcli-dl/html}"
 DL_BASE="${DL_BASE:-https://dl.neo3.ru}"

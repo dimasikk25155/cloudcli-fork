@@ -64,7 +64,14 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
   if (!renderedActivity) return null;
 
   const actionWords = ACTION_KEYS.map((key, i) => t(key, { defaultValue: DEFAULT_ACTION_WORDS[i] }));
-  const label = (renderedActivity.statusText || actionWords[Math.floor(elapsedSeconds / 4) % actionWords.length])
+  const phaseLabel = renderedActivity.activityKind === 'tools'
+    ? (renderedActivity.toolName
+      ? t('claudeStatus.usingTools', { name: renderedActivity.toolName, defaultValue: 'Tools: {{name}}' })
+      : t('toolGroup.mixedLabel', { defaultValue: 'Tools' }))
+    : renderedActivity.activityKind === 'thinking'
+      ? t('claudeStatus.actions.thinking', { defaultValue: 'Thinking' })
+      : null;
+  const label = (phaseLabel || renderedActivity.statusText || actionWords[Math.floor(elapsedSeconds / 4) % actionWords.length])
     .replace(/\.+$/, '');
 
   const minutes = Math.floor(elapsedSeconds / 60);

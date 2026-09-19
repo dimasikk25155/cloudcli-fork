@@ -5,7 +5,14 @@ import path from 'node:path';
 import readline from 'node:readline';
 
 import { sessionsDb } from '../modules/database/index.js';
+import { moscowDay } from './moscow-day.js';
 
+import {
+  grokSessionsRoot,
+  listGrokSessionDirs,
+  readGrokContextBudgetFromDir,
+  scanGrokTurnUsage,
+} from './grok-usage.js';
 import {
   estimateCostUsd,
   getContextWindow,
@@ -94,14 +101,9 @@ function claudeProjectsDir(): string {
   return path.join(os.homedir(), '.claude', 'projects');
 }
 
-/** YYYY-MM-DD in Moscow wall-clock for an ISO timestamp. */
-function moscowDay(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
-  } catch {
-    return 'unknown';
-  }
-}
+// `moscowDay` now lives in server/shared/moscow-day.ts so the audit feed and the
+// usage history bucket days identically — two definitions would disagree for
+// three hours every night.
 
 /** Per-model slice — one session can mix models (sub-agents often run cheaper). */
 type ModelSlice = {
@@ -352,9 +354,8 @@ export async function getSessionUsageHistory(): Promise<UsageHistoryDay[]> {
   try {
     projectDirs = await fsp.readdir(dir);
   } catch {
-    // No transcripts on this host yet — an empty history is a valid answer.
-    cached = { at: Date.now(), days: [] };
-    return [];
+    // No Claude transcripts — still scan Grok sessions below.
+    projectDirs = [];
   }
 
   // Keyed by `${sessionId}::${day}` so a session's own transcript and every
@@ -457,6 +458,93 @@ export async function getSessionUsageHistory(): Promise<UsageHistoryDay[]> {
     }
   }
 
+  for (const grokSession of await listGrokSessionDirs()) {
+    if (grokSession.mtimeMs < cutoff) {
+      continue;
+    }
+    const updatesPath = path.join(grokSession.dir, 'updates.jsonl');
+    if (!fs.existsSync(updatesPath)) {
+      continue;
+    }
+
+    let turns;
+    try {
+      turns = await scanGrokTurnUsage(updatesPath);
+    } catch {
+      continue;
+    }
+    if (turns.length === 0) {
+      continue;
+    }
+
+    const projectPath = grokSession.projectPath;
+    const project = projectPath ? path.basename(projectPath) : 'grok';
+    const fallbackIso = new Date(grokSession.mtimeMs).toISOString();
+
+    for (const turn of turns) {
+      const row = turn.breakdown;
+      const input = row.freshInput + row.cacheRead + row.cacheWrite5m + row.cacheWrite1h;
+      const tokens = input + row.output;
+      if (tokens <= 0) {
+        continue;
+      }
+
+      const iso = turn.iso || fallbackIso;
+      const day = moscowDay(iso);
+      const bucket: DayBucket = emptyBucket(iso);
+      bucket.tokens = tokens;
+      bucket.output = row.output;
+      bucket.lastActivity = iso;
+      const rowModel = turn.model || UNKNOWN_MODEL;
+      const slice = sliceFor(bucket, rowModel);
+      slice.tokens = tokens;
+      slice.breakdown.inputTokens = row.freshInput;
+      slice.breakdown.outputTokens = row.output;
+      slice.breakdown.cacheReadTokens = row.cacheRead;
+      slice.breakdown.cacheWrite5mTokens = row.cacheWrite5m;
+      slice.breakdown.cacheWrite1hTokens = row.cacheWrite1h;
+
+      const costUsd = bucketCostUsd(bucket);
+      const key = `${grokSession.sessionId}::${day}`;
+      const existing = rows.get(key);
+
+      let modelTally = rowModelTokens.get(key);
+      if (!modelTally) {
+        modelTally = new Map();
+        rowModelTokens.set(key, modelTally);
+      }
+      if (rowModel !== UNKNOWN_MODEL) {
+        modelTally.set(rowModel, (modelTally.get(rowModel) ?? 0) + tokens);
+      }
+
+      if (!existing) {
+        rows.set(key, {
+          day,
+          project,
+          projectPath,
+          sessionId: grokSession.sessionId,
+          title: resolveSessionTitle(grokSession.sessionId),
+          tokens,
+          output: row.output,
+          model: turn.model,
+          lastActivity: iso,
+          costUsd,
+        });
+        continue;
+      }
+
+      existing.tokens += tokens;
+      existing.output += row.output;
+      if (existing.costUsd !== null || costUsd !== null) {
+        existing.costUsd = (existing.costUsd ?? 0) + (costUsd ?? 0);
+      }
+      if (iso > existing.lastActivity) {
+        existing.lastActivity = iso;
+      }
+      existing.projectPath = existing.projectPath ?? projectPath;
+    }
+  }
+
   // Display the model that carried the most tokens once parent and sub-agent
   // files have been merged, rather than whichever file happened to land last.
   for (const [key, row] of rows) {
@@ -508,6 +596,7 @@ export async function getSessionUsageHistory(): Promise<UsageHistoryDay[]> {
  * covers the engines whose transcripts live on this host:
  *   - claude engine (also Kimi models spawned through it) → ~/.claude/projects/<enc>/<sid>.jsonl
  *   - kimi CLI                                          → ~/.kimi-code/sessions/<wd>/session_<sid>/agents/main/wire.jsonl
+ *   - grok CLI                                          → ~/.grok/sessions/<enc cwd>/<sid>/updates.jsonl
  */
 export type SessionCostSnapshot = {
   /** Raw model id from the transcript (`claude-opus-4-8`, `k3`, `kimi-for-coding`). */
@@ -550,7 +639,7 @@ async function findSessionTranscript(
       candidates.add(row.provider_session_id);
     }
     if (row?.jsonl_path && fs.existsSync(row.jsonl_path)) {
-      return row.jsonl_path;
+      return preferGrokUpdates(row.jsonl_path);
     }
     if (row?.project_path && !projectPath) {
       projectPath = row.project_path;
@@ -598,6 +687,29 @@ async function findSessionTranscript(
     // No kimi transcripts on this host.
   }
 
+  // Grok CLI: ~/.grok/sessions/<urlencoded cwd>/<uuid>/updates.jsonl
+  const grokRoot = grokSessionsRoot();
+  if (projectPath) {
+    for (const id of candidates) {
+      const candidate = path.join(grokRoot, encodeURIComponent(projectPath), id, 'updates.jsonl');
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  try {
+    for (const cwdSlug of await fsp.readdir(grokRoot)) {
+      for (const id of candidates) {
+        const candidate = path.join(grokRoot, cwdSlug, id, 'updates.jsonl');
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+  } catch {
+    // No grok transcripts on this host.
+  }
+
   return null;
 }
 
@@ -605,6 +717,15 @@ const readUsageNumber = (value: unknown): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 };
+
+/** Grok's chat_history.jsonl has no usage. Spend lives in sibling updates.jsonl. */
+function preferGrokUpdates(transcriptPath: string): string {
+  if (path.basename(transcriptPath) !== 'chat_history.jsonl') {
+    return transcriptPath;
+  }
+  const updates = path.join(path.dirname(transcriptPath), 'updates.jsonl');
+  return fs.existsSync(updates) ? updates : transcriptPath;
+}
 
 /**
  * Streams one transcript and folds every usage row into full-session burn
@@ -631,11 +752,69 @@ type SnapshotAccumulator = {
  * a sub-agent runs its own context window, so letting it set `contextTokens`
  * would make the composer badge report someone else's fill level.
  */
+async function foldGrokUpdates(
+  filePath: string,
+  acc: SnapshotAccumulator,
+  isSubAgent: boolean,
+): Promise<void> {
+  const turns = await scanGrokTurnUsage(filePath);
+  for (const turn of turns) {
+    const row = turn.breakdown;
+    const input = row.freshInput + row.cacheRead + row.cacheWrite5m + row.cacheWrite1h;
+    acc.inputTokens += input;
+    acc.outputTokens += row.output;
+    acc.cacheReadTokens += row.cacheRead;
+    acc.cacheCreationTokens += row.cacheWrite5m + row.cacheWrite1h;
+
+    const rowModel = turn.model || acc.model || UNKNOWN_MODEL;
+    if (turn.model) {
+      acc.model = turn.model;
+    }
+
+    let slice = acc.byModel.get(rowModel);
+    if (!slice) {
+      slice = {
+        tokens: 0,
+        breakdown: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWrite5mTokens: 0,
+          cacheWrite1hTokens: 0,
+        },
+        speed: null,
+      };
+      acc.byModel.set(rowModel, slice);
+    }
+    slice.tokens += input + row.output;
+    slice.breakdown.inputTokens += row.freshInput;
+    slice.breakdown.outputTokens += row.output;
+    slice.breakdown.cacheReadTokens += row.cacheRead;
+    slice.breakdown.cacheWrite5mTokens += row.cacheWrite5m;
+    slice.breakdown.cacheWrite1hTokens += row.cacheWrite1h;
+  }
+
+  if (!isSubAgent) {
+    const ctx = readGrokContextBudgetFromDir(path.dirname(filePath), acc.model);
+    if (ctx) {
+      acc.contextTokens = ctx.used;
+      if (ctx.model) {
+        acc.model = ctx.model;
+      }
+    }
+  }
+}
+
 async function foldTranscript(
   filePath: string,
   acc: SnapshotAccumulator,
   isSubAgent: boolean,
 ): Promise<void> {
+  if (path.basename(filePath) === 'updates.jsonl') {
+    await foldGrokUpdates(filePath, acc, isSubAgent);
+    return;
+  }
+
   const seenMessageIds = new Set<string>();
   const rl = readline.createInterface({
     input: fs.createReadStream(filePath),
@@ -799,5 +978,27 @@ export async function getSessionCostSnapshot(
     contextWindow: getContextWindow(acc.model),
     costUsd,
     transcriptPath,
+  };
+}
+
+/**
+ * Shape the composer chip expects. `used`/`total` are the context-window
+ * fill; `inputTokens`/`outputTokens` are the full-session burn (what the
+ * mini chip shows as "сколько потрачено").
+ */
+export function snapshotToComposerBudget(snapshot: SessionCostSnapshot): Record<string, unknown> {
+  return {
+    used: snapshot.contextTokens ?? 0,
+    total: snapshot.contextWindow,
+    model: snapshot.model,
+    inputTokens: snapshot.inputTokens,
+    outputTokens: snapshot.outputTokens,
+    cacheReadTokens: snapshot.cacheReadTokens,
+    cacheCreationTokens: snapshot.cacheCreationTokens,
+    cacheTokens: snapshot.cacheReadTokens + snapshot.cacheCreationTokens,
+    breakdown: {
+      input: snapshot.inputTokens,
+      output: snapshot.outputTokens,
+    },
   };
 }

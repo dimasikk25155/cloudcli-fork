@@ -4,4 +4,5 @@ export {
   notifyUserIfEnabled,
   notifyRunStopped,
   notifyRunFailed,
+  sendWebPushPayload,
 } from '../modules/notifications/services/notification-orchestrator.service.js';

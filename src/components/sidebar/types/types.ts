@@ -59,6 +59,7 @@ export type SidebarProps = {
   settingsInitialTab: string;
   onCloseSettings: () => void;
   isMobile: boolean;
+  onGoHome?: () => void;
 };
 
 export type SessionViewModel = {

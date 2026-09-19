@@ -403,6 +403,49 @@ type ClaudeContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
 
+export type GrokContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; mimeType: string; data: string };
+
+/**
+ * Reads one attachment from disk if it lives under an allowed root and is a
+ * media type the vision runtimes accept. Shared by Claude (base64 source
+ * blocks) and Grok (`--prompt-json` ACP image blocks) so the trust boundary
+ * is not copy-pasted.
+ */
+export async function readAllowedImageBase64(
+  descriptor: ImageAttachmentDescriptor,
+  cwd?: string,
+  acceptedMediaTypes: Set<string> = CLAUDE_IMAGE_MEDIA_TYPES,
+): Promise<{ mediaType: string; data: string } | null> {
+  const mediaType = resolveImageMediaType(descriptor);
+  if (!mediaType || !acceptedMediaTypes.has(mediaType)) {
+    console.warn(`[Images] Skipping unsupported image type for ${descriptor.path}`);
+    return null;
+  }
+
+  const resolvedPath = resolveImageAbsolutePath(cwd, descriptor.path);
+  if (!isAllowedImageSourcePath(resolvedPath, cwd)) {
+    console.warn(`[Images] Refusing to read image outside allowed roots: ${descriptor.path}`);
+    return null;
+  }
+
+  try {
+    const canonicalPath = await fs.realpath(resolvedPath);
+    if (!isAllowedImageSourcePath(canonicalPath, cwd)) {
+      console.warn(`[Images] Refusing to read symlinked image outside allowed roots: ${descriptor.path}`);
+      return null;
+    }
+
+    const bytes = await fs.readFile(canonicalPath);
+    return { mediaType, data: bytes.toString('base64') };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[Images] Failed to read image ${descriptor.path}: ${message}`);
+    return null;
+  }
+}
+
 /**
  * Builds the Claude user-message content list: the prompt text followed by one
  * base64 `image` block per attachment. Images the Claude API cannot accept
@@ -417,38 +460,46 @@ export async function buildClaudeUserContent(
   const blocks: ClaudeContentBlock[] = [{ type: 'text', text: prompt }];
 
   for (const descriptor of normalizeImageDescriptors(images)) {
-    const mediaType = resolveImageMediaType(descriptor);
-    if (!mediaType || !CLAUDE_IMAGE_MEDIA_TYPES.has(mediaType)) {
-      console.warn(`[Images] Skipping unsupported Claude image type for ${descriptor.path}`);
+    const read = await readAllowedImageBase64(descriptor, cwd);
+    if (!read) {
       continue;
     }
+    blocks.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: read.mediaType,
+        data: read.data,
+      },
+    });
+  }
 
-    const resolvedPath = resolveImageAbsolutePath(cwd, descriptor.path);
-    if (!isAllowedImageSourcePath(resolvedPath, cwd)) {
-      console.warn(`[Images] Refusing to read image outside allowed roots: ${descriptor.path}`);
+  return blocks;
+}
+
+/**
+ * Grok Build `--prompt-json` takes ACP content blocks, not Claude's
+ * `{source:{type:base64}}` shape (live argv 24.08.2026: Claude-shaped image
+ * dies with "missing field `data`"; `{type, mimeType, data}` is accepted).
+ * `-p` and `--prompt-json` cannot be combined.
+ */
+export async function buildGrokUserContent(
+  prompt: string,
+  images: unknown,
+  cwd?: string,
+): Promise<GrokContentBlock[]> {
+  const blocks: GrokContentBlock[] = [{ type: 'text', text: prompt }];
+
+  for (const descriptor of normalizeImageDescriptors(images)) {
+    const read = await readAllowedImageBase64(descriptor, cwd);
+    if (!read) {
       continue;
     }
-
-    try {
-      const canonicalPath = await fs.realpath(resolvedPath);
-      if (!isAllowedImageSourcePath(canonicalPath, cwd)) {
-        console.warn(`[Images] Refusing to read symlinked image outside allowed roots: ${descriptor.path}`);
-        continue;
-      }
-
-      const bytes = await fs.readFile(canonicalPath);
-      blocks.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: mediaType,
-          data: bytes.toString('base64'),
-        },
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[Images] Failed to read image ${descriptor.path}: ${message}`);
-    }
+    blocks.push({
+      type: 'image',
+      mimeType: read.mediaType,
+      data: read.data,
+    });
   }
 
   return blocks;

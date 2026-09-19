@@ -11,6 +11,12 @@ export type ProviderModelOption = {
    * daily use (21.08.2026: the local RTX ones and the BYO gateways).
    */
   hidden?: boolean;
+  /**
+   * Section header the composer's shared model list files this entry under
+   * (vendor name: Anthropic / OpenAI / xAI). Set client-side when the lists of
+   * several engines are merged into one menu; the server never sends it.
+   */
+  group?: string;
   effort?: {
     default?: string;
     values: {

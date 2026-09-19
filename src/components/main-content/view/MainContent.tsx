@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
+import { Folder, GitBranch, BarChart3 } from 'lucide-react';
+import { useTheme } from '../../../contexts/ThemeContext';
 import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
 import StandaloneShell from '../../standalone-shell/view/StandaloneShell';
@@ -27,6 +29,8 @@ import ErrorBoundary from './ErrorBoundary';
 function MainContent({
   selectedProject,
   selectedSession,
+  projects = [],
+  onProjectSelect,
   activeTab,
   setActiveTab,
   ws,
@@ -41,12 +45,15 @@ function MainContent({
   onNavigateToSession,
   onSessionEstablished,
   onShowSettings,
+  onGoHome,
+  onToggleStarProject,
   externalMessageUpdate,
   newSessionTrigger,
   onStartNewChat,
 }: MainContentProps) {
+  const { theme } = useTheme();
   const { preferences } = useUiPreferences();
-  const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
+  const { showRawParameters, showThinking, sendByCtrlEnter, sendByDoubleEnter } = preferences;
 
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
   // Terminal tab: agent CLI session (default) vs a real interactive shell.
@@ -172,7 +179,17 @@ function MainContent({
   }
 
   if (!selectedProject) {
-    return <MainContentStateView mode="empty" isMobile={isMobile} onMenuClick={onMenuClick} />;
+    return (
+      <MainContentStateView
+        mode="empty"
+        isMobile={isMobile}
+        onMenuClick={onMenuClick}
+        projects={projects}
+        onProjectSelect={onProjectSelect}
+        onShowSettings={onShowSettings}
+        onToggleStarProject={onToggleStarProject}
+      />
+    );
   }
 
   return (
@@ -186,6 +203,7 @@ function MainContent({
         shouldShowAutopilotTab={autopilot.available}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
+        onGoHome={onGoHome}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -208,6 +226,7 @@ function MainContent({
                 showRawParameters={showRawParameters}
                 showThinking={showThinking}
                 sendByCtrlEnter={sendByCtrlEnter}
+                sendByDoubleEnter={sendByDoubleEnter}
                 externalMessageUpdate={externalMessageUpdate}
                 newSessionTrigger={newSessionTrigger}
                 onStartNewChat={selectedProject ? () => onStartNewChat?.(selectedProject) : undefined}
@@ -272,6 +291,14 @@ function MainContent({
           )}
         </div>
 
+        {theme === 'codex' && activeTab === 'chat' && !editingFile && (
+          <aside className="codex-environment" aria-label="Среда проекта">
+            <p className="mb-2 text-xs text-muted-foreground">Среда</p>
+            <button onClick={() => setActiveTab('git')}><GitBranch size={15} />Изменения</button>
+            <button onClick={() => setActiveTab('files')} title={selectedProject.path}><Folder size={15} /><span className="truncate">{String(selectedProject.displayName || selectedProject.name || 'Проект')}</span></button>
+            <button onClick={() => setActiveTab('stats')}><BarChart3 size={15} />Статистика проекта</button>
+          </aside>
+        )}
         <EditorSidebar
           editingFile={editingFile}
           isMobile={isMobile}

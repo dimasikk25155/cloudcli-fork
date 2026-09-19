@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type {
   ChangeEvent,
@@ -305,7 +305,7 @@ export default function ChatComposer({
     () => [{ value: 'default' }, ...availableEffortOptions],
     [availableEffortOptions],
   );
-  // The trigger buttons show the CURRENT choice (claude.ai-style "Fable 5" /
+  // The trigger buttons show the CURRENT choice (claude.ai-style "Fable 5.1" /
   // "High"), falling back to the generic label only when nothing concrete is
   // selected.
   const selectedModelOption = useMemo(
@@ -313,15 +313,6 @@ export default function ChatComposer({
     [availableModelOptions, model],
   );
   const selectedModelLabel = selectedModelOption?.label ?? (model || null);
-  // The catalog has always carried a `description` per model; it used to be
-  // dropped on the floor. It matters now that Grok's entries are modes
-  // (Быстрый / Эксперт / Тяжёлый) whose name alone says nothing about which
-  // model or thinking level is behind them. A wider menu only when there is
-  // something to put in it, so providers without descriptions look unchanged.
-  const hasModelDescriptions = useMemo(
-    () => availableModelOptions.some((candidate) => Boolean(candidate.description)),
-    [availableModelOptions],
-  );
   // "default" is not a level a human recognises — show the level the model
   // actually runs at, which is the catalog's declared default for it.
   const selectedEffortLabel = effort && effort !== 'default'
@@ -756,6 +747,7 @@ export default function ChatComposer({
                         type="button"
                         role="menuitemradio"
                         aria-checked={isSelected}
+                        title={t(`codex.descriptions.${mode}`, { defaultValue: '' })}
                         {...tapSelect(() => {
                           onSelectPermissionMode(mode);
                           setIsModeDropdownOpen(false);
@@ -875,9 +867,7 @@ export default function ChatComposer({
                 {isModelDropdownOpen && modelDropdownPosition && createPortal(
                   <div
                     ref={modelDropdownMenuRef}
-                    className={`fixed z-[100] overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg ${
-                      hasModelDescriptions ? 'w-64' : 'min-w-44'
-                    }`}
+                    className="fixed z-[100] min-w-52 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
                     style={{
                       left: modelDropdownPosition.left,
                       top: modelDropdownPosition.top,
@@ -886,11 +876,24 @@ export default function ChatComposer({
                     }}
                     role="menu"
                   >
-                    {availableModelOptions.map((option) => {
+                    {availableModelOptions.map((option, index) => {
                       const isSelected = option.value === model;
+                      // Vendor header once per run of models from one engine
+                      // (Anthropic / OpenAI / xAI) — the merged list is long
+                      // enough that a flat run of names stops being scannable.
+                      const previousGroup = index > 0 ? availableModelOptions[index - 1]?.group : undefined;
+                      const showGroupHeader = Boolean(option.group) && option.group !== previousGroup;
                       return (
+                        <Fragment key={option.value}>
+                        {showGroupHeader && (
+                          <div
+                            role="presentation"
+                            className={`px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 ${index > 0 ? 'mt-1 border-t border-border/60 pt-1.5' : 'pt-1'}`}
+                          >
+                            {option.group}
+                          </div>
+                        )}
                         <button
-                          key={option.value}
                           type="button"
                           role="menuitemradio"
                           aria-checked={isSelected}
@@ -898,24 +901,20 @@ export default function ChatComposer({
                             onSelectModel(option.value);
                             setIsModelDropdownOpen(false);
                           })}
-                          className={`flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
+                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
                             isSelected
                               ? 'bg-accent text-foreground'
                               : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
                           }`}
                         >
-                          <span className="mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center">
+                          <span className="flex h-3 w-3 shrink-0 items-center justify-center">
                             {isSelected && <Check className="h-3 w-3 text-primary" />}
                           </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block font-medium">{option.label ?? option.value}</span>
-                            {option.description && (
-                              <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-                                {option.description}
-                              </span>
-                            )}
+                          <span className="min-w-0 flex-1 font-medium">
+                            {option.label ?? option.value}
                           </span>
                         </button>
+                        </Fragment>
                       );
                     })}
                   </div>,

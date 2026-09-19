@@ -14,6 +14,7 @@
  */
 
 import { Codex } from '@openai/codex-sdk';
+import { codexRunPolicy, mapPermissionModeToCodexOptions } from './shared/codex-work-mode.js';
 
 import { buildCodexInputItems, normalizeImageDescriptors } from './shared/image-attachments.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
@@ -191,32 +192,6 @@ function transformCodexEvent(event) {
 }
 
 /**
- * Map permission mode to Codex SDK options
- * @param {string} permissionMode - 'default', 'acceptEdits', or 'bypassPermissions'
- * @returns {object} - { sandboxMode, approvalPolicy }
- */
-function mapPermissionModeToCodexOptions(permissionMode) {
-  switch (permissionMode) {
-    case 'acceptEdits':
-      return {
-        sandboxMode: 'workspace-write',
-        approvalPolicy: 'never'
-      };
-    case 'bypassPermissions':
-      return {
-        sandboxMode: 'danger-full-access',
-        approvalPolicy: 'never'
-      };
-    case 'default':
-    default:
-      return {
-        sandboxMode: 'workspace-write',
-        approvalPolicy: 'untrusted'
-      };
-  }
-}
-
-/**
  * Execute a Codex query with streaming
  * @param {string} command - The prompt to send
  * @param {object} options - Options including cwd, sessionId, model, permissionMode
@@ -231,6 +206,7 @@ export async function queryCodex(command, options = {}, ws) {
     model,
     effort,
     images,
+    workMode,
     permissionMode = 'default'
   } = options;
 
@@ -246,7 +222,7 @@ export async function queryCodex(command, options = {}, ws) {
   );
 
   const workingDirectory = cwd || projectPath || process.cwd();
-  const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(permissionMode);
+  const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(workMode === 'interrogate' ? 'plan' : permissionMode);
   const catalog = (await providerModelsService.getProviderModels('codex')).models;
   const selectedModel = catalog.OPTIONS.find((option) => option.value === resolvedModel) || null;
   const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value) || [];
@@ -264,7 +240,8 @@ export async function queryCodex(command, options = {}, ws) {
   const abortController = new AbortController();
 
   try {
-    codex = new Codex();
+    const policy = codexRunPolicy(workMode, permissionMode);
+    codex = new Codex({ config: { developer_instructions: policy.instructions } });
 
     const threadOptions = {
       workingDirectory,

@@ -483,6 +483,7 @@ export async function runScheduleNow(scheduleId: number): Promise<ScheduleRunRes
       projectPath: access.projectPath,
       prompt: row.prompt,
       userId: row.user_id,
+      actor: 'schedule',
     });
     schedulesDb.markRun(row.id, 'ok');
     return { scheduleId: row.id, status: 'ok', text: result.text, sessionId: result.sessionId };

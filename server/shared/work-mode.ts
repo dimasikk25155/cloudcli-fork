@@ -18,7 +18,7 @@ export type WorkMode = (typeof WORK_MODES)[number];
 /** The mode a run uses when the client sends nothing (unchanged behaviour). */
 export const DEFAULT_WORK_MODE: WorkMode = 'autopilot';
 
-export const WORK_MODE_DIALECTS = ['claude', 'grok'] as const;
+export const WORK_MODE_DIALECTS = ['claude', 'grok', 'codex'] as const;
 
 export type WorkModeDialect = (typeof WORK_MODE_DIALECTS)[number];
 
@@ -30,20 +30,15 @@ export const DEFAULT_WORK_MODE_DIALECT: WorkModeDialect = 'claude';
  * and how it reaches the autopilot skill.
  *
  * Naming a tool the engine does not have is not a harmless mismatch — it is an
- * instruction to walk through a door that isn't there. Measured on Grok Build
- * 1.0.5 (`~/.grok/README.md`, "Built-in Tools"): its 16 built-in tools are
- * read_file, search_replace, grep_search, list_dir, bash, web_search,
- * web_fetch, todo_write, task, kill_task, get_task_output, memory_search,
- * memory_get, search_tool, use_tool, lsp. There is **no AskUserQuestion and no
- * Skill tool** — Grok picks skills up from their description or a `/name`
- * mention, and it has no way to render option buttons at all.
- *
- * So on Grok a question is "end the turn with the question written out", which
- * is exactly what a headless single-turn run does anyway: the user answers in
- * the next turn via --resume.
+ * instruction to walk through a door that isn't there. Grok Build 1.0.5 has
+ * no Skill tool (skills are picked up by description or `/name`). It DOES have
+ * `ask_user_question` (live toolset, not the README's 16-tool table). Headless
+ * `-p` auto-answers that tool with "no user available"; Neo3 intercepts the
+ * call, draws Claude's button panel, and resumes with the click. So Grok is
+ * told to call `ask_user_question`, never the Claude name `AskUserQuestion`.
  */
 const DIALECTS: Record<WorkModeDialect, {
-  askBetweenStages: string;
+  askAtFork: string;
   askBeforeStep: string;
   invokeAutopilot: string;
   /**
@@ -57,8 +52,9 @@ const DIALECTS: Record<WorkModeDialect, {
   interrogateHardStop: string;
 }> = {
   claude: {
-    askBetweenStages:
-      'ask with AskUserQuestion (options along the lines of "continue" / "adjust the plan").',
+    askAtFork:
+      'ask with AskUserQuestion, and make the options the actual variants at stake'
+      + ' (approaches, trade-offs, business choices) — never a bare "continue" / "adjust the plan".',
     askBeforeStep:
       'ask the user clarifying questions with AskUserQuestion, offering concrete options rather than open prose.',
     invokeAutopilot:
@@ -66,28 +62,33 @@ const DIALECTS: Record<WorkModeDialect, {
     checkpointsHardStop: '',
     interrogateHardStop: '',
   },
+  codex: {
+    askAtFork: 'ask the user in visible chat text with concrete options and wait for the answer.',
+    askBeforeStep: 'ask the user clarifying questions in visible chat text, offering concrete options rather than assuming answers.',
+    invokeAutopilot: 'Read the installed autopilot SKILL.md and follow it, using the user message as the brief. If unavailable, keep a requirements checklist, plan, implement, and verify against every requirement.',
+    checkpointsHardStop: 'Post the stage plan before making changes. Continue after each brief unless an actual user decision is missing.',
+    interrogateHardStop: 'STOP after asking. Do not write files or run mutating commands until the user answers. Do not call unavailable question tools in headless execution.',
+  },
   grok: {
-    askBetweenStages:
-      'write the question out as plain text with numbered options ("1 — continue" / "2 — adjust the plan")'
-      + ' and end your turn on it. You have no tool for asking, so ending the turn IS the question;'
-      + ' a question you keep working past is not a question.',
+    askAtFork:
+      'call ask_user_question, and make the options the actual variants at stake'
+      + ' (approaches, trade-offs, business choices) — never a bare "continue" / "adjust the plan".'
+      + ' Do not write the options as numbered chat text.',
     askBeforeStep:
-      'ask the user clarifying questions as plain text with numbered options rather than open prose,'
-      + ' and end your turn on the question. You have no tool for asking, so a question you do not stop after is not a question.',
+      'ask the user clarifying questions with ask_user_question, offering concrete options rather than open prose.'
+      + ' Do not write the options as numbered chat text.',
     invokeAutopilot:
       'Run the `autopilot` skill and hand it that message verbatim as the brief — your harness discovers it as `autopilot`.'
       + ' If you cannot invoke a skill as a tool, read ~/.claude/skills/autopilot/SKILL.md with read_file and follow it to the letter,'
       + ' including every phase file it tells you to open next.',
     checkpointsHardStop:
       'HARD RULE, no exceptions: on a new task your VERY FIRST output is the numbered stage plan as visible'
-      + ' plain text — zero tool calls before it. Then execute ONLY the first stage, post its brief, ask the'
-      + ' numbered question and END YOUR TURN. Completing the whole task in one turn in this mode is a failure'
-      + ' even if the result would be correct.',
+      + ' plain text — zero tool calls before it. Briefs between stages are narration, not questions:'
+      + ' keep working through the stages in the same turn and never end a turn just to ask whether to continue.',
     interrogateHardStop:
-      'HARD RULE, no exceptions: on a new task your VERY FIRST output is your clarifying questions as visible'
-      + ' plain text with numbered options, and you END YOUR TURN on them — zero tool calls that create or'
-      + ' change anything before the user answers. Doing the work first and reporting afterwards is a failure'
-      + ' in this mode even if the result would be correct.',
+      'HARD RULE, no exceptions: on a new task your VERY FIRST action is ask_user_question with concrete options,'
+      + ' and you STOP after calling it — zero file writes or shell commands that change anything before the user answers.'
+      + ' Doing the work first and reporting afterwards is a failure in this mode even if the result would be correct.',
   },
 };
 
@@ -99,26 +100,36 @@ function workModeInstructions(dialect: WorkModeDialect): Record<WorkMode, string
     // extra tokens, no nudge that could fight the base system prompt.
     autopilot: '',
 
+    // «Брифы» = видимый ход работы, а не забор из разрешений. Первая версия
+    // после каждой стадии спрашивала «продолжать?» — Дима прокликал пять
+    // одинаковых кнопок подряд и справедливо взбесился (23.08). Теперь бриф —
+    // это нарратив, агент едет дальше сам, а вопрос задаёт только там, где
+    // выбор реально за пользователем.
     checkpoints: [
       'WORK MODE: STAGED BRIEFINGS.',
       'Split the task into named stages before touching anything, and post that numbered plan first.',
-      'Work through one stage at a time. At the end of every stage, stop and post a short brief:',
+      'Work through the stages in order. At the end of every stage post a short brief:',
       'what you did, what you found, what is next. Keep it to a few lines — no wall of text, no code dumps.',
-      `Then wait for the user before starting the next stage: ${phrases.askBetweenStages}`,
-      'Do not chain stages together silently.',
-      'If a stage turns out bigger than planned, say so in the brief instead of quietly absorbing it.',
+      'Then continue into the next stage YOURSELF, immediately. Never ask permission to continue',
+      'and never pose a question whose options amount to "continue" / "adjust the plan" —',
+      'making the user click through approvals is this mode\'s one failure pattern.',
+      'Stop and ask ONLY at a genuine fork: a business decision, an irreversible or risky step,',
+      `or several defensible options where the choice belongs to the user. There, ${phrases.askAtFork}`,
+      'If a stage turns out bigger than planned, say so in its brief instead of quietly absorbing it.',
+      'Close the task with a compact summary across all stages.',
       ...(phrases.checkpointsHardStop ? [phrases.checkpointsHardStop] : []),
     ].join(' '),
 
     interrogate: [
-      'WORK MODE: CONFIRM EVERYTHING.',
-      'Assume nothing. Before you start any piece of work — and before each significant step inside it —',
+      'WORK MODE: CLARIFY BEFORE WORK.',
+      'Before a new task or a significant unresolved decision —',
       phrases.askBeforeStep,
       'State the assumption you would otherwise have made and let the user correct it.',
       'Where several reasonable readings of the request exist, list them and ask which one is meant;',
-      'never pick one yourself to keep moving. Get an explicit go-ahead before writing files,',
-      'running commands that change state, or moving on to the next step.',
+      'Do not invent missing requirements. Wait for the answers before writing files,',
+      'or running commands that change state.',
       'Reporting back after the fact does not replace asking first.',
+      'Ask 2-4 important clarifying questions per new task or unresolved decision, in one batch. Use facts already in the brief and previous answers; do not repeat answered questions. After the answers, carry out the agreed scope without another approval loop.',
       ...(phrases.interrogateHardStop ? [phrases.interrogateHardStop] : []),
     ].join(' '),
 

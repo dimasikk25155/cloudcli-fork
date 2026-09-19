@@ -12,6 +12,8 @@ import type { SettingsMainTab } from '../../settings/types/types';
 export type MainContentProps = {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
+  projects?: Project[];
+  onProjectSelect?: (project: Project) => void;
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   ws: WebSocket | null;
@@ -26,6 +28,8 @@ export type MainContentProps = {
   onNavigateToSession: (targetSessionId: string, options?: SessionNavigationOptions) => void;
   onSessionEstablished: (sessionId: string, context: SessionEstablishedContext) => void;
   onShowSettings: (tab?: SettingsMainTab) => void;
+  onGoHome?: () => void;
+  onToggleStarProject?: (projectId: string) => void;
   externalMessageUpdate: number;
   newSessionTrigger: number;
   /** Starts a brand-new chat in the current project (same path as the sidebar button). */
@@ -41,12 +45,17 @@ export type MainContentHeaderProps = {
   shouldShowAutopilotTab: boolean;
   isMobile: boolean;
   onMenuClick: () => void;
+  onGoHome?: () => void;
 };
 
 export type MainContentStateViewProps = {
   mode: 'loading' | 'empty';
   isMobile: boolean;
   onMenuClick: () => void;
+  projects?: Project[];
+  onProjectSelect?: (project: Project) => void;
+  onShowSettings?: (tab?: SettingsMainTab) => void;
+  onToggleStarProject?: (projectId: string) => void;
 };
 
 export type MobileMenuButtonProps = {

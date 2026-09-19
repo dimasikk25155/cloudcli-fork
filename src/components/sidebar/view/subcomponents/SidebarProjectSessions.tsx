@@ -106,7 +106,7 @@ export default function SidebarProjectSessions({
       <>
         <div className="px-3 pb-1 pt-1 md:hidden">
           <button
-            className="new-session-btn flex h-8 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-medium text-primary-foreground transition-all duration-150 hover:bg-primary/90 active:scale-[0.98]"
+            className="new-session-btn flex h-8 w-full items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-transparent text-xs font-medium text-muted-foreground transition-all duration-150 hover:bg-accent/60 hover:text-foreground active:scale-[0.98]"
             onClick={() => {
               onProjectSelect(project);
               onNewSession(project);
@@ -118,9 +118,9 @@ export default function SidebarProjectSessions({
         </div>
 
         <Button
-          variant="default"
+          variant="ghost"
           size="sm"
-          className="new-session-btn hidden h-8 w-full justify-start gap-2 bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 md:flex"
+          className="new-session-btn hidden h-8 w-full justify-start gap-2 border border-dashed border-border/70 bg-transparent text-xs font-medium text-muted-foreground hover:bg-accent/60 hover:text-foreground md:flex"
           onClick={() => onNewSession(project)}
         >
           <Plus className="h-3 w-3" />

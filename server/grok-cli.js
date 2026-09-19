@@ -8,11 +8,33 @@ import crossSpawn from 'cross-spawn';
 
 import { GROK_FALLBACK_MODELS, resolveGrokModePreset } from './modules/providers/list/grok/grok-models.provider.js';
 import { workModeInstruction } from './shared/work-mode.js';
+import {
+  appendImagesInputTag,
+  appendVisibleImagePathsTag,
+  buildGrokUserContent,
+  normalizeImageDescriptors,
+  parseImagesInputTag,
+} from './shared/image-attachments.js';
+import {
+  fromGrokAskUserQuestionTool,
+  isGrokAskUserQuestionTool,
+  parseGrokNumberedQuestion,
+  registerGrokPlanExit,
+  registerGrokQuestion,
+  takeGrokQuestionsForAppSession,
+  toAskUserQuestionInput,
+} from './shared/grok-question.js';
+import { sessionsDb } from './modules/database/index.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
+import {
+  composeGrokSessionTitle,
+  isPlaceholderGrokSessionTitle,
+} from './modules/providers/list/grok/grok-session-title.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { recordRunOutcome, isTransientRunFailure } from './shared/run-outcomes.js';
+import { readGrokContextBudget } from './shared/grok-usage.js';
 import {
   createCompleteMessage,
   createNormalizedMessage,
@@ -29,10 +51,224 @@ const activeGrokProcesses = new Map();
 
 const GROK_INSTALL_HINT = 'Grok Build CLI is not installed. Install it: curl -fsSL https://x.ai/cli/install.sh | bash';
 
+/**
+ * Writes a short Russian title on a brand-new Grok chat. Must never throw:
+ * a missed name is better than blocking the run.
+ */
+function maybeApplyGrokSessionTitle(appSessionId, prompt) {
+  if (!appSessionId) {
+    return;
+  }
+  try {
+    const row = sessionsDb.getSessionById(String(appSessionId));
+    if (!row || !isPlaceholderGrokSessionTitle(row.custom_name)) {
+      return;
+    }
+    const title = composeGrokSessionTitle(typeof prompt === 'string' ? prompt : '');
+    if (!title || isPlaceholderGrokSessionTitle(title)) {
+      return;
+    }
+    sessionsDb.updateSessionCustomName(row.session_id, title);
+  } catch {
+    /* titling is best-effort */
+  }
+}
+
 // xAI wobbles too (5xx, dropped connections). Same self-resend the Claude
 // runtime does (TRANSIENT_RETRY_DELAYS_MS in claude-sdk.js), one step shorter:
 // the CLI exits on such failures instead of hanging, so waves are cheap to ride.
 const GROK_TRANSIENT_RETRY_DELAYS_MS = [5_000, 20_000, 60_000];
+
+/** Cap one NDJSON stdout line. A Suno/file-read tool_result without a newline
+ * used to grow until the process died and the chat looked aborted. */
+const MAX_GROK_STDOUT_LINE_CHARS = 2 * 1024 * 1024;
+
+// Live hangs (2026-09-06, 2026-09-11): Grok CLI can sit in session_create /
+// futex with 0% CPU, no children, no stdout. Keepalive ticks still move the
+// UI clock, so the pill says «Рассуждает» for 40+ min. The CLI's own idle
+// timeout is an hour. We cut that off here.
+export const GROK_FIRST_BYTE_MS = 90_000;
+export const GROK_IDLE_SILENCE_MS = 8 * 60_000;
+const GROK_ABORT_TERM_MS = 2_500;
+const GROK_ABORT_KILL_MS = 2_000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Whether this Grok run looks wedged (no stream, nothing for the user to wait
+ * for). Exported for tests only.
+ *
+ * `first_byte`: spawned and never printed NDJSON — the abort→resume race
+ * (old CLI still holding session files) and a stuck session_create.
+ * `idle_silence`: had output, then went quiet with no child processes.
+ * Long tool calls have children, so they do not trip this.
+ */
+export function grokHangReason({ spawnedAt, firstByteAt, lastStdoutAt, now, hasChildren }) {
+  if (!Number.isFinite(spawnedAt) || !Number.isFinite(now) || now < spawnedAt) {
+    return null;
+  }
+  if (firstByteAt == null) {
+    return (now - spawnedAt) >= GROK_FIRST_BYTE_MS ? 'first_byte' : null;
+  }
+  if (hasChildren) {
+    return null;
+  }
+  const last = Number.isFinite(lastStdoutAt) ? lastStdoutAt : firstByteAt;
+  return (now - last) >= GROK_IDLE_SILENCE_MS ? 'idle_silence' : null;
+}
+
+export function grokHangUserMessage(reason) {
+  if (reason === 'first_byte') {
+    return 'Grok завис на старте — за 90 с не прислал ни строки. Обычно после Стоп/нового сообщения в том же чате: старый процесс ещё держал файлы. Этот чат больше не резюмь, открой новый и напиши «продолжи».';
+  }
+  return 'Grok завис: процесс жив, но молчит и ничего не делает уже 8 минут. Нажми Стоп и продолжи в новом чате.';
+}
+
+function pidIsAlive(pid) {
+  if (!pid) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPidExit(pid, timeoutMs) {
+  if (!pid) {
+    return true;
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!pidIsAlive(pid)) {
+      return true;
+    }
+    await sleep(100);
+  }
+  return !pidIsAlive(pid);
+}
+
+function grokHasDirectChildren(pid) {
+  // Unknown → assume busy so a Windows box (or a missing pgrep) never kills
+  // a legitimate long tool call.
+  if (!pid || process.platform === 'win32') {
+    return true;
+  }
+  try {
+    execSync(`pgrep -P ${Number(pid)}`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function listOrphanGrokPidsForSession(sessionUuid) {
+  if (process.platform === 'win32' || !sessionUuid) {
+    return [];
+  }
+  try {
+    const out = execSync('ps -eo pid=,args=', {
+      encoding: 'utf8',
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    const pids = [];
+    for (const line of out.split('\n')) {
+      const trimmed = line.trim();
+      const space = trimmed.indexOf(' ');
+      if (space < 0) {
+        continue;
+      }
+      const pid = Number(trimmed.slice(0, space));
+      const args = trimmed.slice(space + 1);
+      if (!Number.isFinite(pid) || pid === process.pid) {
+        continue;
+      }
+      if (args.includes('--resume') && args.includes(sessionUuid) && /(^|\/)grok(\s|$)/.test(args)) {
+        pids.push(pid);
+      }
+    }
+    return pids;
+  } catch {
+    return [];
+  }
+}
+
+function killGrokProcessTree(child, signal) {
+  if (!child) {
+    return;
+  }
+  if (child.pid && process.platform !== 'win32') {
+    try {
+      const psOut = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' });
+      const childrenByParent = new Map();
+      for (const line of psOut.trim().split('\n')) {
+        const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+        if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue;
+        if (!childrenByParent.has(ppid)) childrenByParent.set(ppid, []);
+        childrenByParent.get(ppid).push(pid);
+      }
+      const tree = [];
+      const stack = [child.pid];
+      while (stack.length) {
+        const pid = stack.pop();
+        tree.push(pid);
+        for (const kid of childrenByParent.get(pid) || []) stack.push(kid);
+      }
+      for (const pid of tree.reverse()) {
+        try { process.kill(pid, signal); } catch { /* already gone */ }
+      }
+    } catch {
+      // ps unavailable — the group signal below still covers the common case.
+    }
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // Group already gone or not a leader — fall through to a plain kill.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // Process already dead.
+  }
+}
+
+function releaseGrokProcess(processKey, child) {
+  if (activeGrokProcesses.get(processKey) === child) {
+    activeGrokProcesses.delete(processKey);
+  }
+}
+
+async function killOrphanGrokPids(sessionUuid) {
+  const leftovers = listOrphanGrokPidsForSession(sessionUuid);
+  for (const pid of leftovers) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+  if (leftovers.length === 0) {
+    return;
+  }
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline && listOrphanGrokPidsForSession(sessionUuid).length > 0) {
+    await sleep(100);
+  }
+}
+
+async function ensurePreviousGrokRunDead(sessionUuid) {
+  if (!sessionUuid) {
+    return;
+  }
+  if (activeGrokProcesses.has(sessionUuid)) {
+    await abortGrokSession(sessionUuid);
+    return;
+  }
+  await killOrphanGrokPids(sessionUuid);
+}
 
 /**
  * Whether the CLI already materialized this session on disk. Decides whether a
@@ -74,12 +310,16 @@ export function resolveGrokPermissionMode(permissionMode) {
   // the client approves for the user; Grok has no permission prompts to
   // approve and a headless `plan` run just dies at the first tool call, so the
   // pairing is emulated: run with permissions granted and make the plan a
-  // system rule instead (see AUTO_PLAN_RULE).
+  // two-phase system rule instead (see AUTO_PLAN_ASK_RULE / AUTO_PLAN_RUN_RULE).
   if (permissionMode === 'planBypass') {
     return 'bypassPermissions';
   }
+  // Grok's native `plan` gate cancels the run on the first tool call
+  // (measured 1.0.5) — the user never sees a plan to approve. Emulate
+  // Claude: permissions granted, writes stripped, a rule that ENDS on
+  // the plan, then a synthetic ExitPlanMode prompt.
   if (permissionMode === 'plan') {
-    return 'plan';
+    return 'bypassPermissions';
   }
   if (permissionMode === 'acceptEdits') {
     return 'acceptEdits';
@@ -87,17 +327,129 @@ export function resolveGrokPermissionMode(permissionMode) {
   return 'auto';
 }
 
-// The plan half of "plan + auto-run", as a rule instead of a permission gate.
-// Deliberately tells the model NOT to wait for an approval: nobody is there to
-// give one in a headless run, and waiting is what used to end the run empty.
-const AUTO_PLAN_RULE = [
-  'PLAN FIRST, THEN CARRY IT OUT.',
-  'Open with a short numbered plan of what you are about to do, then execute it to the end in the same turn.',
-  // Live run 22.08: the model happily "planned" inside thinking and the user
-  // saw only «Готово» — the plan must land in the visible answer.
-  'The plan MUST be visible plain text in your reply, before your first tool call — not inside thinking/reasoning.',
-  'Do not stop to ask for approval of the plan — you have it. Adjust the plan out loud if reality differs.',
+// Linux MAX_ARG_STRLEN is 128 KiB per argv entry. `--prompt-json` with a
+// camera photo as base64 dies as spawn E2BIG: the CLI never starts, the turn
+// is not persisted, and the chat bubble vanishes on refresh. Stay under that.
+export const MAX_GROK_PROMPT_ARGV_CHARS = 96 * 1024;
+
+export function grokPromptFitsArgv(value) {
+  return typeof value === 'string' && value.length <= MAX_GROK_PROMPT_ARGV_CHARS;
+}
+
+function writeGrokPromptFile(contents) {
+  const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'grok-prompt-'));
+  const file = path.join(dir, 'prompt.txt');
+  fsSync.writeFileSync(file, contents, { encoding: 'utf8', mode: 0o600 });
+  return { file, dir };
+}
+
+function cleanupGrokPromptDir(dir) {
+  if (!dir) {
+    return;
+  }
+  try {
+    fsSync.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+// "Планирование + обход" as Dima uses it on Claude: analyze, ask 3–4 questions
+// that change goal/duration/scope, WAIT, then write a real plan and carry it
+// out. A three-bullet "then I start" list is not this mode (live complaint
+// 24.08). Phase `ask` is the first turn; phase `run` is the answer turn.
+const AUTO_PLAN_ASK_RULE = [
+  'HARD RULE, PLANNING + BYPASS — QUESTIONS FIRST.',
+  'This mode is on for EVERY user message, including a greeting or a single word.',
+  'You MAY look around (read, search, list) to understand the request.',
+  'You MUST NOT create, edit or delete files, and MUST NOT run commands that change state, until the user has answered.',
+  'Your first user-visible output is 2-4 clarifying questions that change the GOAL, DURATION, or SCOPE of the work.',
+  'Ask them with ask_user_question (concrete options, not open prose) and STOP after the call.',
+  'Doing the work first and reporting afterwards is a failure in this mode even if the result would be correct.',
 ].join(' ');
+
+const PLAN_MODE_RULE = [
+  'HARD RULE, PLAN MODE.',
+  'Write a real implementation plan as visible plain text: what you will do, in what order, what "done" looks like.',
+  'You MAY look around (read, search, list).',
+  'You MUST NOT create, edit or delete files, and MUST NOT run commands that change state.',
+  'END YOUR TURN on the plan. Do not start carrying it out. The user will approve or ask to revise.',
+  'Doing the work first is a failure in this mode even if the result would be correct.',
+].join(' ');
+
+const AUTO_PLAN_RUN_RULE = [
+  'HARD RULE, PLANNING + BYPASS — THE USER HAS ANSWERED.',
+  'Write a real implementation plan as visible plain text: what you will do, in what order, what "done" looks like.',
+  'The plan MUST be visible before your first file-writing tool call — not inside thinking/reasoning.',
+  'Do not stop to ask for approval of that plan — you have it. Do not come back with more questions.',
+  'Then carry the plan out to the end in the SAME turn.',
+  'Close with one finished result: the project is done, the user should check it.',
+].join(' ');
+
+// App-session ids waiting for the user's answers to the ask-phase questions.
+const planBypassAwaitingAnswers = new Set();
+
+const PLAN_BYPASS_LATCH_DIR = path.join(os.tmpdir(), 'neo3-plan-bypass');
+
+function planBypassLatchPath(appSessionId) {
+  return path.join(PLAN_BYPASS_LATCH_DIR, `${appSessionId}.latch`);
+}
+
+export function markGrokPlanBypassAwaitingAnswers(appSessionId) {
+  const key = String(appSessionId || '');
+  if (!key) {
+    return;
+  }
+  planBypassAwaitingAnswers.add(key);
+  try {
+    fsSync.mkdirSync(PLAN_BYPASS_LATCH_DIR, { recursive: true });
+    fsSync.writeFileSync(planBypassLatchPath(key), '1');
+  } catch {
+    /* best-effort: in-memory still works for this process */
+  }
+}
+
+export function consumeGrokPlanBypassAwaitingAnswers(appSessionId) {
+  const key = String(appSessionId || '');
+  if (!key) {
+    return false;
+  }
+  const inMemory = planBypassAwaitingAnswers.delete(key);
+  let onDisk = false;
+  try {
+    const latch = planBypassLatchPath(key);
+    onDisk = fsSync.existsSync(latch);
+    if (onDisk) {
+      fsSync.unlinkSync(latch);
+    }
+  } catch {
+    /* ignore */
+  }
+  return inMemory || onDisk;
+}
+
+/**
+ * Ask vs run for "plan + bypass".
+ *
+ * The composer one-shots the chip back to ordinary + bypass after the
+ * first send, so the answering turn often arrives as `bypassPermissions`.
+ * The latch is what still marks it as the run half — clicking the
+ * question buttons uses resumeOptions (still planBypass), typing the
+ * answer uses whatever is on the chip.
+ */
+export function resolveGrokPlanBypassPhase(permissionMode, appSessionId) {
+  if (permissionMode === 'planBypass') {
+    return consumeGrokPlanBypassAwaitingAnswers(appSessionId) ? 'run' : 'ask';
+  }
+  if (permissionMode === 'bypassPermissions' && consumeGrokPlanBypassAwaitingAnswers(appSessionId)) {
+    return 'run';
+  }
+  return null;
+}
+
+export function resetGrokPlanBypassStateForTests() {
+  planBypassAwaitingAnswers.clear();
+}
 
 /**
  * Builds the `--rules` payload: the extra system-prompt text for one run.
@@ -108,20 +460,44 @@ const AUTO_PLAN_RULE = [
  * the Claude runtime appends (server/shared/work-mode.ts), so a mode behaves
  * the same on both engines. Exported for tests only.
  */
-export function buildGrokRules({ workMode, permissionMode, model }) {
+export function buildGrokRules({ workMode, permissionMode, model, planBypassPhase }) {
   const rules = [];
-  if (permissionMode === 'planBypass') {
-    rules.push(AUTO_PLAN_RULE);
+  if (permissionMode === 'planBypass' || planBypassPhase === 'run') {
+    rules.push(planBypassPhase === 'run' ? AUTO_PLAN_RUN_RULE : AUTO_PLAN_ASK_RULE);
   }
+  if (permissionMode === 'plan') {
+    rules.push(PLAN_MODE_RULE);
+  }
+  // Preset rule includes identity (xAI always injects "You are Grok 4.6") plus
+  // any mode-specific instructions (Heavy panel, …).
   const presetRule = resolveGrokModePreset(model)?.rule;
   if (presetRule) {
     rules.push(presetRule);
+  } else if (model === 'grok-4.5' || model === 'grok-4.6') {
+    // Raw model ids from old sessions / localStorage — still need an honest name.
+    const name = model === 'grok-4.5' ? 'Grok 4.5' : 'Grok 4.6';
+    rules.push(
+      `MODEL IDENTITY: You are running as ${name} (CLI model id: ${model}). `
+      + 'The built-in system line that says "You are Grok 4.6" is a product default — ignore it for self-identification. '
+      + `When asked which model you are, answer "${name}".`,
+    );
   }
-  // 'grok' dialect: the shared instructions name AskUserQuestion and the Skill
-  // tool, neither of which exists in Grok Build's toolset — see work-mode.ts.
+  // 'grok' dialect: never name Claude's AskUserQuestion / Skill tool. Grok's
+  // own ask_user_question is real; headless auto-answers it, Neo3 intercepts.
   const workModeText = workModeInstruction(workMode, permissionMode, 'grok');
   if (workModeText) {
     rules.push(workModeText);
+  }
+  // Interactive runs: when the model actually needs a choice, it must call
+  // the tool (buttons) instead of writing "1. 2. 3." as chat text. Silent
+  // bypass, the run half of planBypass, and unattended runs keep deciding.
+  if (permissionMode !== 'bypassPermissions' && planBypassPhase !== 'run') {
+    rules.push(
+      'When you need the user to pick between options, call ask_user_question '
+      + 'with concrete options (label plus a short description). Do not write the '
+      + 'choices as numbered chat text — that skips the buttons. After calling it, stop; '
+      + 'the next user message is their answer.',
+    );
   }
   return rules.length > 0 ? rules.join('\n\n') : null;
 }
@@ -193,7 +569,7 @@ function readClaudeHookCommands(event) {
   }
 }
 
-function runHookCommand({ command, timeoutMs }) {
+function runHookCommand({ command, timeoutMs, stdinJson }) {
   return new Promise((resolve) => {
     const child = execFile('/bin/bash', ['-c', command], {
       timeout: timeoutMs,
@@ -204,7 +580,7 @@ function runHookCommand({ command, timeoutMs }) {
       resolve(String(stdout || ''));
     });
     try {
-      child.stdin?.write('{}');
+      child.stdin?.write(JSON.stringify(stdinJson ?? {}));
       child.stdin?.end();
     } catch {
       // stdin already closed — the hook simply reads nothing.
@@ -252,6 +628,47 @@ export async function collectGrokHookContext({ isNewSession }) {
 }
 
 /**
+ * Claude Stop hooks use `{decision:"block", reason}` to wake the agent for one
+ * more turn (the vault reminder). Grok's CLI exits after `-p`, so we emulate
+ * that by `--resume` with the reason — once, the hook's own sentinel file
+ * (`/tmp/claude-mem-<session>`) stops a loop. Never fold the reason into
+ * every UserPromptSubmit: that is the prompt-bloat path we refused on 22.08.
+ */
+export function parseStopHookDecision(stdout) {
+  const trimmed = (stdout || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed?.decision === 'block' && typeof parsed.reason === 'string') {
+      return parsed.reason.trim();
+    }
+  } catch {
+    // Not control JSON — Stop hooks that only log (token-log) return nothing useful.
+  }
+  return '';
+}
+
+export async function collectGrokStopReason(sessionId) {
+  if (process.platform === 'win32' || !sessionId) {
+    return '';
+  }
+  for (const spec of readClaudeHookCommands('Stop')) {
+    if (spec.command.includes('budget-hook')) {
+      continue;
+    }
+    const reason = parseStopHookDecision(
+      await runHookCommand({ ...spec, stdinJson: { session_id: sessionId } }),
+    );
+    if (reason) {
+      return reason;
+    }
+  }
+  return '';
+}
+
+/**
  * Wraps the per-run rules and hook context into the prompt itself.
  *
  * `--rules` is the designed channel, but measured on grok 1.0.5 headless the
@@ -264,6 +681,22 @@ export async function collectGrokHookContext({ isNewSession }) {
  */
 export const WORK_MODE_RULES_OPEN_TAG = '<work_mode_rules>';
 export const WORK_MODE_RULES_CLOSE_TAG = '</work_mode_rules>';
+export const SESSION_FOLLOWUP_OPEN_TAG = '<session_followup>';
+export const SESSION_FOLLOWUP_CLOSE_TAG = '</session_followup>';
+
+/**
+ * Wraps a Stop-hook reason so history does not paint it as a user message
+ * (same stripping as <work_mode_rules> in extractGrokUserTurn).
+ */
+export function embedGrokFollowupPrompt(reason) {
+  return [
+    SESSION_FOLLOWUP_OPEN_TAG,
+    'This is an automatic follow-up from a session Stop hook, not a user message. Do not quote this tag.',
+    'Ignore work-mode questions for this follow-up. If you write to memory, the chat must contain only that one memory line — never repeat the previous report.',
+    String(reason || '').trim(),
+    SESSION_FOLLOWUP_CLOSE_TAG,
+  ].join('\n');
+}
 
 export function embedGrokRulesInPrompt(prompt, rules, hookContext = '') {
   const trimmed = (prompt || '').trim();
@@ -288,15 +721,23 @@ export function embedGrokRulesInPrompt(prompt, rules, hookContext = '') {
 /**
  * Builds the headless argv for one Grok run. Exported for tests only.
  */
-export function buildGrokArgs({ prompt, sessionId, resolvedSessionId, model, permissionMode, effort, workMode, hookContext }) {
+export function buildGrokArgs({ prompt, promptJson, promptFile, sessionId, resolvedSessionId, model, permissionMode, effort, workMode, hookContext, planBypassPhase }) {
   // `--output-format streaming-messages-json` is NDJSON in the Anthropic
   // Messages API wire format — the same {type: system|assistant|user|result}
   // envelope Claude Code emits, which is why the sessions provider can parse
   // it without a shim.
   const wirePermissionMode = resolveGrokPermissionMode(permissionMode);
-  const rules = buildGrokRules({ workMode, permissionMode, model });
+  const rules = buildGrokRules({ workMode, permissionMode, model, planBypassPhase });
+  // `--prompt-json`, `--prompt-file` and `-p` are mutually exclusive
+  // (grok 1.0.5 argv). Image turns use ACP content blocks when they fit in
+  // one argv; oversized prompts go through a temp file instead of E2BIG.
+  const promptArgs = promptJson
+    ? ['--prompt-json', promptJson]
+    : promptFile
+      ? ['--prompt-file', promptFile]
+      : ['-p', flattenPromptForWindowsShell(embedGrokRulesInPrompt(prompt, rules, hookContext || ''))];
   const args = [
-    '-p', flattenPromptForWindowsShell(embedGrokRulesInPrompt(prompt, rules, hookContext || '')),
+    ...promptArgs,
     '--output-format', 'streaming-messages-json',
     '--permission-mode', wirePermissionMode,
   ];
@@ -307,7 +748,9 @@ export function buildGrokArgs({ prompt, sessionId, resolvedSessionId, model, per
   // removed outright — `write` exists on the live toolset even though the
   // bundled README's 16-tool list predates it — so "plan" can never touch
   // the tree; the terminal is already gated by the CLI itself.
-  if (wirePermissionMode === 'plan') {
+  // The ask half of planBypass uses the same denylist: analysis is allowed,
+  // writes are not, until the user has answered the clarifying questions.
+  if (permissionMode === 'plan' || (permissionMode === 'planBypass' && planBypassPhase !== 'run')) {
     args.push('--disallowed-tools', 'search_replace,write');
   }
 
@@ -346,10 +789,29 @@ export function buildGrokArgs({ prompt, sessionId, resolvedSessionId, model, per
 
 async function spawnGrok(command, options = {}, ws) {
   return new Promise((resolve, reject) => {
-    const { sessionId, projectPath, cwd, model, permissionMode, effort, workMode, sessionSummary } = options;
+    const {
+      sessionId,
+      projectPath,
+      cwd,
+      model,
+      permissionMode,
+      effort,
+      workMode,
+      sessionSummary,
+      meter,
+      images,
+      skipStopHooks,
+      appSessionId,
+    } = options;
     const workingDir = cwd || projectPath || process.cwd();
     const resolvedSessionId = sessionId || randomUUID();
+    // New chats only: name the sidebar row from the first words of the prompt
+    // so Dima sees Russian before Grok CLI writes its English auto-title.
+    if (!sessionId) {
+      maybeApplyGrokSessionTitle(appSessionId, command);
+    }
     const processKey = resolvedSessionId;
+    const imageDescriptors = normalizeImageDescriptors(images);
     let stdoutLineBuffer = '';
     let stderrBuffer = '';
     let terminalNotificationSent = false;
@@ -359,6 +821,41 @@ async function spawnGrok(command, options = {}, ws) {
     // Unified lifecycle contract: exactly one terminal `complete` per run
     // (close and error handlers can both fire for spawn failures).
     let completeSent = false;
+    let lastAssistantText = '';
+    let stopFollowupDone = false;
+    let askedNativeQuestion = false;
+    let pausedForQuestion = false;
+    let attemptOverrides = {};
+    let liveModel = model || null;
+    let promptFileDir = null;
+    const planBypassPhase = resolveGrokPlanBypassPhase(permissionMode, appSessionId);
+
+    const emitGrokContextBudget = (existing = null) => {
+      const fromDisk = readGrokContextBudget(workingDir, resolvedSessionId, liveModel);
+      if (!fromDisk && !existing) {
+        return;
+      }
+      const tokenBudget = {
+        ...(existing && typeof existing === 'object' ? existing : {}),
+        used: fromDisk?.used ?? existing?.used ?? 0,
+        total: fromDisk?.total ?? existing?.total ?? 0,
+        model: fromDisk?.model ?? existing?.model ?? liveModel,
+      };
+      if (!(Number(tokenBudget.used) > 0) && !(Number(tokenBudget.total) > 0)) {
+        return;
+      }
+      try {
+        ws.send(createNormalizedMessage({
+          kind: 'status',
+          text: 'token_budget',
+          tokenBudget,
+          sessionId: resolvedSessionId,
+          provider: 'grok',
+        }));
+      } catch {
+        /* socket may be mid-reconnect */
+      }
+    };
 
     const notifyTerminalState = ({ code = null, error = null, aborted = false } = {}) => {
       if (terminalNotificationSent) {
@@ -386,8 +883,69 @@ async function spawnGrok(command, options = {}, ws) {
       });
     };
 
+    const emitGrokQuestionPanel = (input) => {
+      if (!appSessionId || stopFollowupDone || askedNativeQuestion) {
+        return false;
+      }
+      askedNativeQuestion = true;
+      const requestId = randomUUID();
+      registerGrokQuestion({
+        requestId,
+        appSessionId: String(appSessionId),
+        input,
+        providerSessionId: resolvedSessionId,
+        resumeOptions: {
+          model,
+          permissionMode,
+          effort,
+          workMode,
+          cwd: workingDir,
+          projectPath: projectPath || workingDir,
+        },
+      });
+      if (planBypassPhase === 'ask') {
+        markGrokPlanBypassAwaitingAnswers(appSessionId);
+      }
+      ws.send(createNormalizedMessage({
+        kind: 'permission_request',
+        requestId,
+        toolName: 'AskUserQuestion',
+        input,
+        sessionId: resolvedSessionId,
+        provider: 'grok',
+      }));
+      return true;
+    };
+
+    const stopGrokForQuestion = () => {
+      if (pausedForQuestion) {
+        return;
+      }
+      pausedForQuestion = true;
+      const child = grokProcess;
+      if (!child) {
+        return;
+      }
+      const killGroup = (signal) => {
+        if (child.pid && process.platform !== 'win32') {
+          try {
+            process.kill(-child.pid, signal);
+            return;
+          } catch {
+            /* group already gone */
+          }
+        }
+        try {
+          child.kill(signal);
+        } catch {
+          /* already dead */
+        }
+      };
+      killGroup('SIGTERM');
+    };
+
     const processGrokOutputLine = (line) => {
-      if (!line || !line.trim()) {
+      if (pausedForQuestion || !line || !line.trim()) {
         return;
       }
 
@@ -405,9 +963,55 @@ async function spawnGrok(command, options = {}, ws) {
       }
 
       try {
+        // Usage rides on the raw Anthropic frames (assistant + result). The
+        // normalized envelope has already dropped it, so the meter must see
+        // the wire message. A metering bug must never kill the run.
+        try {
+          meter?.addMessage(response);
+        } catch { /* ignore */ }
         const normalized = sessionsService.normalizeMessage('grok', response, resolvedSessionId);
+        let sentBudget = false;
         for (const msg of normalized) {
+          if (pausedForQuestion) {
+            return;
+          }
+          if (msg.kind === 'text' && msg.role === 'assistant' && typeof msg.content === 'string' && msg.content.trim()) {
+            lastAssistantText = lastAssistantText
+              ? `${lastAssistantText}\n${msg.content}`
+              : msg.content;
+          }
+          if (msg.text === 'token_budget' && msg.tokenBudget) {
+            const fromDisk = readGrokContextBudget(workingDir, resolvedSessionId, liveModel);
+            if (fromDisk) {
+              msg.tokenBudget = {
+                ...msg.tokenBudget,
+                used: fromDisk.used,
+                total: fromDisk.total,
+                model: fromDisk.model || msg.tokenBudget.model || liveModel,
+              };
+            }
+            sentBudget = true;
+          }
+          const nativeQuestion = msg.kind === 'tool_use'
+            && isGrokAskUserQuestionTool(msg.toolName)
+            && fromGrokAskUserQuestionTool(msg.toolInput);
+          const canOfferQuestion = Boolean(appSessionId)
+            && !skipStopHooks
+            && (permissionMode !== 'bypassPermissions' || planBypassPhase === 'ask');
+          if (nativeQuestion && canOfferQuestion) {
+            ws.send({
+              ...msg,
+              toolName: 'AskUserQuestion',
+              toolInput: nativeQuestion,
+            });
+            emitGrokQuestionPanel(nativeQuestion);
+            stopGrokForQuestion();
+            return;
+          }
           ws.send(msg);
+        }
+        if (!sentBudget && (response.type === 'assistant' || response.type === 'result')) {
+          emitGrokContextBudget();
         }
       } catch (error) {
         const errorContent = error instanceof Error ? error.message : String(error);
@@ -467,34 +1071,169 @@ async function spawnGrok(command, options = {}, ws) {
     };
 
     void providerModelsService.resolveResumeModel('grok', sessionId, model).then(async (resolvedModel) => {
+      liveModel = resolvedModel || liveModel;
       // Claude-side hooks (vault digest, real clock) — executed here because
       // Grok never runs them itself; best-effort, collected once per run.
       const hookContext = await collectGrokHookContext({ isNewSession: !sessionId }).catch(() => '');
 
-      const startAttempt = () => {
+      if (planBypassPhase === 'run' && appSessionId) {
+        for (const pending of takeGrokQuestionsForAppSession(String(appSessionId))) {
+          try {
+            ws.send(createNormalizedMessage({
+              kind: 'permission_cancelled',
+              requestId: pending.requestId,
+              sessionId: resolvedSessionId,
+              provider: 'grok',
+            }));
+          } catch {
+            /* socket may be mid-reconnect */
+          }
+        }
+      }
+
+      const maybeEmitGrokPlanExit = () => {
+        if (permissionMode !== 'plan' || !appSessionId || stopFollowupDone) {
+          return false;
+        }
+        const plan = String(lastAssistantText || '').trim();
+        if (!plan) {
+          return false;
+        }
+        const requestId = randomUUID();
+        const input = { plan };
+        registerGrokPlanExit({
+          requestId,
+          appSessionId: String(appSessionId),
+          plan,
+          resumeOptions: {
+            model,
+            permissionMode: 'plan',
+            effort,
+            workMode,
+            cwd: workingDir,
+            projectPath: projectPath || workingDir,
+          },
+        });
+        ws.send(createNormalizedMessage({
+          kind: 'tool_use',
+          toolName: 'ExitPlanMode',
+          toolInput: input,
+          toolId: requestId,
+          sessionId: resolvedSessionId,
+          provider: 'grok',
+        }));
+        ws.send(createNormalizedMessage({
+          kind: 'tool_result',
+          toolName: 'ExitPlanMode',
+          toolId: requestId,
+          toolResult: { content: '', isError: false },
+          sessionId: resolvedSessionId,
+          provider: 'grok',
+        }));
+        ws.send(createNormalizedMessage({
+          kind: 'permission_request',
+          requestId,
+          toolName: 'ExitPlanMode',
+          input,
+          sessionId: resolvedSessionId,
+          provider: 'grok',
+        }));
+        return true;
+      };
+
+      const maybeEmitGrokQuestion = () => {
+        if (!appSessionId || stopFollowupDone || askedNativeQuestion) {
+          return false;
+        }
+        const parsed = parseGrokNumberedQuestion(lastAssistantText);
+        if (!parsed) {
+          return false;
+        }
+        return emitGrokQuestionPanel(toAskUserQuestionInput(parsed));
+      };
+
+      const startAttempt = (overrides = {}) => {
+        attemptOverrides = overrides;
+        void runAttempt(overrides).catch(async (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          await finishFailed(1, message);
+        });
+      };
+
+      const runAttempt = async (overrides = {}) => {
         stdoutLineBuffer = '';
         stderrBuffer = '';
+        lastAssistantText = '';
 
         // On a retry the very same session uuid is resumed if the first
         // attempt already materialized it on disk; otherwise the same `-s`
         // start is simply repeated — nothing was persisted the first time.
-        const resumeId = sessionId
-          || (transientRetryAttempt > 0 && grokSessionExistsOnDisk(workingDir, resolvedSessionId)
-            ? resolvedSessionId
-            : null);
+        const resumeId = overrides.forceResume
+          ? resolvedSessionId
+          : (sessionId
+            || (transientRetryAttempt > 0 && grokSessionExistsOnDisk(workingDir, resolvedSessionId)
+              ? resolvedSessionId
+              : null));
+
+        const attemptWorkMode = overrides.workMode ?? workMode;
+        const attemptHookContext = Object.prototype.hasOwnProperty.call(overrides, 'hookContext')
+          ? overrides.hookContext
+          : hookContext;
+        const attemptPrompt = overrides.prompt ?? command;
+        const attemptImages = overrides.skipImages ? [] : imageDescriptors;
 
         // Sessions live under ~/.grok/sessions/<url-encoded cwd>/<uuid>/, so cwd
         // decides which project a session belongs to.
+        const rules = buildGrokRules({
+          workMode: attemptWorkMode,
+          permissionMode,
+          model: resolvedModel,
+          planBypassPhase,
+        });
+        cleanupGrokPromptDir(promptFileDir);
+        promptFileDir = null;
+        let promptJson = null;
+        let promptFile = null;
+        const strippedPrompt = parseImagesInputTag(attemptPrompt).text;
+        const embedded = embedGrokRulesInPrompt(strippedPrompt, rules, attemptHookContext || '');
+        if (attemptImages.length > 0) {
+          const withPaths = appendVisibleImagePathsTag(embedded, attemptImages);
+          const blocks = await buildGrokUserContent(withPaths, attemptImages, workingDir);
+          const json = JSON.stringify(blocks);
+          if (blocks.some((block) => block.type === 'image') && grokPromptFitsArgv(json)) {
+            promptJson = json;
+          } else {
+            const written = writeGrokPromptFile(appendImagesInputTag(embedded, attemptImages));
+            promptFile = written.file;
+            promptFileDir = written.dir;
+          }
+        } else if (!grokPromptFitsArgv(embedded)) {
+          const written = writeGrokPromptFile(embedded);
+          promptFile = written.file;
+          promptFileDir = written.dir;
+        }
+
         const args = buildGrokArgs({
-          prompt: command,
+          prompt: attemptPrompt,
+          promptJson,
+          promptFile,
           sessionId: resumeId,
           resolvedSessionId,
           model: resolvedModel,
           permissionMode,
           effort,
-          workMode,
-          hookContext,
+          workMode: attemptWorkMode,
+          hookContext: attemptHookContext,
+          planBypassPhase,
         });
+
+        // Abort marks the run complete immediately, then SIGTERM. A queued
+        // follow-up (or "ты походу повис") used to spawn --resume while the
+        // old CLI still held chat_history.jsonl — the new process slept in
+        // session_create with 0% CPU and the UI lied «Рассуждает».
+        if (resumeId) {
+          await ensurePreviousGrokRunDead(resumeId);
+        }
 
         grokProcess = spawnFunction(resolveGrokCliPath(), args, {
           cwd: workingDir,
@@ -508,7 +1247,11 @@ async function spawnGrok(command, options = {}, ws) {
 
         activeGrokProcesses.set(processKey, grokProcess);
         grokProcess.sessionId = resolvedSessionId;
+        grokProcess.promptFileDir = promptFileDir;
         grokProcess.stdin.end();
+        const spawnedAt = Date.now();
+        let firstByteAt = null;
+        let lastStdoutAt = null;
 
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
           ws.setSessionId(resolvedSessionId);
@@ -524,12 +1267,85 @@ async function spawnGrok(command, options = {}, ws) {
           }));
         }
 
+        // Long tool calls (bash, etc.) emit nothing on the Anthropic wire for
+        // minutes. The browser stall watchdog reconnects after 30s of silence,
+        // which makes the activity pill vanish even though the CLI is fine.
+        // An empty status tick still moves lastFrameAt on the client without
+        // rewriting the "Tools: …" label (handler ignores falsy text).
+        const keepaliveTimer = setInterval(() => {
+          if (grokProcess?.aborted || grokProcess?.hung || grokProcess?.killed || grokProcess?.exitCode !== null) {
+            return;
+          }
+          const hangReason = grokHangReason({
+            spawnedAt,
+            firstByteAt,
+            lastStdoutAt,
+            now: Date.now(),
+            hasChildren: grokHasDirectChildren(grokProcess.pid),
+          });
+          if (hangReason) {
+            grokProcess.hung = true;
+            grokProcess.hangReason = hangReason;
+            killGrokProcessTree(grokProcess, 'SIGTERM');
+            const hardKill = setTimeout(() => {
+              if (grokProcess.exitCode === null && grokProcess.signalCode === null) {
+                killGrokProcessTree(grokProcess, 'SIGKILL');
+              }
+            }, GROK_ABORT_TERM_MS);
+            hardKill.unref?.();
+            return;
+          }
+          try {
+            ws.send(createNormalizedMessage({
+              kind: 'status',
+              text: '',
+              sessionId: resolvedSessionId,
+              provider: 'grok',
+            }));
+          } catch {
+            /* socket may be mid-reconnect */
+          }
+          emitGrokContextBudget();
+        }, 15_000);
+        grokProcess.once('close', () => clearInterval(keepaliveTimer));
+        grokProcess.once('error', () => clearInterval(keepaliveTimer));
+
         grokProcess.stdout.on('data', (data) => {
+          const now = Date.now();
+          if (firstByteAt == null) {
+            firstByteAt = now;
+          }
+          lastStdoutAt = now;
           stdoutLineBuffer += data.toString();
+          // A single tool_result JSON line (Suno, huge file reads) can grow
+          // without a newline for minutes. Unbounded buffering OOMs the
+          // process and looks like "the session died on the tool call".
+          if (stdoutLineBuffer.length > MAX_GROK_STDOUT_LINE_CHARS && !stdoutLineBuffer.includes('\n')) {
+            stdoutLineBuffer = '';
+            ws.send(createNormalizedMessage({
+              kind: 'error',
+              content: 'Grok вернул слишком большой кусок данных от инструмента. Пропускаю его, сессию не рву.',
+              sessionId: resolvedSessionId,
+              provider: 'grok',
+            }));
+            return;
+          }
           const completeLines = stdoutLineBuffer.split(/\r?\n/);
           stdoutLineBuffer = completeLines.pop() || '';
 
           completeLines.forEach((line) => {
+            if (pausedForQuestion) {
+              return;
+            }
+            if (line.length > MAX_GROK_STDOUT_LINE_CHARS) {
+              ws.send(createNormalizedMessage({
+                kind: 'error',
+                content: 'Grok вернул слишком большой кусок данных от инструмента. Пропускаю его, сессию не рву.',
+                sessionId: resolvedSessionId,
+                provider: 'grok',
+              }));
+              return;
+            }
             processGrokOutputLine(line.trim());
           });
         });
@@ -545,7 +1361,8 @@ async function spawnGrok(command, options = {}, ws) {
         });
 
         grokProcess.on('close', async (code) => {
-          activeGrokProcesses.delete(processKey);
+          cleanupGrokPromptDir(grokProcess.promptFileDir);
+          releaseGrokProcess(processKey, grokProcess);
 
           if (stdoutLineBuffer.trim()) {
             processGrokOutputLine(stdoutLineBuffer.trim());
@@ -561,8 +1378,43 @@ async function spawnGrok(command, options = {}, ws) {
             return;
           }
 
+          if (grokProcess.hung) {
+            await finishFailed(code ?? 1, grokHangUserMessage(grokProcess.hangReason));
+            return;
+          }
+
+          if (pausedForQuestion) {
+            if (!completeSent) {
+              completeSent = true;
+              ws.send(createCompleteMessage({ provider: 'grok', sessionId: resolvedSessionId, exitCode: 0 }));
+            }
+            recordRunOutcome(resolvedSessionId, { status: 'completed' });
+            notifyTerminalState({ code: 0 });
+            resolve();
+            return;
+          }
+
           if (code === 0) {
             if (!completeSent) {
+              // A numbered question is a pause for the user, not the end of
+              // the session — skip the Stop/memory follow-up so the reminder
+              // does not land on top of the buttons.
+              const offeredPlan = !skipStopHooks && maybeEmitGrokPlanExit();
+              const askedQuestion = !offeredPlan && !skipStopHooks && maybeEmitGrokQuestion();
+              if (!offeredPlan && !askedQuestion && !skipStopHooks && !stopFollowupDone) {
+                const reason = await collectGrokStopReason(resolvedSessionId).catch(() => '');
+                if (reason) {
+                  stopFollowupDone = true;
+                  startAttempt({
+                    prompt: embedGrokFollowupPrompt(reason),
+                    skipImages: true,
+                    hookContext: '',
+                    workMode: 'autopilot',
+                    forceResume: true,
+                  });
+                  return;
+                }
+              }
               completeSent = true;
               ws.send(createCompleteMessage({ provider: 'grok', sessionId: resolvedSessionId, exitCode: code }));
             }
@@ -612,12 +1464,12 @@ async function spawnGrok(command, options = {}, ws) {
             });
 
             if (retryStub.aborted) {
-              activeGrokProcesses.delete(processKey);
+              releaseGrokProcess(processKey, retryStub);
               finishAborted();
               return;
             }
 
-            startAttempt();
+            startAttempt(attemptOverrides);
             return;
           }
 
@@ -625,7 +1477,8 @@ async function spawnGrok(command, options = {}, ws) {
         });
 
         grokProcess.on('error', async (error) => {
-          activeGrokProcesses.delete(processKey);
+          cleanupGrokPromptDir(grokProcess.promptFileDir);
+          releaseGrokProcess(processKey, grokProcess);
 
           if (grokProcess.aborted === true) {
             finishAborted();
@@ -659,9 +1512,10 @@ async function spawnGrok(command, options = {}, ws) {
   });
 }
 
-function abortGrokSession(sessionId) {
+async function abortGrokSession(sessionId) {
   const child = activeGrokProcesses.get(sessionId);
   if (!child) {
+    await killOrphanGrokPids(sessionId);
     return false;
   }
 
@@ -671,61 +1525,28 @@ function abortGrokSession(sessionId) {
 
   // Kill the WHOLE TREE, not just the CLI. Two layers because the CLI's bash
   // wrappers start their own sessions (measured 22.08: after a group kill the
-  // wrapper reparented to init and its `sleep 120` lived on):
-  //   1. walk pid->ppid and signal every live descendant individually;
-  //   2. signal the process group as a catch-all for anything mid-spawn.
-  // Falls back to a plain kill for the retry-wait stub (no pid).
-  const killGroup = (signal) => {
-    if (child.pid && process.platform !== 'win32') {
-      try {
-        const psOut = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' });
-        const childrenByParent = new Map();
-        for (const line of psOut.trim().split('\n')) {
-          const [pid, ppid] = line.trim().split(/\s+/).map(Number);
-          if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue;
-          if (!childrenByParent.has(ppid)) childrenByParent.set(ppid, []);
-          childrenByParent.get(ppid).push(pid);
-        }
-        const tree = [];
-        const stack = [child.pid];
-        while (stack.length) {
-          const pid = stack.pop();
-          tree.push(pid);
-          for (const kid of childrenByParent.get(pid) || []) stack.push(kid);
-        }
-        // Children first so a dying wrapper cannot respawn its command.
-        for (const pid of tree.reverse()) {
-          try { process.kill(pid, signal); } catch { /* already gone */ }
-        }
-      } catch {
-        // ps unavailable — the group signal below still covers the common case.
-      }
-      try {
-        process.kill(-child.pid, signal);
-        return;
-      } catch {
-        // Group already gone or not a leader — fall through to a plain kill.
-      }
-    }
-    try {
-      child.kill(signal);
-    } catch {
-      // Process already dead.
-    }
-  };
+  // wrapper reparented to init and its `sleep 120` lived on).
+  killGrokProcessTree(child, 'SIGTERM');
+  const pid = child.pid;
+  // Drop the map slot so a follow-up send can register the next process —
+  // but WAIT until this pid is actually gone, otherwise --resume sleeps on
+  // the session files the dying CLI still holds.
+  releaseGrokProcess(sessionId, child);
 
-  killGroup('SIGTERM');
-  // Escalate: a CLI wedged in a tool call can survive SIGTERM. exitCode stays
-  // null while the process lives; the stub has none and is never escalated.
-  if (child.pid) {
-    const hardKill = setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) {
-        killGroup('SIGKILL');
-      }
-    }, 2500);
-    hardKill.unref?.();
+  if (pid) {
+    const gone = await waitForPidExit(pid, GROK_ABORT_TERM_MS);
+    if (!gone) {
+      killGrokProcessTree(child, 'SIGKILL');
+      await waitForPidExit(pid, GROK_ABORT_KILL_MS);
+    }
+  } else {
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      // retry-wait stub, already cancelled
+    }
   }
-  activeGrokProcesses.delete(sessionId);
+  await killOrphanGrokPids(sessionId);
   return true;
 }
 

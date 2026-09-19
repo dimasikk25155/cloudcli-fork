@@ -25,7 +25,9 @@
     "browser": "Browser",
     "computer": "Computer",
     "stats": "Statistics",
-    "autopilot": "Autopilot"
+    "autopilot": "Autopilot",
+    "hideLabels": "Hide labels",
+    "showLabels": "Show labels"
   },
   "autopilot": {
     "noRun": "Autopilot has not run in this project yet — the dashboard appears once a build starts."
@@ -118,7 +120,13 @@
     "loading": "Loading Neo3 Agent System",
     "settingUpWorkspace": "Setting up your workspace...",
     "chooseProject": "Choose Your Project",
-    "selectProjectDescription": "Select a project from the sidebar to start coding with Claude. Each project contains your chat sessions and file history.",
+    "selectProjectDescription": "Tap a project icon, like on a phone. Sessions open as a tree on the left.",
+    "searchProjects": "Find a project",
+    "pinProject": "Pin",
+    "unpinProject": "Unpin",
+    "homeIconHint": "Tap to open. Hold to pin or set an icon.",
+    "setProjectIcon": "Custom icon",
+    "noMatchingProjects": "No matching projects",
     "tip": "Tip",
     "createProjectMobile": "Tap the menu button above to access projects",
     "createProjectDesktop": "Create a new project by clicking the folder icon in the sidebar",
@@ -294,5 +302,45 @@
       "updateAvailable": "Update available",
       "closeSidebar": "Close sidebar"
     }
+  },
+  "onboarding": {
+    "skip": "Skip",
+    "next": "Next",
+    "back": "Back",
+    "start": "Start working",
+    "completing": "Opening…",
+    "error": "Could not save. Try again.",
+    "steps": {
+      "notChat": "Not a chat",
+      "words": "Three words",
+      "task": "Task",
+      "claude": "Claude"
+    },
+    "welcome": {
+      "notChat": {
+        "title": "This is not a chat — it is an employee",
+        "body": "A chat tells you how. An agent opens files, goes online, saves the result, and hands it back."
+      },
+      "words": {
+        "title": "Project, session, task",
+        "body": "A project is a folder of your business. A session is one conversation inside it. A task is what you write in your own words."
+      },
+      "task": {
+        "title": "Write like you would to a person",
+        "body": "“Build a sales report from this file.” If something is missing, the agent will ask. You do not need commands."
+      }
+    },
+    "connect": {
+      "title": "Sign in to Claude",
+      "body": "Without this the agent stays silent. It is your subscription account — the login stays on your server.",
+      "login": "Sign in",
+      "connected": "Connected",
+      "checking": "Checking…",
+      "notConnected": "Not connected",
+      "later": "You can also connect later in Settings.",
+      "others": "Other engines",
+      "othersHint": "Most people only need Claude. The rest is if you already use them."
+    },
+    "homeEmpty": "Open or create a project first — a folder the agent will work in. Then write a task in your own words."
   }
 }

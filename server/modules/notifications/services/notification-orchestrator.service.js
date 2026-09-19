@@ -13,7 +13,8 @@ const PROVIDER_LABELS = {
   claude: 'Claude',
   cursor: 'Cursor',
   codex: 'Codex',
-  system: 'System'
+  system: 'System',
+  consigliere: 'Консильери'
 };
 
 const recentEventKeys = new Map();
@@ -45,6 +46,18 @@ function isDuplicate(event) {
   return false;
 }
 
+/**
+ * @param {{
+ *   provider: string,
+ *   sessionId?: string|null,
+ *   kind?: string,
+ *   code?: string,
+ *   meta?: Record<string, unknown>,
+ *   severity?: string,
+ *   dedupeKey?: string|null,
+ *   requiresUserAction?: boolean
+ * }} params
+ */
 function createNotificationEvent({
   provider,
   sessionId = null,
@@ -150,6 +163,59 @@ function resolveSessionName(event) {
 
 function buildNotificationPayload(event) {
   const normalizedEvent = normalizeNotificationSession(event);
+
+  if (normalizedEvent.code === 'notification.close') {
+    return {
+      close: true,
+      data: {
+        tag: String(normalizedEvent.meta?.tag || ''),
+        code: 'notification.close'
+      }
+    };
+  }
+
+  if (normalizedEvent.code === 'consigliere.task') {
+    const row = Number(normalizedEvent.meta?.row);
+    const kind = normalizedEvent.meta?.kind === 'overdue' ? 'overdue' : 'due';
+    const title = String(normalizedEvent.meta?.title || 'Задача');
+    const when = String(normalizedEvent.meta?.when || '');
+    const tag = String(normalizedEvent.meta?.tag || `consigliere:event:${row}`);
+    const prefix = kind === 'overdue' ? 'Просрочено' : 'Сделать';
+    return {
+      title: 'Канцелярия',
+      body: when ? `${prefix}: «${title}» — ${when}` : `${prefix}: «${title}»`,
+      silent: Boolean(normalizedEvent.meta?.silent),
+      actions: [{ action: 'done', title: 'Сделал' }],
+      data: {
+        code: 'consigliere.task',
+        tag,
+        row,
+        sig: String(normalizedEvent.meta?.sig || ''),
+        panel: 'consigliere',
+        urlPath: '/?panel=consigliere',
+        provider: 'system'
+      }
+    };
+  }
+
+  if (normalizedEvent.code === 'bot.dead') {
+    const unit = String(normalizedEvent.meta?.unit || 'bot');
+    const name = String(normalizedEvent.meta?.name || unit);
+    const tag = String(normalizedEvent.meta?.tag || `bot:${unit}`);
+    return {
+      title: 'Бот упал',
+      body: `«${name}» умер и сам не встал`,
+      data: {
+        code: 'bot.dead',
+        tag,
+        unit,
+        panel: 'server',
+        urlPath: '/?panel=server',
+        provider: 'system'
+      }
+    };
+  }
+
   const CODE_MAP = {
     'permission.required': normalizedEvent.meta?.toolName
       ? `Action Required: Tool "${normalizedEvent.meta.toolName}" needs approval`
@@ -283,5 +349,6 @@ export {
   createNotificationEvent,
   notifyUserIfEnabled,
   notifyRunStopped,
-  notifyRunFailed
+  notifyRunFailed,
+  sendWebPushPayload
 };

@@ -5,6 +5,8 @@ import type { LoadingProgress, Project, ProjectSession, LLMProvider } from '../.
 import type { SessionActivityMap } from '../../../../hooks/useSessionProtection';
 import type { SessionWithProvider } from '../../types/types';
 import { APP_NAME } from '../../../../constants/branding';
+import { partitionCodexInboxProjects } from '../../utils/utils';
+import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
 import SidebarProjectItem from './SidebarProjectItem';
 import SidebarProjectsState from './SidebarProjectsState';
@@ -29,8 +31,8 @@ export type SidebarProjectListProps = {
   loadingMoreProjects: Set<string>;
   activeSessions: SessionActivityMap;
   attentionSessionIds: ReadonlySet<string>;
-  forceExpanded?: boolean;
-  collapsedProjects: Set<string>;
+  isJournalView?: boolean;
+  expandedJournalProjects: Set<string>;
   isRecentView?: boolean;
   isProjectStarred: (projectName: string) => boolean;
   onEditingNameChange: (value: string) => void;
@@ -71,8 +73,8 @@ export default function SidebarProjectList({
   loadingMoreProjects,
   activeSessions,
   attentionSessionIds,
-  forceExpanded = false,
-  collapsedProjects,
+  isJournalView = false,
+  expandedJournalProjects,
   isRecentView = false,
   isProjectStarred,
   onEditingNameChange,
@@ -114,57 +116,73 @@ export default function SidebarProjectList({
   }, [selectedProject]);
 
   const showProjects = !isLoading && projects.length > 0 && filteredProjects.length > 0;
+  const { workspaceProjects, codexInboxProjects } = isJournalView
+    ? { workspaceProjects: filteredProjects, codexInboxProjects: [] as Project[] }
+    : partitionCodexInboxProjects(filteredProjects);
+
+  const renderProject = (project: Project) => (
+    // React key + per-project state lookups all use the DB `projectId`
+    // so they remain stable across renames and session changes.
+    <SidebarProjectItem
+      key={project.projectId}
+      project={project}
+      selectedProject={selectedProject}
+      selectedSession={selectedSession}
+      isExpanded={
+        isJournalView
+          ? expandedJournalProjects.has(project.projectId)
+          : expandedProjects.has(project.projectId)
+      }
+      isDeleting={deletingProjects.has(project.projectId)}
+      isStarred={isProjectStarred(project.projectId)}
+      editingProject={editingProject}
+      editingName={editingName}
+      sessions={getProjectSessions(project)}
+      initialSessionsLoaded={initialSessionsLoaded.has(project.projectId)}
+      isLoadingMoreSessions={loadingMoreProjects.has(project.projectId)}
+      currentTime={currentTime}
+      editingSession={editingSession}
+      editingSessionName={editingSessionName}
+      onEditingNameChange={onEditingNameChange}
+      onToggleProject={onToggleProject}
+      onProjectSelect={onProjectSelect}
+      onToggleStarProject={onToggleStarProject}
+      onStartEditingProject={onStartEditingProject}
+      onCancelEditingProject={onCancelEditingProject}
+      onSaveProjectName={onSaveProjectName}
+      onSessionSelect={onSessionSelect}
+      onLoadMoreSessions={onLoadMoreSessions}
+      activeSessions={activeSessions}
+      attentionSessionIds={attentionSessionIds}
+      isRecentView={isRecentView}
+      isFoldOnlyHeader={isJournalView}
+      onNewSession={onNewSession}
+      onEditingSessionNameChange={onEditingSessionNameChange}
+      onStartEditingSession={onStartEditingSession}
+      onCancelEditingSession={onCancelEditingSession}
+      onSaveEditingSession={onSaveEditingSession}
+      onDeleteSession={onDeleteSession}
+      onReorderSessions={onReorderSessions}
+      t={t}
+    />
+  );
 
   return (
     <div className="pb-safe-area-inset-bottom md:space-y-1">
       {!showProjects
         ? state
-        : filteredProjects.map((project) => (
-            // React key + per-project state lookups all use the DB `projectId`
-            // so they remain stable across renames and session changes.
-            <SidebarProjectItem
-              key={project.projectId}
-              project={project}
-              selectedProject={selectedProject}
-              selectedSession={selectedSession}
-              isExpanded={
-                forceExpanded
-                  ? !collapsedProjects.has(project.projectId)
-                  : expandedProjects.has(project.projectId)
-              }
-              isDeleting={deletingProjects.has(project.projectId)}
-              isStarred={isProjectStarred(project.projectId)}
-              editingProject={editingProject}
-              editingName={editingName}
-              sessions={getProjectSessions(project)}
-              initialSessionsLoaded={initialSessionsLoaded.has(project.projectId)}
-              isLoadingMoreSessions={loadingMoreProjects.has(project.projectId)}
-              currentTime={currentTime}
-              editingSession={editingSession}
-              editingSessionName={editingSessionName}
-              onEditingNameChange={onEditingNameChange}
-              onToggleProject={onToggleProject}
-              onProjectSelect={onProjectSelect}
-              onToggleStarProject={onToggleStarProject}
-              onStartEditingProject={onStartEditingProject}
-              onCancelEditingProject={onCancelEditingProject}
-              onSaveProjectName={onSaveProjectName}
-              onSessionSelect={onSessionSelect}
-              onLoadMoreSessions={onLoadMoreSessions}
-              activeSessions={activeSessions}
-              attentionSessionIds={attentionSessionIds}
-              isRecentView={isRecentView}
-              isFoldOnlyHeader={forceExpanded}
-              onNewSession={onNewSession}
-              onEditingSessionNameChange={onEditingSessionNameChange}
-              onStartEditingSession={onStartEditingSession}
-              onCancelEditingSession={onCancelEditingSession}
-              onSaveEditingSession={onSaveEditingSession}
-              onDeleteSession={onDeleteSession}
-              onReorderSessions={onReorderSessions}
-              t={t}
-            />
-          ))}
+        : (
+          <>
+            {workspaceProjects.map(renderProject)}
+            {codexInboxProjects.length > 0 && (
+              <div className="mx-3 mt-3 mb-1 flex items-center gap-1.5 px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <SessionProviderLogo provider="codex" className="h-3 w-3 flex-shrink-0" />
+                <span>{t('projects.codexChats', 'Codex chats')}</span>
+              </div>
+            )}
+            {codexInboxProjects.map(renderProject)}
+          </>
+        )}
     </div>
   );
 }

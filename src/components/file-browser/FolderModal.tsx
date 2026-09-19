@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUp, Download, Folder, FolderOpen, Loader2, Package } from 'lucide-react';
+import { ArrowUp, Download, Eye, Folder, FolderOpen, Loader2, Package } from 'lucide-react';
 import JSZip from 'jszip';
 
 import { api } from '../../utils/api';
@@ -171,6 +171,16 @@ export default function FolderModal({
                     <span className="text-[11px] text-muted-foreground">
                       {[formatSize(file.size), formatDate(file.modified)].filter(Boolean).join(' · ')}
                     </span>
+                  </button>
+                  {/* Явная кнопка «Открыть»: клик по имени делает то же самое, но
+                      без кнопки этого никто не находил — рядом со «Скачать» имя
+                      читалось как простая подпись (23.08, Дима). */}
+                  <button
+                    onClick={() => onOpenFile(file.path)}
+                    className="flex min-h-[34px] flex-shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    Открыть
                   </button>
                   {/* Обычная ссылка, а не fetch: браузер сам покажет прогресс и
                       сохранит файл своим менеджером загрузок — это важно на телефоне. */}

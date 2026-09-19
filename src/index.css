@@ -68,7 +68,11 @@
        Этап 2 обязан быть визуально нейтральным, это отдельное решение. */
     --font-ui: "Encode Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
       "Helvetica Neue", Arial, sans-serif;
-    --font-chat: Merriweather, Georgia, Cambria, "Times New Roman", serif;
+    /* Переписка = шрифт поля ввода. Раньше здесь был Merriweather: на тёмном
+       он «худеет» (в файле нет начертания 500, браузер падает в 400), и ответ
+       визуально тонше того, что человек только что набрал. Засечный остаётся
+       опцией в подстройке темы («Чат» → Merriweather) и на заголовках editorial. */
+    --font-chat: var(--font-ui);
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
       "Liberation Mono", "Courier New", monospace;
     /* Гарнитура заголовков отдельной ручкой. Раньше тема задавала её прямо в
@@ -1523,6 +1527,19 @@
   transition: opacity 420ms ease;
   contain: strict;
 }
+/* Живые обои уже тёмные (уголь, огонь). Фото-скрим 72% чёрного в центре
+   для них — это второе затемнение поверх чёрного: искры уходят в тень,
+   хотя в исходном ролике они яркие. Панели чата и сайдбара сами непрозрачные
+   (panel-alpha 0.88), текст на них читается без этой плёнки. Оставляем
+   лёгкую вуаль по краям и снизу, чтобы стык с панелями не светился. */
+.theme-video-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 58% at 50% 48%, rgba(0, 0, 0, 0.22) 0%, transparent 70%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.12) 0%, transparent 18%, transparent 82%, rgba(0, 0, 0, 0.2) 100%);
+}
 @media (prefers-reduced-motion: reduce) {
   .theme-video-bg { display: none; }
 }
@@ -2226,12 +2243,12 @@
   --radius: 0.25rem;
 
   /* Акцидентная пара из разбора: спокойный гротеск на интерфейсе + засечный
-     на заголовках. Merriweather уже загружен для чата, здесь он же несёт
-     крупные заголовки — ровно тот редакционный контраст, ради которого тема. */
+     на заголовках. Merriweather несёт крупные заголовки — ровно тот
+     редакционный контраст, ради которого тема. Переписка наследует
+     --font-ui (Work Sans), как поле ввода: иначе набор и ответы — разные лица. */
   --font-ui: 'Work Sans', 'Encode Sans', -apple-system, BlinkMacSystemFont,
     'Segoe UI', Roboto, sans-serif;
   --tracking-ui: normal;
-  --font-chat: Merriweather, Georgia, Cambria, "Times New Roman", serif;
   --font-display: Merriweather, Georgia, serif;
   --font-mono: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono',
     ui-monospace, monospace;
@@ -2601,4 +2618,118 @@
 .tweak-slider-input {
   position: relative;
   z-index: 1;
+}
+
+/* iOS-style squircle for project/app icons on the home launcher and sidebar. */
+.neo3-squircle {
+  border-radius: 22.5%;
+  box-shadow:
+    0 10px 20px rgb(0 0 0 / 0.34),
+    inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
+.neo3-squircle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.30),
+    transparent 46%,
+    rgb(0 0 0 / 0.14) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+.neo3-squircle img {
+  position: relative;
+  z-index: 0;
+}
+
+/* Codex reference: neutral graphite surfaces, native Mac typography, compact chrome.
+   Existing provider/project icons and all interactions are preserved. */
+[data-theme='codex'] {
+  --background: 0 0% 9.4%;
+  --foreground: 0 0% 83%;
+  --card: 0 0% 17.3%;
+  --card-foreground: 0 0% 83%;
+  --popover: 0 0% 17.3%;
+  --popover-foreground: 0 0% 88%;
+  --primary: 0 0% 94%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 20%;
+  --secondary-foreground: 0 0% 83%;
+  --muted: 0 0% 18%;
+  --muted-foreground: 0 0% 62%;
+  --accent: 0 0% 23%;
+  --accent-foreground: 0 0% 92%;
+  --border: 0 0% 23%;
+  --input: 0 0% 18%;
+  --ring: 0 0% 65%;
+  --radius: 0.625rem;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-chat: var(--font-ui);
+  --font-sidebar: var(--font-ui);
+  --font-display: var(--font-ui);
+  --tracking-ui: normal;
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: 0 8px 24px rgb(0 0 0 / 0.25);
+  --shell-bg: #181818;
+  --shell-material: none;
+  --shell-grain: none;
+  --shell-grain-opacity: 0;
+  --panel-bg: #2c2c2c;
+  --panel-blur: none;
+  --panel-border: #383838;
+  --nav-glass-bg: 0 0% 9.4%;
+  --nav-glass-blur: 0px;
+  --nav-glass-saturate: 1;
+  --nav-tab-glow: 0 0% 0% / 0;
+  --nav-tab-ring: 0 0% 0% / 0;
+  --nav-divider-color: 0 0% 23%;
+  --nav-input-bg: 0 0% 18%;
+  --nav-input-focus-ring: 0 0% 65% / 0.3;
+  font-weight: 400;
+}
+[data-theme='codex'] .app-sidebar,
+[data-theme='codex'] .sidebar-root { background: #242424; backdrop-filter: none; }
+[data-theme='codex'] .pwa-header-safe { border-bottom-color: transparent; }
+[data-theme='codex'] .chat-messages-pane > div,
+[data-theme='codex'] .chat-composer-shell > div { max-width: 48rem; }
+[data-theme='codex'] .chat-message { font-size: 14px; line-height: 1.65; }
+[data-theme='codex'] .chat-message.user .bg-muted {
+  background: #303030;
+  border-radius: 16px;
+  box-shadow: none;
+  padding: 12px 16px;
+}
+[data-theme='codex'] [data-slot='prompt-input'] {
+  background: #2c2c2c;
+  border: 1px solid #353535;
+  border-radius: 18px;
+  box-shadow: none;
+}
+[data-theme='codex'] [data-slot='prompt-input']:focus-within { border-color: #626262; }
+[data-theme='codex'] [data-slot='prompt-input-textarea'] { min-height: 64px; font-size: 14px; }
+[data-theme='codex'] .composer-chip { border-color: transparent; background: transparent; box-shadow: none; font-weight: 400; }
+[data-theme='codex'] .composer-chip:hover { background: #393939; }
+[data-theme='codex'] .composer-submit { width: 30px; height: 30px; border-radius: 50%; }
+[data-theme='codex'] .nav-tab-active { background: #343434; color: #ededed; box-shadow: none; }
+[data-theme='codex'] .chat-message a { color: #75a7f8; }
+@media (min-width: 768px) {
+  [data-theme='codex'] .sidebar-root { width: 260px; }
+  [data-theme='codex'] .chat-composer-shell { padding-bottom: 16px; }
+}
+@media (max-width: 767px) {
+  [data-theme='codex'] [data-slot='prompt-input-textarea'] { font-size: 16px; }
+}
+
+[data-theme='codex'] .main-content-title { left: 44px; transform: translateY(-50%); }
+[data-theme='codex'] textarea::placeholder { color: #a0a0a0 !important; }
+.codex-environment { display: none; }
+@media (min-width: 1280px) {
+  .codex-environment { display: block; align-self: flex-start; width: 240px; flex-shrink: 0; margin: 12px 16px 0 8px; padding: 14px 12px; background: #2c2c2c; border: 1px solid #353535; border-radius: 18px; }
+  .codex-environment button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 4px; border-radius: 6px; text-align: left; font-size: 13px; }
+  .codex-environment button:hover { background: #393939; }
 }

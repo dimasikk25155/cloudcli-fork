@@ -7,6 +7,7 @@ import {
   getContextWindow,
   isPricedModel,
   readCacheCreationSplit,
+  readUsageBreakdown,
 } from '@/shared/token-pricing.js';
 
 const MILLION = 1_000_000;
@@ -129,6 +130,48 @@ test('models without published rates return null rather than a guess', () => {
   assert.equal(estimateCostUsd({ ...EMPTY_BREAKDOWN, inputTokens: MILLION }, null), null);
   // ...but an unpriced model still reports a usable context window.
   assert.equal(getContextWindow('k3'), 256_000);
+});
+
+test('Grok 4.6 uses published xAI API rates, including the $0.50 cache read', () => {
+  assert.equal(isPricedModel('grok-4.6-build'), true);
+  assert.equal(getContextWindow('grok-4.6-build'), 500_000);
+  const fresh = estimateCostUsd({ ...EMPTY_BREAKDOWN, inputTokens: MILLION }, 'grok-4.6');
+  const cached = estimateCostUsd({ ...EMPTY_BREAKDOWN, cacheReadTokens: MILLION }, 'grok-4.6');
+  const output = estimateCostUsd({ ...EMPTY_BREAKDOWN, outputTokens: MILLION }, 'grok-4.6');
+  assert.equal(fresh?.totalUsd, 2);
+  assert.equal(cached?.totalUsd, 0.5);
+  assert.equal(output?.totalUsd, 6);
+});
+
+test('Grok 4.5 cache reads are cheaper than 4.6', () => {
+  const cached45 = estimateCostUsd({ ...EMPTY_BREAKDOWN, cacheReadTokens: MILLION }, 'grok-4.5');
+  const cached46 = estimateCostUsd({ ...EMPTY_BREAKDOWN, cacheReadTokens: MILLION }, 'grok-4.6');
+  assert.equal(cached45?.totalUsd, 0.3);
+  assert.equal(cached46?.totalUsd, 0.5);
+});
+
+test('Grok native usage subtracts cache from inclusive inputTokens', () => {
+  const row = readUsageBreakdown({
+    inputTokens: 2_871_452,
+    outputTokens: 43_404,
+    cachedReadTokens: 2_665_856,
+    cacheCreationTokens: 0,
+  });
+  assert.equal(row.freshInput, 2_871_452 - 2_665_856);
+  assert.equal(row.cacheRead, 2_665_856);
+  assert.equal(row.output, 43_404);
+});
+
+test('Anthropic usage keeps input_tokens as fresh input', () => {
+  const row = readUsageBreakdown({
+    input_tokens: 40_217,
+    output_tokens: 707,
+    cache_read_input_tokens: 19_328,
+    cache_creation_input_tokens: 0,
+  });
+  assert.equal(row.freshInput, 40_217);
+  assert.equal(row.cacheRead, 19_328);
+  assert.equal(row.output, 707);
 });
 
 test('cache-creation split reads the per-TTL detail when present', () => {

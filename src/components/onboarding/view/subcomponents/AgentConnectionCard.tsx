@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react';
+
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import type { LLMProvider } from '../../../../types/app';
 import type { ProviderAuthStatus } from '../../../provider-auth/types';
@@ -11,6 +12,10 @@ type AgentConnectionCardProps = {
   iconContainerClassName: string;
   loginButtonClassName: string;
   onLogin: () => void;
+  loginLabel: string;
+  checkingLabel: string;
+  connectedLabel: string;
+  notConnectedLabel: string;
 };
 
 export default function AgentConnectionCard({
@@ -21,14 +26,18 @@ export default function AgentConnectionCard({
   iconContainerClassName,
   loginButtonClassName,
   onLogin,
+  loginLabel,
+  checkingLabel,
+  connectedLabel,
+  notConnectedLabel,
 }: AgentConnectionCardProps) {
   const containerClassName = status.authenticated ? connectedClassName : 'border-border bg-card';
 
   const statusText = status.loading
-    ? 'Checking...'
+    ? checkingLabel
     : status.authenticated
-      ? status.email || 'Connected'
-      : status.error || 'Not connected';
+      ? status.email || connectedLabel
+      : status.error || notConnectedLabel;
 
   return (
     <div className={`rounded-xl border px-3 py-2.5 transition-colors ${containerClassName}`}>
@@ -52,7 +61,7 @@ export default function AgentConnectionCard({
             onClick={onLogin}
             className={`${loginButtonClassName} flex-shrink-0 rounded-lg px-4 py-1.5 text-sm font-medium text-white transition-colors`}
           >
-            Login
+            {loginLabel}
           </button>
         )}
       </div>
