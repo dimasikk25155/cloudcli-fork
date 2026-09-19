@@ -24,6 +24,16 @@ APP=/home/cloudcli/cloudcli
 }
 
 echo "==> Pulling code"
+# Local edits (usually an agent on this box "fixing" the UI in place) would make
+# `git pull --ff-only` refuse. Save them as a patch next to the app and clear
+# them: the fix should land upstream, not live in one install.
+DIRTY=$(su - cloudcli -c "cd ~/cloudcli && git status --porcelain --untracked-files=no")
+if [ -n "$DIRTY" ]; then
+  PATCH=/home/cloudcli/cloudcli-local-changes-$(date +%Y%m%d-%H%M%S).patch
+  su - cloudcli -c "cd ~/cloudcli && git diff > '$PATCH' && git checkout -- . "
+  echo "   ⚠️  local edits were set aside to $PATCH:"
+  echo "$DIRTY" | sed 's/^/      /'
+fi
 su - cloudcli -c "cd ~/cloudcli && git pull --ff-only"
 
 echo "==> npm install"
