@@ -22,11 +22,13 @@ export const PROVIDER_MODELS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 // v5, 22.08.2026: picker keeps Build + Fast, the other three modes stay hidden;
 // v6, 24.08.2026: Fast label → «Grok Fast», identity rules on presets;
 // v7, 11.09.2026: Codex always exposes Astra, Sol, Terra, and Luna;
-// v8, 17.09.2026: Codex adds GPT-5.5 + descriptions).
+// v8, 17.09.2026: Codex adds GPT-5.5 + descriptions;
+// v9, 22.09.2026: Grok lists real models with effort chips, read live from
+// the CLI's own ~/.grok/models_cache.json — hence uncached below).
 // Entries are cached for three days, so without a bump the UI would keep the
 // pre-change catalog until the TTL ran out.
-const PROVIDER_MODELS_CACHE_VERSION = 8;
-const UNCACHED_PROVIDERS = new Set<LLMProvider>(['claude']);
+const PROVIDER_MODELS_CACHE_VERSION = 9;
+const UNCACHED_PROVIDERS = new Set<LLMProvider>(['claude', 'grok']);
 
 type ProviderModelsServiceDependencies = {
   resolveProvider?: (provider: LLMProvider) => Pick<IProvider, 'models'>;

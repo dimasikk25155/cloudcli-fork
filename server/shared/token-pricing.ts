@@ -73,8 +73,13 @@ const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: numb
   ['gpt-', null, 400_000],
   ['o3', null, 200_000],
   ['gemini', null, 1_000_000],
-  // Grok — published API rates (docs.x.ai/developers/pricing, 24.08.2026).
-  // Native CLI ids arrive as `grok-4.6-build`; longest prefix still wins.
+  // Grok — published API rates (docs.x.ai/developers/pricing, 24.08.2026;
+  // 4.7 announced 21.09.2026 at the same $2/$6 as 4.6; the CLI's model cache
+  // labels `grok-4.7-build-fast` "Fast variant. 2x the price").
+  // Native CLI ids arrive as `grok-4.7-build` / `grok-4.7-build-fast`;
+  // longest prefix still wins.
+  ['grok-4.7-build-fast', { input: 4, output: 12, contextWindow: 500_000, cacheRead: 1.00 }, 500_000],
+  ['grok-4.7', { input: 2, output: 6, contextWindow: 500_000, cacheRead: 0.50 }, 500_000],
   ['grok-4.6', { input: 2, output: 6, contextWindow: 500_000, cacheRead: 0.50 }, 500_000],
   ['grok-4.5', { input: 2, output: 6, contextWindow: 500_000, cacheRead: 0.30 }, 500_000],
   ['grok-4.3', { input: 1.25, output: 2.50, contextWindow: 1_000_000 }, 1_000_000],

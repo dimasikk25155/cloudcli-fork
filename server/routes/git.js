@@ -1189,7 +1189,7 @@ Generate the commit message:`;
         projectPath,
         runId: auditRunId,
         provider,
-        model: auditCost.model ?? (provider === 'grok' ? 'grok-4.6' : 'sonnet'),
+        model: auditCost.model ?? (provider === 'grok' ? 'grok-4.7' : 'sonnet'),
         outcome: 'ok',
         detail: 'commit message generation',
         tokensIn: auditCost.breakdown.inputTokens,

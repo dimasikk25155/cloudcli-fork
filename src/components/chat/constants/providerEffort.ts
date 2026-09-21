@@ -6,6 +6,9 @@ export const FALLBACK_PROVIDER_EFFORT_VALUES: Partial<Record<LLMProvider, readon
   claude: ['low', 'medium', 'high', 'xhigh', 'max'],
   codex: ['low', 'medium', 'high', 'xhigh'],
   opencode: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  // First paint before the catalog lands; the catalog then narrows per model
+  // (grok-4.5 has no xhigh).
+  grok: ['low', 'medium', 'high', 'xhigh'],
 };
 
 export const toProviderEffortOptions = (

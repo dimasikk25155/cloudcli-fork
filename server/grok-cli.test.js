@@ -104,11 +104,12 @@ test('resolveGrokEffort drops levels the selected model does not accept', () => 
   // The composer's sentinel: every provider sends it when no level is picked.
   assert.equal(resolveGrokEffort('grok-4.6', 'default'), undefined);
   assert.equal(resolveGrokEffort('grok-4.6', undefined), undefined);
-  // xhigh exists on 4.6 only; on 4.5 it is an argv error, not a downgrade.
+  // xhigh exists on 4.6 and newer; on 4.5 it is an argv error, not a downgrade.
+  assert.equal(resolveGrokEffort('grok-4.7', 'xhigh'), 'xhigh');
   assert.equal(resolveGrokEffort('grok-4.6', 'xhigh'), 'xhigh');
   assert.equal(resolveGrokEffort('grok-4.5', 'xhigh'), undefined);
   assert.equal(resolveGrokEffort('grok-4.5', 'high'), 'high');
-  // No model selected means the CLI runs its own default (grok-4.6).
+  // No model selected means the catalog default (grok-4.7), which takes xhigh.
   assert.equal(resolveGrokEffort(null, 'xhigh'), 'xhigh');
   assert.equal(resolveGrokEffort('grok-4.6', 'bogus'), undefined);
 });
@@ -251,30 +252,45 @@ test('every mode preset expands into flags the CLI actually accepts', () => {
   }
 });
 
-test('the catalog offers Build and Fast and keeps the other modes wired', () => {
+test('the catalog offers the real models and keeps the mode presets wired', () => {
   const visible = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => !option.hidden);
-  assert.deepEqual(visible.map((option) => option.value), ['grok-mode-build', 'grok-mode-fast']);
-  assert.equal(visible[0].label, 'Grok 4.6 Build');
-  assert.equal(visible[1].label, 'Grok Fast');
-  // Старые чаты на спрятанных режимах и сырых моделях должны продолжать работать.
-  const hidden = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => option.hidden).map((o) => o.value);
-  assert.deepEqual(hidden, [
-    'grok-mode-auto',
-    'grok-mode-expert',
-    'grok-mode-heavy',
+  assert.deepEqual(visible.map((option) => option.value), [
+    'grok-4.7',
+    'grok-4.7-build-fast',
     'grok-4.6',
     'grok-4.5',
   ]);
-  assert.ok(GROK_MODE_PRESETS[GROK_FALLBACK_MODELS.DEFAULT], 'the default must be one of the modes');
-  assert.equal(GROK_MODE_PRESETS['grok-mode-build'].model, 'grok-4.6');
-  assert.equal(GROK_MODE_PRESETS['grok-mode-fast'].model, 'grok-4.5');
+  assert.equal(visible[0].label, 'Grok 4.7');
+  assert.equal(GROK_FALLBACK_MODELS.DEFAULT, 'grok-4.7');
+  // Старые чаты на спрятанных режимах должны продолжать работать.
+  const hidden = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => option.hidden).map((o) => o.value);
+  assert.deepEqual(hidden, [
+    'grok-mode-build',
+    'grok-mode-fast',
+    'grok-mode-auto',
+    'grok-mode-expert',
+    'grok-mode-heavy',
+  ]);
+  assert.equal(GROK_MODE_PRESETS['grok-mode-build'].model, 'grok-4.7');
+  assert.equal(GROK_MODE_PRESETS['grok-mode-fast'].model, 'grok-4.7');
+});
+
+test('a real model rides the composer effort chip straight into --reasoning-effort', () => {
+  // Главная претензия 22.09: месяц на high без возможности выбрать xhigh.
+  const xhigh = argsForModel('grok-4.7', { effort: 'xhigh' });
+  assert.equal(xhigh[xhigh.indexOf('-m') + 1], 'grok-4.7');
+  assert.equal(xhigh[xhigh.indexOf('--reasoning-effort') + 1], 'xhigh');
+
+  // Чип не тронут — CLI сам берёт свой дефолт (high), флаг не передаём.
+  const untouched = argsForModel('grok-4.7', { effort: 'default' });
+  assert.ok(!untouched.includes('--reasoning-effort'));
 });
 
 test('a preset owns its level — the effort chip cannot override it', () => {
   // Уровень, унаследованный из чата на Claude, не должен ни подменять режим,
   // ни убивать прогон (xhigh на 4.5 — ошибка argv, а не понижение).
   const fast = argsForModel('grok-mode-fast', { effort: 'xhigh' });
-  assert.equal(fast[fast.indexOf('-m') + 1], 'grok-4.5');
+  assert.equal(fast[fast.indexOf('-m') + 1], 'grok-4.7');
   assert.equal(fast[fast.indexOf('--reasoning-effort') + 1], 'low');
 
   const auto = argsForModel('grok-mode-auto', { effort: 'high' });
@@ -294,7 +310,7 @@ test('every visible mode ships an identity rule; heavy also ships the panel rule
   assert.match(fast[fast.indexOf('--rules') + 1], /Grok Fast/);
 
   const build = argsForModel('grok-mode-build', { workMode: 'autopilot' });
-  assert.match(build[build.indexOf('--rules') + 1], /Grok 4\.6 Build/);
+  assert.match(build[build.indexOf('--rules') + 1], /Grok 4\.7 Build/);
 
   // Правило режима и режим работы едут вместе, не вытесняя друг друга.
   const both = buildGrokRules({ workMode: 'checkpoints', permissionMode: 'planBypass', model: 'grok-mode-heavy' });

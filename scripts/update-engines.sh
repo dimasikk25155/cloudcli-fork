@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # update-engines.sh — keep every coding-agent CLI current for the Neo3 Agent
-# System (CloudCLI fork). Run periodically by launchd
-# (com.dimasik.cloudcli-engine-update); also safe to run by hand.
+# System (CloudCLI fork). Run nightly by launchd
+# (com.dimasik.cloudcli-engine-update, 04:30); also safe to run by hand.
+# The CLIs are spawned fresh per run, so no Neo3 restart is needed afterwards.
 #
 # Each engine is updated with its own official mechanism and logged. A failed
 # engine never aborts the others. Logs: ~/.cloudcli/engine-update.log
@@ -36,6 +37,17 @@ for entry in "@openai/codex:codex" "opencode-ai:opencode"; do
     log "${bin} -> UPDATE FAILED (see log)"
   fi
 done
+
+# Grok Build — standalone binary, self-updater (`grok update` is a no-op when
+# current). 22.09.2026: it sat on 1.0.25 for three weeks while 4.7 shipped —
+# this line is why the model picker now follows the CLI instead of the code.
+if command -v grok >/dev/null 2>&1; then
+  if grok update >>"$LOG" 2>&1; then
+    log "grok     -> $(grok --version 2>/dev/null | awk '{print $2}')"
+  else
+    log "grok     -> UPDATE FAILED (see log)"
+  fi
+fi
 
 # Cursor Agent — official installer is idempotent and updates in place.
 if command -v cursor-agent >/dev/null 2>&1; then

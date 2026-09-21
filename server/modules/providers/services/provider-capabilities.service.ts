@@ -145,8 +145,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     // The `result` event carries a full Anthropic-shaped usage payload
     // (input/output/cache_read/cache_creation), so the token badge works.
     supportsTokenUsage: true,
-    // `--reasoning-effort` takes low/medium/high (+ xhigh on 4.6 only) —
-    // confirmed on 1.0.5, see grok-models.provider.ts. The CLI rejects any
+    // `--reasoning-effort` takes low/medium/high (+ xhigh on 4.6 and newer,
+    // not on 4.5) — see grok-models.provider.ts. The CLI rejects any
     // other value at argv parse time and the run dies before it starts, so
     // resolveGrokEffort in grok-cli.js drops the composer's `default`
     // sentinel and any level the selected model does not list.

@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import crossSpawn from 'cross-spawn';
 
-import { GROK_FALLBACK_MODELS, resolveGrokModePreset } from './modules/providers/list/grok/grok-models.provider.js';
+import { readGrokModelsDefinition, resolveGrokModePreset } from './modules/providers/list/grok/grok-models.provider.js';
 import { workModeInstruction } from './shared/work-mode.js';
 import {
   appendImagesInputTag,
@@ -512,10 +512,12 @@ export function buildGrokRules({ workMode, permissionMode, model, planBypassPhas
  *   - `xhigh` inherited from a Claude/Codex chat while Grok 4.5 is selected —
  *     4.5 only takes high/medium/low (see grok-models.provider.ts).
  * Anything not offered by the selected model is dropped, which leaves the CLI
- * on its own default. Same shape as resolveClaudeEffort / resolveOpenCodeEffort.
+ * on its own default. The allowed levels come from the CLI's own model cache
+ * (readGrokModelsDefinition), so a model that ships tomorrow gets its levels
+ * without a code change. Same shape as resolveClaudeEffort / resolveOpenCodeEffort.
  * Exported for tests only.
  */
-export function resolveGrokEffort(model, effort, modelsDefinition = GROK_FALLBACK_MODELS) {
+export function resolveGrokEffort(model, effort, modelsDefinition = readGrokModelsDefinition()) {
   const requested = model || modelsDefinition?.DEFAULT;
   // The catalog's DEFAULT is a mode preset now, and a preset carries no effort
   // list of its own — so resolve it to the real model first, otherwise "no
@@ -533,10 +535,13 @@ export function resolveGrokEffort(model, effort, modelsDefinition = GROK_FALLBAC
 /**
  * Claude Code executes the hooks from ~/.claude/settings.json and folds their
  * stdout into the model's context (the vault digest, the real clock). Grok
- * Build lists those hooks in `grok inspect` but demonstrably never runs them —
- * a live session asked about the vault block answered «НЕТ ТАКОГО БЛОКА»
- * (22.08). So the runtime executes them itself and rides the output into the
- * prompt alongside the work-mode rules.
+ * Build 1.0.5 listed those hooks in `grok inspect` but demonstrably never ran
+ * them — a live session asked about the vault block answered «НЕТ ТАКОГО
+ * БЛОКА» (22.08). 1.0.40 runs them natively but the model still sees no
+ * SessionStart/UserPromptSubmit context (measured 22.09), so the runtime
+ * keeps executing them itself and rides the output into the prompt alongside
+ * the work-mode rules (native scan disabled via GROK_CLAUDE_HOOKS_ENABLED=0
+ * in spawnGrok, see there).
  *
  * SessionStart hooks run once per NEW session; UserPromptSubmit hooks run on
  * every turn. The night-shift budget hook is the one deliberate skip: it
@@ -1238,7 +1243,15 @@ async function spawnGrok(command, options = {}, ws) {
         grokProcess = spawnFunction(resolveGrokCliPath(), args, {
           cwd: workingDir,
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env },
+          // grok >= 1.0.40 scans ~/.claude/settings.json hooks itself
+          // ("Claude Code compatibility"). Measured 22.09: SessionStart /
+          // UserPromptSubmit context still never reaches the model, while the
+          // Stop hook fires natively — with a camelCase `sessionId` the
+          // hook's own sentinel misses, so it woke TWO extra turns per answer.
+          // This runtime already emulates every hook it needs (context into
+          // the prompt, one wrapped Stop follow-up), so the native scan is
+          // switched off for the child; skills/MCP/rules compat stays on.
+          env: { ...process.env, GROK_CLAUDE_HOOKS_ENABLED: '0' },
           // Own process group (POSIX): Stop must kill the whole tree. A plain
           // SIGTERM to the CLI alone leaves its bash children running — live
           // run 22.08: `sleep 120` survived the stop, reparented to init.

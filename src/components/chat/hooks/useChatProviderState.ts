@@ -45,10 +45,30 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   opencode: 'anthropic/claude-sonnet-4-5',
   kimi: 'kimi-code/k3',
   gemini: 'gemini-2.5-pro',
-  // Grok's picker lists modes, not model ids (grok.com-style): the preset is
-  // expanded into `-m` + `--reasoning-effort` server-side. Naming a raw model
-  // here would open a new chat on an entry the picker no longer shows.
-  grok: 'grok-mode-build',
+  // 22.09.2026: real model ids with an effort chip, like Anthropic/OpenAI.
+  // The old `grok-mode-*` presets still resolve server-side (hidden entries),
+  // but a new chat must not start on one — see LEGACY_GROK_MODEL_IDS.
+  grok: 'grok-4.7',
+};
+
+// Stored defaults (localStorage / account preferences) written while the
+// picker offered mode presets. Mapped onto the real model the preset expands
+// to, so the effort chip appears instead of a hidden preset with no chip.
+// Sessions that already run on a preset are left alone: buildGrokArgs still
+// expands them, and an existing chat never changes model under the user.
+const LEGACY_GROK_MODEL_IDS: Record<string, string> = {
+  'grok-mode-build': 'grok-4.7',
+  'grok-mode-fast': 'grok-4.7',
+  'grok-mode-auto': 'grok-4.7',
+  'grok-mode-expert': 'grok-4.5',
+  'grok-mode-heavy': 'grok-4.7',
+};
+
+const migrateStoredModel = (targetProvider: LLMProvider, model: string | null): string | null => {
+  if (targetProvider === 'grok' && model && LEGACY_GROK_MODEL_IDS[model]) {
+    return LEGACY_GROK_MODEL_IDS[model];
+  }
+  return model;
 };
 
 // Kimi re-added 2026-07-26 — including it here re-enables `loadProviderModels`
@@ -201,7 +221,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     return localStorage.getItem('gemini-model') || FALLBACK_DEFAULT_MODEL.gemini;
   });
   const [grokModel, setGrokModel] = useState<string>(() => {
-    return localStorage.getItem('grok-model') || FALLBACK_DEFAULT_MODEL.grok;
+    return migrateStoredModel('grok', localStorage.getItem('grok-model')) || FALLBACK_DEFAULT_MODEL.grok;
   });
 
   /**
@@ -348,7 +368,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
           }
         }
         for (const targetProvider of PROVIDERS) {
-          const model = data.models?.[targetProvider];
+          const model = migrateStoredModel(targetProvider, data.models?.[targetProvider] ?? null);
           if (model) {
             localStorage.setItem(`${targetProvider}-model`, model);
             if (!hasOpenSession) {

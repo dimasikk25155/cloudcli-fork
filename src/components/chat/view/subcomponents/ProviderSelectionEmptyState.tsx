@@ -340,9 +340,9 @@ export default function ProviderSelectionEmptyState({
             </DialogContent>
           </Dialog>
 
-          {/* Человеческое имя, а не id из каталога: у Grok это режим
-              («Build»), и строка «Готов использовать Grok с grok-mode-build»
-              ничего Диме не говорит. Тот же лейбл, что и в карточке выше. */}
+          {/* Человеческое имя, а не id из каталога: строка «Готов использовать
+              Grok с grok-4.7-build-fast» ничего Диме не говорит. Тот же лейбл,
+              что и в карточке выше. */}
           <p className="mt-4 text-center text-sm text-muted-foreground/70">
             {
               {
