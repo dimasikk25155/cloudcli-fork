@@ -1,4 +1,4 @@
-import { api } from '../../../utils/api';
+import { api, authenticatedFetch } from '../../../utils/api';
 import type {
   BrowseFilesystemResponse,
   CloneProgressEvent,
@@ -111,25 +111,41 @@ export const createProjectRequest = async (payload: CreateProjectPayload) => {
   return data.project;
 };
 
-const buildCloneProgressQuery = ({
+type StartCloneResponse = {
+  cloneId?: string;
+  error?: string | { message?: string };
+};
+
+// Submits the clone details — GitHub token included — in a request body and returns the
+// id the progress stream is opened with, so the GitHub token never enters a URL (upstream #1347).
+const startClone = async ({
   workspacePath,
   githubUrl,
   tokenMode,
   selectedGithubToken,
   newGithubToken,
 }: CloneWorkspaceParams) => {
-  const query = new URLSearchParams({
-    path: workspacePath.trim(),
-    githubUrl: githubUrl.trim(),
+  const response = await authenticatedFetch('/api/projects/clone', {
+    method: 'POST',
+    body: JSON.stringify({
+      path: workspacePath.trim(),
+      githubUrl: githubUrl.trim(),
+      githubTokenId: tokenMode === 'stored' && selectedGithubToken ? Number(selectedGithubToken) : null,
+      newGithubToken: tokenMode === 'new' && newGithubToken.trim() ? newGithubToken.trim() : null,
+    }),
   });
+  const data = await parseJson<StartCloneResponse>(response);
 
-  if (tokenMode === 'stored' && selectedGithubToken) {
-    query.set('githubTokenId', selectedGithubToken);
+  if (!response.ok || !data.cloneId) {
+    const errorMessage = typeof data.error === 'string' ? data.error : data.error?.message;
+    throw new Error(errorMessage || 'Failed to start clone');
   }
 
-  if (tokenMode === 'new' && newGithubToken.trim()) {
-    query.set('newGithubToken', newGithubToken.trim());
-  }
+  return data.cloneId;
+};
+
+const buildCloneProgressQuery = (cloneId: string) => {
+  const query = new URLSearchParams({ cloneId });
 
   // EventSource cannot send custom headers, so the auth token is passed as query.
   const authToken = localStorage.getItem('auth-token');
@@ -140,13 +156,12 @@ const buildCloneProgressQuery = ({
   return query.toString();
 };
 
-export const cloneWorkspaceWithProgress = (
-  params: CloneWorkspaceParams,
+const streamCloneProgress = (
+  cloneId: string,
   handlers: CloneProgressHandlers,
 ) =>
   new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
-    const query = buildCloneProgressQuery(params);
-    const eventSource = new EventSource(`/api/projects/clone-progress?${query}`);
+    const eventSource = new EventSource(`/api/projects/clone-progress?${buildCloneProgressQuery(cloneId)}`);
     let settled = false;
 
     const settle = (callback: () => void) => {
@@ -184,3 +199,8 @@ export const cloneWorkspaceWithProgress = (
       settle(() => reject(new Error('Connection lost during clone')));
     };
   });
+
+export const cloneWorkspaceWithProgress = async (
+  params: CloneWorkspaceParams,
+  handlers: CloneProgressHandlers,
+) => streamCloneProgress(await startClone(params), handlers);

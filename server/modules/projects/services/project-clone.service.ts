@@ -44,7 +44,11 @@ type CloneProjectDependencies = {
     tokenId: number,
     userId: number,
   ) => Promise<{ github_token: string } | null>;
-  spawnGitClone: (cloneUrl: string, clonePath: string) => GitCloneProcess;
+  spawnGitClone: (
+    cloneUrl: string,
+    clonePath: string,
+    environment: NodeJS.ProcessEnv,
+  ) => GitCloneProcess;
   registerProject: (projectPath: string, customName: string) => Promise<{ project: Record<string, unknown> }>;
   logError: (message: string, error: unknown) => void;
 };
@@ -67,6 +71,66 @@ async function defaultPathExists(targetPath: string): Promise<boolean> {
   }
 }
 
+/**
+ * The only origin the credential helper answers for (upstream #1347). A helper that
+ * answered every challenge would hand the GitHub token to whatever host the clone URL
+ * names — and over plain http, in the clear.
+ */
+const GITHUB_TOKEN_CREDENTIAL_SCOPE = 'credential.https://github.com.helper';
+
+/**
+ * The token never goes into the clone URL: git echoes that URL on stderr (the SSE
+ * progress stream), it sits in the process argv (`ps`) and it is written to the cloned
+ * repo's `.git/config` as `origin`. Env-only config points git at a helper that reads
+ * the token from its own environment instead. The empty first entry clears helpers
+ * configured on the machine (e.g. osxkeychain), so a stored credential can neither
+ * shadow the selected one nor receive it for storage.
+ */
+export function buildGitCloneEnvironment(githubToken: string | null): NodeJS.ProcessEnv {
+  if (!githubToken) {
+    return { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+  }
+
+  return {
+    ...process.env,
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'credential.helper',
+    GIT_CONFIG_VALUE_0: '',
+    GIT_CONFIG_KEY_1: GITHUB_TOKEN_CREDENTIAL_SCOPE,
+    GIT_CONFIG_VALUE_1: '!f() { echo username=x-access-token; echo "password=$CLOUDCLI_GITHUB_TOKEN"; }; f',
+    CLOUDCLI_GITHUB_TOKEN: githubToken,
+    GIT_TERMINAL_PROMPT: '0',
+  };
+}
+
+/**
+ * Whether a clone URL embeds a credential: any password, or a username on an http(s)
+ * URL. An SSH URL's `git@` is a login name, not a secret.
+ */
+function carriesCredentials(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    // scp-like `git@github.com:org/repo.git` and bare paths are not URLs.
+    return false;
+  }
+  if (parsed.password) {
+    return true;
+  }
+  return Boolean(parsed.username) && (parsed.protocol === 'http:' || parsed.protocol === 'https:');
+}
+
+function isParsableUrl(url: string): boolean {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Defense in depth: git no longer receives the token, but never echo it if it ever shows up.
 function sanitizeGitError(message: string, token: string | null): string {
   if (!message || !token) {
     return message;
@@ -126,13 +190,14 @@ const defaultDependencies: CloneProjectDependencies = {
       | null;
     return tokenRow;
   },
-  spawnGitClone: (cloneUrl: string, clonePath: string): GitCloneProcess =>
+  spawnGitClone: (
+    cloneUrl: string,
+    clonePath: string,
+    environment: NodeJS.ProcessEnv,
+  ): GitCloneProcess =>
     spawn('git', ['clone', '--progress', '--', cloneUrl, clonePath], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: '0',
-      },
+      env: environment,
     }) as unknown as GitCloneProcess,
   registerProject: async (
     projectPath: string,
@@ -150,8 +215,9 @@ const defaultDependencies: CloneProjectDependencies = {
 export async function startCloneProject(
   input: CloneProjectInput,
   handlers: CloneProjectEventHandlers,
-  dependencies: CloneProjectDependencies = defaultDependencies,
+  dependencyOverrides: Partial<CloneProjectDependencies> = {},
 ): Promise<CloneProjectOperation> {
+  const dependencies = { ...defaultDependencies, ...dependencyOverrides };
   const normalizedWorkspacePath = input.workspacePath.trim();
   const normalizedGithubUrl = input.githubUrl.trim();
 
@@ -172,6 +238,24 @@ export async function startCloneProject(
   if (normalizedGithubUrl.startsWith('-')) {
     throw new AppError('Invalid githubUrl', {
       code: 'INVALID_GITHUB_URL',
+      statusCode: 400,
+    });
+  }
+
+  // An http(s) string the URL parser rejects is one curl rejects too — but only after
+  // git has carried it, and any credential in it, on its command line.
+  if (/^https?:/i.test(normalizedGithubUrl) && !isParsableUrl(normalizedGithubUrl)) {
+    throw new AppError('Invalid githubUrl', {
+      code: 'INVALID_GITHUB_URL',
+      statusCode: 400,
+    });
+  }
+
+  if (carriesCredentials(normalizedGithubUrl)) {
+    // The token field is the only way in: a credential in the URL would ride git's
+    // argv, its stderr and the clone's `.git/config`.
+    throw new AppError('Put the token in the token field, not in the URL', {
+      code: 'GITHUB_URL_CARRIES_CREDENTIALS',
       statusCode: 400,
     });
   }
@@ -225,33 +309,25 @@ export async function startCloneProject(
     );
   }
 
-  let cloneUrl = normalizedGithubUrl;
-  if (githubToken) {
-    try {
-      const url = new URL(normalizedGithubUrl);
-      url.username = githubToken;
-      url.password = '';
-      cloneUrl = url.toString();
-    } catch {
-      // SSH URLs cannot be represented by URL constructor and are used as-is.
-    }
-  }
-
   handlers.onProgress(`Cloning into '${repoName}'...`);
-  const gitProcess = dependencies.spawnGitClone(cloneUrl, clonePath);
+  const gitProcess = dependencies.spawnGitClone(
+    normalizedGithubUrl,
+    clonePath,
+    buildGitCloneEnvironment(githubToken),
+  );
   let lastError = '';
 
   gitProcess.stdout?.on('data', (data: Buffer | string) => {
-    const message = data.toString().trim();
+    const message = sanitizeGitError(data.toString().trim(), githubToken);
     if (message) {
       handlers.onProgress(message);
     }
   });
 
   gitProcess.stderr?.on('data', (data: Buffer | string) => {
-    const message = data.toString().trim();
-    lastError = message;
+    const message = sanitizeGitError(data.toString().trim(), githubToken);
     if (message) {
+      lastError = message;
       handlers.onProgress(message);
     }
   });

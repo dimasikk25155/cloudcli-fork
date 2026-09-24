@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { createProject, updateProjectDisplayName } from '@/modules/projects/services/project-management.service.js';
+import { createPendingCloneRequests } from '@/modules/projects/services/project-clone-request.service.js';
 import { startCloneProject } from '@/modules/projects/services/project-clone.service.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
@@ -9,6 +10,9 @@ import { applyLegacyStarredProjectIds, toggleProjectStar } from '@/modules/proje
 import { userProjectAccessDb } from '@/modules/database/index.js';
 
 const router = express.Router();
+
+// Parked clone requests live for one minute: long enough for the EventSource to connect.
+const pendingCloneRequests = createPendingCloneRequests(60_000);
 
 type AuthenticatedUser = {
   id?: number | string;
@@ -75,6 +79,18 @@ function parseNonNegativeIntQuery(value: unknown, name: string, fallback: number
   }
 
   return parsedValue;
+}
+
+function requireCloneUserId(req: express.Request): number | string {
+  const userId = (req as typeof req & { user?: AuthenticatedUser }).user?.id;
+  if (userId === undefined || userId === null) {
+    throw new AppError('Authenticated user is required', {
+      code: 'AUTHENTICATION_REQUIRED',
+      statusCode: 401,
+    });
+  }
+
+  return userId;
 }
 
 function resolveRouteErrorMessage(error: unknown): string {
@@ -145,7 +161,7 @@ router.post(
       throw new AppError('Repository cloning is not supported on create-project', {
         code: 'CLONE_NOT_SUPPORTED_ON_CREATE_PROJECT',
         statusCode: 400,
-        details: 'Use /api/projects/clone-progress for cloning workflows',
+        details: 'Use POST /api/projects/clone, then /api/projects/clone-progress',
       });
     }
 
@@ -182,70 +198,94 @@ router.post(
   }),
 );
 
-router.get('/clone-progress', async (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
+/**
+ * Clone runs in two halves (upstream #1347). EventSource can only issue a bare GET, and a
+ * GET's URL lands in nginx access logs and browser history — so the GitHub token arrives
+ * in this POST body and is parked under an opaque, single-use, user-bound id.
+ */
+router.post(
+  '/clone',
+  asyncHandler(async (req, res) => {
+    const userId = requireCloneUserId(req);
+    const requestBody = (req.body ?? {}) as Record<string, unknown>;
+    const cloneId = pendingCloneRequests.add(userId, {
+      workspacePath: typeof requestBody.path === 'string' ? requestBody.path : '',
+      githubUrl: typeof requestBody.githubUrl === 'string' ? requestBody.githubUrl : '',
+      githubTokenId: typeof requestBody.githubTokenId === 'number' ? requestBody.githubTokenId : null,
+      newGithubToken: typeof requestBody.newGithubToken === 'string' ? requestBody.newGithubToken : null,
+    });
 
-  const sendEvent = (type: string, data: Record<string, unknown>) => {
-    if (res.writableEnded) {
-      return;
-    }
+    res.json({ cloneId });
+  }),
+);
 
-    res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
-  };
-
-  let cloneOperation: Awaited<ReturnType<typeof startCloneProject>> | null = null;
-  const closeListener = () => {
-    cloneOperation?.cancel();
-  };
-  req.on('close', closeListener);
-
-  try {
-    const queryParams = req.query as Record<string, unknown>;
-    const workspacePath = readQueryStringValue(queryParams.path);
-    const githubUrl = readQueryStringValue(queryParams.githubUrl);
-    const githubTokenId = readOptionalNumericQueryValue(queryParams.githubTokenId);
-    const newGithubToken = readQueryStringValue(queryParams.newGithubToken) || null;
-
-    const authenticatedUser = (req as typeof req & { user?: AuthenticatedUser }).user;
-    const userId = authenticatedUser?.id;
-    if (userId === undefined || userId === null) {
-      throw new AppError('Authenticated user is required', {
-        code: 'AUTHENTICATION_REQUIRED',
-        statusCode: 401,
+/**
+ * Claims the parked request before any stream headers go out, so a stale or foreign id
+ * gets an ordinary 404 instead of an empty stream. Credentials in the query are ignored.
+ */
+router.get(
+  '/clone-progress',
+  asyncHandler(async (req, res) => {
+    const userId = requireCloneUserId(req);
+    const cloneId = readQueryStringValue(req.query.cloneId);
+    const cloneRequest = pendingCloneRequests.claim(cloneId, userId);
+    if (!cloneRequest) {
+      throw new AppError('Clone request not found or expired', {
+        code: 'CLONE_REQUEST_NOT_FOUND',
+        statusCode: 404,
       });
     }
 
-    cloneOperation = await startCloneProject(
-      {
-        workspacePath,
-        githubUrl,
-        githubTokenId,
-        newGithubToken,
-        userId,
-      },
-      {
-        onProgress: (message) => {
-          sendEvent('progress', { message });
-        },
-        onComplete: ({ project, message }) => {
-          sendEvent('complete', { project, message });
-        },
-      },
-    );
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
 
-    await cloneOperation.waitForCompletion;
-  } catch (error) {
-    sendEvent('error', { message: resolveRouteErrorMessage(error) });
-  } finally {
-    req.off('close', closeListener);
-    if (!res.writableEnded) {
-      res.end();
+    const sendEvent = (type: string, data: Record<string, unknown>) => {
+      if (res.writableEnded) {
+        return;
+      }
+
+      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    };
+
+    // The client can leave while input is still validated — before an operation exists.
+    // Remember it, so git is cancelled the moment it starts instead of cloning for nobody.
+    let cloneOperation: Awaited<ReturnType<typeof startCloneProject>> | null = null;
+    let clientGone = false;
+    const closeListener = () => {
+      clientGone = true;
+      cloneOperation?.cancel();
+    };
+    req.on('close', closeListener);
+
+    try {
+      cloneOperation = await startCloneProject(
+        { ...cloneRequest, userId },
+        {
+          onProgress: (message) => {
+            sendEvent('progress', { message });
+          },
+          onComplete: ({ project, message }) => {
+            sendEvent('complete', { project, message });
+          },
+        },
+      );
+      if (clientGone) {
+        cloneOperation.cancel();
+      }
+
+      await cloneOperation.waitForCompletion;
+    } catch (error) {
+      sendEvent('error', { message: resolveRouteErrorMessage(error) });
+    } finally {
+      req.off('close', closeListener);
+      if (!res.writableEnded) {
+        res.end();
+      }
     }
-  }
-});
+  }),
+);
 
 router.put('/:projectId/rename', (req, res) => {
   try {
