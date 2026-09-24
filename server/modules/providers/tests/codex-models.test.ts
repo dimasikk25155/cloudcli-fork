@@ -10,6 +10,9 @@ import {
   CodexProviderModels,
 } from '@/modules/providers/list/codex/codex-models.provider.js';
 
+import { CLAUDE_FALLBACK_MODELS } from '../list/claude/claude-models.provider.js';
+import { GROK_FALLBACK_MODELS } from '../list/grok/grok-models.provider.js';
+
 const RECOMMENDED_CODEX_MODELS = [
   'gpt-6-astra',
   'gpt-5.6-sol',
@@ -54,4 +57,29 @@ test('a rewritten cache discovers newer selected families and retains valid data
     await writeFile(file, JSON.stringify({ models: [] }));
     assert.deepEqual(await provider.getSupportedModels(), fresh);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+
+test('approved model metadata keeps exact per-version defaults, including the Sol 6 upgrade', () => {
+  const current = [CODEX_FALLBACK_MODELS, CLAUDE_FALLBACK_MODELS, GROK_FALLBACK_MODELS]
+    .flatMap(catalogue => catalogue.OPTIONS.filter(option => !option.hidden));
+  assert.deepEqual(Object.fromEntries(current.map(option => [option.value, option.effort?.default])), {
+    'gpt-6-astra': 'medium',
+    'gpt-5.6-sol': 'low',
+    'opus[1m]': 'medium',
+    'sonnet[1m]': 'high',
+    fable: 'high',
+    'grok-4.7': 'high',
+    'grok-4.7-build-fast': 'high',
+  });
+  // Installed CLI catalogue evidence: Sol 6 changes the default to medium.
+  const upgraded = buildCodexModelsDefinition([
+    { slug: 'gpt-6-sol', display_name: 'GPT-6 Sol', visibility: 'list',
+      default_reasoning_level: 'medium', supported_reasoning_levels: [
+        { effort: 'low' }, { effort: 'medium' }, { effort: 'high' },
+        { effort: 'xhigh' }, { effort: 'max' }, { effort: 'ultra' },
+      ] },
+  ]);
+  assert.equal(upgraded.DEFAULT, 'gpt-6-sol');
+  assert.equal(upgraded.OPTIONS.find(option => option.value === 'gpt-6-sol')?.effort?.default, 'medium');
 });

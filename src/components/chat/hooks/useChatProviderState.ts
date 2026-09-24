@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { authenticatedFetch } from '../../../utils/api';
-import { defaultClaudeModel } from '../../../utils/instanceConfig';
+import { SELECTABLE_PROVIDERS, isSelectableProvider } from '../../../utils/providerSelectionPolicy';
 import { WORK_MODES } from '../types/types';
 import type { PendingPermissionRequest, PermissionMode, WorkMode } from '../types/types';
 import type {
@@ -29,16 +29,11 @@ import {
   readSessionWorkMode,
   workModeStorageKey,
 } from '../utils/workModeStorage';
-import { applyProviderModel, resolveModelEffort, type ProviderModelSetters } from '../utils/providerModelState';
+import { applyProviderModel, resolveModelEffort, resolveChatSelection, type ProviderModelSetters } from '../utils/providerModelState';
 import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
-  // 'default' means "whatever the CLI is configured to use" and stays the
-  // answer everywhere the optional VITE_DEFAULT_CLAUDE_MODEL is unset (the
-  // production VPS). The laptop instance sets it to a local model so a new
-  // chat opens on that instead of walking through the picker. A model picked
-  // inside a chat is stored per provider in localStorage and still wins.
-  claude: defaultClaudeModel('default'),
+  claude: 'opus[1m]',
   cursor: 'gpt-5.3-codex',
   codex: 'gpt-5.6-sol',
   opencode: 'anthropic/claude-sonnet-4-5',
@@ -70,17 +65,7 @@ const migrateStoredModel = (targetProvider: LLMProvider, model: string | null): 
   return model;
 };
 
-// Kimi re-added 2026-07-26 — including it here re-enables `loadProviderModels`
-// below to fetch/populate providerModelCatalog.kimi, so the model dropdown and
-// the new-chat picker show Kimi again. Login/usage is the user's own account.
-// 'gemini' intentionally excluded — Google killed free personal-account login
-// for Gemini CLI/Code Assist on 2026-06-18 (live test: OAuth token obtained,
-// but Code Assist itself rejects with "no longer supported ... migrate to
-// Antigravity"). Excluding it here also stops loadProviderModels from
-// fetching providerModelCatalog.gemini. Re-add once there's a real login path.
-// 'grok' added 2026-08-21 — xAI's Grok Build CLI, logged in through the
-// SuperGrok subscription (`grok login --device-auth` → ~/.grok/auth.json).
-const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'cursor', 'opencode', 'kimi', 'grok'];
+const PROVIDERS: readonly LLMProvider[] = SELECTABLE_PROVIDERS;
 
 /**
  * Settings-owned "engine every new chat opens on". Cached in localStorage from
@@ -93,7 +78,7 @@ export const DEFAULT_CHAT_PROVIDER_KEY = 'default-chat-provider';
 
 export const readDefaultChatProvider = (): LLMProvider | null => {
   const preferred = localStorage.getItem(DEFAULT_CHAT_PROVIDER_KEY);
-  return PROVIDERS.includes(preferred as LLMProvider) ? preferred as LLMProvider : null;
+  return isSelectableProvider(preferred) ? preferred as LLMProvider : null;
 };
 
 const readStoredProvider = (): LLMProvider => {
@@ -104,7 +89,7 @@ const readStoredProvider = (): LLMProvider => {
     return preferred;
   }
   const storedProvider = localStorage.getItem('selected-provider');
-  return PROVIDERS.includes(storedProvider as LLMProvider)
+  return isSelectableProvider(storedProvider)
     ? storedProvider as LLMProvider
     : 'grok';
 };
@@ -194,14 +179,16 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   // the account default set in Settings (WORK_MODE_DEFAULT_KEY).
   const [workMode, setWorkMode] = useState<WorkMode>(readDefaultWorkMode);
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
-  const [provider, setProvider] = useState<LLMProvider>(readStoredProvider);
-  const [cursorModel, setCursorModel] = useState<string>(() => {
+  const [storedProvider, setProvider] = useState<LLMProvider>(readStoredProvider);
+  const provider = selectedSession?.__provider
+    ?? resolveChatSelection(storedProvider, '').provider;
+  const [cursorModelState, setCursorModel] = useState<string>(() => {
     return localStorage.getItem('cursor-model') || FALLBACK_DEFAULT_MODEL.cursor;
   });
-  const [claudeModel, setClaudeModel] = useState<string>(() => {
+  const [claudeModelState, setClaudeModel] = useState<string>(() => {
     return localStorage.getItem('claude-model') || FALLBACK_DEFAULT_MODEL.claude;
   });
-  const [codexModel, setCodexModel] = useState<string>(() => {
+  const [codexModelState, setCodexModel] = useState<string>(() => {
     return localStorage.getItem('codex-model') || FALLBACK_DEFAULT_MODEL.codex;
   });
   // Choices belong to one model in one chat. Legacy provider-wide defaults
@@ -211,16 +198,16 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     `model-effort:${JSON.stringify([sessionId || 'draft', targetProvider, model])}`
   ), [selectedSession?.id]);
   const draftModelPickedRef = useRef(false);
-  const [opencodeModel, setOpenCodeModel] = useState<string>(() => {
+  const [opencodeModelState, setOpenCodeModel] = useState<string>(() => {
     return localStorage.getItem('opencode-model') || FALLBACK_DEFAULT_MODEL.opencode;
   });
-  const [kimiModel, setKimiModel] = useState<string>(() => {
+  const [kimiModelState, setKimiModel] = useState<string>(() => {
     return localStorage.getItem('kimi-model') || FALLBACK_DEFAULT_MODEL.kimi;
   });
-  const [geminiModel, setGeminiModel] = useState<string>(() => {
+  const [geminiModelState, setGeminiModel] = useState<string>(() => {
     return localStorage.getItem('gemini-model') || FALLBACK_DEFAULT_MODEL.gemini;
   });
-  const [grokModel, setGrokModel] = useState<string>(() => {
+  const [grokModelState, setGrokModel] = useState<string>(() => {
     return migrateStoredModel('grok', localStorage.getItem('grok-model')) || FALLBACK_DEFAULT_MODEL.grok;
   });
 
@@ -238,6 +225,15 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [providerModelCatalog, setProviderModelCatalog] = useState<
     Partial<Record<LLMProvider, ProviderModelsDefinition>>
   >({});
+  // Normalize synchronously: the visible chip and an immediate first send must agree.
+  // Raw stored values remain available for historical-session hydration.
+  const claudeModel = resolveChatSelection('claude', claudeModelState, providerModelCatalog.claude, selectedSession?.id).model;
+  const cursorModel = resolveChatSelection('cursor', cursorModelState, providerModelCatalog.cursor, selectedSession?.id).model;
+  const codexModel = resolveChatSelection('codex', codexModelState, providerModelCatalog.codex, selectedSession?.id).model;
+  const opencodeModel = resolveChatSelection('opencode', opencodeModelState, providerModelCatalog.opencode, selectedSession?.id).model;
+  const kimiModel = resolveChatSelection('kimi', kimiModelState, providerModelCatalog.kimi, selectedSession?.id).model;
+  const geminiModel = resolveChatSelection('gemini', geminiModelState, providerModelCatalog.gemini, selectedSession?.id).model;
+  const grokModel = resolveChatSelection('grok', grokModelState, providerModelCatalog.grok, selectedSession?.id).model;
   const [providerModelCacheCatalog, setProviderModelCacheCatalog] = useState<
     Partial<Record<LLMProvider, ProviderModelsCacheInfo>>
   >({});
@@ -350,9 +346,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         // Cache the new-chat engine for readStoredProvider / the new-chat
         // button. Applied on the next "new chat", deliberately not to the
         // current draft — a provider picked by hand must not snap back.
-        if (data.defaultProvider && PROVIDERS.includes(data.defaultProvider as LLMProvider)) {
+        if (data.defaultProvider && isSelectableProvider(data.defaultProvider)) {
           localStorage.setItem(DEFAULT_CHAT_PROVIDER_KEY, data.defaultProvider);
-        } else if (data.defaultProvider === null) {
+        } else if (data.defaultProvider !== undefined) {
           localStorage.removeItem(DEFAULT_CHAT_PROVIDER_KEY);
         }
         if (data.workMode && WORK_MODES.includes(data.workMode as WorkMode)) {
@@ -535,37 +531,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     return Boolean(FALLBACK_PROVIDER_EFFORT_VALUES[targetProvider]?.length);
   }, [providerCapabilities]);
 
-  // `current` (React state) must win over `storageKey` (the new-chat default)
-  // whenever both are valid: `current` is what the hydration effect below just
-  // set for this session, and re-reading localStorage first would silently
-  // snap it back to the default on every render — exactly the bug that made
-  // per-session model memory look like it "didn't stick".
-  // localStorage is only a fallback for the cases this function actually
-  // exists for: first paint before `current` is set, or `current` holding a
-  // model the catalog no longer lists.
-  //
-  // The reconcile effects below deliberately do NOT write back to localStorage:
-  // that key is the "what new chats start with" setting owned by Settings, and
-  // mirroring a session's own model into it is what used to turn every
-  // in-chat model pick into a global default.
-  const pickStoredOrCurrent = useCallback((
-    storageKey: string,
-    current: string,
-    def: ProviderModelsDefinition,
-  ): string => {
-    // Historical/active sessions keep their model even when curation removes
-    // it from the new-chat menu. Refreshing metadata must never switch a run.
-    if (selectedSession?.id && current) return current;
-    if (current && def.OPTIONS.some((o) => o.value === current && !o.hidden)) {
-      return current;
-    }
-    const stored = localStorage.getItem(storageKey);
-    if (stored && def.OPTIONS.some((o) => o.value === stored && !o.hidden)) {
-      return stored;
-    }
-    return def.DEFAULT;
-  }, [selectedSession?.id]);
-
   const getModelOption = useCallback((
     targetProvider: LLMProvider,
     model: string,
@@ -614,76 +579,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     gemini: geminiModel,
     grok: grokModel,
   }), [claudeModel, cursorModel, codexModel, opencodeModel, kimiModel, geminiModel, grokModel]);
-
-  useEffect(() => {
-    const claude = providerModelCatalog.claude;
-    if (claude) {
-      const next = pickStoredOrCurrent('claude-model', claudeModel, claude);
-      if (next !== claudeModel) {
-        setClaudeModel(next);
-      }
-    }
-  }, [providerModelCatalog.claude, claudeModel, pickStoredOrCurrent]);
-
-  useEffect(() => {
-    const cursor = providerModelCatalog.cursor;
-    if (cursor) {
-      const next = pickStoredOrCurrent('cursor-model', cursorModel, cursor);
-      if (next !== cursorModel) {
-        setCursorModel(next);
-      }
-    }
-  }, [providerModelCatalog.cursor, cursorModel, pickStoredOrCurrent]);
-
-  useEffect(() => {
-    const codex = providerModelCatalog.codex;
-    if (codex) {
-      const next = pickStoredOrCurrent('codex-model', codexModel, codex);
-      if (next !== codexModel) {
-        setCodexModel(next);
-      }
-    }
-  }, [providerModelCatalog.codex, codexModel, pickStoredOrCurrent]);
-
-  useEffect(() => {
-    const opencode = providerModelCatalog.opencode;
-    if (opencode) {
-      const next = pickStoredOrCurrent('opencode-model', opencodeModel, opencode);
-      if (next !== opencodeModel) {
-        setOpenCodeModel(next);
-      }
-    }
-  }, [providerModelCatalog.opencode, opencodeModel, pickStoredOrCurrent]);
-
-  useEffect(() => {
-    const kimi = providerModelCatalog.kimi;
-    if (kimi) {
-      const next = pickStoredOrCurrent('kimi-model', kimiModel, kimi);
-      if (next !== kimiModel) {
-        setKimiModel(next);
-      }
-    }
-  }, [providerModelCatalog.kimi, kimiModel, pickStoredOrCurrent]);
-
-  useEffect(() => {
-    const gemini = providerModelCatalog.gemini;
-    if (gemini) {
-      const next = pickStoredOrCurrent('gemini-model', geminiModel, gemini);
-      if (next !== geminiModel) {
-        setGeminiModel(next);
-      }
-    }
-  }, [providerModelCatalog.gemini, geminiModel, pickStoredOrCurrent]);
-
-  useEffect(() => {
-    const grok = providerModelCatalog.grok;
-    if (grok) {
-      const next = pickStoredOrCurrent('grok-model', grokModel, grok);
-      if (next !== grokModel) {
-        setGrokModel(next);
-      }
-    }
-  }, [providerModelCatalog.grok, grokModel, pickStoredOrCurrent]);
 
   const setActiveProviderEffort = useCallback((targetProvider: LLMProvider, effort: string, model = providerModels[targetProvider], sessionId = selectedSession?.id) => {
     const key = effortKey(targetProvider, model, sessionId);
@@ -792,13 +687,13 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   }, [selectedSession?.id, selectedSession?.model, selectedSession?.effort, provider, providerModelSetters, effortKey]);
 
   useEffect(() => {
-    if (!selectedSession?.__provider || selectedSession.__provider === provider) {
+    if (!selectedSession?.__provider || selectedSession.__provider === storedProvider) {
       return;
     }
 
     setProvider(selectedSession.__provider);
     localStorage.setItem('selected-provider', selectedSession.__provider);
-  }, [provider, selectedSession]);
+  }, [storedProvider, selectedSession]);
 
   // Permission prompts belong to a session, not to the transient provider
   // selection that is synchronized after navigation.

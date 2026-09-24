@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { isSelectableModel } from '../../../../utils/providerSelectionPolicy';
 import { Badge, Button, Dialog, DialogContent, DialogTitle, Input } from '../../../../shared/view/ui';
 import {
   fetchUsageHistory,
@@ -266,16 +267,17 @@ function ModelsContent({
   const liveDefinition = providerModelCatalog[currentProvider];
   const availableOptions = useMemo<ModelOption[]>(() => {
     if (liveDefinition?.OPTIONS && liveDefinition.OPTIONS.length > 0) {
-      return liveDefinition.OPTIONS;
+      return liveDefinition.OPTIONS.filter(option => isSelectableModel(currentProvider, option));
     }
 
     if (Array.isArray(data?.availableOptions) && data.availableOptions.length > 0) {
-      return data.availableOptions;
+      return data.availableOptions.filter(option => isSelectableModel(currentProvider, option));
     }
 
     const availableModels = Array.isArray(data?.availableModels) ? data.availableModels : [];
-    return availableModels.map((model) => ({ value: model, label: model }));
-  }, [data, liveDefinition]);
+    return availableModels.map((model) => ({ value: model, label: model }))
+      .filter(option => isSelectableModel(currentProvider, option));
+  }, [currentProvider, data, liveDefinition]);
   const filteredOptions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {

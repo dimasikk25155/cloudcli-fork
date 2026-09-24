@@ -22,20 +22,12 @@ import {
   Card,
 } from "../../../../shared/view/ui";
 import { applyProviderModel } from "../../utils/providerModelState";
+import { SELECTABLE_PROVIDERS, selectableModels } from "../../../../utils/providerSelectionPolicy";
 
 import FirstTaskHints from "./FirstTaskHints";
 
-// Kimi re-added 2026-07-26 — bring-your-own-login engine alongside the others.
-// 'gemini' intentionally excluded — Google killed free personal-account login
-// for Gemini CLI/Code Assist on 2026-06-18. See useChatProviderState.ts.
-const PROVIDER_META: { id: LLMProvider; name: string }[] = [
-  { id: "claude", name: "Anthropic" },
-  { id: "codex", name: "OpenAI" },
-  { id: "cursor", name: "Cursor" },
-  { id: "opencode", name: "OpenCode" },
-  { id: "kimi", name: "Moonshot" },
-  { id: "grok", name: "xAI" },
-];
+const PROVIDER_NAMES = { claude: "Anthropic", codex: "OpenAI", grok: "xAI" };
+const PROVIDER_META = SELECTABLE_PROVIDERS.map(id => ({ id, name: PROVIDER_NAMES[id] }));
 
 const MOD_KEY =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
@@ -153,7 +145,7 @@ export default function ProviderSelectionEmptyState({
       name: p.name,
       // `hidden` models are wired but deliberately not offered (see
       // ProviderModelOption.hidden) — same rule as the composer's model chip.
-      models: (providerModelCatalog[p.id]?.OPTIONS ?? []).filter((option) => !option.hidden),
+      models: selectableModels(p.id, providerModelCatalog[p.id]),
     }));
   }, [providerModelCatalog]);
 

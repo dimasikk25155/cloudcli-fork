@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { SELECTABLE_PROVIDERS } from '../../../../../utils/providerSelectionPolicy';
 import type { AgentCategory, AgentProvider } from '../../../types/types';
 
 import type { AgentContext, AgentsSettingsTabProps } from './types';
@@ -40,19 +41,7 @@ export default function AgentsSettingsTab({
     return ['account', 'defaults', 'permissions', 'mcp', 'skills'];
   }, [selectedAgent]);
 
-  const visibleAgents = useMemo<AgentProvider[]>(() => {
-    // Kimi re-added 2026-07-26 — bring-your-own-login engine alongside the
-    // others (each user signs in with their own Kimi account, like Cursor).
-    // 'gemini' intentionally excluded — Google killed free personal-account
-    // login for Gemini CLI/Code Assist on 2026-06-18 (confirmed by a live
-    // login attempt: OAuth succeeds, then Code Assist itself rejects with
-    // "This client is no longer supported ... migrate to Antigravity").
-    // Backend/types/i18n all stay in place; re-add only once there's a real
-    // login path (paid GCP Vertex AI, or a from-scratch Antigravity CLI
-    // integration — see wiki/concepts/cloudcli-gemini-engine.md).
-    // 'grok' added 2026-08-21 — xAI Grok Build, bring-your-own SuperGrok login.
-    return ['claude', 'codex', 'cursor', 'opencode', 'kimi', 'grok'];
-  }, []);
+  const visibleAgents = useMemo<AgentProvider[]>(() => [...SELECTABLE_PROVIDERS], []);
 
   const agentContextById = useMemo<Record<AgentProvider, AgentContext>>(() => ({
     claude: {

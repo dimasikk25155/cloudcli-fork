@@ -1,4 +1,5 @@
-import type { LLMProvider, ProviderModelOption } from '../../../types/app';
+import { isSelectableProvider, SELECTABLE_MODEL_FALLBACKS, selectableModels } from '../../../utils/providerSelectionPolicy';
+import type { LLMProvider, ProviderModelOption, ProviderModelsDefinition } from '../../../types/app';
 
 export type ProviderModelSetters = Record<LLMProvider, (model: string) => void>;
 
@@ -33,4 +34,35 @@ export function resolveModelEffort(
   return model.effort?.values.some(option => option.value === choice.effort)
     ? choice.effort
     : 'default';
+}
+
+
+/** Resolve the value displayed AND sent, including before catalogues finish loading. */
+export function resolveChatSelection(
+  requestedProvider: LLMProvider,
+  model: string,
+  definition?: ProviderModelsDefinition | null,
+  sessionId?: string | null,
+): { provider: LLMProvider; model: string } {
+  if (sessionId) return { provider: requestedProvider, model };
+  const provider = isSelectableProvider(requestedProvider) ? requestedProvider : 'grok';
+  const options = selectableModels(provider, provider === requestedProvider ? definition : null);
+  const selected = options.find(option => option.value === model)
+    ?? options.find(option => option.value === definition?.DEFAULT)
+    ?? options[0];
+  return { provider, model: selected?.value ?? SELECTABLE_MODEL_FALLBACKS[provider] };
+}
+
+
+/** A normalized UI value may differ from storage, so never skip its effort write. */
+export async function persistNewChatModelDefault(
+  provider: LLMProvider,
+  model: string,
+  effort: string,
+  save: (path: 'model' | 'effort', body: Record<string, unknown>) => Promise<void>,
+): Promise<void> {
+  await Promise.all([
+    save('effort', { provider, effort }),
+    save('model', { provider, model }),
+  ]);
 }

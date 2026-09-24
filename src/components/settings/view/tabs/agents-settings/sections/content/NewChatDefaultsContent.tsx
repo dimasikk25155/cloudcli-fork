@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { selectableModels } from '../../../../../../../utils/providerSelectionPolicy';
+import { resolveChatSelection, resolveModelEffort, persistNewChatModelDefault } from '../../../../../../chat/utils/providerModelState';
 import { authenticatedFetch } from '../../../../../../../utils/api';
 import { WORK_MODES } from '../../../../../../chat/types/types';
 import type { WorkMode } from '../../../../../../chat/types/types';
@@ -75,8 +77,12 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
 
         const definition = modelsBody.data?.models ?? null;
         setModelsDefinition(definition);
-        setModel(preferences.models?.[agent] || definition?.DEFAULT || '');
-        setEffort(preferences.efforts?.[agent] || MODEL_DEFAULT_EFFORT);
+        const requestedModel = preferences.models?.[agent] || '';
+        const nextModel = resolveChatSelection(agent, requestedModel, definition).model;
+        setModel(nextModel);
+        setEffort(resolveModelEffort(definition?.OPTIONS.find(option => option.value === nextModel), {
+          model: requestedModel, effort: preferences.efforts?.[agent] || MODEL_DEFAULT_EFFORT,
+        }));
         setIsDefaultProvider(preferences.defaultProvider === agent);
         if (preferences.workMode && WORK_MODES.includes(preferences.workMode as WorkMode)) {
           setWorkMode(preferences.workMode as WorkMode);
@@ -159,21 +165,19 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
               value={model}
               onChange={(event) => {
                 setModel(event.target.value);
-                // A level the new model does not offer would be silently
-                // ignored by the runtime, so fall back to its own default.
-                const nextEffortValues = modelsDefinition?.OPTIONS
-                  .find((option) => option.value === event.target.value)?.effort?.values ?? [];
-                if (effort !== MODEL_DEFAULT_EFFORT && !nextEffortValues.some((value) => value.value === effort)) {
-                  setEffort(MODEL_DEFAULT_EFFORT);
-                  void save('effort', { provider: agent, effort: MODEL_DEFAULT_EFFORT });
-                }
-                void save('model', { provider: agent, model: event.target.value });
+                localStorage.setItem(`${agent}-model`, event.target.value);
+                // An explicit level belongs to its model; a new model starts on its default.
+                const nextEffort = resolveModelEffort(
+                  modelsDefinition?.OPTIONS.find(option => option.value === event.target.value),
+                  { model, effort },
+                );
+                setEffort(nextEffort);
+                void persistNewChatModelDefault(agent, event.target.value, nextEffort, save);
               }}
               className={selectClassName}
-              disabled={!modelsDefinition}
+              disabled={selectableModels(agent, modelsDefinition).length === 0}
             >
-              {(modelsDefinition?.OPTIONS ?? [])
-                .filter((option) => !option.hidden || option.value === model)
+              {selectableModels(agent, modelsDefinition)
                 .map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}

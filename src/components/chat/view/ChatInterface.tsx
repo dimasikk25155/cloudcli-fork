@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
+import { SELECTABLE_PROVIDERS, selectableModels } from '../../../utils/providerSelectionPolicy';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import PermissionContext, { type PermissionContextValue } from '../../../contexts/PermissionContext';
 import { QuickSettingsPanel } from '../../quick-settings-panel';
@@ -23,7 +24,7 @@ import { AUTO_PLAN_MODE, autoApprovedRequestIds, isAutoPlanMode } from '../utils
 // to exactly one CLI and cannot change engines mid-flight.
 // 17.09.2026: Codex joined — every subscription model of the three vendors
 // (Anthropic / OpenAI / xAI) is one tap away, filed under a vendor header.
-const COMPOSER_CROSS_ENGINE_PROVIDERS = ['claude', 'codex', 'grok'] as const;
+const COMPOSER_CROSS_ENGINE_PROVIDERS = SELECTABLE_PROVIDERS;
 const COMPOSER_MODEL_GROUP_LABELS: Partial<Record<Provider, string>> = {
   claude: 'Anthropic',
   codex: 'OpenAI',
@@ -479,8 +480,7 @@ function ChatInterface({
   // the label says where the pick lands, because it opens a new chat there.
   const { options: composerModelOptions, providerByModel: composerModelProviders } = useMemo(() => {
     const visibleModels = (target: typeof provider) => (
-      (providerModelCatalog[target]?.OPTIONS ?? [])
-        .filter((option) => !option.hidden)
+      selectableModels(target, providerModelCatalog[target])
         .map((option) => ({ ...option, group: COMPOSER_MODEL_GROUP_LABELS[target] }))
     );
     const hasRunningSession = Boolean(currentSessionId || selectedSession?.id);
