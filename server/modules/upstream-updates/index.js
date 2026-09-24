@@ -45,8 +45,10 @@ const text = (value, limit = 200) => String(value ?? '').replace(/[\u0000-\u001f
 
 /** Public seam: read/check only. No fetch refs, checkout, installer or remote code execution. */
 export function createUpstreamChecker({ repo, reportPath = defaultReportPath, fetchImpl = globalThis.fetch, now = () => new Date() }) {
+  // 30s, not 8s: launchd runs the daily check as ProcessType=Background, where macOS
+  // throttles git ~5x (a 0.5s diff timed out on 2026-09-24).
   const git = async (...args) => (await exec('git', ['--no-pager', '-c', 'core.fsmonitor=false', '-C', repo, ...args], {
-    encoding: 'utf8', timeout: 8000, maxBuffer: 4 * 1024 * 1024,
+    encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024,
     env: { PATH: process.env.PATH, GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
   })).stdout.trim();
 
