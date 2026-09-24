@@ -4,9 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection } from '@/modules/database/connection.js';
-import { initializeDatabase } from '@/modules/database/init-db.js';
-import { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
+import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import {
   createProviderModelsService,
   PROVIDER_MODELS_CACHE_TTL_MS,
@@ -115,7 +113,7 @@ test('provider models service returns each provider adapter result without rewri
   assert.deepEqual(models.models, expectedModels);
 });
 
-test('provider models are cached for the three-day ttl', async () => {
+test('provider models are cached for the bounded refresh ttl', async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'provider-model-cache-ttl-'));
   let currentTime = 1_000;
   let loadCount = 0;
@@ -155,7 +153,7 @@ test('provider models are cached for the three-day ttl', async () => {
   }
 });
 
-test('claude provider models are always loaded directly from the provider', async () => {
+test('claude provider models use the same bounded refresh as other providers', async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'provider-model-cache-claude-direct-'));
   let loadCount = 0;
 
@@ -177,10 +175,10 @@ test('claude provider models are always loaded directly from the provider', asyn
     const first = await service.getProviderModels('claude');
     const second = await service.getProviderModels('claude');
 
-    assert.equal(loadCount, 2);
+    assert.equal(loadCount, 1);
     assert.equal(first.models.DEFAULT, 'claude-1');
-    assert.equal(second.models.DEFAULT, 'claude-2');
-    assert.equal(second.cache.source, 'fresh');
+    assert.equal(second.models.DEFAULT, 'claude-1');
+    assert.equal(second.cache.source, 'memory');
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -381,4 +379,27 @@ test('resolveResumeEffort prefers a stored changed effort over the requested one
     const effort = await service.resolveResumeEffort('codex', 'session-789', 'low');
     assert.equal(effort, 'high');
   });
+});
+
+test('invalid refresh retains last valid catalog after expiry', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'model-retention-'));
+  let clock = 1000;
+  let broken = false;
+  let loads = 0;
+  const service = createProviderModelsService({ cachePath: path.join(dir, 'cache.json'), now: () => clock,
+    resolveProvider: () => ({ models: {
+      getSupportedModels: async () => { loads += 1; return broken ? { OPTIONS: [], DEFAULT: 'missing' } : createModels('valid'); },
+      getCurrentActiveModel: async () => createCurrentActiveModel('valid'),
+      changeActiveModel: async (input) => createSessionActiveModelChange('codex', input),
+    } }),
+  });
+  try {
+    await service.getProviderModels('codex');
+    clock += PROVIDER_MODELS_CACHE_TTL_MS + 1;
+    broken = true;
+    assert.equal((await service.getProviderModels('codex')).models.DEFAULT, 'valid');
+    assert.equal((await service.getProviderModels('codex')).models.DEFAULT, 'valid');
+    assert.equal(loads, 2);
+    assert.ok(PROVIDER_MODELS_CACHE_TTL_MS <= 60000);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

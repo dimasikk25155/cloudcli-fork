@@ -11,6 +11,8 @@ export type ProviderModelOption = {
    * daily use (21.08.2026: the local RTX ones and the BYO gateways).
    */
   hidden?: boolean;
+  /** Maximum context supported by the installed provider for this model. */
+  contextWindow?: number;
   /**
    * Section header the composer's shared model list files this entry under
    * (vendor name: Anthropic / OpenAI / xAI). Set client-side when the lists of

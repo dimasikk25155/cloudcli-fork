@@ -139,24 +139,28 @@ export const GROK_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
       value: 'grok-4.7',
+      contextWindow: 500_000,
       label: 'Grok 4.7',
-      description: 'Флагман xAI · 500K контекст, текст+картинки · $2/$6 за Mtok · подписка SuperGrok, не тратит лимит Claude',
+      description: 'Grok 4.7 · Frontier reasoning model',
       effort: GROK_EFFORT_FULL,
     },
     {
       value: 'grok-4.7-build-fast',
+      contextWindow: 500_000,
       label: 'Grok 4.7 Fast',
-      description: 'Тот же 4.7, отвечает быстрее · в 2 раза дороже (ест квоту вдвое быстрее) · когда ждать некогда',
+      description: 'Grok 4.7 Fast · Fast variant in Grok Build',
       effort: GROK_EFFORT_FULL,
     },
     {
       value: 'grok-4.6',
+      hidden: true,
       label: 'Grok 4.6',
       description: 'Предыдущий флагман · 500K контекст · $2/$6 за Mtok',
       effort: GROK_EFFORT_FULL,
     },
     {
       value: 'grok-4.5',
+      hidden: true,
       label: 'Grok 4.5',
       description: 'Предыдущее поколение · без xhigh',
       effort: GROK_EFFORT_45,
@@ -197,117 +201,61 @@ export const GROK_FALLBACK_MODELS: ProviderModelsDefinition = {
   DEFAULT: 'grok-4.7',
 };
 
-/**
- * Descriptions the CLI cache does not carry (xAI ships one line at most).
- * Keyed by model id; a model missing here gets the CLI's own description.
- */
-const GROK_MODEL_DESCRIPTIONS: Record<string, string> = Object.fromEntries(
-  GROK_FALLBACK_MODELS.OPTIONS
-    .filter((option) => !option.hidden && option.description)
-    .map((option) => [option.value, option.description as string]),
-);
-
 export const GROK_MODELS_CACHE_PATH = path.join(os.homedir(), '.grok', 'models_cache.json');
+const GROK_EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh'];
 
-type GrokModelsCacheFile = {
-  models?: Record<string, {
-    info?: {
-      id?: string;
-      name?: string;
-      description?: string | null;
-      hidden?: boolean;
-      reasoning_effort?: string | null;
-      supports_reasoning_effort?: boolean;
-      reasoning_efforts?: { value?: string; id?: string }[] | null;
-    };
-  }>;
-};
-
-/**
- * Builds the picker catalog from `~/.grok/models_cache.json` — the list the
- * CLI itself fetches from xAI on every start (`grok models`). This is what
- * lets a new Grok show up in Neo3 the day it ships, instead of a month later
- * (22.09.2026: 4.7 had been out for weeks while the static catalog still
- * offered «4.6 Build»). Effort levels come per model from the same file; the
- * CLI lists them strongest-first, the chip wants weakest-first.
- * Returns null when the file is missing or unreadable — the static fallback
- * takes over. Exported for tests.
- */
-export function buildGrokCatalogFromCache(raw: unknown): ProviderModelsDefinition | null {
-  const models = (raw as GrokModelsCacheFile | null)?.models;
-  if (!models || typeof models !== 'object') {
-    return null;
-  }
-  const options: ProviderModelsDefinition['OPTIONS'] = [];
-  for (const [key, entry] of Object.entries(models)) {
-    const info = entry?.info;
-    const id = typeof info?.id === 'string' && info.id ? info.id : key;
-    if (!id || info?.hidden) {
-      continue;
-    }
-    const levels = Array.isArray(info?.reasoning_efforts)
-      ? info!.reasoning_efforts!
-        .map((level) => level?.value ?? level?.id)
-        .filter((level): level is string => typeof level === 'string' && level.length > 0)
-        .reverse()
-      : [];
-    const option: ProviderModelsDefinition['OPTIONS'][number] = {
-      value: id,
-      label: typeof info?.name === 'string' && info.name ? info.name : id,
-      description: GROK_MODEL_DESCRIPTIONS[id]
-        ?? (typeof info?.description === 'string' && info.description ? info.description : undefined),
-    };
-    if (info?.supports_reasoning_effort !== false && levels.length > 0) {
-      option.effort = {
-        default: typeof info?.reasoning_effort === 'string' && levels.includes(info.reasoning_effort)
-          ? info.reasoning_effort
-          : undefined,
+/** Project only public info fields: sibling fields in this cache can contain credentials. */
+export function buildGrokCatalogFromCache(raw: unknown, previous = GROK_FALLBACK_MODELS): ProviderModelsDefinition | null {
+  if (!raw || typeof raw !== 'object' || !('models' in raw) || !raw.models || typeof raw.models !== 'object') return null;
+  const models = raw.models as Record<string, { info?: Record<string, unknown> }>;
+  let valid = false;
+  const options = previous.OPTIONS.map((fallback) => {
+    if (fallback.hidden) return fallback;
+    const info = models[fallback.value]?.info;
+    if (!info || typeof info !== 'object' || !Object.keys(info).length || info.hidden || (info.id && info.id !== fallback.value)) return fallback;
+    const levels = Array.isArray(info.reasoning_efforts) ? [...new Set(info.reasoning_efforts
+      .map((level) => level?.value ?? level?.id)
+      .filter((level): level is string => typeof level === 'string' && GROK_EFFORT_ORDER.includes(level)))]
+      .sort((a, b) => GROK_EFFORT_ORDER.indexOf(a) - GROK_EFFORT_ORDER.indexOf(b)) : [];
+    if (info.supports_reasoning_effort !== false && Array.isArray(info.reasoning_efforts) && (!levels.length || info.reasoning_efforts.some((level) => !GROK_EFFORT_ORDER.includes(level?.value ?? level?.id)))) return fallback;
+    valid = true;
+    const markedDefault = Array.isArray(info.reasoning_efforts)
+      ? info.reasoning_efforts.find((level) => level?.default === true)?.value : undefined;
+    const defaultEffort = markedDefault ?? info.reasoning_effort;
+    return {
+      ...fallback,
+      label: typeof info.name === 'string' && info.name ? info.name : fallback.label,
+      description: typeof info.description === 'string' ? info.description : fallback.description,
+      contextWindow: typeof info.context_window === 'number' && Number.isFinite(info.context_window) && info.context_window > 0
+        ? info.context_window : fallback.contextWindow,
+      effort: info.supports_reasoning_effort === false ? undefined : levels.length ? {
+        default: typeof defaultEffort === 'string' && levels.includes(defaultEffort) ? defaultEffort
+          : levels.includes('high') ? 'high' : undefined,
         values: levels.map((value) => ({ value })),
-      };
-    }
-    options.push(option);
-  }
-  if (options.length === 0) {
-    return null;
-  }
-  // The presets ride along hidden so old sessions keep resolving; a preset
-  // whose target model vanished from the CLI would die with "unknown model
-  // id", so those are dropped rather than offered.
-  const known = new Set(options.map((option) => option.value));
-  for (const option of GROK_FALLBACK_MODELS.OPTIONS) {
-    if (option.hidden && GROK_MODE_PRESETS[option.value] && known.has(GROK_MODE_PRESETS[option.value].model)) {
-      options.push(option);
-    }
-  }
-  return {
-    OPTIONS: options,
-    // The CLI lists its default first (`* grok-4.7 (default)`).
-    DEFAULT: known.has(GROK_FALLBACK_MODELS.DEFAULT) ? GROK_FALLBACK_MODELS.DEFAULT : options[0].value,
-  };
+      } : fallback.effort,
+    };
+  });
+  return valid ? { OPTIONS: options, DEFAULT: GROK_FALLBACK_MODELS.DEFAULT } : null;
 }
 
-let liveCatalogMemo: { mtimeMs: number; definition: ProviderModelsDefinition } | null = null;
+const liveCatalogMemo = new Map<string, { stamp: string; definition: ProviderModelsDefinition }>();
 
-/**
- * Synchronous, memoised by the cache file's mtime: called on every Grok run
- * (resolveGrokEffort) as well as by the picker, so it must stay cheap and
- * must never throw.
- */
+/** Cache identity includes the path; failed or partial writes retain the last valid snapshot. */
 export function readGrokModelsDefinition(cachePath: string = GROK_MODELS_CACHE_PATH): ProviderModelsDefinition {
   try {
-    const mtimeMs = fs.statSync(cachePath).mtimeMs;
-    if (liveCatalogMemo && liveCatalogMemo.mtimeMs === mtimeMs) {
-      return liveCatalogMemo.definition;
-    }
-    const definition = buildGrokCatalogFromCache(JSON.parse(fs.readFileSync(cachePath, 'utf8')));
+    const stat = fs.statSync(cachePath);
+    const stamp = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+    const memo = liveCatalogMemo.get(cachePath);
+    if (memo?.stamp === stamp) return memo.definition;
+    const definition = buildGrokCatalogFromCache(JSON.parse(fs.readFileSync(cachePath, 'utf8')), memo?.definition);
     if (definition) {
-      liveCatalogMemo = { mtimeMs, definition };
+      liveCatalogMemo.set(cachePath, { stamp, definition });
       return definition;
     }
   } catch {
-    // No CLI cache yet (never logged in) or a half-written file — fall back.
+    // Missing or half-written CLI cache: keep a known valid catalog.
   }
-  return GROK_FALLBACK_MODELS;
+  return liveCatalogMemo.get(cachePath)?.definition ?? GROK_FALLBACK_MODELS;
 }
 
 export class GrokProviderModels implements IProviderModels {

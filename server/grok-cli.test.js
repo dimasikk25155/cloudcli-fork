@@ -257,14 +257,14 @@ test('the catalog offers the real models and keeps the mode presets wired', () =
   assert.deepEqual(visible.map((option) => option.value), [
     'grok-4.7',
     'grok-4.7-build-fast',
-    'grok-4.6',
-    'grok-4.5',
   ]);
   assert.equal(visible[0].label, 'Grok 4.7');
   assert.equal(GROK_FALLBACK_MODELS.DEFAULT, 'grok-4.7');
   // Старые чаты на спрятанных режимах должны продолжать работать.
   const hidden = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => option.hidden).map((o) => o.value);
   assert.deepEqual(hidden, [
+    'grok-4.6',
+    'grok-4.5',
     'grok-mode-build',
     'grok-mode-fast',
     'grok-mode-auto',

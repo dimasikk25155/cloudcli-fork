@@ -1,4 +1,7 @@
 import { readFile } from 'node:fs/promises';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
@@ -11,13 +14,15 @@ import type {
 } from '@/shared/types.js';
 import {
   buildDefaultProviderCurrentActiveModel,
+  readObjectRecord,
   writeProviderSessionActiveModelChange,
 } from '@/shared/utils.js';
 
 // Everything the Claude Code `/model` picker offers on the Max subscription
 // (verified live on 2.1.273, 17.09.2026, each entry answered a one-word
 // prompt). Values are what `claude --model` takes: `opus[1m]`-style aliases
-// resolve to the newest model of that family, so `fable` is Fable 5.1 today.
+// resolve to the newest model of that family, so `fable` is Fable 5.1 and
+// `opus[1m]` is Opus 5.5 today (re-verified on 2.1.281, 24.09.2026).
 // Sonnet 4.6 is deliberately WITHOUT `[1m]` — the CLI answers "Usage credits
 // required for 1M context" on the subscription for that one.
 const CLAUDE_EFFORT_FIVE = {
@@ -35,39 +40,52 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
       value: 'opus[1m]',
-      label: 'Opus 5',
-      description: 'Opus 5 · Best for everyday, complex tasks · 1M context · $5/$25 per Mtok',
-      effort: CLAUDE_EFFORT_FIVE,
+      label: 'Opus 5.5',
+      description: 'Opus 5.5 · Most capable for ambitious work',
+      contextWindow: 1_000_000,
+      effort: { ...CLAUDE_EFFORT_FIVE, default: 'medium' },
     },
     {
       value: 'sonnet[1m]',
       label: 'Sonnet 5',
-      description: 'Sonnet 5 · Efficient for routine tasks · 1M context · $2/$10 per Mtok',
+      description: 'Sonnet 5 · Efficient for everyday tasks',
+      contextWindow: 1_000_000,
       effort: CLAUDE_EFFORT_FIVE,
     },
     {
       value: 'fable',
       label: 'Fable 5.1',
-      description: 'Fable 5.1 · Most capable for your hardest and longest-running tasks · Uses your limits ~2× faster than Opus',
+      description: 'Fable 5.1 · For your toughest challenges',
+      contextWindow: 1_000_000,
       effort: CLAUDE_EFFORT_FIVE,
     },
     // No `effort` block: Haiku 4.5 rejects the effort parameter, and omitting
     // it makes resolveClaudeEffort strip whatever the UI sends.
     {
       value: 'haiku',
+      hidden: true,
       label: 'Haiku 4.5',
       description: 'Haiku 4.5 · Fastest for quick answers · 200K context · $1/$5 per Mtok',
     },
     // Previous generation — still served on the subscription, kept for the
     // people who prefer their behaviour on a specific task.
     {
+      value: 'claude-opus-5[1m]',
+      hidden: true,
+      label: 'Opus 5',
+      description: 'Opus 5 · Previous Opus version · 1M context · $5/$25 per Mtok',
+      effort: CLAUDE_EFFORT_FIVE,
+    },
+    {
       value: 'claude-opus-4-8[1m]',
+      hidden: true,
       label: 'Opus 4.8',
       description: 'Opus 4.8 · Previous Opus version · 1M context · $5/$25 per Mtok',
       effort: CLAUDE_EFFORT_FIVE,
     },
     {
       value: 'claude-sonnet-4-6',
+      hidden: true,
       label: 'Sonnet 4.6',
       description: 'Sonnet 4.6 · Previous Sonnet version · 200K context (1M needs usage credits) · $3/$15 per Mtok',
       effort: {
@@ -121,13 +139,76 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
   DEFAULT: 'opus[1m]',
 };
 
+const CLAUDE_CATALOG_PATH = path.join(os.homedir(), '.claude', 'cache', 'model-catalog');
+const CLAUDE_EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'];
+const claudeFamily = (id: string) => /^(?:claude-)?(opus|sonnet|fable)(?:-\d+(?:-\d+)*|\[1m\])?$/.exec(id)?.[1];
+const timestamp = (value: unknown) => typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN;
+
+/** Only fresh account catalogs confirm availability; saved thinking state is not a factory default. */
+export function buildClaudeModelsDefinition(raw: unknown, now = Date.now(), previous = CLAUDE_FALLBACK_MODELS): ProviderModelsDefinition | null {
+  const root = readObjectRecord(raw);
+  if (!root || !(timestamp(root.staleAt) > now)) return null;
+  const catalog = readObjectRecord(root.catalog);
+  const config = readObjectRecord(catalog?.config);
+  if (!Array.isArray(config?.models)) return null;
+  const models = config.models.map(readObjectRecord).filter((model) => model && typeof model.id === 'string' && typeof model.name === 'string');
+  if (!models.some((model) => claudeFamily(model!.id as string))) return null;
+  const options = previous.OPTIONS.map((fallback): ProviderModelOption => {
+    if (fallback.hidden) return fallback;
+    const selected = models.filter((model) => claudeFamily(model!.id as string) === claudeFamily(fallback.value))
+      .sort((a, b) => (b!.id as string).localeCompare(a!.id as string, undefined, { numeric: true }))[0];
+    if (!selected) return fallback;
+    const thinking = readObjectRecord(selected.thinking);
+    const rawLevels = Array.isArray(thinking?.effort_options) ? thinking.effort_options.map(readObjectRecord).filter(Boolean) : [];
+    const levels = [...new Set(rawLevels.map((level) => level!.id).filter((id): id is string => typeof id === 'string' && CLAUDE_EFFORT_ORDER.includes(id)))]
+      .sort((a, b) => CLAUDE_EFFORT_ORDER.indexOf(a) - CLAUDE_EFFORT_ORDER.indexOf(b));
+    if (thinking?.type !== 'none' && Array.isArray(thinking?.effort_options) && (!levels.length || thinking.effort_options.some((level) => { const id = readObjectRecord(level)?.id; return typeof id !== 'string' || !CLAUDE_EFFORT_ORDER.includes(id); }))) return fallback;
+    const markedDefault = rawLevels.find((level) => readObjectRecord(level!.badge)?.message === 'Default')?.id;
+    const sameVersion = selected.name === fallback.label;
+    return {
+      ...fallback,
+      label: selected.name as string,
+      description: typeof selected.description === 'string' ? selected.description : fallback.description,
+      contextWindow: typeof selected.context_window === 'number' && Number.isFinite(selected.context_window) && selected.context_window > 0
+        ? selected.context_window : sameVersion ? fallback.contextWindow : undefined,
+      effort: levels.length ? {
+        default: typeof markedDefault === 'string' && levels.includes(markedDefault) ? markedDefault
+          : sameVersion && fallback.effort?.default && levels.includes(fallback.effort.default) ? fallback.effort.default : undefined,
+        values: levels.map((value) => ({ value })),
+      } : thinking?.type === 'none' ? undefined : sameVersion ? fallback.effort : undefined,
+    };
+  });
+  return { OPTIONS: options, DEFAULT: CLAUDE_FALLBACK_MODELS.DEFAULT };
+}
+
+const claudeCatalogMemo = new Map<string, ProviderModelsDefinition>();
+export function readClaudeModelsDefinition(cacheDirectory = CLAUDE_CATALOG_PATH, now = Date.now()): ProviderModelsDefinition {
+  let best: { fetchedAt: number; definition: ProviderModelsDefinition } | undefined;
+  try {
+    for (const file of fs.readdirSync(cacheDirectory).filter((file) => file.endsWith('-cc.json'))) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(path.join(cacheDirectory, file), 'utf8'));
+        const definition = buildClaudeModelsDefinition(raw, now, claudeCatalogMemo.get(cacheDirectory));
+        const fetchedAt = timestamp(raw.fetchedAt);
+        if (definition && Number.isFinite(fetchedAt) && (!best || fetchedAt > best.fetchedAt)) best = { fetchedAt, definition };
+      } catch {
+        // A concurrent or malformed account-cache write cannot replace a valid catalog.
+      }
+    }
+  } catch {
+    // CLI has not populated its catalog directory yet; retain the last valid snapshot.
+  }
+  if (best) claudeCatalogMemo.set(cacheDirectory, best.definition);
+  return best?.definition ?? claudeCatalogMemo.get(cacheDirectory) ?? CLAUDE_FALLBACK_MODELS;
+}
+
 export const findClaudeModelOption = (model: string | undefined | null): ProviderModelOption | null => {
   const normalizedModel = typeof model === 'string' ? model.trim() : '';
   if (!normalizedModel) {
     return null;
   }
 
-  return CLAUDE_FALLBACK_MODELS.OPTIONS.find((option) => option.value === normalizedModel) ?? null;
+  return readClaudeModelsDefinition().OPTIONS.find((option) => option.value === normalizedModel) ?? null;
 };
 type ClaudeInitEvent = {
   sessionId?: string;
@@ -240,18 +321,7 @@ const readClaudeSessionModelFromJsonl = async (
 
 export class ClaudeProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    // claude creates a new jsonl file as a separate session for this request.
-    // As a result, it lists the workspace where this is invoked when it shouldn't.
-    //
-    // Disabled for now:
-    // const queryInstance = query({
-    //   prompt: 'Get supported models',
-    //   options: buildClaudeQueryOptions(),
-    // });
-    // const supportedModels = await queryInstance.supportedModels();
-    // queryInstance.close();
-    // return buildClaudeModelsDefinition(supportedModels);
-    return CLAUDE_FALLBACK_MODELS;
+    return readClaudeModelsDefinition();
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {

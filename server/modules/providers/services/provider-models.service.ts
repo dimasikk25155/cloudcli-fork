@@ -15,20 +15,10 @@ import type {
 } from '@/shared/types.js';
 import { readProviderSessionActiveModelChange } from '@/shared/utils.js';
 
-export const PROVIDER_MODELS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
-// Bump whenever a built-in catalog changes shape or gains fields the UI reads
-// (v3, 21.08.2026: per-model `effort` levels for Grok and the `hidden` flag;
-// v4, 22.08.2026: Grok's catalog became the five grok.com-style mode presets;
-// v5, 22.08.2026: picker keeps Build + Fast, the other three modes stay hidden;
-// v6, 24.08.2026: Fast label → «Grok Fast», identity rules on presets;
-// v7, 11.09.2026: Codex always exposes Astra, Sol, Terra, and Luna;
-// v8, 17.09.2026: Codex adds GPT-5.5 + descriptions;
-// v9, 22.09.2026: Grok lists real models with effort chips, read live from
-// the CLI's own ~/.grok/models_cache.json — hence uncached below).
-// Entries are cached for three days, so without a bump the UI would keep the
-// pre-change catalog until the TTL ran out.
-const PROVIDER_MODELS_CACHE_VERSION = 9;
-const UNCACHED_PROVIDERS = new Set<LLMProvider>(['claude', 'grok']);
+// Provider CLIs refresh their own metadata; poll their local catalogs at most once a minute.
+export const PROVIDER_MODELS_CACHE_TTL_MS = 60_000;
+// v10: curated families, factory effort defaults and maximum context windows.
+const PROVIDER_MODELS_CACHE_VERSION = 10;
 
 type ProviderModelsServiceDependencies = {
   resolveProvider?: (provider: LLMProvider) => Pick<IProvider, 'models'>;
@@ -73,6 +63,9 @@ const isProviderModelOption = (
   && typeof value === 'object'
   && typeof (value as ProviderModelsDefinition['OPTIONS'][number]).value === 'string'
   && typeof (value as ProviderModelsDefinition['OPTIONS'][number]).label === 'string'
+  && ((value as ProviderModelsDefinition['OPTIONS'][number]).contextWindow === undefined
+    || (Number.isFinite((value as ProviderModelsDefinition['OPTIONS'][number]).contextWindow)
+      && (value as ProviderModelsDefinition['OPTIONS'][number]).contextWindow! > 0))
   && (
     typeof (value as ProviderModelsDefinition['OPTIONS'][number]).description === 'undefined'
     || typeof (value as ProviderModelsDefinition['OPTIONS'][number]).description === 'string'
@@ -83,7 +76,9 @@ const isProviderModelsDefinition = (value: unknown): value is ProviderModelsDefi
   Boolean(value)
   && typeof value === 'object'
   && Array.isArray((value as ProviderModelsDefinition).OPTIONS)
+  && (value as ProviderModelsDefinition).OPTIONS.length > 0
   && (value as ProviderModelsDefinition).OPTIONS.every(isProviderModelOption)
+  && (value as ProviderModelsDefinition).OPTIONS.some((option) => !option.hidden && option.value === (value as ProviderModelsDefinition).DEFAULT)
   && typeof (value as ProviderModelsDefinition).DEFAULT === 'string'
 );
 
@@ -170,7 +165,6 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
       };
     }
 
-    memoryCache.delete(provider);
     return null;
   };
 
@@ -182,12 +176,8 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     if (!persistedCacheLoadPromise) {
       persistedCacheLoadPromise = (async () => {
         const cacheFile = await readProviderModelsCacheFile(cachePath);
-        const currentTime = now();
-
         for (const [provider, entry] of Object.entries(cacheFile?.entries ?? {})) {
-          if (entry.expiresAt > currentTime) {
-            memoryCache.set(provider as LLMProvider, entry);
-          }
+          memoryCache.set(provider as LLMProvider, entry);
         }
 
         persistedCacheLoaded = true;
@@ -228,34 +218,19 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
   ): Promise<ProviderModelsResult> => {
     const request = resolveProvider(provider).models.getSupportedModels()
       .then(async (models) => {
+        if (!isProviderModelsDefinition(models)) throw new Error('Provider returned an invalid model catalog');
         const entry = await setCacheEntry(provider, models);
         return {
           models,
           cache: toProviderModelsCacheInfo(entry, 'fresh'),
         };
       })
-      .finally(() => {
-        pendingRequests.delete(provider);
-      });
-
-    pendingRequests.set(provider, request);
-    return request;
-  };
-
-  const loadDirectModels = (
-    provider: LLMProvider,
-  ): Promise<ProviderModelsResult> => {
-    const request = resolveProvider(provider).models.getSupportedModels()
-      .then((models) => {
-        const currentTime = now();
-        return {
-          models,
-          cache: {
-            updatedAt: new Date(currentTime).toISOString(),
-            expiresAt: new Date(currentTime).toISOString(),
-            source: 'fresh' as const,
-          },
-        };
+      .catch((error: unknown) => {
+        const previous = memoryCache.get(provider);
+        if (!previous) throw error;
+        previous.expiresAt = now() + PROVIDER_MODELS_CACHE_TTL_MS;
+        console.warn(`Unable to refresh ${provider} model catalog; retaining last valid snapshot`);
+        return { models: previous.models, cache: toProviderModelsCacheInfo(previous, 'memory') };
       })
       .finally(() => {
         pendingRequests.delete(provider);
@@ -269,15 +244,6 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     provider: LLMProvider,
     options: ProviderModelsOptions = {},
   ): Promise<ProviderModelsResult> => {
-    if (UNCACHED_PROVIDERS.has(provider)) {
-      const pendingRequest = pendingRequests.get(provider);
-      if (pendingRequest) {
-        return pendingRequest;
-      }
-
-      return loadDirectModels(provider);
-    }
-
     if (options.bypassCache) {
       const pendingRequest = pendingRequests.get(provider);
       if (pendingRequest) {

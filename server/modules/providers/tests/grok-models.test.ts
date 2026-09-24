@@ -19,14 +19,10 @@ test('the picker offers the real models with 4.7 first, newest to oldest', () =>
   assert.deepEqual(visible.map((option) => option.value), [
     'grok-4.7',
     'grok-4.7-build-fast',
-    'grok-4.6',
-    'grok-4.5',
   ]);
   assert.deepEqual(visible.map((option) => option.label), [
     'Grok 4.7',
     'Grok 4.7 Fast',
-    'Grok 4.6',
-    'Grok 4.5',
   ]);
   assert.equal(GROK_FALLBACK_MODELS.DEFAULT, 'grok-4.7');
 });
@@ -44,7 +40,7 @@ test('every visible model carries an effort chip that defaults to the CLI defaul
 test('mode presets stay in the catalog, hidden but wired', () => {
   // Сессия или localStorage со старым id должны продолжать работать —
   // «спрятан» здесь значит «не предлагаем», а не «выпилен».
-  const hidden = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => option.hidden);
+  const hidden = GROK_FALLBACK_MODELS.OPTIONS.filter((option) => option.hidden && option.value.startsWith('grok-mode-'));
 
   assert.deepEqual(hidden.map((option) => option.value), [
     'grok-mode-build',
@@ -159,27 +155,26 @@ test('the live catalog follows the CLI cache: every listed model, its levels wea
   const catalog = buildGrokCatalogFromCache(CLI_CACHE)!;
   const visible = catalog.OPTIONS.filter((option) => !option.hidden);
 
-  assert.deepEqual(visible.map((option) => option.value), ['grok-4.7', 'grok-4.7-build-fast', 'grok-4.5']);
+  assert.deepEqual(visible.map((option) => option.value), ['grok-4.7', 'grok-4.7-build-fast']);
   assert.equal(visible[0].label, 'Grok 4.7');
   assert.deepEqual(visible[0].effort?.values.map((level) => level.value), ['low', 'medium', 'high', 'xhigh']);
   assert.equal(visible[0].effort?.default, 'high');
-  assert.deepEqual(visible[2].effort?.values.map((level) => level.value), ['low', 'medium', 'high']);
   assert.equal(catalog.DEFAULT, 'grok-4.7');
   // Hidden on xAI's side stays hidden here — it is not even listed.
   assert.ok(!catalog.OPTIONS.some((option) => option.value === 'grok-secret'));
 });
 
-test('the live catalog keeps our descriptions where we have them and the CLI text elsewhere', () => {
+test('the live catalog uses CLI descriptions and preserves hidden historical metadata', () => {
   const catalog = buildGrokCatalogFromCache(CLI_CACHE)!;
   const byId = Object.fromEntries(catalog.OPTIONS.map((option) => [option.value, option]));
-  assert.match(String(byId['grok-4.7'].description), /SuperGrok/);
-  assert.match(String(byId['grok-4.7-build-fast'].description), /2 раза дороже/);
+  assert.equal(byId['grok-4.7'].description, "SpaceXAI's latest frontier model");
+  assert.equal(byId['grok-4.7-build-fast'].description, 'Fast variant. 2x the price.');
   assert.equal(byId['grok-4.5'].description, GROK_FALLBACK_MODELS.OPTIONS.find((o) => o.value === 'grok-4.5')?.description);
 });
 
 test('the live catalog carries the presets hidden, minus any whose model the CLI dropped', () => {
   const catalog = buildGrokCatalogFromCache(CLI_CACHE)!;
-  const hidden = catalog.OPTIONS.filter((option) => option.hidden).map((option) => option.value);
+  const hidden = catalog.OPTIONS.filter((option) => option.hidden && option.value.startsWith('grok-mode-')).map((option) => option.value);
   // grok-4.6 is absent from this cache slice, so nothing here targets it;
   // 'grok-mode-expert' targets 4.5, which is present.
   assert.ok(hidden.includes('grok-mode-build'));
@@ -208,4 +203,26 @@ test('a broken or missing CLI cache falls back to the static catalog', () => {
   // Same mtime → same object (memoised); a rewrite is picked up.
   assert.equal(readGrokModelsDefinition(file), first);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('Grok refresh keeps curated IDs and last valid levels after corrupt writes', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-refresh-'));
+  const file = path.join(dir, 'models.json');
+  try {
+    fs.writeFileSync(file, JSON.stringify({ models: { 'grok-4.7': { info: {
+      id: 'grok-4.7', context_window: 500000, supports_reasoning_effort: true,
+      reasoning_efforts: [{ value: 'xhigh' }, { value: 'low' }, { value: 'high', default: true }],
+    }, api_key: 'must-not-propagate' }, 'grok-4.8': { info: { id: 'grok-4.8' } } } }));
+    const fresh = readGrokModelsDefinition(file);
+    assert.deepEqual(fresh.OPTIONS.filter((o) => !o.hidden).map((o) => o.value), ['grok-4.7', 'grok-4.7-build-fast']);
+    assert.deepEqual(fresh.OPTIONS[0].effort, { default: 'high', values: [{ value: 'low' }, { value: 'high' }, { value: 'xhigh' }] });
+    assert.equal(fresh.OPTIONS[0].contextWindow, 500000);
+    assert.ok(!JSON.stringify(fresh).includes('must-not-propagate'));
+    fs.writeFileSync(file, JSON.stringify({ models: { 'grok-4.7': { info: {} } } }));
+    assert.deepEqual(readGrokModelsDefinition(file), fresh);
+    fs.writeFileSync(file, JSON.stringify({ models: { 'grok-4.7': { info: { id: 'grok-4.7', reasoning_efforts: [{ value: 'high' }, { value: 'nonsense' }] } } } }));
+    assert.deepEqual(readGrokModelsDefinition(file), fresh);
+    fs.writeFileSync(file, '{broken');
+    assert.equal(readGrokModelsDefinition(file), fresh);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -35,37 +35,40 @@ const CODEX_FALLBACK_EFFORT_WITH_ULTRA = {
   values: [...CODEX_FALLBACK_EFFORT.values, { value: 'ultra' }],
 };
 
-// Mirrors what `codex` 0.154 lists on the ChatGPT subscription
-// (~/.codex/models_cache.json, `visibility: "list"`, 17.09.2026). GPT-5.5 is
-// the previous generation and the only one without `max`/`ultra` effort.
+// Conservative CLI metadata verified 24.09.2026. Historical entries remain hidden.
 export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
       value: 'gpt-6-astra',
+      contextWindow: 872_000,
       label: 'GPT-6 Astra',
       description: 'Our most capable model for complex, demanding work.',
       effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
     },
     {
       value: 'gpt-5.6-sol',
+      contextWindow: 872_000,
       label: 'GPT-5.6 Sol',
       description: 'Reliable agentic workhorse for everyday tasks.',
-      effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
+      effort: { ...CODEX_FALLBACK_EFFORT_WITH_ULTRA, default: 'low' },
     },
     {
       value: 'gpt-5.6-terra',
+      hidden: true,
       label: 'GPT-5.6 Terra',
       description: 'Balanced agentic coding model for everyday work.',
       effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
     },
     {
       value: 'gpt-5.6-luna',
+      hidden: true,
       label: 'GPT-5.6 Luna',
       description: 'Fast and affordable agentic coding model.',
       effort: CODEX_FALLBACK_EFFORT,
     },
     {
       value: 'gpt-5.5',
+      hidden: true,
       label: 'GPT-5.5',
       description: 'Proven previous-generation model for coding and general work.',
       effort: {
@@ -79,6 +82,8 @@ export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
 
 type CodexCachedModel = {
   slug?: string;
+  context_window?: number;
+  max_context_window?: number;
   display_name?: string;
   description?: string;
   priority?: number;
@@ -99,90 +104,60 @@ const isCodexCachedModel = (value: unknown): value is CodexCachedModel => {
   return Boolean(record && readOptionalString(record.slug));
 };
 
-const readCodexPriority = (value: unknown): number => (
-  typeof value === 'number' && Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER
-);
+const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+const positive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
+const family = (slug: string) => /^gpt-\d+(?:\.\d+)*-(astra|sol)$/.exec(slug)?.[1];
+const newest = (a: string, b: string) => b.localeCompare(a, undefined, { numeric: true });
 
-const mapCodexModel = (model: CodexCachedModel): ProviderModelOption => {
-  const effortValues = Array.isArray(model.supported_reasoning_levels)
-    ? model.supported_reasoning_levels
-      .map((level) => {
-        const value = readOptionalString(level?.effort);
-        if (!value) {
-          return null;
-        }
-
-        return {
-          value,
-          description: readOptionalString(level?.description),
-        };
-      })
-      .filter((level): level is NonNullable<typeof level> => Boolean(level))
-    : [];
-
-  return {
-    value: model.slug as string,
-    label: readOptionalString(model.display_name) ?? (model.slug as string),
-    description: readOptionalString(model.description),
-    effort: effortValues.length > 0
-      ? {
-          default: readOptionalString(model.default_reasoning_level) ?? undefined,
-          values: effortValues,
-        }
-      : undefined,
-  };
-};
-
-export const buildCodexModelsDefinition = (models: CodexCachedModel[]): ProviderModelsDefinition => {
-  const sortedModels = [...models]
-    .filter((model) => model.visibility === 'list' && model.supported_in_api !== false)
-    .sort((left, right) => readCodexPriority(left.priority) - readCodexPriority(right.priority));
-
-  const discoveredOptions = new Map<string, ProviderModelOption>();
-
-  for (const model of sortedModels) {
-    const mappedModel = mapCodexModel(model);
-    if (discoveredOptions.has(mappedModel.value)) {
-      continue;
-    }
-
-    discoveredOptions.set(mappedModel.value, mappedModel);
-  }
-
-  // The local Codex cache is refreshed independently from Neo3 and can be
-  // absent, stale, or only partially populated. Keep the five subscription
-  // Codex models visible in the shared picker in every case, while still
-  // appending any additional models the installed CLI explicitly exposes.
-  const options: ProviderModelOption[] = CODEX_FALLBACK_MODELS.OPTIONS.map((fallback) => {
-    const discovered = discoveredOptions.get(fallback.value);
-    discoveredOptions.delete(fallback.value);
-    return discovered
-      ? { ...fallback, ...discovered, label: fallback.label }
-      : fallback;
+export const buildCodexModelsDefinition = (models: CodexCachedModel[], previous = CODEX_FALLBACK_MODELS): ProviderModelsDefinition => {
+  const options = previous.OPTIONS.map((fallback): ProviderModelOption => {
+    if (fallback.hidden) return fallback;
+    const selected = models.filter((model) => isCodexCachedModel(model)
+      && model.visibility === 'list' && family(model.slug!) === family(fallback.value))
+      .sort((a, b) => newest(a.slug!, b.slug!))[0];
+    if (!selected) return fallback;
+    const levels = Array.isArray(selected.supported_reasoning_levels)
+      ? [...new Set(selected.supported_reasoning_levels.map((level) => level?.effort)
+        .filter((value): value is string => typeof value === 'string' && EFFORT_ORDER.includes(value))) ]
+        .sort((a, b) => EFFORT_ORDER.indexOf(a) - EFFORT_ORDER.indexOf(b)) : [];
+    if (Array.isArray(selected.supported_reasoning_levels) && (!levels.length || selected.supported_reasoning_levels.some((level) => !EFFORT_ORDER.includes(level?.effort ?? '')))) return fallback;
+    const sameModel = selected.slug === fallback.value;
+    const defaultEffort = selected.default_reasoning_level;
+    const context = positive(selected.max_context_window)
+      && (!positive(selected.context_window) || selected.max_context_window >= selected.context_window)
+      ? selected.max_context_window : selected.context_window;
+    return {
+      value: selected.slug!,
+      label: readOptionalString(selected.display_name) ?? (sameModel ? fallback.label : selected.slug!),
+      description: readOptionalString(selected.description) ?? (sameModel ? fallback.description : undefined),
+      contextWindow: positive(context) ? context : sameModel ? fallback.contextWindow : undefined,
+      effort: levels.length ? {
+        default: defaultEffort && levels.includes(defaultEffort) ? defaultEffort
+          : sameModel && fallback.effort?.default && levels.includes(fallback.effort.default) ? fallback.effort.default : undefined,
+        values: levels.map((value) => ({ value })),
+      } : sameModel ? fallback.effort : undefined,
+    };
   });
-
-  for (const discovered of discoveredOptions.values()) {
-    options.push(discovered);
-  }
-
-  return {
-    OPTIONS: options,
-    DEFAULT: CODEX_FALLBACK_MODELS.DEFAULT,
-  };
+  return { OPTIONS: options, DEFAULT: options.find((option) => family(option.value) === 'sol')!.value };
 };
 
 export class CodexProviderModels implements IProviderModels {
+  private lastValid = CODEX_FALLBACK_MODELS;
+  constructor(private cachePath = CODEX_MODELS_CACHE_PATH) {}
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
     try {
-      const raw = await readFile(CODEX_MODELS_CACHE_PATH, 'utf8');
+      const raw = await readFile(this.cachePath, { encoding: 'utf8', signal: AbortSignal.timeout(2000) });
       const parsed = readObjectRecord(JSON.parse(raw));
       const models = Array.isArray(parsed?.models)
         ? parsed.models.filter(isCodexCachedModel)
         : [];
 
-      return buildCodexModelsDefinition(models);
+      if (models.some((model) => model.slug && family(model.slug) && model.visibility === 'list')) {
+        this.lastValid = buildCodexModelsDefinition(models, this.lastValid);
+      }
+      return this.lastValid;
     } catch {
-      return CODEX_FALLBACK_MODELS;
+      return this.lastValid;
     }
   }
 

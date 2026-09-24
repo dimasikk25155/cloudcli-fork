@@ -1,58 +1,57 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   buildCodexModelsDefinition,
   CODEX_FALLBACK_MODELS,
+  CodexProviderModels,
 } from '@/modules/providers/list/codex/codex-models.provider.js';
 
 const RECOMMENDED_CODEX_MODELS = [
   'gpt-6-astra',
   'gpt-5.6-sol',
-  'gpt-5.6-terra',
-  'gpt-5.6-luna',
-  'gpt-5.5',
 ];
 
-test('Codex fallback always offers the five subscription models', () => {
+test('Codex fallback always offers the selected Astra and Sol families', () => {
   assert.deepEqual(
-    CODEX_FALLBACK_MODELS.OPTIONS.map((option) => option.value),
+    CODEX_FALLBACK_MODELS.OPTIONS.filter((option) => !option.hidden).map((option) => option.value),
     RECOMMENDED_CODEX_MODELS,
   );
   assert.equal(CODEX_FALLBACK_MODELS.DEFAULT, 'gpt-5.6-sol');
 });
 
-test('a partial CLI cache cannot remove recommended models from the shared picker', () => {
-  const result = buildCodexModelsDefinition([
-    {
-      slug: 'gpt-5.6-terra',
-      display_name: 'GPT-5.6-Terra',
-      visibility: 'list',
-      supported_in_api: true,
-      priority: 1,
-      default_reasoning_level: 'high',
-      supported_reasoning_levels: [{ effort: 'high', description: 'Cached level' }],
-    },
-    {
-      slug: 'gpt-5.5',
-      display_name: 'GPT-5.5',
-      visibility: 'list',
-      supported_in_api: true,
-      priority: 2,
-    },
-  ]);
+test('partial cache retains curated families, correct defaults and maximum CLI context', () => {
+  const result = buildCodexModelsDefinition([{ slug: 'gpt-5.6-terra', visibility: 'list' }]);
+  assert.deepEqual(result.OPTIONS.filter((o) => !o.hidden).map((o) => o.value), RECOMMENDED_CODEX_MODELS);
+  assert.equal(result.OPTIONS.find((o) => o.value === 'gpt-6-astra')?.effort?.default, 'medium');
+  assert.equal(result.OPTIONS.find((o) => o.value === 'gpt-5.6-sol')?.effort?.default, 'low');
+  assert.equal(result.OPTIONS.find((o) => o.value === 'gpt-5.6-sol')?.contextWindow, 872000);
+});
 
-  assert.deepEqual(
-    result.OPTIONS.slice(0, 5).map((option) => option.value),
-    RECOMMENDED_CODEX_MODELS,
-  );
-  assert.equal(result.OPTIONS[2]?.label, 'GPT-5.6 Terra');
-  assert.deepEqual(result.OPTIONS[2]?.effort?.values, [
-    { value: 'high', description: 'Cached level' },
-  ]);
-  // A cached entry refreshes the previous-generation row instead of
-  // duplicating it at the tail.
-  assert.equal(result.OPTIONS[4]?.value, 'gpt-5.5');
-  assert.equal(result.OPTIONS.length, 5);
-  assert.equal(result.DEFAULT, 'gpt-5.6-sol');
+test('a rewritten cache discovers newer selected families and retains valid data on malformed refresh', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'codex-refresh-'));
+  const file = path.join(dir, 'models.json');
+  const provider = new CodexProviderModels(file);
+  try {
+    assert.equal((await provider.getSupportedModels()).DEFAULT, 'gpt-5.6-sol');
+    await writeFile(file, JSON.stringify({ models: [
+      { slug: 'gpt-6-sol', display_name: 'GPT-6 Sol', visibility: 'list', context_window: 300000, max_context_window: 900000,
+        default_reasoning_level: 'low', supported_reasoning_levels: [{ effort: 'high' }, { effort: 'low' }] },
+      { slug: 'gpt-6-terra', visibility: 'list' },
+    ] }));
+    const fresh = await provider.getSupportedModels();
+    assert.equal(fresh.DEFAULT, 'gpt-6-sol');
+    assert.deepEqual(fresh.OPTIONS.filter((o) => !o.hidden).map((o) => o.value), ['gpt-6-astra', 'gpt-6-sol']);
+    assert.equal(fresh.OPTIONS[1].contextWindow, 900000);
+    assert.deepEqual(fresh.OPTIONS[1].effort, { default: 'low', values: [{ value: 'low' }, { value: 'high' }] });
+    await writeFile(file, JSON.stringify({ models: [{ slug: 'gpt-6-astra', visibility: 'list' }] }));
+    assert.deepEqual((await provider.getSupportedModels()).OPTIONS[1], fresh.OPTIONS[1]);
+    await writeFile(file, '{broken');
+    assert.deepEqual(await provider.getSupportedModels(), fresh);
+    await writeFile(file, JSON.stringify({ models: [] }));
+    assert.deepEqual(await provider.getSupportedModels(), fresh);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

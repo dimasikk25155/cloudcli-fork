@@ -82,6 +82,8 @@ export type ProviderModelOption = {
    * daily use (21.08.2026: the local RTX ones and the BYO gateways).
    */
   hidden?: boolean;
+  /** Maximum context supported by the installed provider for this model. */
+  contextWindow?: number;
   effort?: {
     default?: string;
     values: {
