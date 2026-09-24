@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -20,6 +21,7 @@ import TelegramSettingsPanel from '../../telegram/TelegramSettingsPanel';
 import { useSettingsController } from '../hooks/useSettingsController';
 import { useWebPush } from '../../../hooks/useWebPush';
 import type { SettingsProps } from '../types/types';
+import { ESCAPE_LAYER_SELECTOR, isBackdropDismiss, shouldCloseSettingsOnEscape } from '../utils/settingsDismiss';
 
 type DesktopNotificationsState = {
   enabled: boolean;
@@ -129,6 +131,45 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     });
   };
 
+  // Escape closes Settings. Layers above it (dialogs, menus, login/MCP modals) carry
+  // `data-escape-layer` and get the key first. Window capture runs before the chat's
+  // document-capture double-Escape stop, and preventDefault keeps it from arming.
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!shouldCloseSettingsOnEscape(event, Boolean(document.querySelector(ESCAPE_LAYER_SELECTOR)))) {
+        return;
+      }
+      event.preventDefault();
+      onClose();
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [isOpen, onClose]);
+
+  const backdropMouseDownRef = useRef(false);
+
+  const handleBackdropMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    backdropMouseDownRef.current = event.target === event.currentTarget;
+  }, []);
+
+  const handleBackdropClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const startedOnBackdrop = backdropMouseDownRef.current;
+      backdropMouseDownRef.current = false;
+      if (isBackdropDismiss(startedOnBackdrop, event.target === event.currentTarget)) {
+        onClose();
+      }
+    },
+    [onClose]
+  );
+
   if (!isOpen) {
     return null;
   }
@@ -136,7 +177,11 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
   const isAuthenticated = Boolean(loginProvider && providerAuthStatus[loginProvider].authenticated);
 
   return (
-    <div className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4">
+    <div
+      className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4"
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
+    >
       <div className="flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-2xl md:h-[90vh] md:max-w-4xl md:rounded-xl">
         {/* Header */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-3 md:px-5">

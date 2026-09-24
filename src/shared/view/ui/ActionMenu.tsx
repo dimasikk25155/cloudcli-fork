@@ -139,6 +139,7 @@ export default function ActionMenu({
           id={menuId}
           role="menu"
           tabIndex={-1}
+          data-escape-layer
           className={cn(
             'absolute top-full z-50 mt-2 min-w-[220px] rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg',
             'animate-in fade-in-0 zoom-in-95',
