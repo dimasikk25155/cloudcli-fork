@@ -42,6 +42,7 @@ import {
   type PasteRecord,
 } from '../utils/clipboardPaste';
 import { downscaleImageFile } from '../utils/imageDownscale';
+import { isImeOwnedKey } from '../utils/imeComposition';
 import { modelForProvider } from '../utils/providerModelState';
 
 import { useFileMentions } from './useFileMentions';
@@ -1298,8 +1299,48 @@ export function useChatComposerState({
   // Timestamp of the previous plain Enter, used by the double-Enter mode.
   const lastEnterAtRef = useRef(0);
 
+  // Composition is tracked on `window` in the capture phase rather than on the textarea, so a
+  // composition that starts in one field and ends after focus moves still closes cleanly.
+  const isComposingRef = useRef(false);
+  const lastCompositionEndAtRef = useRef(0);
+
+  useEffect(() => {
+    const onStart = () => {
+      isComposingRef.current = true;
+    };
+    const onEnd = () => {
+      isComposingRef.current = false;
+      lastCompositionEndAtRef.current = performance.now();
+    };
+    // `blur` does not bubble, but a capture-phase listener on `window` still sees it —
+    // otherwise a composition abandoned by clicking away would stay open forever.
+    const onBlur = () => {
+      isComposingRef.current = false;
+    };
+    window.addEventListener('compositionstart', onStart, true);
+    window.addEventListener('compositionend', onEnd, true);
+    window.addEventListener('blur', onBlur, true);
+    return () => {
+      window.removeEventListener('compositionstart', onStart, true);
+      window.removeEventListener('compositionend', onEnd, true);
+      window.removeEventListener('blur', onBlur, true);
+    };
+  }, []);
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // The IME owns this keystroke (candidate confirm/navigation): no menus, history,
+      // mode cycling or send. Leaves the double-Enter timer untouched.
+      if (isImeOwnedKey({
+        key: event.key,
+        nativeIsComposing: event.nativeEvent.isComposing,
+        trackedComposing: isComposingRef.current,
+        now: performance.now(),
+        lastCompositionEndAt: lastCompositionEndAtRef.current,
+      })) {
+        return;
+      }
+
       if (event.key !== 'Enter') {
         lastEnterAtRef.current = 0;
       }
@@ -1323,10 +1364,6 @@ export function useChatComposerState({
       }
 
       if (event.key === 'Enter') {
-        if (event.nativeEvent.isComposing) {
-          return;
-        }
-
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
           event.preventDefault();
           handleSubmit(event);
