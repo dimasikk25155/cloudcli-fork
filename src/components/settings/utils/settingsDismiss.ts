@@ -5,10 +5,11 @@ export const ESCAPE_LAYER_SELECTOR = '[data-escape-layer]';
 
 /** Escape closes Settings only when no layer above it is open and nobody else consumed the key. */
 export function shouldCloseSettingsOnEscape(
-  event: { key: string; repeat?: boolean; defaultPrevented: boolean },
+  event: { key: string; repeat?: boolean; defaultPrevented: boolean; isComposing?: boolean },
   hasEscapeLayer: boolean,
 ): boolean {
-  return event.key === 'Escape' && !event.repeat && !event.defaultPrevented && !hasEscapeLayer;
+  // During IME composition Escape cancels the candidate, not the modal.
+  return event.key === 'Escape' && !event.repeat && !event.isComposing && !event.defaultPrevented && !hasEscapeLayer;
 }
 
 /**

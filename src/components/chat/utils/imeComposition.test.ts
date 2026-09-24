@@ -25,5 +25,6 @@ test('a deliberate Enter after the race window sends normally', () => {
 
 test('the post-composition window only swallows Enter, not other keys', () => {
   assert.equal(isImeOwnedKey({ ...base, key: 'ArrowUp', lastCompositionEndAt: base.now - 2 }), false);
-  assert.equal(isImeOwnedKey({ ...base, key: 'ArrowUp', trackedComposing: true }), true);
+  assert.equal(isImeOwnedKey({ ...base, key: 'ArrowUp', nativeIsComposing: true }), true);
+  assert.equal(isImeOwnedKey({ ...base, key: 'ArrowUp', trackedComposing: true }), false, 'stale tracked flag must not freeze history');
 });

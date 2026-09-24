@@ -17,6 +17,7 @@ test('other keys, auto-repeat and already-consumed Escape do not close settings'
   assert.equal(shouldCloseSettingsOnEscape({ ...esc, key: 'Enter' }, false), false);
   assert.equal(shouldCloseSettingsOnEscape({ ...esc, repeat: true }, false), false);
   assert.equal(shouldCloseSettingsOnEscape({ ...esc, defaultPrevented: true }, false), false);
+  assert.equal(shouldCloseSettingsOnEscape({ ...esc, isComposing: true }, false), false, 'IME cancel');
 });
 
 test('backdrop closes only when the click starts and ends on it', () => {

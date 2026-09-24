@@ -181,6 +181,31 @@ test('real git: helper answers github.com only, and origin in .git/config stays 
   }
 });
 
+test('real git: a machine-level helper can neither shadow nor receive the selected token', { skip: !hasGit }, () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'neo3-clone-helper-'));
+  try {
+    const globalConfig = path.join(root, 'gitconfig');
+    const stored = path.join(root, 'stored.txt');
+    // A "keychain" that would answer with a stale password and record anything it is asked to store.
+    execFileSync('git', ['config', '--file', globalConfig, 'credential.helper',
+      `!f() { if [ "$1" = get ]; then echo username=stale; echo password=STALE_MACHINE_SECRET; else cat >> '${stored}'; fi; }; f`]);
+    const env = { ...buildGitCloneEnvironment(CANARY), GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1' };
+    const input = 'protocol=https\nhost=github.com\npath=example/repo.git\n\n';
+
+    const fill = spawnSync('git', ['credential', 'fill'], { input, env, encoding: 'utf8', timeout: 10_000 });
+    assert.equal(fill.status, 0, fill.stderr);
+    assert.match(fill.stdout, new RegExp(`password=${CANARY}`));
+    assert.ok(!fill.stdout.includes('STALE_MACHINE_SECRET'));
+
+    spawnSync('git', ['credential', 'approve'], { input: fill.stdout, env, encoding: 'utf8', timeout: 10_000 });
+    let recorded = '';
+    try { recorded = readFileSync(stored, 'utf8'); } catch { /* nothing stored */ }
+    assert.ok(!recorded.includes(CANARY), 'machine helper must not store the token');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('pending clone requests are single-use and bound to the posting user', () => {
   const pending = createPendingCloneRequests(60_000);
   const request = { workspacePath: '/w', githubUrl: 'https://github.com/a/b', githubTokenId: null, newGithubToken: CANARY };

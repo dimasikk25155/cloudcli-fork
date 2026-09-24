@@ -1317,10 +1317,17 @@ export function useChatComposerState({
     const onBlur = () => {
       isComposingRef.current = false;
     };
+    // A composition whose field disappeared mid-way fires neither compositionend nor blur;
+    // focusing any field again starts clean.
+    const onFocus = () => {
+      isComposingRef.current = false;
+    };
     window.addEventListener('compositionstart', onStart, true);
     window.addEventListener('compositionend', onEnd, true);
     window.addEventListener('blur', onBlur, true);
+    window.addEventListener('focus', onFocus, true);
     return () => {
+      window.removeEventListener('focus', onFocus, true);
       window.removeEventListener('compositionstart', onStart, true);
       window.removeEventListener('compositionend', onEnd, true);
       window.removeEventListener('blur', onBlur, true);

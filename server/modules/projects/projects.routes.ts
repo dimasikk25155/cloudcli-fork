@@ -13,6 +13,7 @@ const router = express.Router();
 
 // Parked clone requests live for one minute: long enough for the EventSource to connect.
 const pendingCloneRequests = createPendingCloneRequests(60_000);
+const MAX_CLONE_FIELD_LENGTH = 4096;
 
 type AuthenticatedUser = {
   id?: number | string;
@@ -208,6 +209,16 @@ router.post(
   asyncHandler(async (req, res) => {
     const userId = requireCloneUserId(req);
     const requestBody = (req.body ?? {}) as Record<string, unknown>;
+    // Parked bodies sit in memory for a minute: keep each field to a sane size.
+    const oversized = (['path', 'githubUrl', 'newGithubToken'] as const).some(
+      (field) => typeof requestBody[field] === 'string' && (requestBody[field] as string).length > MAX_CLONE_FIELD_LENGTH,
+    );
+    if (oversized) {
+      throw new AppError('Clone request field is too long', {
+        code: 'CLONE_REQUEST_TOO_LARGE',
+        statusCode: 413,
+      });
+    }
     const cloneId = pendingCloneRequests.add(userId, {
       workspacePath: typeof requestBody.path === 'string' ? requestBody.path : '',
       githubUrl: typeof requestBody.githubUrl === 'string' ? requestBody.githubUrl : '',

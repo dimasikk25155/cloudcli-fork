@@ -18,8 +18,13 @@ export interface ImeKeyState {
 
 /** True while an IME owns the keystroke: composer shortcuts must leave it alone. */
 export function isImeOwnedKey({ key, nativeIsComposing, trackedComposing, now, lastCompositionEndAt }: ImeKeyState): boolean {
-  if (nativeIsComposing || trackedComposing) {
+  if (nativeIsComposing) {
     return true;
   }
-  return key === 'Enter' && lastCompositionEndAt > 0 && now - lastCompositionEndAt < SAFARI_IME_RACE_WINDOW_MS;
+  // The window-tracked flag can outlive a composition whose field vanished mid-way, so it
+  // only ever blocks Enter (a stuck flag must not freeze history, menus or mode cycling).
+  if (key !== 'Enter') {
+    return false;
+  }
+  return trackedComposing || (lastCompositionEndAt > 0 && now - lastCompositionEndAt < SAFARI_IME_RACE_WINDOW_MS);
 }
