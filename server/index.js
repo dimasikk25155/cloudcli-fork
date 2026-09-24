@@ -97,6 +97,7 @@ import { initializeDatabase, projectsDb, sessionsDb } from './modules/database/i
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket, requireAdmin } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
+import { createUpstreamChecker, mountUpstreamRoutes } from './modules/upstream-updates/index.js';
 import { c } from './utils/colors.js';
 
 const __dirname = getModuleDir(import.meta.url);
@@ -323,86 +324,11 @@ app.use(express.static(path.join(APP_ROOT, 'dist'), {
 // /api/config endpoint removed - no longer needed
 // Frontend now uses window.location for WebSocket URLs
 
-// System update endpoint
-app.post('/api/system/update', authenticateToken, async (req, res) => {
-    // This checkout is a customized fork (branch dima/fork-customizations);
-    // the stock git update would check out main and pull upstream over it.
-    if (!IS_PLATFORM && installMode === 'git') {
-        return res.status(501).json({
-            success: false,
-            error: 'In-app updates are disabled on this fork. Update manually: merge origin/main into dima/fork-customizations, run npm run build, then launchctl kickstart -k gui/$(id -u)/com.dimasik.cloudcli. See FORK-NOTES.md.'
-        });
-    }
-    try {
-        // Get the project root directory (parent of server directory)
-        const projectRoot = APP_ROOT;
-
-        console.log('Starting system update from directory:', projectRoot);
-
-        // Platform deployments use their own update workflow from the project root.
-        const updateCommand = IS_PLATFORM
-        // In platform, husky and dev dependencies are not needed
-            ? 'npm run update:platform'
-            : installMode === 'git'
-                ? 'git checkout main && git pull && npm install'
-                : 'npm install -g @cloudcli-ai/cloudcli@latest';
-
-        const updateCwd = IS_PLATFORM || installMode === 'git'
-            ? projectRoot
-            : os.homedir();
-
-        const child = spawn('sh', ['-c', updateCommand], {
-            cwd: updateCwd,
-            env: process.env
-        });
-
-        let output = '';
-        let errorOutput = '';
-
-        child.stdout.on('data', (data) => {
-            const text = data.toString();
-            output += text;
-            console.log('Update output:', text);
-        });
-
-        child.stderr.on('data', (data) => {
-            const text = data.toString();
-            errorOutput += text;
-            console.error('Update error:', text);
-        });
-
-        child.on('close', (code) => {
-            if (code === 0) {
-                res.json({
-                    success: true,
-                    output: output || 'Update completed successfully',
-                    message: 'Update completed. Please restart the server to apply changes.'
-                });
-            } else {
-                res.status(500).json({
-                    success: false,
-                    error: 'Update command failed',
-                    output: output,
-                    errorOutput: errorOutput
-                });
-            }
-        });
-
-        child.on('error', (error) => {
-            console.error('Update process error:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
-        });
-
-    } catch (error) {
-        console.error('System update error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
+// Check-only upstream API; stock installers are disabled in every fork mode.
+mountUpstreamRoutes(app, {
+    authenticateToken,
+    requireAdmin,
+    checker: createUpstreamChecker({ repo: APP_ROOT }),
 });
 
 const expandWorkspacePath = (inputPath) => {

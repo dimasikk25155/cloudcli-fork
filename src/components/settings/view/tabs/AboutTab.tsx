@@ -30,14 +30,15 @@ function GitHubIcon({ className }: { className?: string }) {
  */
 export default function AboutTab() {
   const { t } = useTranslation('settings');
-  const { restartOnboarding } = useAuth();
+  const { restartOnboarding, user } = useAuth();
   const [replayError, setReplayError] = useState('');
   const [isReplaying, setIsReplaying] = useState(false);
-  const { updateAvailable, latestVersion, currentVersion, releaseInfo } = useVersionCheck(
-    'siteboon',
-    'claudecodeui',
+  const isAdmin = user?.role === 'admin';
+  const { report, checking, reportError, currentVersion, checkUpstream, healthError } = useVersionCheck(
+    'siteboon', 'claudecodeui', isAdmin,
   );
-  const releasesUrl = releaseInfo?.htmlUrl || `${GITHUB_REPO_URL}/releases`;
+  const releasesUrl = report?.release?.url || `${GITHUB_REPO_URL}/releases`;
+  const formatDate = (value?: string | null) => value ? new Date(value).toLocaleString('ru-RU') : 'Ещё не было';
 
   const handleReplay = async () => {
     setReplayError('');
@@ -72,21 +73,90 @@ export default function AboutTab() {
             >
               v{currentVersion}
             </a>
-            {updateAvailable && latestVersion && (
-              <a
-                href={releasesUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
-              >
-                {t('apiKeys.version.updateAvailable', { version: latestVersion })}
-                <ExternalLink className="h-2.5 w-2.5" />
-              </a>
-            )}
+
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">{t('apiKeys.version.tagline')}</p>
         </div>
       </div>
+
+      {isAdmin && (
+        <section aria-label="Обновления исходного CloudCLI" className="space-y-4 rounded-xl border border-border/60 bg-muted/30 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Обновления исходного CloudCLI</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Проверка только читает изменения. CLI движков обновляются отдельно.</p>
+            </div>
+            <button type="button" disabled={checking} onClick={() => void checkUpstream()}
+              className="rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-60">
+              {checking ? 'Проверяем…' : 'Проверить сейчас'}
+            </button>
+          </div>
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">Ожидает согласования · установка отключена</p>
+          <div role="status" aria-live="polite" className="text-xs text-muted-foreground">
+            <p>Последняя попытка: {formatDate(report?.checkedAt)}</p>
+            <p>Успешная проверка: {formatDate(report?.lastSuccessfulCheckAt)}</p>
+            {report?.checking && <p>{report.checkNotice || 'Другая проверка уже выполняется.'}</p>}
+            {report?.stale && <p className="mt-1 text-amber-700 dark:text-amber-300">Отчёт устарел. Ниже сохранены последние успешные данные.</p>}
+            {!report && !checking && !reportError && <p className="mt-1">Отчёт ещё не создан. Нажмите «Проверить сейчас».</p>}
+          </div>
+          {(reportError || healthError) && <p role="alert" className="break-words text-xs text-destructive">{reportError || healthError}</p>}
+          {report?.fork && (
+            <dl className="grid gap-3 text-xs sm:grid-cols-2">
+              <div><dt className="text-muted-foreground">Текущий форк · v{report.fork.version}</dt>
+                <dd className="mt-1 break-all font-mono">{report.fork.sha}</dd>
+                <dd className="mt-1 text-muted-foreground">{report.fork.branch} · {report.fork.dirty ? 'Есть локальные правки' : 'Рабочая копия чистая'}</dd></div>
+              <div><dt className="text-muted-foreground">Стабильный релиз</dt>
+                <dd className="mt-1"><a href={report.release?.url} target="_blank" rel="noopener noreferrer" className="text-primary underline">{report.release?.tag}</a></dd>
+                <dd className="mt-1 break-all font-mono">{report.release?.sha}</dd></div>
+              <div className="sm:col-span-2"><dt className="text-muted-foreground">Кандидат main · может включать изменения вне релиза</dt>
+                <dd className="mt-1 break-all font-mono"><a href={report.upstream?.url} target="_blank" rel="noopener noreferrer" className="text-primary underline">{report.upstream?.sha}</a></dd></div>
+            </dl>
+          )}
+          {report?.reviewedProposal && (
+            <div className="space-y-3 border-t border-border/50 pt-3 text-xs">
+              <p className="font-medium">Что полезно перенести · ручной обзор {report.reviewedProposal.reviewedAt}</p>
+              <p className="text-muted-foreground">{report.reviewedProposal.method}</p>
+              {report.reviewedProposal.needsReview && <p className="text-amber-700 dark:text-amber-300">Снимок кода изменился или есть локальные правки — перед переносом нужна повторная сверка.</p>}
+              <p className="font-medium">Первый набор для согласования</p>
+              <ul className="space-y-3">{report.reviewedProposal.firstBatch.map(item => (
+                <li key={item.sha}><a className="text-primary underline" href={`${GITHUB_REPO_URL}/commit/${item.sha}`} target="_blank" rel="noopener noreferrer">{item.title}</a>
+                  <p className="mt-1 text-muted-foreground">Отсутствовало при обзоре. {item.risk}</p></li>
+              ))}</ul>
+              <details><summary className="cursor-pointer text-muted-foreground">Второй набор и уже покрытые изменения</summary>
+                <ul className="mt-2 space-y-3">{report.reviewedProposal.secondBatch.map(item => (
+                  <li key={item.sha}><a className="text-primary underline" href={`${GITHUB_REPO_URL}/commit/${item.sha}`} target="_blank" rel="noopener noreferrer">{item.title}</a>
+                    <p className="mt-1 text-muted-foreground">Отсутствовало при обзоре. {item.risk}</p></li>
+                ))}</ul>
+                <p className="mt-3 text-muted-foreground">{report.reviewedProposal.partial}</p>
+                <p className="mt-2 text-muted-foreground">Уже есть: {report.reviewedProposal.alreadyPresent.join('; ')}.</p>
+                <p className="mt-2 break-all font-mono text-muted-foreground">Снимок форка: {report.reviewedProposal.forkSha}<br />Снимок upstream: {report.reviewedProposal.upstreamSha}</p>
+              </details>
+            </div>
+          )}
+          {report?.changes && (
+            <>
+              <div className="border-t border-border/50 pt-3 text-xs">
+                <p className="font-medium">Изменения для рассмотрения</p>
+                <p className="mt-1 text-muted-foreground">{report.changes.ancestry
+                  ? `По истории Git: ${report.changes.ancestry.upstreamOnly} коммитов только upstream, ${report.changes.ancestry.forkOnly} только форка.`
+                  : 'История Git и совпадения cherry-pick пока не подтверждены.'} Это не счётчик отсутствующих функций.</p>
+                <ul className="mt-2 space-y-2">
+                  {report.changes.candidates.slice(0, 8).map(candidate => (
+                    <li key={candidate.sha} className="break-words"><a href={candidate.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{candidate.subject}</a>
+                      {candidate.coverage === 'patch-equivalent' && <span className="text-muted-foreground"> · эквивалентный патч уже есть</span>}</li>
+                  ))}
+                </ul>
+                <details className="mt-3"><summary className="cursor-pointer text-muted-foreground">Риски и пересечения ({report.changes.overlap.length})</summary>
+                  <ul className="mt-2 space-y-2 text-muted-foreground">{report.changes.risks.map(risk => <li key={risk}>{risk}</li>)}</ul>
+                  <p className="mt-2 break-all font-mono text-muted-foreground">{report.changes.overlap.slice(0, 12).join(', ') || 'Пересечения путей не обнаружены; ручные переносы требуют отдельной проверки.'}</p>
+                </details>
+              </div>
+              <p className="break-words border-t border-border/50 pt-3 text-xs leading-relaxed text-muted-foreground">{report.nextStep}</p>
+            </>
+          )}
+          <p className="text-xs leading-relaxed text-muted-foreground">Для подготовки переноса передайте агенту SHA кандидата и выбранные изменения. Ваше согласование требуется до переноса кода. Эта кнопка ничего не устанавливает.</p>
+        </section>
+      )}
 
       <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
         <p className="text-sm font-medium text-foreground">{t('about.replay')}</p>
