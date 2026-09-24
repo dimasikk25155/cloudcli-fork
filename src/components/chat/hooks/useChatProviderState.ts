@@ -15,7 +15,6 @@ import type {
 import {
   DEFAULT_EFFORT_VALUE,
   FALLBACK_PROVIDER_EFFORT_VALUES,
-  toProviderEffortOptions,
 } from '../constants/providerEffort';
 import { preferredStartingMode, skipPermissionsDefaultMode } from '../utils/permissionDefaults';
 import { withAutoPlanMode } from '../utils/autoPlanMode';
@@ -30,7 +29,7 @@ import {
   readSessionWorkMode,
   workModeStorageKey,
 } from '../utils/workModeStorage';
-import { applyProviderModel, type ProviderModelSetters } from '../utils/providerModelState';
+import { applyProviderModel, resolveModelEffort, type ProviderModelSetters } from '../utils/providerModelState';
 import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
@@ -205,12 +204,13 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [codexModel, setCodexModel] = useState<string>(() => {
     return localStorage.getItem('codex-model') || FALLBACK_DEFAULT_MODEL.codex;
   });
-  const [providerEfforts, setProviderEfforts] = useState<Partial<Record<LLMProvider, string>>>(() => {
-    return PROVIDERS.reduce<Partial<Record<LLMProvider, string>>>((acc, targetProvider) => {
-      acc[targetProvider] = localStorage.getItem(`${targetProvider}-effort`) || DEFAULT_EFFORT_VALUE;
-      return acc;
-    }, {});
-  });
+  // Choices belong to one model in one chat. Legacy provider-wide defaults
+  // intentionally do not enter this map: they cannot establish model intent.
+  const [providerEfforts, setProviderEfforts] = useState<Record<string, string>>({});
+  const effortKey = useCallback((targetProvider: LLMProvider, model: string, sessionId = selectedSession?.id) => (
+    `model-effort:${JSON.stringify([sessionId || 'draft', targetProvider, model])}`
+  ), [selectedSession?.id]);
+  const draftModelPickedRef = useRef(false);
   const [opencodeModel, setOpenCodeModel] = useState<string>(() => {
     return localStorage.getItem('opencode-model') || FALLBACK_DEFAULT_MODEL.opencode;
   });
@@ -245,6 +245,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [providerModelsRefreshing, setProviderModelsRefreshing] = useState(false);
 
   const providerModelsRequestIdRef = useRef(0);
+  const providerModelsInFlightRef = useRef(false);
 
   // Local mirror of session-scoped model/effort writes, keyed by session id.
   // `selectedSession` comes from the sidebar's already-fetched project list,
@@ -256,6 +257,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   // in the hydration effect below. Survives session switches because this
   // hook isn't remounted when `selectedSession` changes (no key prop upstream).
   const sessionOverridesRef = useRef<Record<string, { model?: string; effort?: string }>>({});
+  const effortWritesRef = useRef<Record<string, Promise<unknown>>>({});
 
   // Readable from inside promise callbacks that must not re-run per session
   // (the account-defaults fetch below), where `selectedSession` would be the
@@ -309,12 +311,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const setActiveProviderModel = useCallback((targetProvider: LLMProvider, model: string) => {
     applyProviderModel(targetProvider, model, providerModelSetters);
   }, [providerModelSetters]);
-
-  const setActiveProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
-    setProviderEfforts((previous) => (
-      previous[targetProvider] === effort ? previous : { ...previous, [targetProvider]: effort }
-    ));
-  }, []);
 
   /**
    * Sets the default every NEW chat starts with (Settings-only writer).
@@ -371,7 +367,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
           const model = migrateStoredModel(targetProvider, data.models?.[targetProvider] ?? null);
           if (model) {
             localStorage.setItem(`${targetProvider}-model`, model);
-            if (!hasOpenSession) {
+            if (!hasOpenSession && !draftModelPickedRef.current) {
               setActiveProviderModel(targetProvider, model);
             }
           }
@@ -379,9 +375,6 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
           if (effort) {
             localStorage.setItem(`${targetProvider}-effort`, effort);
           }
-        }
-        if (data.efforts && !hasOpenSession) {
-          setProviderEfforts((previous) => ({ ...previous, ...data.efforts }));
         }
       })
       .catch((error) => {
@@ -392,16 +385,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     };
   }, [setActiveProviderModel]);
 
-  /** Mirrors setStoredProviderModel for the thinking level. */
-  const setStoredProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
-    localStorage.setItem(`${targetProvider}-effort`, effort);
-    syncProviderEffortToServer(targetProvider, effort);
-    if (!selectedSession?.id) {
-      setActiveProviderEffort(targetProvider, effort);
-    }
-  }, [selectedSession?.id, setActiveProviderEffort, syncProviderEffortToServer]);
-
   const loadProviderModels = useCallback(async (options: { bypassCache?: boolean } = {}) => {
+    if (providerModelsInFlightRef.current) return;
+    providerModelsInFlightRef.current = true;
     const requestId = providerModelsRequestIdRef.current + 1;
     providerModelsRequestIdRef.current = requestId;
     const isHardRefresh = options.bypassCache === true;
@@ -412,8 +398,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       setProviderModelsLoading(true);
     }
 
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10_000);
     try {
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         PROVIDERS.map(async (p) => {
           const params = new URLSearchParams();
           if (options.bypassCache) {
@@ -421,9 +409,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
           }
 
           const queryString = params.toString();
-          const response = await authenticatedFetch(`/api/providers/${p}/models${queryString ? `?${queryString}` : ''}`);
+          const response = await authenticatedFetch(`/api/providers/${p}/models${queryString ? `?${queryString}` : ''}`, { signal: controller.signal });
           const body = (await response.json()) as ProviderModelsApiResponse;
-          if (!body.success || !body.data?.models || !body.data?.cache) {
+          if (!response.ok || !body.success || !body.data?.models?.OPTIONS?.length || !body.data?.cache) {
             return null;
           }
 
@@ -439,7 +427,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       const nextCacheCatalog: Partial<Record<LLMProvider, ProviderModelsCacheInfo>> = {};
 
       PROVIDERS.forEach((p, i) => {
-        const entry = results[i];
+        const result = results[i];
+        const entry = result.status === 'fulfilled' ? result.value : null;
         if (!entry) {
           return;
         }
@@ -448,11 +437,13 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         nextCacheCatalog[p] = entry.cache;
       });
 
-      setProviderModelCatalog(nextCatalog);
-      setProviderModelCacheCatalog(nextCacheCatalog);
+      setProviderModelCatalog(previous => ({ ...previous, ...nextCatalog }));
+      setProviderModelCacheCatalog(previous => ({ ...previous, ...nextCacheCatalog }));
     } catch (error) {
       console.error('Error loading provider models:', error);
     } finally {
+      window.clearTimeout(timeout);
+      providerModelsInFlightRef.current = false;
       if (providerModelsRequestIdRef.current === requestId) {
         setProviderModelsLoading(false);
         setProviderModelsRefreshing(false);
@@ -462,6 +453,17 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
 
   useEffect(() => {
     void loadProviderModels();
+    const refresh = () => {
+      if (document.visibilityState !== 'hidden') void loadProviderModels();
+    };
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [loadProviderModels]);
 
   useEffect(() => {
@@ -546,20 +548,23 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   // that key is the "what new chats start with" setting owned by Settings, and
   // mirroring a session's own model into it is what used to turn every
   // in-chat model pick into a global default.
-  const pickStoredOrCurrent = (
+  const pickStoredOrCurrent = useCallback((
     storageKey: string,
     current: string,
     def: ProviderModelsDefinition,
   ): string => {
-    if (current && def.OPTIONS.some((o) => o.value === current)) {
+    // Historical/active sessions keep their model even when curation removes
+    // it from the new-chat menu. Refreshing metadata must never switch a run.
+    if (selectedSession?.id && current) return current;
+    if (current && def.OPTIONS.some((o) => o.value === current && !o.hidden)) {
       return current;
     }
     const stored = localStorage.getItem(storageKey);
-    if (stored && def.OPTIONS.some((o) => o.value === stored)) {
+    if (stored && def.OPTIONS.some((o) => o.value === stored && !o.hidden)) {
       return stored;
     }
     return def.DEFAULT;
-  };
+  }, [selectedSession?.id]);
 
   const getModelOption = useCallback((
     targetProvider: LLMProvider,
@@ -597,36 +602,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       return option.effort?.values ?? [];
     }
 
-    return toProviderEffortOptions(FALLBACK_PROVIDER_EFFORT_VALUES[targetProvider] ?? []);
+    return [];
   }, [getModelOption, getSupportsEffortForProvider]);
-
-  const getAllowedEffortValues = useCallback((
-    targetProvider: LLMProvider,
-    model: string,
-  ): string[] => (
-    getEffortOptionsForModel(targetProvider, model).map((value) => value.value)
-  ), [getEffortOptionsForModel]);
-
-  const reconcileStoredEffort = useCallback((
-    targetProvider: LLMProvider,
-    model: string,
-    currentEffort: string,
-  ): string => {
-    const allowedValues = getAllowedEffortValues(targetProvider, model);
-    if (allowedValues.length === 0) {
-      return DEFAULT_EFFORT_VALUE;
-    }
-
-    if (currentEffort === DEFAULT_EFFORT_VALUE || !currentEffort) {
-      return DEFAULT_EFFORT_VALUE;
-    }
-
-    if (allowedValues.includes(currentEffort)) {
-      return currentEffort;
-    }
-
-    return DEFAULT_EFFORT_VALUE;
-  }, [getAllowedEffortValues]);
 
   const providerModels = useMemo<Record<LLMProvider, string>>(() => ({
     claude: claudeModel,
@@ -646,7 +623,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         setClaudeModel(next);
       }
     }
-  }, [providerModelCatalog.claude, claudeModel]);
+  }, [providerModelCatalog.claude, claudeModel, pickStoredOrCurrent]);
 
   useEffect(() => {
     const cursor = providerModelCatalog.cursor;
@@ -656,7 +633,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         setCursorModel(next);
       }
     }
-  }, [providerModelCatalog.cursor, cursorModel]);
+  }, [providerModelCatalog.cursor, cursorModel, pickStoredOrCurrent]);
 
   useEffect(() => {
     const codex = providerModelCatalog.codex;
@@ -666,7 +643,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         setCodexModel(next);
       }
     }
-  }, [providerModelCatalog.codex, codexModel]);
+  }, [providerModelCatalog.codex, codexModel, pickStoredOrCurrent]);
 
   useEffect(() => {
     const opencode = providerModelCatalog.opencode;
@@ -676,7 +653,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         setOpenCodeModel(next);
       }
     }
-  }, [providerModelCatalog.opencode, opencodeModel]);
+  }, [providerModelCatalog.opencode, opencodeModel, pickStoredOrCurrent]);
 
   useEffect(() => {
     const kimi = providerModelCatalog.kimi;
@@ -686,7 +663,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         setKimiModel(next);
       }
     }
-  }, [providerModelCatalog.kimi, kimiModel]);
+  }, [providerModelCatalog.kimi, kimiModel, pickStoredOrCurrent]);
 
   useEffect(() => {
     const gemini = providerModelCatalog.gemini;
@@ -696,7 +673,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         setGeminiModel(next);
       }
     }
-  }, [providerModelCatalog.gemini, geminiModel]);
+  }, [providerModelCatalog.gemini, geminiModel, pickStoredOrCurrent]);
 
   useEffect(() => {
     const grok = providerModelCatalog.grok;
@@ -706,27 +683,19 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
         setGrokModel(next);
       }
     }
-  }, [providerModelCatalog.grok, grokModel]);
+  }, [providerModelCatalog.grok, grokModel, pickStoredOrCurrent]);
 
-  useEffect(() => {
-    const nextEfforts: Partial<Record<LLMProvider, string>> = {};
-    let hasUpdates = false;
+  const setActiveProviderEffort = useCallback((targetProvider: LLMProvider, effort: string, model = providerModels[targetProvider], sessionId = selectedSession?.id) => {
+    const key = effortKey(targetProvider, model, sessionId);
+    setProviderEfforts(previous => ({ ...previous, [key]: effort }));
+    if (sessionId) localStorage.setItem(key, effort);
+  }, [effortKey, providerModels, selectedSession?.id]);
 
-    for (const targetProvider of PROVIDERS) {
-      const currentEffort = providerEfforts[targetProvider] ?? DEFAULT_EFFORT_VALUE;
-      const nextEffort = reconcileStoredEffort(targetProvider, providerModels[targetProvider], currentEffort);
-      if (nextEffort === currentEffort) {
-        continue;
-      }
-
-      nextEfforts[targetProvider] = nextEffort;
-      hasUpdates = true;
-    }
-
-    if (hasUpdates) {
-      setProviderEfforts((previous) => ({ ...previous, ...nextEfforts }));
-    }
-  }, [providerEfforts, providerModels, reconcileStoredEffort]);
+  const setStoredProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
+    localStorage.setItem(`${targetProvider}-effort`, effort);
+    syncProviderEffortToServer(targetProvider, effort);
+    if (!selectedSession?.id) setActiveProviderEffort(targetProvider, effort);
+  }, [selectedSession?.id, setActiveProviderEffort, syncProviderEffortToServer]);
 
   // Guards the "no session yet" branch below from clobbering a mode the user
   // just picked for an in-progress draft when getDefaultPermissionModeForProvider
@@ -790,13 +759,14 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     setWorkMode(readDefaultWorkMode());
   }, [selectedSession?.id]);
 
-  // Mirrors the permissionMode effect above: a session with its own saved
-  // model/effort shows that; a session with none (or a brand-new chat) falls
-  // back to this provider's last-used default, so switching between chats
-  // moves the composer's Model/Level buttons with it instead of leaving them
-  // on whatever the previous chat happened to leave in place. Any invalid
-  // leftover value (e.g. a since-removed model) self-corrects via the
-  // pickStoredOrCurrent/reconcileStoredEffort effects above on the next render.
+  useEffect(() => {
+    if (selectedSession?.id) return;
+    setProviderEfforts({});
+    draftModelPickedRef.current = false;
+  }, [selectedSession?.id]);
+
+  // Session intent overrides legacy provider preferences. Reset remains a
+  // symbolic default and is stored per model so switching back restores it.
   useEffect(() => {
     const localOverride = selectedSession?.id ? sessionOverridesRef.current[selectedSession.id] : undefined;
 
@@ -808,16 +778,18 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     const nextModel = sessionModel
       ?? localStorage.getItem(`${provider}-model`)
       ?? FALLBACK_DEFAULT_MODEL[provider];
-    const nextEffort = sessionEffort
-      ?? localStorage.getItem(`${provider}-effort`)
-      ?? DEFAULT_EFFORT_VALUE;
+    const key = effortKey(provider, nextModel);
+    const nextEffort = selectedSession?.id
+      ? localStorage.getItem(key) ?? sessionEffort ?? DEFAULT_EFFORT_VALUE
+      : DEFAULT_EFFORT_VALUE;
+    if (!selectedSession?.id && draftModelPickedRef.current) return;
 
     applyProviderModel(provider, nextModel, providerModelSetters);
 
     setProviderEfforts((previous) => (
-      previous[provider] === nextEffort ? previous : { ...previous, [provider]: nextEffort }
+      previous[key] === nextEffort ? previous : { ...previous, [key]: nextEffort }
     ));
-  }, [selectedSession?.id, selectedSession?.model, selectedSession?.effort, provider, providerModelSetters]);
+  }, [selectedSession?.id, selectedSession?.model, selectedSession?.effort, provider, providerModelSetters, effortKey]);
 
   useEffect(() => {
     if (!selectedSession?.__provider || selectedSession.__provider === provider) {
@@ -991,6 +963,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     if (!normalizedSessionId) {
       // Brand-new chat with no id yet: the pick lives in state until
       // commitSessionModelAndEffort writes it against the real session id.
+      draftModelPickedRef.current = true;
       setActiveProviderModel(targetProvider, model);
       return {
         scope: 'default' as const,
@@ -999,35 +972,44 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       };
     }
 
-    const response = await authenticatedFetch(
-      `/api/providers/${targetProvider}/sessions/${encodeURIComponent(normalizedSessionId)}/active-model`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ model }),
-      },
-    );
-
-    const body = (await response.json()) as ChangeActiveModelApiResponse;
-    if (!response.ok || !body.success || !body.data?.supported) {
-      throw new Error('Unable to change the active model for this session.');
+    const key = effortKey(targetProvider, model, normalizedSessionId);
+    const remembered = providerEfforts[key] ?? localStorage.getItem(key) ?? DEFAULT_EFFORT_VALUE;
+    const nextEffort = resolveModelEffort(getModelOption(targetProvider, model), { model, effort: remembered });
+    const queueKey = `${targetProvider}:${normalizedSessionId}`;
+    const write = (effortWritesRef.current[queueKey] ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        const response = await authenticatedFetch(
+          `/api/providers/${targetProvider}/sessions/${encodeURIComponent(normalizedSessionId)}/active-model`,
+          { method: 'POST', body: JSON.stringify({ model, effort: nextEffort }) },
+        );
+        const body = await response.json() as ChangeActiveModelApiResponse;
+        if (!response.ok || !body.success || !body.data?.supported) {
+          throw new Error('Unable to change the active model for this session.');
+        }
+        const resolvedModel = body.data.model || model;
+        if (selectedSessionIdRef.current === normalizedSessionId) {
+          setActiveProviderModel(targetProvider, resolvedModel);
+        }
+        setActiveProviderEffort(targetProvider, nextEffort, resolvedModel, normalizedSessionId);
+        sessionOverridesRef.current[normalizedSessionId] = {
+          model: resolvedModel,
+          effort: nextEffort,
+        };
+        return {
+          scope: 'session' as const,
+          changed: body.data.changed === true,
+          model: resolvedModel,
+          effort: nextEffort,
+        };
+      });
+    effortWritesRef.current[queueKey] = write;
+    try {
+      return await write;
+    } finally {
+      if (effortWritesRef.current[queueKey] === write) delete effortWritesRef.current[queueKey];
     }
-
-    const resolvedModel = body.data.model || model;
-    // Session-scoped on purpose (reversal of the earlier "one global switch"
-    // behaviour, 2026-08-07): the chip moves this chat only. The starting
-    // point for new chats is set in Settings and stays put.
-    setActiveProviderModel(targetProvider, resolvedModel);
-    sessionOverridesRef.current[normalizedSessionId] = {
-      ...sessionOverridesRef.current[normalizedSessionId],
-      model: resolvedModel,
-    };
-
-    return {
-      scope: 'session' as const,
-      changed: body.data.changed === true,
-      model: resolvedModel,
-    };
-  }, [setActiveProviderModel]);
+  }, [effortKey, getModelOption, providerEfforts, setActiveProviderEffort, setActiveProviderModel]);
 
   const selectProviderEffort = useCallback(async (
     targetProvider: LLMProvider,
@@ -1044,44 +1026,53 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       };
     }
 
-    const response = await authenticatedFetch(
-      `/api/providers/${targetProvider}/sessions/${encodeURIComponent(normalizedSessionId)}/active-effort`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ effort }),
-      },
-    );
-
-    const body = (await response.json()) as ChangeActiveEffortApiResponse;
-    if (!response.ok || !body.success || !body.data?.supported) {
-      throw new Error('Unable to change the active effort for this session.');
-    }
-
-    const resolvedEffort = body.data.effort || effort;
-    // Session-scoped, mirroring selectProviderModel above.
-    setActiveProviderEffort(targetProvider, resolvedEffort);
+    const model = providerModels[targetProvider];
+    const intent = resolveModelEffort(getModelOption(targetProvider, model), { model, effort });
+    // The next send and the controlled range follow intent immediately. Store
+    // requests are ordered per session, so an older drag event cannot arrive
+    // after reset and become the persisted value shown on another device.
+    setActiveProviderEffort(targetProvider, intent, model, normalizedSessionId);
     sessionOverridesRef.current[normalizedSessionId] = {
       ...sessionOverridesRef.current[normalizedSessionId],
-      effort: resolvedEffort,
+      effort: intent,
     };
-
-    return {
-      scope: 'session' as const,
-      changed: body.data.changed === true,
-      effort: resolvedEffort,
-    };
-  }, [setActiveProviderEffort]);
+    const queueKey = `${targetProvider}:${normalizedSessionId}`;
+    const write = (effortWritesRef.current[queueKey] ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        const activeModel = sessionOverridesRef.current[normalizedSessionId]?.model;
+        if (activeModel && activeModel !== model) {
+          // A queued model switch superseded this event from the old slider.
+          return { scope: 'session' as const, changed: false, effort: intent };
+        }
+        const response = await authenticatedFetch(
+          `/api/providers/${targetProvider}/sessions/${encodeURIComponent(normalizedSessionId)}/active-effort`,
+          { method: 'POST', body: JSON.stringify({ effort: intent }) },
+        );
+        const body = await response.json() as ChangeActiveEffortApiResponse;
+        if (!response.ok || !body.success || !body.data?.supported) {
+          throw new Error('Unable to change the active effort for this session.');
+        }
+        return { scope: 'session' as const, changed: body.data.changed === true, effort: intent };
+      });
+    effortWritesRef.current[queueKey] = write;
+    try {
+      return await write;
+    } finally {
+      if (effortWritesRef.current[queueKey] === write) delete effortWritesRef.current[queueKey];
+    }
+  }, [getModelOption, providerModels, setActiveProviderEffort]);
 
   const currentProviderEffortOptions = useMemo(() => {
     return getEffortOptionsForModel(provider, providerModels[provider]);
   }, [getEffortOptionsForModel, provider, providerModels]);
   const currentProviderEffort = useMemo(() => {
-    return reconcileStoredEffort(
-      provider,
-      providerModels[provider],
-      providerEfforts[provider] ?? DEFAULT_EFFORT_VALUE,
-    );
-  }, [provider, providerEfforts, providerModels, reconcileStoredEffort]);
+    const model = providerModels[provider];
+    return resolveModelEffort(getModelOption(provider, model), {
+      model,
+      effort: providerEfforts[effortKey(provider, model)] ?? DEFAULT_EFFORT_VALUE,
+    });
+  }, [effortKey, getModelOption, provider, providerEfforts, providerModels]);
 
   // Twin of commitPermissionModeToSession: a chat composed before it had an id
   // (model and level picked on the empty screen) records those choices against
@@ -1094,15 +1085,14 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       return;
     }
 
+    const key = effortKey(provider, providerModels[provider], normalizedSessionId);
+    localStorage.setItem(key, currentProviderEffort);
     void selectProviderModel(provider, providerModels[provider], normalizedSessionId)
       .catch((error) => {
         console.warn('Failed to record the new session model:', error);
       });
-    void selectProviderEffort(provider, currentProviderEffort, normalizedSessionId)
-      .catch((error) => {
-        console.warn('Failed to record the new session effort:', error);
-      });
-  }, [currentProviderEffort, provider, providerModels, selectProviderEffort, selectProviderModel]);
+
+  }, [currentProviderEffort, effortKey, provider, providerModels, selectProviderModel]);
 
   return {
     provider,

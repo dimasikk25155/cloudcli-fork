@@ -1,4 +1,4 @@
-import type { LLMProvider } from '../../../types/app';
+import type { LLMProvider, ProviderModelOption } from '../../../types/app';
 
 export type ProviderModelSetters = Record<LLMProvider, (model: string) => void>;
 
@@ -22,4 +22,15 @@ export function modelForProvider(
   models: Record<LLMProvider, string>,
 ): string {
   return models[provider];
+}
+
+/** Keep default intent symbolic so a catalogue refresh follows the model's new default. */
+export function resolveModelEffort(
+  model: ProviderModelOption | null | undefined,
+  choice?: { model: string; effort: string } | null,
+): string {
+  if (!model || choice?.model !== model.value) return 'default';
+  return model.effort?.values.some(option => option.value === choice.effort)
+    ? choice.effort
+    : 'default';
 }

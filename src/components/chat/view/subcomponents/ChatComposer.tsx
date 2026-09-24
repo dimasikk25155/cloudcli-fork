@@ -37,6 +37,7 @@ import ImageAttachment from './ImageAttachment';
 import VoiceInputButton from './VoiceInputButton';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
+import EffortControl from './EffortControl';
 import UsageLimitsBadge from './UsageLimitsBadge';
 import QueuedMessageCard from './QueuedMessageCard';
 
@@ -265,15 +266,6 @@ export default function ChatComposer({
     }
     if (voiceState === 'idle') setVoiceError(null);
   }, [voiceState]);
-  const [isEffortDropdownOpen, setIsEffortDropdownOpen] = useState(false);
-  const effortDropdownRef = useRef<HTMLDivElement | null>(null);
-  const effortDropdownMenuRef = useRef<HTMLDivElement | null>(null);
-  const effortDropdownButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [effortDropdownPosition, setEffortDropdownPosition] = useState<{
-    left: number;
-    top: number;
-    maxHeight: number;
-  } | null>(null);
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const modeDropdownRef = useRef<HTMLDivElement | null>(null);
   const modeDropdownMenuRef = useRef<HTMLDivElement | null>(null);
@@ -301,10 +293,6 @@ export default function ChatComposer({
     top: number;
     maxHeight: number;
   } | null>(null);
-  const effortOptions = useMemo(
-    () => [{ value: 'default' }, ...availableEffortOptions],
-    [availableEffortOptions],
-  );
   // The trigger buttons show the CURRENT choice (claude.ai-style "Fable 5.1" /
   // "High"), falling back to the generic label only when nothing concrete is
   // selected.
@@ -313,59 +301,6 @@ export default function ChatComposer({
     [availableModelOptions, model],
   );
   const selectedModelLabel = selectedModelOption?.label ?? (model || null);
-  // "default" is not a level a human recognises — show the level the model
-  // actually runs at, which is the catalog's declared default for it.
-  const selectedEffortLabel = effort && effort !== 'default'
-    ? effort
-    : selectedModelOption?.effort?.default ?? null;
-  const updateEffortDropdownPosition = useCallback(() => {
-    const rect = effortDropdownButtonRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return;
-    }
-
-    setEffortDropdownPosition({
-      left: rect.left,
-      top: rect.top - 8,
-      maxHeight: Math.max(96, rect.top - 16),
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!isEffortDropdownOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        !effortDropdownRef.current?.contains(target)
-        && !effortDropdownMenuRef.current?.contains(target)
-      ) {
-        setIsEffortDropdownOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        setIsEffortDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('resize', updateEffortDropdownPosition);
-    window.addEventListener('scroll', updateEffortDropdownPosition, true);
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    updateEffortDropdownPosition();
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('resize', updateEffortDropdownPosition);
-      window.removeEventListener('scroll', updateEffortDropdownPosition, true);
-      window.removeEventListener('keydown', handleKeyDown, { capture: true });
-    };
-  }, [isEffortDropdownOpen, updateEffortDropdownPosition]);
-
   const updateModelDropdownPosition = useCallback(() => {
     const rect = modelDropdownButtonRef.current?.getBoundingClientRect();
     if (!rect) {
@@ -923,72 +858,16 @@ export default function ChatComposer({
               </div>
             )}
 
-            {availableEffortOptions.length > 0 && (
-              <div ref={effortDropdownRef} className="relative">
-                <button
-                  ref={effortDropdownButtonRef}
-                  type="button"
-                  onClick={() => {
-                    updateEffortDropdownPosition();
-                    setIsEffortDropdownOpen((current) => !current);
-                  }}
-                  className="composer-chip composer-chip-effort flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
-                  aria-haspopup="menu"
-                  aria-expanded={isEffortDropdownOpen}
-                  aria-label="Select reasoning effort"
-                  title="Select reasoning effort"
-                >
-                  <span className={selectedEffortLabel ? 'capitalize' : undefined}>
-                    {selectedEffortLabel ?? t('input.effortLabel', { defaultValue: 'Effort' })}
-                  </span>
-                  <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isEffortDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
+            <EffortControl
+              key={model}
+              modelLabel={selectedModelLabel ?? model}
+              effort={effort}
+              defaultEffort={selectedModelOption?.effort?.default}
+              options={availableEffortOptions}
+              onSelect={onSelectEffort}
+            />
 
-                {isEffortDropdownOpen && effortDropdownPosition && createPortal(
-                  <div
-                    ref={effortDropdownMenuRef}
-                    className="fixed z-[100] min-w-36 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
-                    style={{
-                      left: effortDropdownPosition.left,
-                      top: effortDropdownPosition.top,
-                      maxHeight: effortDropdownPosition.maxHeight,
-                      transform: 'translateY(-100%)',
-                    }}
-                    role="menu"
-                  >
-                    {effortOptions.map((option) => {
-                      const isSelected = option.value === effort;
-                      const label = option.value === 'default' ? 'Default' : option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={isSelected}
-                          {...tapSelect(() => {
-                            onSelectEffort(option.value);
-                            setIsEffortDropdownOpen(false);
-                          })}
-                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs capitalize transition-colors ${
-                            isSelected
-                              ? 'bg-accent text-foreground'
-                              : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
-                          }`}
-                        >
-                          <span className="flex h-3 w-3 items-center justify-center">
-                            {isSelected && <Check className="h-3 w-3 text-primary" />}
-                          </span>
-                          <span>{label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>,
-                  document.body,
-                )}
-              </div>
-            )}
-
-            <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+            <TokenUsageSummary usage={tokenBudget} contextWindow={selectedModelOption?.contextWindow} onClick={onShowTokenUsage} />
 
             <UsageLimitsBadge model={model} />
 
