@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 // Load environment variables before other imports execute
 import './load-env.js';
 import fs, { promises as fsPromises } from 'fs';
@@ -22,6 +23,7 @@ import { createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
+import { readCodexContextBudget, readClaudeContextBudget } from './shared/context-budget.js';
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
 import { findByBasename, resolveProjectFilePath } from './utils/file-reference-resolver.js';
 import fileShareRoutes, { serveSharedFile } from './routes/file-share.js';
@@ -1462,45 +1464,14 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
                 throw error;
             }
             const lines = fileContent.trim().split('\n');
-            let inputTokens = 0;
-            let outputTokens = 0;
-            let totalTokens = 0;
-            let contextWindow = 200000; // Default for Codex/OpenAI
-
-            // Find the latest token_count event with info (scan from end)
+            let budget = { used: null };
             for (let i = lines.length - 1; i >= 0; i--) {
                 try {
-                    const entry = JSON.parse(lines[i]);
-
-                    // Codex stores token info in event_msg with type: "token_count"
-                    if (entry.type === 'event_msg' && entry.payload?.type === 'token_count' && entry.payload?.info) {
-                        const tokenInfo = entry.payload.info;
-                        if (tokenInfo.total_token_usage) {
-                            inputTokens = tokenInfo.total_token_usage.input_tokens || 0;
-                            outputTokens = tokenInfo.total_token_usage.output_tokens || 0;
-                            totalTokens = tokenInfo.total_token_usage.total_tokens || inputTokens + outputTokens;
-                        }
-                        if (tokenInfo.model_context_window) {
-                            contextWindow = tokenInfo.model_context_window;
-                        }
-                        break; // Stop after finding the latest token count
-                    }
-                } catch (parseError) {
-                    // Skip lines that can't be parsed
-                    continue;
-                }
+                    const parsed = readCodexContextBudget(JSON.parse(lines[i]));
+                    if (parsed) { budget = parsed; break; }
+                } catch { /* Skip malformed rows. */ }
             }
-
-            return res.json({
-                used: totalTokens,
-                total: contextWindow,
-                inputTokens,
-                outputTokens,
-                breakdown: {
-                    input: inputTokens,
-                    output: outputTokens
-                }
-            });
+            return res.json(budget);
         }
 
         // Handle Claude sessions (default)
@@ -1546,65 +1517,15 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
         }
         const lines = fileContent.trim().split('\n');
 
-        let inputTokens = 0;
-        let outputTokens = 0;
-        let cacheReadTokens = 0;
-        let cacheCreationTokens = 0;
-        let model = null;
-
-        // Find the latest assistant message with usage data (scan from end)
+        let budget = { used: null };
         for (let i = lines.length - 1; i >= 0; i--) {
             try {
-                const entry = JSON.parse(lines[i]);
-
-                // Only count assistant messages which have usage data
-                if (entry.type === 'assistant' && entry.message?.usage) {
-                    const usage = entry.message.usage;
-
-                    // Use token counts from latest assistant message only
-                    const directInputTokens = readUsageNumber(usage.input_tokens ?? usage.inputTokens);
-                    cacheReadTokens = readUsageNumber(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens ?? usage.cacheReadTokens);
-                    cacheCreationTokens = readUsageNumber(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens ?? usage.cacheCreationTokens);
-                    inputTokens = directInputTokens + cacheReadTokens + cacheCreationTokens;
-                    outputTokens = readUsageNumber(usage.output_tokens ?? usage.outputTokens);
-                    if (typeof entry.message.model === 'string' && entry.message.model !== '<synthetic>') {
-                        model = entry.message.model;
-                    }
-
-                    break; // Stop after finding the latest assistant message
-                }
-            } catch (parseError) {
-                // Skip lines that can't be parsed
-                continue;
-            }
+                const parsed = readClaudeContextBudget(JSON.parse(lines[i]));
+                if (parsed) { budget = parsed; break; }
+            } catch { /* Skip malformed rows. */ }
         }
-
-        // The window is a property of the MODEL, not a global constant. The old
-        // 160000 default understated a 1M-context model by 6x, which made the
-        // composer badge ("310K tokens") impossible to read as a fill level.
-        // An explicit CONTEXT_WINDOW override still wins, for custom setups.
-        const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
-        const contextWindow = Number.isFinite(parsedContextWindow)
-            ? parsedContextWindow
-            : getContextWindow(model);
-
-        const totalUsed = inputTokens + outputTokens;
-        const cacheTokens = cacheReadTokens + cacheCreationTokens;
-
-        res.json({
-            used: totalUsed,
-            total: contextWindow,
-            model,
-            inputTokens,
-            outputTokens,
-            cacheReadTokens,
-            cacheCreationTokens,
-            cacheTokens,
-            breakdown: {
-                input: inputTokens,
-                output: outputTokens
-            }
-        });
+        const parsedContextWindow = Number(process.env.CONTEXT_WINDOW);
+        res.json({ ...budget, total: parsedContextWindow > 0 ? parsedContextWindow : getContextWindow(budget.model) });
     } catch (error) {
         console.error('Error reading session token usage:', error);
         res.status(500).json({ error: 'Failed to read session token usage' });

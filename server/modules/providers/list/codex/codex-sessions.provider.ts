@@ -6,6 +6,7 @@ import { stripAttachmentReferenceTags, toImageAttachments } from '@/shared/image
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
+import { readCodexContextBudget } from '@/shared/context-budget.js';
 
 const PROVIDER = 'codex';
 
@@ -163,16 +164,8 @@ async function getCodexSessionMessages(
       try {
         const entry = JSON.parse(line) as AnyRecord;
 
-        if (entry.type === 'event_msg' && entry.payload?.type === 'token_count' && entry.payload?.info) {
-          const info = entry.payload.info as AnyRecord;
-          if (info.total_token_usage) {
-            const usage = info.total_token_usage as AnyRecord;
-            tokenUsage = {
-              used: usage.total_tokens || 0,
-              total: info.model_context_window || 200000,
-            };
-          }
-        }
+        const budget = readCodexContextBudget(entry);
+        if (budget) tokenUsage = budget;
 
         if (entry.type === 'event_msg' && isVisibleCodexUserMessage(entry.payload as AnyRecord)) {
           messages.push({

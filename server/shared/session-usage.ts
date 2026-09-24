@@ -5,8 +5,9 @@ import path from 'node:path';
 import readline from 'node:readline';
 
 import { sessionsDb } from '../modules/database/index.js';
-import { moscowDay } from './moscow-day.js';
 
+import { readClaudeContextBudget, isContextCompaction } from './context-budget.js';
+import { moscowDay } from './moscow-day.js';
 import {
   grokSessionsRoot,
   listGrokSessionDirs,
@@ -741,6 +742,7 @@ type SnapshotAccumulator = {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   contextTokens: number | null;
+  runtimeContextWindow?: number;
   /** Per-model slices, so a mixed session is priced at each model's own rate. */
   byModel: Map<string, ModelSlice>;
 };
@@ -798,6 +800,7 @@ async function foldGrokUpdates(
     const ctx = readGrokContextBudgetFromDir(path.dirname(filePath), acc.model);
     if (ctx) {
       acc.contextTokens = ctx.used;
+      acc.runtimeContextWindow = ctx.total;
       if (ctx.model) {
         acc.model = ctx.model;
       }
@@ -833,6 +836,7 @@ async function foldTranscript(
       continue;
     }
 
+    if (!isSubAgent && isContextCompaction(entry)) acc.contextTokens = null;
     const usage = entry?.message?.usage
       ?? (entry?.event?.type === 'step.end' ? entry.event.usage : null);
     if (usage && typeof usage === 'object') {
@@ -900,7 +904,9 @@ async function foldTranscript(
       // sum — a repeated row simply restates it, so this stays outside the
       // duplicate guard, and sub-agent files never touch it.
       if (!isSubAgent) {
-        acc.contextTokens = directInput + cacheRead + cacheCreation + output;
+        const context = readClaudeContextBudget(entry);
+        if (context) acc.contextTokens = context.used;
+        else if (entry?.event?.type === 'step.end') acc.contextTokens = directInput + cacheRead + cacheCreation + output;
       }
     }
 
@@ -975,7 +981,7 @@ export async function getSessionCostSnapshot(
     cacheCreationTokens: acc.cacheCreationTokens,
     totalTokens: acc.inputTokens + acc.outputTokens,
     contextTokens: acc.contextTokens,
-    contextWindow: getContextWindow(acc.model),
+    contextWindow: acc.runtimeContextWindow ?? getContextWindow(acc.model),
     costUsd,
     transcriptPath,
   };
@@ -988,7 +994,7 @@ export async function getSessionCostSnapshot(
  */
 export function snapshotToComposerBudget(snapshot: SessionCostSnapshot): Record<string, unknown> {
   return {
-    used: snapshot.contextTokens ?? 0,
+    used: snapshot.contextTokens,
     total: snapshot.contextWindow,
     model: snapshot.model,
     inputTokens: snapshot.inputTokens,

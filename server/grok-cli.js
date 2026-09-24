@@ -529,7 +529,7 @@ export function resolveGrokEffort(model, effort, modelsDefinition = readGrokMode
   const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value) || [];
   return typeof effort === 'string' && effort !== 'default' && allowedEfforts.includes(effort)
     ? effort
-    : undefined;
+    : allowedEfforts.includes(selectedModel?.effort?.default) ? selectedModel.effort.default : undefined;
 }
 
 /**
@@ -842,7 +842,7 @@ async function spawnGrok(command, options = {}, ws) {
       }
       const tokenBudget = {
         ...(existing && typeof existing === 'object' ? existing : {}),
-        used: fromDisk?.used ?? existing?.used ?? 0,
+        used: fromDisk?.used ?? existing?.used ?? null,
         total: fromDisk?.total ?? existing?.total ?? 0,
         model: fromDisk?.model ?? existing?.model ?? liveModel,
       };
@@ -987,7 +987,7 @@ async function spawnGrok(command, options = {}, ws) {
           }
           if (msg.text === 'token_budget' && msg.tokenBudget) {
             const fromDisk = readGrokContextBudget(workingDir, resolvedSessionId, liveModel);
-            if (fromDisk) {
+            if (fromDisk && response.subtype !== 'compact_boundary') {
               msg.tokenBudget = {
                 ...msg.tokenBudget,
                 used: fromDisk.used,
@@ -1076,6 +1076,7 @@ async function spawnGrok(command, options = {}, ws) {
     };
 
     void providerModelsService.resolveResumeModel('grok', sessionId, model).then(async (resolvedModel) => {
+      const resolvedEffort = await providerModelsService.resolveResumeEffort('grok', sessionId, effort, resolvedModel);
       liveModel = resolvedModel || liveModel;
       // Claude-side hooks (vault digest, real clock) — executed here because
       // Grok never runs them itself; best-effort, collected once per run.
@@ -1226,7 +1227,7 @@ async function spawnGrok(command, options = {}, ws) {
           resolvedSessionId,
           model: resolvedModel,
           permissionMode,
-          effort,
+          effort: resolvedEffort,
           workMode: attemptWorkMode,
           hookContext: attemptHookContext,
           planBypassPhase,

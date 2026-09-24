@@ -150,3 +150,23 @@ test('Codex synchronizer leaves indexed sessions untitled when no name is availa
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('Codex restored context follows latest sample and compaction, never cumulative spend', async () => {
+  const { CodexSessionsProvider } = await import('@/modules/providers/list/codex/codex-sessions.provider.js');
+  const temp = await mkdtemp(path.join(os.tmpdir(), 'codex-context-'));
+  try {
+    const file = path.join(temp, 'context.jsonl');
+    const rows = [
+      { type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { total_tokens: 800000 }, last_token_usage: { total_tokens: 80000 } } } },
+      { type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { total_tokens: 900000 }, last_token_usage: { total_tokens: 20000 } } } },
+    ];
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createSession('context-test', 'codex', temp, undefined, undefined, undefined, file);
+      const provider = new CodexSessionsProvider();
+      await writeFile(file, rows.map(row => JSON.stringify(row)).join('\n'));
+      assert.equal(((await provider.fetchHistory('context-test')).tokenUsage as Record<string, unknown>)?.used, 20000);
+      await writeFile(file, [...rows, { type: 'compacted' }].map(row => JSON.stringify(row)).join('\n'));
+      assert.equal(((await provider.fetchHistory('context-test')).tokenUsage as Record<string, unknown>)?.used, null);
+    });
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});

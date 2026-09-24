@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { MutableRefObject } from 'react';
+import type { MutableRefObject, SetStateAction } from 'react';
 
 import { authenticatedFetch } from '../../../utils/api';
 import type { MarkSessionIdle, SessionActivityMap } from '../../../hooks/useSessionProtection';
 import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
 import type { ChatMessage } from '../types/types';
+import { contextBudgetOnSessionChange } from '../utils/contextBudget';
 import { createCachedDiffCalculator, type DiffCalculator } from '../utils/messageTransforms';
 
 import { normalizedToChatMessages } from './useChatMessages';
@@ -123,7 +124,12 @@ export function useChatSessionState({
   // read the current value without re-subscribing on every scroll-state flip.
   const isUserScrolledUpRef = useRef(false);
   isUserScrolledUpRef.current = isUserScrolledUp;
-  const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
+  const [tokenBudget, writeTokenBudget] = useState<Record<string, unknown> | null>(selectedSession ? null : { used: 0 });
+  const tokenBudgetRevision = useRef(0);
+  const setTokenBudget = useCallback((value: SetStateAction<Record<string, unknown> | null>) => {
+    tokenBudgetRevision.current += 1;
+    writeTokenBudget(value);
+  }, []);
   // Live pointer to the viewed session: the async token-usage writers below
   // check it before setTokenBudget so a late response for a previous session
   // can't clobber the current session's counter.
@@ -194,7 +200,7 @@ export function useChatSessionState({
     setHasMoreMessages(false);
     setTotalMessages(0);
     
-    setTokenBudget(null);
+    setTokenBudget({ used: 0 });
     setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
     setAllMessagesLoaded(false);
     allMessagesLoadedRef.current = false;
@@ -218,7 +224,7 @@ export function useChatSessionState({
       clearTimeout(loadAllFinishedTimerRef.current);
       loadAllFinishedTimerRef.current = null;
     }
-  }, [newSessionTrigger, onSessionIdle, resetStreamingState]);
+  }, [newSessionTrigger, onSessionIdle, resetStreamingState, setTokenBudget]);
 
   /* ---------------------------------------------------------------- */
   /*  Derive processing state for the viewed session                  */
@@ -518,7 +524,7 @@ export function useChatSessionState({
       messagesOffsetRef.current = 0;
       setHasMoreMessages(false);
       setTotalMessages(0);
-      setTokenBudget(null);
+      setTokenBudget(selectedSession?.id ? null : { used: 0 });
       lastLoadedSessionKeyRef.current = null;
       return;
     }
@@ -570,8 +576,8 @@ export function useChatSessionState({
     if (loadAllOverlayTimerRef.current) clearTimeout(loadAllOverlayTimerRef.current);
     if (loadAllFinishedTimerRef.current) clearTimeout(loadAllFinishedTimerRef.current);
 
-    if (sessionChanged) {
-      setTokenBudget(null);
+    if (currentSessionId !== selectedSessionId) {
+      setTokenBudget((previous) => contextBudgetOnSessionChange(previous, currentSessionId, selectedSessionId));
     }
 
     setCurrentSessionId(selectedSessionId);
@@ -587,6 +593,7 @@ export function useChatSessionState({
 
     // Fetch from server → store updates → chatMessages re-derives automatically
     setIsLoadingSessionMessages(true);
+    const historyBudgetRevision = tokenBudgetRevision.current;
     sessionStore.fetchFromServer(selectedSessionId, {
       limit: INITIAL_MESSAGES,
       offset: 0,
@@ -594,7 +601,7 @@ export function useChatSessionState({
       if (slot) {
         setHasMoreMessages(slot.hasMore);
         setTotalMessages(slot.total);
-        if (slot.tokenUsage && tokenUsageSessionRef.current === selectedSessionId) {
+        if (slot.tokenUsage && tokenUsageSessionRef.current === selectedSessionId && tokenBudgetRevision.current === historyBudgetRevision) {
           setTokenBudget(slot.tokenUsage as Record<string, unknown>);
         }
       }
@@ -603,6 +610,7 @@ export function useChatSessionState({
       setIsLoadingSessionMessages(false);
     });
   }, [
+    setTokenBudget,
     resetStreamingState,
     selectedProject,
     selectedSession?.id,
@@ -741,28 +749,29 @@ export function useChatSessionState({
     if (!selectedProject || !requestedSessionId) {
       return;
     }
+    const requestRevision = tokenBudgetRevision.current;
     try {
       const url = `/api/projects/${selectedProject.projectId}/sessions/${requestedSessionId}/token-usage`;
       const response = await authenticatedFetch(url);
       if (response.ok) {
         const usage = await response.json();
-        if (tokenUsageSessionRef.current === requestedSessionId) {
+        if (tokenUsageSessionRef.current === requestedSessionId && tokenBudgetRevision.current === requestRevision) {
           setTokenBudget(usage);
         }
       }
     } catch (error) {
       console.error('Failed to fetch session token usage:', error);
     }
-  }, [selectedProject, selectedSession?.id]);
+  }, [selectedProject, selectedSession?.id, setTokenBudget]);
 
   // Initial token usage fetch for providers with file-backed usage data.
   useEffect(() => {
     if (!selectedProject || !selectedSession?.id) {
-      setTokenBudget(null);
+      setTokenBudget(selectedSession?.id ? null : { used: 0 });
       return;
     }
     void refreshTokenUsage();
-  }, [selectedProject, selectedSession?.id, refreshTokenUsage]);
+  }, [selectedProject, selectedSession?.id, refreshTokenUsage, setTokenBudget]);
 
   const visibleMessages = useMemo(() => {
     if (chatMessages.length <= visibleMessageCount) return chatMessages;

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { writeProviderSessionActiveModelChange } from '@/shared/utils.js';
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import {
   createProviderModelsService,
@@ -361,13 +362,14 @@ test('resolveResumeModel prefers a stored changed model over the requested one',
   });
 });
 
-test('resolveResumeEffort prefers a stored changed effort over the requested one', async () => {
+test('resolveResumeEffort uses current request intent even before a queued settings write finishes', async () => {
   await withIsolatedDatabase(async () => {
     const service = createProviderModelsService({
+      cachePath: createEphemeralCachePath(),
       resolveProvider: (provider) => ({
         models: {
-          getSupportedModels: async () => createModels(`${provider}-models`),
-          getCurrentActiveModel: async () => createCurrentActiveModel(`${provider}-active`),
+          getSupportedModels: async () => ({ DEFAULT: 'astra', OPTIONS: [{ value: 'astra', label: 'Astra', effort: { default: 'medium', values: [{ value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] } }] }),
+          getCurrentActiveModel: async () => createCurrentActiveModel('astra'),
           changeActiveModel: async (input) => createSessionActiveModelChange(provider, input),
         },
       }),
@@ -376,8 +378,13 @@ test('resolveResumeEffort prefers a stored changed effort over the requested one
     sessionsDb.createAppSession('session-789', 'codex', '/workspace/demo-project');
     sessionsDb.updateSessionEffort('session-789', 'high');
 
-    const effort = await service.resolveResumeEffort('codex', 'session-789', 'low');
-    assert.equal(effort, 'high');
+    // The settings POST is still queued: persisted state is the old high.
+    assert.equal(await service.resolveResumeEffort('codex', 'session-789', 'default'), 'medium');
+    assert.equal(sessionsDb.getSessionById('session-789')?.effort, 'high');
+    assert.equal(await service.resolveResumeEffort('codex', 'session-789', undefined), 'high');
+    assert.equal(await service.resolveResumeEffort('codex', 'session-789', 'low'), 'medium');
+    sessionsDb.updateSessionEffort('session-789', 'default');
+    assert.equal(await service.resolveResumeEffort('codex', 'session-789', 'high'), 'high');
   });
 });
 
@@ -402,4 +409,28 @@ test('invalid refresh retains last valid catalog after expiry', async () => {
     assert.equal(loads, 2);
     assert.ok(PROVIDER_MODELS_CACHE_TTL_MS <= 60000);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('resume resolves default sentinel and invalid levels using selected model metadata', async () => {
+  const service = createProviderModelsService({ cachePath: createEphemeralCachePath(), resolveProvider: () => ({ models: {
+    getSupportedModels: async () => ({ DEFAULT: 'astra', OPTIONS: [
+      { value: 'astra', label: 'Astra', effort: { default: 'medium', values: [{ value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] } },
+      { value: 'sol', label: 'Sol', effort: { default: 'low', values: [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }] } },
+    ] }),
+    getCurrentActiveModel: async () => ({ model: 'astra' }),
+    changeActiveModel: async (input) => createSessionActiveModelChange('codex', input),
+  } }) });
+  assert.equal(await service.resolveResumeEffort('codex', undefined, 'default', 'sol'), 'low');
+  assert.equal(await service.resolveResumeEffort('codex', undefined, 'ultra', 'astra'), 'medium');
+  assert.equal(await service.resolveResumeEffort('codex', undefined, 'high', 'sol'), 'high');
+});
+
+
+test('changing session model resets prior explicit effort before a later send', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('switch-model', 'codex', '/workspace/example');
+    await writeProviderSessionActiveModelChange('codex', { sessionId: 'switch-model', model: 'astra', effort: 'high' });
+    await writeProviderSessionActiveModelChange('codex', { sessionId: 'switch-model', model: 'sol' });
+    assert.equal(sessionsDb.getSessionById('switch-model')?.effort, 'default');
+  });
 });

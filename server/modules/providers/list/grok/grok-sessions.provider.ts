@@ -5,7 +5,7 @@ import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import { parseAttachedFilesTag, parseImagesInputTag } from '@/shared/image-attachments.js';
 import { buildRunInterruptedNotice, readRunOutcome } from '@/shared/run-outcomes.js';
-import { getContextWindow, readUsageBreakdown, usageFootprint } from '@/shared/token-pricing.js';
+import { getContextWindow, readUsageBreakdown } from '@/shared/token-pricing.js';
 import type {
   AnyRecord,
   FetchHistoryOptions,
@@ -263,9 +263,8 @@ const parseToolArguments = (value: unknown): unknown => {
 const buildTokenBudget = (usage: AnyRecord, model: string | null): AnyRecord => {
   const row = readUsageBreakdown(usage);
   const window = getContextWindow(model);
-  const footprint = usageFootprint(row);
   const cacheTokens = row.cacheRead + row.cacheWrite5m + row.cacheWrite1h;
-  const used = window > 0 && footprint > window ? 0 : footprint;
+  const used = null;
 
   return {
     used,
@@ -318,6 +317,9 @@ export class GrokSessionsProvider implements IProviderSessions {
     // model is remembered for the token budget at the end of the run.
     // `subtype: compact_boundary` is Grok's auto-compaction marker, not chat.
     if (raw.type === 'system') {
+      if (raw.subtype === 'compact_boundary') {
+        return [createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget: { used: null }, sessionId, provider: 'grok' })];
+      }
       if (sessionId && typeof raw.model === 'string' && raw.model.trim()) {
         this.modelBySession.set(sessionId, raw.model);
       }
@@ -584,6 +586,9 @@ export class GrokSessionsProvider implements IProviderSessions {
   private normalizeHistoryEvent(raw: AnyRecord, sessionId: string): NormalizedMessage[] {
     // The system prompt preamble is machinery, not conversation.
     if (raw.type === 'system') {
+      if (raw.subtype === 'compact_boundary') {
+        return [createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget: { used: null }, sessionId, provider: 'grok' })];
+      }
       return [];
     }
 

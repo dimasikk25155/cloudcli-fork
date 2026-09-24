@@ -647,7 +647,9 @@ export async function writeProviderSessionActiveModelChange(
 ): Promise<ProviderSessionActiveModelChange> {
   const normalizedSessionId = input.sessionId.trim();
   const normalizedModel = input.model?.trim() || undefined;
-  const normalizedEffort = input.effort?.trim() || undefined;
+  const previousModel = sessionsDb.resolveSessionRowForOverride(normalizedSessionId)?.model;
+  const resetEffort = ['claude', 'codex', 'grok'].includes(provider) && normalizedModel && normalizedModel !== previousModel;
+  const normalizedEffort = input.effort?.trim() || (resetEffort ? 'default' : undefined);
   const supported = options.supported ?? true;
 
   if (!supported) {

@@ -113,3 +113,15 @@ test('composer budget keeps window fill separate from session spend', () => {
   assert.equal(budget.outputTokens, 47_460);
   assert.ok(Number(budget.used) < Number(budget.total));
 });
+
+test('signals preserve genuine zero and reject absent/null occupancy', async () => {
+  await withGrokHome(async (root) => {
+    const cwd = '/tmp/zero';
+    const dir = path.join(root, 'sessions', encodeURIComponent(cwd), 'zero');
+    await mkdir(dir, { recursive: true });
+    for (const used of [0, null, undefined]) {
+      await writeFile(path.join(dir, 'signals.json'), JSON.stringify({ contextTokensUsed: used, contextWindowTokens: 200000 }));
+      assert.equal(readGrokContextBudget(cwd, 'zero')?.used ?? null, used === 0 ? 0 : null);
+    }
+  });
+});

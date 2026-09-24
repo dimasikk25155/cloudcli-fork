@@ -72,8 +72,8 @@ export function readGrokContextBudgetFromDir(
   try {
     const raw = fs.readFileSync(path.join(sessionDir, 'signals.json'), 'utf8');
     const sig = JSON.parse(raw) as Record<string, unknown>;
-    const used = Number(sig.contextTokensUsed);
-    if (!Number.isFinite(used) || used <= 0) {
+    const used = sig.contextTokensUsed;
+    if (typeof used !== 'number' || !Number.isFinite(used) || used < 0) {
       return null;
     }
     const recordedWindow = Number(sig.contextWindowTokens);

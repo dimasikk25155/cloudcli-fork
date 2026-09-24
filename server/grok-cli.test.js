@@ -81,7 +81,7 @@ test('buildGrokArgs resumes an existing session instead of naming a new one', ()
   assert.equal(args[args.indexOf('-m') + 1], 'grok-4.5');
 });
 
-test('buildGrokArgs omits optional flags when nothing is selected', () => {
+test('buildGrokArgs applies catalogue effort default when nothing is selected', () => {
   const args = buildGrokArgs({
     prompt: 'hi',
     sessionId: null,
@@ -91,7 +91,7 @@ test('buildGrokArgs omits optional flags when nothing is selected', () => {
   });
 
   assert.ok(!args.includes('-m'));
-  assert.ok(!args.includes('--reasoning-effort'));
+  assert.equal(args[args.indexOf('--reasoning-effort') + 1], 'high');
   assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions');
 });
 
@@ -102,16 +102,16 @@ test('buildGrokArgs omits optional flags when nothing is selected', () => {
  */
 test('resolveGrokEffort drops levels the selected model does not accept', () => {
   // The composer's sentinel: every provider sends it when no level is picked.
-  assert.equal(resolveGrokEffort('grok-4.6', 'default'), undefined);
-  assert.equal(resolveGrokEffort('grok-4.6', undefined), undefined);
+  assert.equal(resolveGrokEffort('grok-4.6', 'default'), 'high');
+  assert.equal(resolveGrokEffort('grok-4.6', undefined), 'high');
   // xhigh exists on 4.6 and newer; on 4.5 it is an argv error, not a downgrade.
   assert.equal(resolveGrokEffort('grok-4.7', 'xhigh'), 'xhigh');
   assert.equal(resolveGrokEffort('grok-4.6', 'xhigh'), 'xhigh');
-  assert.equal(resolveGrokEffort('grok-4.5', 'xhigh'), undefined);
+  assert.equal(resolveGrokEffort('grok-4.5', 'xhigh'), 'high');
   assert.equal(resolveGrokEffort('grok-4.5', 'high'), 'high');
   // No model selected means the catalog default (grok-4.7), which takes xhigh.
   assert.equal(resolveGrokEffort(null, 'xhigh'), 'xhigh');
-  assert.equal(resolveGrokEffort('grok-4.6', 'bogus'), undefined);
+  assert.equal(resolveGrokEffort('grok-4.6', 'bogus'), 'high');
 });
 
 test('buildGrokArgs never passes an effort level the model would reject', () => {
@@ -123,7 +123,7 @@ test('buildGrokArgs never passes an effort level the model would reject', () => 
     permissionMode: 'default',
     effort: 'default',
   });
-  assert.ok(!sentinel.includes('--reasoning-effort'));
+  assert.equal(sentinel[sentinel.indexOf('--reasoning-effort') + 1], 'high');
 
   const tooHigh = buildGrokArgs({
     prompt: 'hi',
@@ -133,7 +133,7 @@ test('buildGrokArgs never passes an effort level the model would reject', () => 
     permissionMode: 'default',
     effort: 'xhigh',
   });
-  assert.ok(!tooHigh.includes('--reasoning-effort'));
+  assert.equal(tooHigh[tooHigh.indexOf('--reasoning-effort') + 1], 'high');
 
   const accepted = buildGrokArgs({
     prompt: 'hi',
@@ -281,9 +281,9 @@ test('a real model rides the composer effort chip straight into --reasoning-effo
   assert.equal(xhigh[xhigh.indexOf('-m') + 1], 'grok-4.7');
   assert.equal(xhigh[xhigh.indexOf('--reasoning-effort') + 1], 'xhigh');
 
-  // Чип не тронут — CLI сам берёт свой дефолт (high), флаг не передаём.
+  // Untouched chip uses the model default explicitly, overriding stale CLI preferences.
   const untouched = argsForModel('grok-4.7', { effort: 'default' });
-  assert.ok(!untouched.includes('--reasoning-effort'));
+  assert.equal(untouched[untouched.indexOf('--reasoning-effort') + 1], 'high');
 });
 
 test('a preset owns its level — the effort chip cannot override it', () => {

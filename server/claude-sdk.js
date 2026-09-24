@@ -19,8 +19,9 @@ import path from 'path';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
+import { readClaudeContextBudget } from './shared/context-budget.js';
 import { buildClaudeUserContent, normalizeImageDescriptors } from './shared/image-attachments.js';
-import { CLAUDE_FALLBACK_MODELS } from './modules/providers/list/claude/claude-models.provider.js';
+import { CLAUDE_FALLBACK_MODELS, readClaudeModelsDefinition } from './modules/providers/list/claude/claude-models.provider.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
 import { workModeInstruction } from './shared/work-mode.js';
@@ -210,13 +211,13 @@ const IDLE_FALLBACK_CHECK_INTERVAL_MS = 10_000;
 // has landed and the guard sees the real state.
 const RELEASE_GRACE_MS = parseInt(process.env.CLAUDE_RELEASE_GRACE_MS, 10) || 3_000;
 
-function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_FALLBACK_MODELS) {
-  const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
+function resolveClaudeEffort(model, effort, modelsDefinition = readClaudeModelsDefinition()) {
+  const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === (model || modelsDefinition.DEFAULT)) || null;
   const allowedEfforts = selectedModel?.effort?.values
     ?.map((value) => value.value) || [];
   return typeof effort === 'string' && effort !== 'default' && allowedEfforts.includes(effort)
     ? effort
-    : undefined;
+    : allowedEfforts.includes(selectedModel?.effort?.default) ? selectedModel.effort.default : undefined;
 }
 
 function createRequestId() {
@@ -395,7 +396,7 @@ function mapCliOptionsToSDK(options = {}) {
   const resolvedEffort = resolveClaudeEffort(
     sdkOptions.model,
     effort,
-    options.effortModels || CLAUDE_FALLBACK_MODELS,
+    options.effortModels || readClaudeModelsDefinition(),
   );
   if (resolvedEffort) {
     sdkOptions.effort = resolvedEffort;
@@ -606,66 +607,8 @@ function resolveContextWindow(model) {
  * @returns {Object|null} Token budget object or null
  */
 function extractTokenBudget(sdkMessage) {
-  if (!sdkMessage || typeof sdkMessage !== 'object') {
-    return null;
-  }
-
-  const messageUsage = sdkMessage.message?.usage || sdkMessage.usage;
-  if (messageUsage && typeof messageUsage === 'object') {
-    const directInputTokens = readNumber(messageUsage.input_tokens ?? messageUsage.inputTokens);
-    const cacheCreationTokens = readNumber(messageUsage.cache_creation_input_tokens ?? messageUsage.cacheCreationInputTokens ?? messageUsage.cacheCreationTokens);
-    const cacheReadTokens = readNumber(messageUsage.cache_read_input_tokens ?? messageUsage.cacheReadInputTokens ?? messageUsage.cacheReadTokens);
-    const cacheTokens = cacheCreationTokens + cacheReadTokens;
-    const inputTokens = directInputTokens + cacheTokens;
-    const outputTokens = readNumber(messageUsage.output_tokens ?? messageUsage.outputTokens);
-    const totalUsed = inputTokens + outputTokens;
-    const model = typeof sdkMessage.message?.model === 'string' ? sdkMessage.message.model : null;
-    const contextWindow = resolveContextWindow(model);
-
-    return {
-      used: totalUsed,
-      total: contextWindow,
-      model,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheCreationTokens,
-      cacheTokens,
-      breakdown: {
-        input: inputTokens,
-        output: outputTokens,
-      },
-    };
-  }
-
-  if (!sdkMessage.modelUsage || typeof sdkMessage.modelUsage !== 'object') {
-    return null;
-  }
-
-  // Fallback for older SDK messages with only modelUsage
-  const modelKey = Object.keys(sdkMessage.modelUsage)[0];
-  const modelData = sdkMessage.modelUsage[modelKey];
-
-  if (!modelData || typeof modelData !== 'object') {
-    return null;
-  }
-
-  const inputTokens = readNumber(modelData.cumulativeInputTokens ?? modelData.inputTokens);
-  const outputTokens = readNumber(modelData.cumulativeOutputTokens ?? modelData.outputTokens);
-  const totalUsed = inputTokens + outputTokens;
-  const contextWindow = resolveContextWindow(modelKey);
-
-  return {
-    used: totalUsed,
-    total: contextWindow,
-    model: modelKey ?? null,
-    inputTokens,
-    outputTokens,
-    breakdown: {
-      input: inputTokens,
-      output: outputTokens,
-    },
-  };
+  const budget = readClaudeContextBudget(sdkMessage);
+  return budget ? { ...budget, total: budget.model ? resolveContextWindow(budget.model) : undefined } : null;
 }
 
 /**
@@ -846,8 +789,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       'claude',
       sessionId,
       options.effort,
+      resolvedModel,
     );
-    let effortModels = CLAUDE_FALLBACK_MODELS;
+    let effortModels = readClaudeModelsDefinition();
     try {
       effortModels = (await providerModelsService.getProviderModels('claude')).models;
     } catch (error) {

@@ -312,26 +312,29 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
   };
 
   /**
-   * Effort/thinking-level mirror of `resolveResumeModel` — same session
-   * override row, same "client-requested value wins unless a stored override
-   * says otherwise" precedence, just reading the `effort` field.
+   * The current send carries the composer's latest effort intent. It must
+   * beat a persisted override because the settings POST may still be queued.
+   * Requests that omit effort resume the stored session choice instead.
    */
   const resolveResumeEffort = async (
     provider: LLMProvider,
     sessionId: string | undefined,
     requestedEffort?: string | null,
+    requestedModel?: string | null,
   ): Promise<string | undefined> => {
-    const normalizedRequestedEffort = typeof requestedEffort === 'string' ? requestedEffort.trim() : '';
-    if (!sessionId?.trim()) {
-      return normalizedRequestedEffort || undefined;
-    }
-
-    const changedModel = await getChangedActiveModel(provider, sessionId);
-    if (changedModel.supported && changedModel.changed && changedModel.effort?.trim()) {
-      return changedModel.effort.trim();
-    }
-
-    return normalizedRequestedEffort || undefined;
+    // Other providers retain their existing semantics.
+    const validatedProvider = ['claude', 'codex', 'grok'].includes(provider);
+    const changed = sessionId?.trim() ? await getChangedActiveModel(provider, sessionId) : null;
+    if (!validatedProvider) return changed?.effort?.trim() || requestedEffort?.trim() || undefined;
+    const catalog = (await getProviderModels(provider)).models;
+    const model = changed?.model || requestedModel || (sessionId ? (await getCurrentActiveModel(provider, sessionId)).model : null) || catalog.DEFAULT;
+    const option = catalog.OPTIONS.find((candidate) => candidate.value === model);
+    const allowed = option?.effort?.values.map((value) => value.value) || [];
+    const explicitRequest = typeof requestedEffort === 'string' ? requestedEffort.trim() : '';
+    const candidate = explicitRequest || changed?.effort?.trim();
+    if (candidate && candidate !== 'default' && allowed.includes(candidate)) return candidate;
+    const fallback = option?.effort?.default;
+    return fallback && allowed.includes(fallback) ? fallback : undefined;
   };
 
   const clearCache = (): void => {

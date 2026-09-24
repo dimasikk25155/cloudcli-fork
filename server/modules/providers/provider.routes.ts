@@ -375,6 +375,7 @@ const parseChangeActiveModelPayload = (payload: unknown): ProviderChangeActiveMo
   return {
     sessionId: '',
     model,
+    effort: readOptionalQueryString(body.effort),
   };
 };
 

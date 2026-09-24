@@ -93,8 +93,7 @@ test('cumulative Grok-native usage does not overflow the 500K window', () => {
 
   const budget = result[0].tokenBudget as Record<string, number>;
   assert.equal(result[0].text, 'token_budget');
-  assert.ok(budget.used <= 500_000, `used ${budget.used} must not exceed the window`);
-  assert.equal(budget.used, 0, 'spend-scale usage is not a context fill');
+  assert.equal(budget.used, null, 'aggregate spend cannot establish context occupancy');
   assert.equal(budget.total, 500_000);
   assert.equal(budget.cacheReadTokens, 2_665_856);
   assert.equal(budget.outputTokens, 43_404);
@@ -122,7 +121,7 @@ test('result usage is reported as a token budget on the 500K window', () => {
   assert.equal(budget.outputTokens, 707);
   assert.equal(budget.cacheReadTokens, 19328);
   assert.equal(budget.inputTokens, 40217 + 19328);
-  assert.equal(budget.used, 40217 + 19328 + 707);
+  assert.equal(budget.used, null, 'even small aggregate spend is not occupancy');
   assert.equal(budget.total, 500_000);
 });
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
+import { applyContextBudgetEvent } from '../utils/contextBudget';
 import type { ServerEvent } from '../../../contexts/WebSocketContext';
 import { showCompletionTitleIndicator } from '../../../utils/pageTitleNotification';
 import { playChatCompletionSound, playNotificationSound } from '../../../utils/notificationSound';
@@ -302,13 +303,7 @@ export function useChatRealtimeHandlers({
           // before the first send), so the only follow-up is syncing the
           // viewed conversation with the now-persisted transcript.
           if (sid && sid === activeViewSessionId) {
-            void sessionStore.refreshFromServer(sid).then((slot) => {
-              // The final totals land in the transcript after `complete`; the
-              // last live budget event may predate them.
-              if (slot?.tokenUsage && sid === activeViewSessionIdRef.current) {
-                setTokenBudget(slot.tokenUsage as Record<string, unknown>);
-              }
-            });
+            void sessionStore.refreshFromServer(sid);
             // Grok's composer chip reads the disk snapshot, not the stream.
             // Wait a beat so turn_completed lands in updates.jsonl first.
             window.setTimeout(() => {
@@ -370,27 +365,9 @@ export function useChatRealtimeHandlers({
             // Budget updates stream from every running session; only the one
             // being viewed may drive the composer counter, otherwise numbers
             // from background runs "jump" into the current chat.
-            if (sid === activeViewSessionId) {
+            if (msg.sessionId && msg.sessionId === activeViewSessionId) {
               const incoming = msg.tokenBudget as Record<string, unknown>;
-              setTokenBudget((prev) => {
-                if (!prev) {
-                  return incoming;
-                }
-                const nextUsed = Number(incoming.used);
-                const nextTotal = Number(incoming.total);
-                const nextIn = Number(incoming.inputTokens);
-                const nextOut = Number(incoming.outputTokens);
-                const prevIn = Number(prev.inputTokens);
-                const prevOut = Number(prev.outputTokens);
-                return {
-                  ...prev,
-                  ...incoming,
-                  used: nextUsed > 0 ? nextUsed : prev.used,
-                  total: nextTotal > 0 ? nextTotal : prev.total,
-                  inputTokens: nextIn > prevIn ? nextIn : prev.inputTokens,
-                  outputTokens: nextOut > prevOut ? nextOut : prev.outputTokens,
-                };
-              });
+              setTokenBudget((prev) => applyContextBudgetEvent(prev, incoming, msg.sessionId, activeViewSessionIdRef.current));
             }
           } else if (msg.text && sid) {
             onSessionProcessing?.(sid, {
