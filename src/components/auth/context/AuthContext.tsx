@@ -13,14 +13,25 @@ import type {
   AuthUserPayload,
   OnboardingStatusPayload,
 } from '../types';
+import { safeLocalStorage } from '../../chat/utils/chatStorage';
 import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const readStoredToken = (): string | null => localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
 
-const persistToken = (token: string) => {
-  localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+// A full localStorage (drafts, queued messages with images) makes setItem throw.
+// The old expired token then stays behind, every request after login gets 403
+// and the user is bounced back to the login form. Drop the stale token first,
+// free disposable chat data on quota errors, and confirm the write.
+const persistToken = (token: string): boolean => {
+  try {
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    // ignore: the write below reports the real outcome
+  }
+  safeLocalStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  return safeLocalStorage.getItem(AUTH_TOKEN_STORAGE_KEY) === token;
 };
 
 const clearStoredToken = () => {
@@ -45,10 +56,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const setSession = useCallback((nextUser: AuthUser, nextToken: string) => {
+  const setSession = useCallback((nextUser: AuthUser, nextToken: string): boolean => {
+    if (!persistToken(nextToken)) {
+      return false;
+    }
     setUser(nextUser);
     setToken(nextToken);
-    persistToken(nextToken);
+    return true;
   }, []);
 
   const clearSession = useCallback(() => {
@@ -98,9 +112,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
+      const sentToken = readStoredToken();
       const userResponse = await api.auth.user();
-      if (!userResponse.ok) {
+      if (userResponse.status === 401 || userResponse.status === 403) {
+        // A login that finished while this check was in flight has already
+        // stored a new token; the rejection is about the old one.
+        const storedToken = readStoredToken();
+        if (storedToken && storedToken !== sentToken) {
+          setToken(storedToken);
+          return;
+        }
         clearSession();
+        return;
+      }
+      if (!userResponse.ok) {
+        // Proxy hiccups (502/504) must not throw a valid session away.
+        setError(AUTH_ERROR_MESSAGES.authStatusCheckFailed);
         return;
       }
 
@@ -146,7 +173,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return { success: false, error: message };
         }
 
-        setSession(payload.user, payload.token);
+        if (!setSession(payload.user, payload.token)) {
+          setError(AUTH_ERROR_MESSAGES.storageFull);
+          return { success: false, error: AUTH_ERROR_MESSAGES.storageFull };
+        }
         setNeedsSetup(false);
         await checkOnboardingStatus();
         return { success: true };
@@ -172,7 +202,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return { success: false, error: message };
         }
 
-        setSession(payload.user, payload.token);
+        if (!setSession(payload.user, payload.token)) {
+          setError(AUTH_ERROR_MESSAGES.storageFull);
+          return { success: false, error: AUTH_ERROR_MESSAGES.storageFull };
+        }
         setNeedsSetup(false);
         await checkOnboardingStatus();
         return { success: true };

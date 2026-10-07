@@ -96,6 +96,7 @@ import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './util
 import { initializeDatabase, projectsDb, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket, requireAdmin } from './middleware/auth.js';
+import { noStoreApi } from './middleware/no-store.js';
 import { IS_PLATFORM } from './constants/config.js';
 import { createUpstreamChecker, mountUpstreamRoutes } from './modules/upstream-updates/index.js';
 import { c } from './utils/colors.js';
@@ -203,6 +204,9 @@ app.get('/health', (req, res) => {
         version: RUNNING_VERSION
     });
 });
+
+// API responses carry tokens and must not be cached or answered with 304
+app.use('/api', noStoreApi);
 
 // Optional API key validation (if configured)
 app.use('/api', validateApiKey);

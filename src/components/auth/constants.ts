@@ -5,4 +5,5 @@ export const AUTH_ERROR_MESSAGES = {
   loginFailed: 'Login failed',
   registrationFailed: 'Registration failed',
   networkError: 'Network error. Please try again.',
+  storageFull: 'Browser storage is full, the session could not be saved. Clear this site\'s data and sign in again.',
 } as const;
