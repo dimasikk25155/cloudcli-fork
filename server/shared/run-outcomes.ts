@@ -23,6 +23,15 @@ import path from 'node:path';
  * (claude-sessions.provider.ts), so the user sees the same clear reason live
  * and on reload — never a raw `[ede_diagnostic] ...` dump.
  */
+/**
+ * Claude Code 2.1.29x reports a stream that died after partial output as
+ * "<kind> mid-response. The response above may be incomplete." (server error,
+ * connection lost, stalled, never arrived, malformed). Older CLIs said
+ * "Connection closed mid-response"; both are a one-off Anthropic hiccup.
+ */
+const MID_RESPONSE_DROP_RE =
+  /mid-response|response stopped arriving|never arrived|stream was malformed|response stalled|stream idle timeout/i;
+
 export function buildRunInterruptedNotice(reason: string | null): string {
   const r = (reason || '').toLowerCase();
   let cause: string;
@@ -35,7 +44,9 @@ export function buildRunInterruptedNotice(reason: string | null): string {
   } else if (r.includes('overloaded') || r.includes('529')) {
     // Only reachable after the automatic retries in claude-sdk.js gave up.
     cause = 'серверы Anthropic перегружены (529) — автоповторы не помогли, обычно отпускает за несколько минут.';
-  } else if (r.includes('connection closed') || r.includes('closed mid-response') || r.includes('connection error')) {
+  } else if (r.includes('server error mid-response')) {
+    cause = 'сервер Anthropic выдал ошибку посреди ответа — автоповторы не помогли, ответ неполный.';
+  } else if (r.includes('connection closed') || MID_RESPONSE_DROP_RE.test(r) || r.includes('connection error')) {
     cause = 'оборвалась связь с API Anthropic посреди ответа — ответ неполный.';
   } else if (r.includes('ede_diagnostic') || r.includes('stop_reason=tool_use')) {
     cause = 'Claude Code оборвал ход на выполнении инструмента (внутренняя ошибка CLI).';
@@ -60,17 +71,32 @@ export function buildRunInterruptedNotice(reason: string | null): string {
  * must reach the user as a notice instead of a silent retry loop.
  */
 const RETRYABLE_FAILURE_RE =
-  /\b529\b|overloaded|\b50[234]\b|bad gateway|service unavailable|gateway timeout|internal server error|connection closed|closed mid-response|connection error|fetch failed|socket hang up|econnreset|etimedout|enotfound/i;
+  /\b529\b|overloaded|\b50[234]\b|bad gateway|service unavailable|gateway timeout|internal server error|connection closed|mid-response|response stopped arriving|never arrived|stream was malformed|response stalled|stream idle timeout|connection error|fetch failed|socket hang up|econnreset|etimedout|enotfound/i;
 
 const PERMANENT_FAILURE_RE =
   /session limit|usage limit|not installed|credit balance|invalid api key|authentication_error|permission_denied/i;
+
+/**
+ * Claude Code rewords its stream errors between releases (2.1.29x replaced
+ * "Connection closed mid-response" with "Server error mid-response" etc.), and
+ * engines auto-update nightly, so an exact phrase list silently goes stale.
+ * Fallback: any "API Error" from the CLI is treated as a server wobble unless
+ * it is clearly a request the API rejected (4xx other than 408/409/429,
+ * invalid request, oversized prompt) — those would fail the same way again.
+ */
+const API_ERROR_RE = /\bapi error\b|may be incomplete/i;
+const REJECTED_REQUEST_RE =
+  /\b4(?!08|09|29)\d\d\b|invalid_request|invalid request|prompt is too long|too large|not_found_error|model.*not (found|available|supported)/i;
 
 export function isTransientRunFailure(reason: string | null | undefined): boolean {
   const r = String(reason || '');
   if (!r || PERMANENT_FAILURE_RE.test(r)) {
     return false;
   }
-  return RETRYABLE_FAILURE_RE.test(r);
+  if (RETRYABLE_FAILURE_RE.test(r)) {
+    return true;
+  }
+  return API_ERROR_RE.test(r) && !REJECTED_REQUEST_RE.test(r);
 }
 
 export type RunOutcomeStatus = 'completed' | 'failed' | 'aborted';

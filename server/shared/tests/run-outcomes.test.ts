@@ -108,6 +108,11 @@ test('an overloaded API maps to the 529 copy', () => {
   }
 });
 
+test('mid-stream server error gets its own cause line', () => {
+  const notice = buildRunInterruptedNotice('API Error: Server error mid-response. The response above may be incomplete.');
+  assert.ok(causeLine(notice).startsWith('сервер Anthropic выдал ошибку посреди ответа'));
+});
+
 test('overload copy wins over a co-occurring connection error', () => {
   const notice = buildRunInterruptedNotice('529 Overloaded, connection closed');
   assert.ok(causeLine(notice).startsWith('серверы Anthropic перегружены'));
@@ -119,10 +124,35 @@ test('server wobbles are retryable', () => {
     'API Error: 503 Service Unavailable',
     'Bad Gateway',
     'Connection closed mid-response',
+    'Claude Code returned an error result: API Error: Server error mid-response. The response above may be incomplete.',
+    'API Error: Connection lost mid-response. The response above may be incomplete.',
+    'API Error: The response stopped arriving. The response above may be incomplete.',
+    'API Error: Part of the response never arrived. The response above may be incomplete.',
     'fetch failed',
     'read ECONNRESET',
   ]) {
     assert.equal(isTransientRunFailure(reason), true, `expected retryable: ${reason}`);
+  }
+});
+
+test('unknown future CLI wording of a server-side failure is still retryable', () => {
+  for (const reason of [
+    'Claude Code returned an error result: API Error: Upstream hiccup mid-flight.',
+    'API Error: Something new happened. The response above may be incomplete.',
+    'API Error: 429 rate_limit_error',
+  ]) {
+    assert.equal(isTransientRunFailure(reason), true, `expected retryable: ${reason}`);
+  }
+});
+
+test('requests the API rejected are not retried', () => {
+  for (const reason of [
+    'API Error: 400 invalid_request_error: messages.0: bad block',
+    'API Error: Prompt is too long',
+    'API Error: 404 not_found_error model: claude-x',
+    'API Error: 413 request too large',
+  ]) {
+    assert.equal(isTransientRunFailure(reason), false, `expected NOT retryable: ${reason}`);
   }
 });
 
