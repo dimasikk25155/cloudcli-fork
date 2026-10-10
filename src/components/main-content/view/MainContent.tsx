@@ -16,6 +16,7 @@ import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { api, authenticatedFetch } from '../../../utils/api';
+import { downloadFile } from '../../../utils/fileDownload';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import EditorSidebar from '../../code-editor/view/EditorSidebar';
 import FolderModal from '../../file-browser/FolderModal';
@@ -25,6 +26,17 @@ import MainContentHeader from './subcomponents/MainContentHeader';
 import ShellModeSwitcher from './subcomponents/ShellModeSwitcher';
 import MainContentStateView from './subcomponents/MainContentStateView';
 import ErrorBoundary from './ErrorBoundary';
+
+// Готовые документы и архивы из чата сразу скачиваются: смотреть их внутри
+// Neo3 негде (на телефоне PDF в окне не показывается вовсе), а штатный
+// загрузчик браузера открывает их своим просмотрщиком.
+const DOWNLOAD_EXTENSIONS = new Set([
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'rtf',
+  'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'apk', 'aab', 'ipa', 'dmg', 'exe', 'msi',
+]);
+
+const shouldDownload = (filePath: string): boolean =>
+  DOWNLOAD_EXTENSIONS.has(filePath.split('.').pop()?.toLowerCase() ?? '');
 
 function MainContent({
   selectedProject,
@@ -98,6 +110,18 @@ function MainContent({
     [handleFileOpen, setOpenAsModal],
   );
 
+  const openResolvedFile = useCallback(
+    (filePath: string) => {
+      const projectId = selectedProject?.projectId;
+      if (projectId && shouldDownload(filePath)) {
+        downloadFile(projectId, filePath);
+        return;
+      }
+      openFileAsModal(filePath);
+    },
+    [openFileAsModal, selectedProject?.projectId],
+  );
+
   const openPathFromChat = useCallback(
     async (filePath: string) => {
       const projectId = selectedProject?.projectId;
@@ -120,16 +144,24 @@ function MainContent({
         }
         if (info.exists) {
           // Путь уже разрешён сервером, повторно угадывать его не нужно.
-          openFileAsModal(info.path);
+          openResolvedFile(info.path);
           return;
         }
-        setMissingFile({ reference: info.path || filePath, matches: info.matches ?? [] });
+        const matches: PathMatch[] = info.matches ?? [];
+        // Агент ошибся папкой, а файл с таким именем один — открываем его,
+        // без окна-посредника. Окно нужно, только когда выбирать есть из чего
+        // или файла нет вовсе.
+        if (matches.length === 1) {
+          openResolvedFile(matches[0].path);
+          return;
+        }
+        setMissingFile({ reference: info.path || filePath, matches });
       } catch {
         setOpenAsModal(true);
         resolvedFileOpen(filePath);
       }
     },
-    [openFileAsModal, resolvedFileOpen, selectedProject?.projectId, setOpenAsModal],
+    [openResolvedFile, resolvedFileOpen, selectedProject?.projectId, setOpenAsModal],
   );
 
   const loadBrowserUseSettings = useCallback(async () => {
@@ -322,7 +354,7 @@ function MainContent({
           onClose={() => setFolderPath(null)}
           onOpenFile={(filePath) => {
             setFolderPath(null);
-            openFileAsModal(filePath);
+            openResolvedFile(filePath);
           }}
         />
       )}
@@ -335,7 +367,7 @@ function MainContent({
           onClose={() => setMissingFile(null)}
           onOpenFile={(filePath) => {
             setMissingFile(null);
-            openFileAsModal(filePath);
+            openResolvedFile(filePath);
           }}
           onOpenFolder={(dirPath) => {
             setMissingFile(null);

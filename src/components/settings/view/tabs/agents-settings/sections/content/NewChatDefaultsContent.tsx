@@ -34,11 +34,6 @@ type ProviderPreferencesResponse = {
   defaultProvider?: string | null;
 };
 
-/** Mirror of DEFAULT_CHAT_PROVIDER_KEY in useChatProviderState — the instant
- * local cache, so the toggle applies to the very next "new chat" without a
- * page reload. The server row stays the cross-device source of truth. */
-const DEFAULT_CHAT_PROVIDER_CACHE_KEY = 'default-chat-provider';
-
 type ProviderModelsResponse = {
   success?: boolean;
   data?: { models?: ProviderModelsDefinition };
@@ -56,7 +51,6 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
   const [model, setModel] = useState<string>('');
   const [effort, setEffort] = useState<string>(MODEL_DEFAULT_EFFORT);
   const [workMode, setWorkMode] = useState<WorkMode>('autopilot');
-  const [isDefaultProvider, setIsDefaultProvider] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -83,7 +77,6 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
         setEffort(resolveModelEffort(definition?.OPTIONS.find(option => option.value === nextModel), {
           model: requestedModel, effort: preferences.efforts?.[agent] || MODEL_DEFAULT_EFFORT,
         }));
-        setIsDefaultProvider(preferences.defaultProvider === agent);
         if (preferences.workMode && WORK_MODES.includes(preferences.workMode as WorkMode)) {
           setWorkMode(preferences.workMode as WorkMode);
         }
@@ -132,31 +125,6 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
         })}
       >
         <SettingsCard divided>
-          <SettingsRow
-            label={t('newChatDefaults.defaultEngine.label', { defaultValue: 'Open new chats on this engine' })}
-            description={t('newChatDefaults.defaultEngine.description', {
-              defaultValue: 'Every new chat starts on this engine. Off everywhere: a new chat sticks to the engine used last.',
-            })}
-          >
-            <input
-              type="checkbox"
-              checked={isDefaultProvider}
-              onChange={(event) => {
-                const checked = event.target.checked;
-                setIsDefaultProvider(checked);
-                // Instant local cache so the very next "new chat" follows the
-                // toggle without a reload; the account row syncs other devices.
-                if (checked) {
-                  localStorage.setItem(DEFAULT_CHAT_PROVIDER_CACHE_KEY, agent);
-                } else {
-                  localStorage.removeItem(DEFAULT_CHAT_PROVIDER_CACHE_KEY);
-                }
-                void save('default-provider', { provider: checked ? agent : null });
-              }}
-              className="h-4 w-4 rounded-ui-sm border-input bg-card text-primary focus:ring-2 focus:ring-ring"
-            />
-          </SettingsRow>
-
           <SettingsRow
             label={t('newChatDefaults.model.label', { defaultValue: 'Model' })}
             description={t('newChatDefaults.model.description', { defaultValue: 'The model a new chat opens on.' })}

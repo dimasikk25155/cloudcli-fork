@@ -754,8 +754,9 @@
     "loadError": "Could not load the defaults.",
     "saveError": "Could not save. Try again.",
     "defaultEngine": {
-      "label": "Open new chats on this engine",
-      "description": "Every new chat starts on this engine. Off everywhere: a new chat sticks to the engine used last."
+      "label": "Default CLI for new chats",
+      "description": "Every new chat starts on this engine. Open chats keep their own.",
+      "lastUsed": "Last used"
     }
   },
   "about": {

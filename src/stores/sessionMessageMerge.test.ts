@@ -650,3 +650,36 @@ test('local user echo does not shift the live assistant into the next turn for p
   );
   assert.deepEqual(leftover, []);
 });
+
+test('Grok history stamping the prompt minutes before the send does not duplicate it under the answer', () => {
+  // chat_history.jsonl has no clocks; rows are spread evenly over the session,
+  // so the last prompt lands minutes before the real send while the final row
+  // carries the file mtime.
+  const serverUser = msg({ id: 'grok_user', kind: 'text', role: 'user', content: 'Добавь кнопку', timestamp: '2026-10-10T14:24:00.000Z' });
+  const serverTool = msg({ id: 'grok_tool', kind: 'tool_use', timestamp: '2026-10-10T14:27:00.000Z' } as Partial<NormalizedMessage> & Pick<NormalizedMessage, 'id' | 'kind'>);
+  const serverAnswer = msg({ id: 'grok_answer', kind: 'text', role: 'assistant', content: 'Кнопка готова.', timestamp: '2026-10-10T14:30:20.000Z' });
+  const localUser = msg({ id: 'local_send', kind: 'text', role: 'user', content: 'Добавь кнопку', timestamp: '2026-10-10T14:30:00.000Z' });
+
+  const merged = computeMerged([serverUser, serverTool, serverAnswer], [localUser]);
+  assert.equal(merged.filter((row) => row.role === 'user').length, 1);
+  assert.equal(merged.at(-1)?.id, 'grok_answer');
+  assert.deepEqual(pruneRealtimeSupersededByServer([serverUser, serverTool, serverAnswer], [localUser]), []);
+});
+
+test('Grok: the same prompt sent again before Grok writes it stays visible', () => {
+  const serverUser = msg({ id: 'grok_old_user', kind: 'text', role: 'user', content: 'привет', timestamp: '2026-10-10T13:00:00.000Z' });
+  const serverAnswer = msg({ id: 'grok_old_answer', kind: 'text', role: 'assistant', content: 'Привет!', timestamp: '2026-10-10T13:00:30.000Z' });
+  const localUser = msg({ id: 'local_again', kind: 'text', role: 'user', content: 'привет', timestamp: '2026-10-10T14:30:00.000Z' });
+
+  const merged = computeMerged([serverUser, serverAnswer], [localUser]);
+  assert.equal(merged.filter((row) => row.role === 'user').length, 2);
+  assert.equal(merged.at(-1)?.id, 'local_again');
+});
+
+test('hidden catalog brief on disk still matches the visible bubble', () => {
+  const serverUser = msg({ id: 'srv_brief', kind: 'text', role: 'user', content: '<catalog_brief>\nспецификация\n</catalog_brief>\n\nСобери каталог', timestamp: '2026-10-10T14:30:05.000Z' });
+  const localUser = msg({ id: 'local_brief', kind: 'text', role: 'user', content: 'Собери каталог', timestamp: '2026-10-10T14:30:00.000Z' });
+
+  const merged = computeMerged([serverUser], [localUser]);
+  assert.equal(merged.filter((row) => row.role === 'user').length, 1);
+});

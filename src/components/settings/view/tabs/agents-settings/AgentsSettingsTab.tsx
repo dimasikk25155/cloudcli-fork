@@ -7,6 +7,7 @@ import type { AgentContext, AgentsSettingsTabProps } from './types';
 import AgentCategoryContentSection from './sections/AgentCategoryContentSection';
 import AgentCategoryTabsSection from './sections/AgentCategoryTabsSection';
 import AgentSelectorSection from './sections/AgentSelectorSection';
+import DefaultEngineSection from './sections/DefaultEngineSection';
 
 export default function AgentsSettingsTab({
   providerAuthStatus,
@@ -91,6 +92,8 @@ export default function AgentsSettingsTab({
 
   return (
     <div className="-mx-4 -mb-4 -mt-2 flex min-h-[300px] min-w-0 flex-col overflow-hidden md:-mx-6 md:-mb-6 md:-mt-2 md:min-h-[500px]">
+      <DefaultEngineSection />
+
       <AgentSelectorSection
         agents={visibleAgents}
         selectedAgent={selectedAgent}

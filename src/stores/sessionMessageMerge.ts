@@ -7,6 +7,7 @@
  */
 
 import { isStopHookFeedbackText, stripAttachmentDisplayTags } from '../components/chat/utils/chatFormatting';
+import { visibleUserText } from '../components/chat/utils/catalogBrief';
 
 import type { NormalizedMessage } from './useSessionStore';
 
@@ -14,7 +15,9 @@ const LOCAL_USER_DEDUPE_CLOCK_SKEW_MS = 10_000;
 
 function userTextFingerprint(m: NormalizedMessage): string | null {
   if (m.kind !== 'text' || m.role !== 'user') return null;
-  const t = stripAttachmentDisplayTags(m.content || '').trim();
+  // Скрытая справка каталога уходит агенту, но в пузыре её нет: без этой
+  // зачистки копия с диска («справка + текст») не узнавала свой же пузырь.
+  const t = visibleUserText(stripAttachmentDisplayTags(m.content || ''));
   return t.length > 0 ? t : null;
 }
 
@@ -88,7 +91,17 @@ function hasServerEchoForLocalUser(
     return true;
   }
 
-  const serverTime = readMessageTime(serverMessages[index]);
+  // У Grok в истории нет своих часов: сервер растягивает метки равномерно по
+  // всей сессии, и последний вопрос получает время на минуты раньше реальной
+  // отправки. Сверка его не узнавала и дописывала копию под ответ
+  // («вопрос, ответ, снова вопрос» до перезагрузки). Настоящее время у Grok
+  // одно — момент последней записи файла, это метка последней строки. Если
+  // файл менялся после отправки, ход на диске уже наш. Новый такой же «привет»,
+  // до которого Grok ещё не дошёл, по-прежнему остаётся: файл старше отправки.
+  const echoRow = localMessage.provider === 'grok'
+    ? serverMessages[serverMessages.length - 1]
+    : serverMessages[index];
+  const serverTime = readMessageTime(echoRow);
   return serverTime !== null && isLocalEchoOfServerUser(localTime, serverTime, localMessage.provider);
 }
 

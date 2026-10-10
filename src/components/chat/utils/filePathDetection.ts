@@ -33,9 +33,26 @@ const FLAG_TOKEN = /(^|\s)--?[A-Za-z]/;
 
 const PROTOCOL = /^(https?:|ftp:|mailto:|tel:|data:|file:|www\.)/i;
 
-// Домен без слэша неотличим от файла по одному только «расширению»:
-// `cdn.sky-flame.online` и `notes.md` устроены одинаково. Разводим по зоне.
-const DOMAIN = /^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(com|ru|org|net|io|dev|app|ai|me|online|shop|site|xyz|pro|info|biz|su|kz|by|ua|uk|de|fr|tv|cc|co)$/i;
+// Домен неотличим от файла по одному только «расширению»: `shina-kz.top` и
+// `notes.md` устроены одинаково. Разводим по зоне: она должна быть из списка
+// известных зон и при этом не совпадать с ходовым расширением файла.
+// Раньше список был коротким, `.top` в него не попал — и адрес сайта открывал
+// окно «Файл не найден» вместо самого сайта.
+const WEB_ZONES = new Set([
+  'com', 'ru', 'org', 'net', 'io', 'dev', 'app', 'ai', 'me', 'online', 'shop', 'site',
+  'xyz', 'pro', 'info', 'biz', 'su', 'kz', 'by', 'ua', 'uk', 'de', 'fr', 'tv', 'co',
+  'top', 'store', 'cloud', 'tech', 'space', 'website', 'live', 'life', 'world', 'today',
+  'news', 'blog', 'club', 'fun', 'link', 'click', 'page', 'studio', 'agency', 'digital',
+  'team', 'work', 'tools', 'host', 'press', 'media', 'group', 'center', 'email', 'network',
+  'systems', 'solutions', 'services', 'software', 'design', 'art', 'one', 'vip', 'bot',
+  'chat', 'games', 'market', 'moscow', 'us', 'eu', 'nl', 'fi', 'ee', 'lv', 'lt',
+  'cz', 'kg', 'uz', 'ge', 'az', 'tj', 'jp', 'cn', 'ch', 'at', 'se', 'no',
+  'dk', 'es', 'it', 'ca', 'au', 'br', 'tr', 'il', 'gg', 'ly', 'to', 'ws',
+  // Намеренно нет `cc`, `pl`, `in`, `am`, `pt`: это ещё и расширения файлов
+  // (C++, Perl, `Makefile.in`, модели PyTorch) — такие имена остаются путями.
+]);
+
+const HOST = /^((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+([a-z]{2,24}))(:\d{2,5})?$/i;
 
 /** Путь начинается «от корня»: `/`, `~/`, `./`, `../` или `C:\`. */
 const ANCHORED = /^(\/|~$|~[\\/]|\.{1,2}[\\/]|[A-Za-z]:[\\/])/;
@@ -46,6 +63,33 @@ const SEPARATOR = /[\\/]/;
 const EXTENSION = /\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 
 const MAX_LENGTH = 240;
+
+/**
+ * Адрес сайта, если строка — ссылка в интернет, а не путь.
+ *
+ * Понимает и полный адрес (`https://shina-kz.top/x`), и голый домен
+ * (`shina-kz.top`, `cdn.sky-flame.online/img`) — для него дописывает `https://`.
+ * Возвращает `null`, если это не адрес сайта.
+ */
+export function webAddressFor(value: string | undefined | null): string | null {
+  if (!value) return null;
+  const cleaned = value.trim();
+  if (!cleaned || cleaned.length > 2048 || /\s/.test(cleaned)) return null;
+
+  if (/^https?:\/\/\S+$/i.test(cleaned)) return cleaned;
+  if (/^www\.\S+\.\S+$/i.test(cleaned)) return `https://${cleaned}`;
+
+  const host = cleaned.split(/[/?#]/)[0];
+  const match = HOST.exec(host);
+  if (!match) return null;
+  if (!WEB_ZONES.has(match[2].toLowerCase())) return null;
+  // Папки проектов часто названы доменами (`sharmax.com/index.html`). Без
+  // протокола адрес, который кончается именем файла, считаем путём: в этом чате
+  // агент говорит о файлах чаще, чем о страницах сайтов.
+  const rest = cleaned.slice(host.length);
+  if (/^\/./.test(rest) && EXTENSION.test(rest.split(/[?#]/)[0].replace(/\/+$/, ''))) return null;
+  return `https://${cleaned}`;
+}
 
 /** Убирает хвост `:строка` / `:строка:колонка` (`src/foo.ts:130`). */
 export const stripLineSuffix = (value: string): string => value.replace(/:\d+(?::\d+)?$/, '');
@@ -86,7 +130,7 @@ export function looksLikePath(value: string | undefined | null): value is string
     if (!hasExtension && !endsWithSlash) return false;
   }
 
-  if (!hasSeparator && DOMAIN.test(cleaned)) return false;
+  if (!anchored && webAddressFor(cleaned)) return false;
 
   if (anchored && hasSeparator) return true;
   if (endsWithSlash && hasSeparator) return true;

@@ -7,7 +7,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTranslation } from 'react-i18next';
 import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
-import { bracketSpacedLinkTargets, looksLikePath, shortenPathLabel, stripLineSuffix } from '../../utils/filePathDetection';
+import { bracketSpacedLinkTargets, looksLikePath, shortenPathLabel, stripLineSuffix, webAddressFor } from '../../utils/filePathDetection';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
@@ -58,6 +58,22 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
   const shouldInline = inlineDetected || !looksMultiline;
 
   if (shouldInline) {
+    // Адрес сайта открывается сразу во вкладке, без окна «Файл не найден».
+    const webHref = webAddressFor(raw);
+    if (webHref) {
+      return (
+        <a
+          href={webHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={webHref}
+          className="rounded-md border border-blue-300 bg-blue-50 px-1.5 py-0.5 font-mono text-[0.9em] text-blue-700 underline underline-offset-2 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20"
+        >
+          {raw.trim()}
+        </a>
+      );
+    }
+
     if (looksLikePath(raw)) {
       const fileRef = stripLineSuffix(raw.trim());
       const open = () => openFileInEditor(fileRef);
@@ -233,9 +249,13 @@ export function Markdown({ children, className }: MarkdownProps) {
           );
         }
 
+        // `[shina-kz.top](shina-kz.top)` без протокола браузер счёл бы адресом
+        // внутри Neo3 — дописываем `https://`.
+        const externalHref = href && !isExternalHref(href) ? webAddressFor(href) ?? href : href;
+
         return (
           <a
-            href={href}
+            href={externalHref}
             className="text-blue-600 hover:underline dark:text-blue-400"
             target="_blank"
             rel="noopener noreferrer"

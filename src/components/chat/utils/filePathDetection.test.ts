@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bracketSpacedLinkTargets, looksLikeDirectory, looksLikePath, shortenPathLabel, stripLineSuffix } from './filePathDetection.js';
+import { bracketSpacedLinkTargets, looksLikeDirectory, looksLikePath, shortenPathLabel, stripLineSuffix, webAddressFor } from './filePathDetection.js';
 
 test('пути с пробелами — самый частый случай — распознаются', () => {
   for (const value of [
@@ -127,4 +127,18 @@ test('короткая подпись: короткие пути и голые �
     shortenPathLabel('очень-длинное-имя-файла-без-единой-папки-внутри.md'),
     'очень-длинное-имя-файла-без-единой-папки-внутри.md',
   );
+});
+
+test('web addresses become site links, not file paths', () => {
+  assert.equal(webAddressFor('shina-kz.top'), 'https://shina-kz.top');
+  assert.equal(webAddressFor('cdn.sky-flame.online/img/x'), 'https://cdn.sky-flame.online/img/x');
+  assert.equal(webAddressFor('https://shina-kz.top/catalog'), 'https://shina-kz.top/catalog');
+  assert.equal(webAddressFor('www.example.com'), 'https://www.example.com');
+  assert.equal(looksLikePath('shina-kz.top'), false);
+
+  for (const file of ['README.md', 'vite.config.ts', 'notes.pdf', 'main.cc', 'script.pl', 'Makefile.in',
+    'src/foo.ts', 'sharmax.com/index.html', '/Users/x/shina-kz.top', 'docs/pdf-dialog-cleanup.md']) {
+    assert.equal(webAddressFor(file), null, file);
+  }
+  assert.equal(looksLikePath('sharmax.com/index.html'), true);
 });
