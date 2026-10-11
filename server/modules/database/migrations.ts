@@ -1,6 +1,7 @@
 import { Database } from 'better-sqlite3';
 
 import {
+  ANSWER_TOKENS_TABLE_SCHEMA_SQL,
   APP_CONFIG_TABLE_SCHEMA_SQL,
   AUDIT_LOG_GUARD_SQL,
   AUDIT_LOG_INDEXES_SQL,
@@ -534,6 +535,9 @@ export const runMigrations = (db: Database) => {
     // existing auth.db only gains new tables through an explicit migration.
     db.exec(SESSION_ATTENTION_TABLE_SCHEMA_SQL);
     db.exec(SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL);
+
+    // One-time answer buttons for push / Telegram (pending-answers).
+    db.exec(ANSWER_TOKENS_TABLE_SCHEMA_SQL);
 
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');

@@ -113,6 +113,7 @@ type SidebarContentProps = {
   currentVersion: string;
   onShowSettings: () => void;
   onGoHome?: () => void;
+  onOpenAttention?: () => void;
   projectListProps: SidebarProjectListProps;
   t: TFunction;
 };
@@ -145,6 +146,7 @@ export default function SidebarContent({
   currentVersion,
   onShowSettings,
   onGoHome,
+  onOpenAttention,
   projectListProps,
   t,
 }: SidebarContentProps) {
@@ -174,6 +176,7 @@ export default function SidebarContent({
         onCreateProject={onCreateProject}
         onCollapseSidebar={onCollapseSidebar}
         onGoHome={onGoHome}
+        onOpenAttention={onOpenAttention}
         t={t}
       />
 

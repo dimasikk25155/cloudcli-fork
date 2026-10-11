@@ -19,7 +19,7 @@ import { AppError, WORKSPACES_ROOT, getOpenCodeDatabasePath, validateWorkspacePa
 import { getContextWindow } from '@/shared/token-pricing.js';
 import { getSessionCostSnapshot, snapshotToComposerBudget } from '@/shared/session-usage.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { createWebSocketServer } from '@/modules/websocket/index.js';
+import { createPermissionAnswerEngine, createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -34,6 +34,7 @@ import {
     abortAllActiveClaudeSDKSessions,
     resolveToolApproval,
     getPendingApprovalsForSession,
+    getPendingApprovalById,
 } from './claude-sdk.js';
 import {
     spawnCursor,
@@ -86,6 +87,8 @@ import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
 import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
+import { pendingAnswers, pendingAnswersRoutes } from './modules/pending-answers/index.js';
+import { createAttentionPushListener } from './modules/notifications/index.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -136,34 +139,42 @@ function readUsageNumber(value) {
 const app = express();
 const server = http.createServer(app);
 
+// Engine runtimes shared by the chat websocket and answers from push/Telegram.
+const chatDependencies = {
+    spawnFns: {
+        claude: queryClaudeSDK,
+        cursor: spawnCursor,
+        codex: queryCodex,
+        opencode: spawnOpenCode,
+        kimi: spawnKimi,
+        gemini: spawnGemini,
+        grok: spawnGrok,
+    },
+    abortFns: {
+        claude: abortClaudeSDKSession,
+        cursor: abortCursorSession,
+        codex: abortCodexSession,
+        opencode: abortOpenCodeSession,
+        kimi: abortKimiSession,
+        gemini: abortGeminiSession,
+        grok: abortGrokSession,
+    },
+    resolveToolApproval,
+    getPendingApprovalsForSession,
+    getPendingApprovalById,
+};
+
+// Answers from any channel (UI, push, Telegram) reach the engines through the
+// same delivery the chat websocket uses.
+pendingAnswers.setEngine(createPermissionAnswerEngine(chatDependencies));
+
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {
     verifyClient: {
         isPlatform: IS_PLATFORM,
         authenticateWebSocket,
     },
-    chat: {
-        spawnFns: {
-            claude: queryClaudeSDK,
-            cursor: spawnCursor,
-            codex: queryCodex,
-            opencode: spawnOpenCode,
-            kimi: spawnKimi,
-            gemini: spawnGemini,
-            grok: spawnGrok,
-        },
-        abortFns: {
-            claude: abortClaudeSDKSession,
-            cursor: abortCursorSession,
-            codex: abortCodexSession,
-            opencode: abortOpenCodeSession,
-            kimi: abortKimiSession,
-            gemini: abortGeminiSession,
-            grok: abortGrokSession,
-        },
-        resolveToolApproval,
-        getPendingApprovalsForSession,
-    },
+    chat: chatDependencies,
     shell: {
         resolveProviderSessionId: (sessionId, provider) => {
             const dbSession = sessionsDb.getSessionById(sessionId);
@@ -239,6 +250,10 @@ app.use('/api/settings', authenticateToken, settingsRoutes);
 app.use('/api/usage', authenticateToken, usageRoutes);
 
 app.use('/api/notifications', authenticateToken, notificationRoutes);
+// Push answer buttons. Public by design (the service worker has no JWT): the
+// one-time token is the right to answer. Must stay before the protected
+// /api/attention router below.
+app.use('/api/attention/answer', pendingAnswersRoutes);
 app.use('/api/attention', authenticateToken, sessionAttentionRoutes);
 
 app.use('/api/nightshift', authenticateToken, nightshiftRoutes);
@@ -1718,6 +1733,11 @@ async function startServer() {
         } catch (error) {
             console.warn('[pipelines] could not close interrupted runs:', error?.message || error);
         }
+
+        // "Нужен ответ" push for every engine: one per request, closed by tag
+        // once the session stops waiting. Registered before the boot
+        // reconcile so pushes of requests that died with the old process close.
+        sessionAttention.onChange(createAttentionPushListener());
 
         // "Ждут тебя": a session still marked working belongs to the previous
         // process and will never finish — show it as interrupted, not running.

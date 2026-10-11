@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useDeviceSettings } from '../../../hooks/useDeviceSettings';
@@ -7,7 +7,10 @@ import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useSidebarController } from '../hooks/useSidebarController';
 import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
 import type { LLMProvider } from '../../../types/app';
-import type { SidebarProps } from '../types/types';
+import type { AttentionItem } from '../../attention/types';
+import AttentionHub from '../../attention/view/AttentionHub';
+import { knownProvider } from '../../attention/utils/provider';
+import type { SessionWithProvider, SidebarProps } from '../types/types';
 
 import SidebarCollapsed from './subcomponents/SidebarCollapsed';
 import SidebarContent from './subcomponents/SidebarContent';
@@ -19,7 +22,6 @@ function Sidebar({
   selectedProject,
   selectedSession,
   activeSessions,
-  attentionSessionIds,
   onProjectSelect,
   onSessionSelect,
   onNewSession,
@@ -129,6 +131,27 @@ function Sidebar({
     document.body.classList.toggle('pwa-mode', isPWA);
   }, [isPWA]);
 
+  const [isAttentionHubOpen, setAttentionHubOpen] = useState(false);
+  const openAttentionHub = useCallback(() => setAttentionHubOpen(true), []);
+
+  // Hub row → the session inside its own project, the same way the archive
+  // opens a session: select the project, then the session.
+  const openAttentionSession = useCallback((item: AttentionItem) => {
+    const project = projects.find((candidate) => candidate.projectId === item.projectId);
+    if (project) {
+      handleProjectSelect(project);
+    }
+    const base = { id: item.sessionId, summary: item.title ?? undefined, __projectId: item.projectId || undefined };
+    const provider = knownProvider(item.provider);
+    if (provider) {
+      const session: SessionWithProvider = { ...base, __provider: provider };
+      handleSessionClick(session, item.projectId);
+      return;
+    }
+    // Engine this client does not know: open the session without claiming a provider.
+    onSessionSelect(base);
+  }, [handleProjectSelect, handleSessionClick, onSessionSelect, projects]);
+
   const handleProjectCreated = () => {
     void paletteOps.refreshProjects();
   };
@@ -152,7 +175,6 @@ function Sidebar({
     getProjectSessions,
     loadingMoreProjects,
     activeSessions,
-    attentionSessionIds,
     isJournalView: searchMode === 'running' || searchMode === 'recent',
     isRecentView: searchMode === 'recent',
     isProjectStarred,
@@ -215,11 +237,16 @@ function Sidebar({
         t={t}
       />
 
+      {isAttentionHubOpen && (
+        <AttentionHub onClose={() => setAttentionHubOpen(false)} onOpenSession={openAttentionSession} />
+      )}
+
       {isSidebarCollapsed ? (
         <SidebarCollapsed
           onExpand={handleExpandSidebar}
           onShowSettings={onShowSettings}
           onGoHome={onGoHome}
+          onOpenAttention={openAttentionHub}
           restartRequired={restartRequired}
           t={t}
         />
@@ -263,6 +290,7 @@ function Sidebar({
             currentVersion={currentVersion}
             onShowSettings={onShowSettings}
             onGoHome={onGoHome}
+            onOpenAttention={openAttentionHub}
             projectListProps={projectListProps}
             t={t}
           />

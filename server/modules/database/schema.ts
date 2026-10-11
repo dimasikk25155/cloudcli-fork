@@ -400,6 +400,26 @@ CREATE TABLE IF NOT EXISTS session_attention_seen (
 );
 `;
 
+// One-time answer buttons (push actions, Telegram callbacks). The token itself
+// is the right to answer: 16 random bytes, bound to one user, one pending
+// request and one choice, valid for 24 hours. Answering a request by any
+// channel spends every token of that request. No foreign keys, same reason as
+// session_attention: a stale button must never block deleting anything.
+export const ANSWER_TOKENS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS answer_tokens (
+    token TEXT PRIMARY KEY NOT NULL,
+    request_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    choice_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    decision_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_answer_tokens_request ON answer_tokens(request_id);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -479,6 +499,8 @@ ${AUDIT_LOG_GUARD_SQL}
 
 ${SESSION_ATTENTION_TABLE_SCHEMA_SQL}
 ${SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL}
+
+${ANSWER_TOKENS_TABLE_SCHEMA_SQL}
 
 ${LAST_SCANNED_AT_SQL}
 
