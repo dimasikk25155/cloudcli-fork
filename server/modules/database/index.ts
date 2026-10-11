@@ -14,6 +14,12 @@ export type {
 } from '@/modules/database/repositories/audit.db.js';
 export { credentialsDb } from '@/modules/database/repositories/credentials.js';
 export { githubTokensDb } from '@/modules/database/repositories/github-tokens.js';
+export { memorySuggestionsDb } from '@/modules/database/repositories/memory-suggestions.db.js';
+export type {
+  MemorySuggestionListRow,
+  MemorySuggestionRow,
+  MemorySuggestionStatus,
+} from '@/modules/database/repositories/memory-suggestions.db.js';
 export { notificationChannelEndpointsDb } from '@/modules/database/repositories/notification-channel-endpoints.js';
 export { notificationPreferencesDb } from '@/modules/database/repositories/notification-preferences.js';
 export { projectsDb } from '@/modules/database/repositories/projects.db.js';

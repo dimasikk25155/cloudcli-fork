@@ -67,3 +67,13 @@ test('completeJson returns null for a refused connection, an HTTP error and non-
   assert.equal(await completeJson({ ...base, fetchImpl: fakeOllama('{"a":1}', [], 500) }), null);
   assert.equal(await completeJson({ ...base, fetchImpl: fakeOllama('Не знаю, что ответить.') }), null);
 });
+
+test('completeJson passes a context window to Ollama only when asked (long transcripts)', async () => {
+  const calls: Call[] = [];
+  const base = { system: 's', prompt: 'p', model: 'm', timeoutMs: 1000, maxTokens: 10, baseUrl: 'http://o.test' };
+  await completeJson({ ...base, fetchImpl: fakeOllama('{}', calls) });
+  await completeJson({ ...base, numCtx: 32768, fetchImpl: fakeOllama('{}', calls) });
+  const options = calls.map((call) => call.body.options as Record<string, unknown>);
+  assert.equal('num_ctx' in options[0], false);
+  assert.equal(options[1].num_ctx, 32768);
+});

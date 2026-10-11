@@ -14,3 +14,7 @@ export { default as AttentionHub } from './view/AttentionHub';
 export { default as AttentionHubButton } from './view/AttentionHubButton';
 export { default as AttentionHubView, type AttentionHubSection } from './view/AttentionHubView';
 export { default as AttentionStatusDot } from './view/AttentionStatusDot';
+export { default as MemorySuggestionBanner } from './memory/MemorySuggestionBanner';
+export { default as MemorySuggestionCard } from './memory/MemorySuggestionCard';
+export { useMemorySuggestions, memorySuggestionsStore } from './memory/useMemorySuggestions';
+export type { MemorySuggestion, MemoryEntry } from './memory/memorySuggestionsStore';

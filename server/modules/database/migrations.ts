@@ -7,6 +7,7 @@ import {
   AUDIT_LOG_INDEXES_SQL,
   AUDIT_LOG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
+  MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
@@ -545,6 +546,9 @@ export const runMigrations = (db: Database) => {
 
     // One-time answer buttons for push / Telegram (pending-answers).
     db.exec(ANSWER_TOKENS_TABLE_SCHEMA_SQL);
+
+    // Vault-note suggestions (memory-suggestions).
+    db.exec(MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL);
 
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');

@@ -25,6 +25,7 @@ import { CLAUDE_FALLBACK_MODELS, readClaudeModelsDefinition } from './modules/pr
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
 import { workModeInstruction } from './shared/work-mode.js';
+import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import {
   createNotificationEvent,
   notifyRunFailed,
@@ -340,11 +341,14 @@ function mapCliOptionsToSDK(options = {}) {
   // long, and (c) drops a 529 outright in background sub-requests (compaction,
   // subagents) — its own telemetry calls that `overload_background_dropped`.
   // With it: 300 retries, mid-stream 529s retried, long waits honoured.
-  sdkOptions.env = {
+  // NEO3_SESSION=1 lets user-level hooks (vault Stop hook, CLI secret guard)
+  // step aside inside Neo3 — see server/shared/neo3-session.ts. Later branches
+  // spread this env, so the marker survives every engine route.
+  sdkOptions.env = withNeo3SessionMarker({
     ...process.env,
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1',
     CLAUDE_CODE_RETRY_WATCHDOG: process.env.CLAUDE_CODE_RETRY_WATCHDOG || '1',
-  };
+  });
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
@@ -1478,6 +1482,7 @@ function reconnectSessionWriter(sessionId, newRawWs) {
 // Export public API
 export {
   matchesToolPermission,
+  mapCliOptionsToSDK,
   queryClaudeSDK,
   abortClaudeSDKSession,
   abortAllActiveClaudeSDKSessions,

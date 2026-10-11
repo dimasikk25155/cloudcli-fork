@@ -8,6 +8,7 @@ import crossSpawn from 'cross-spawn';
 
 import { readGrokModelsDefinition, resolveGrokModePreset } from './modules/providers/list/grok/grok-models.provider.js';
 import { workModeInstruction } from './shared/work-mode.js';
+import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import {
   appendImagesInputTag,
   appendVisibleImagePathsTag,
@@ -579,7 +580,9 @@ function runHookCommand({ command, timeoutMs, stdinJson }) {
     const child = execFile('/bin/bash', ['-c', command], {
       timeout: timeoutMs,
       maxBuffer: 512 * 1024,
-      env: { ...process.env },
+      // Same marker a Claude session carries: user-level hooks (vault Stop
+      // hook, CLI secret guard) step aside inside Neo3.
+      env: withNeo3SessionMarker({ ...process.env }),
     }, (error, stdout) => {
       // A failed hook must never fail the run — its context is best-effort.
       resolve(String(stdout || ''));

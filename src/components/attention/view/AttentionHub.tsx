@@ -21,8 +21,7 @@ type AttentionHubProps = {
 
 /** «Ждут тебя» hub: every session of every project that needs you, plus running ones. */
 export default function AttentionHub({ onClose, onOpenSession }: AttentionHubProps) {
-  const { items, markSeen, refresh } = useAttention();
-  const extraSections = useAttentionHubSections();
+  const { items, byId, markSeen, refresh } = useAttention();
   const [nowMs, setNowMs] = useState(() => Date.now());
   const { t } = useTranslation('sidebar');
   // Same labels as the sidebar rows (`projects.providers.*`); unknown ids show as-is.
@@ -44,6 +43,15 @@ export default function AttentionHub({ onClose, onOpenSession }: AttentionHubPro
     onClose();
     onOpenSession(item);
   };
+
+  const extraSections = useAttentionHubSections({
+    openSession: (sessionId) => {
+      const item = byId.get(sessionId);
+      if (!item) return false;
+      handleOpen(item);
+      return true;
+    },
+  });
 
   return (
     <PanelModal title="Ждут тебя" icon={BellRing} onClose={onClose} contentClassName="md:h-auto md:max-h-[min(85dvh,44rem)] md:max-w-xl">
