@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import { buildEnvDenylist, containsSecret, scrubSecrets } from '@/shared/secret-scrub.js';
 
+import { SCRUB_FIXTURES, scrubFixture } from './secret-scrub.fixtures.js';
+
 // Written against the shapes actually found on disk: a scan of 25 recent
 // session transcripts turned up 11 GitHub tokens in plain text and 30
 // `token|secret|password = <value>` assignments.
@@ -22,33 +24,8 @@ test('ordinary text passes through untouched', () => {
   assert.equal(result.hits.length, 0);
 });
 
-const SAMPLES: Array<{ kind: string; text: string; secret: string }> = [
-  {
-    kind: 'anthropic',
-    secret: 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
-    text: 'export ANTHROPIC_KEY=sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
-  },
-  {
-    kind: 'github',
-    secret: 'ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
-    text: 'git remote set-url origin https://ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789@github.com/x/y',
-  },
-  {
-    kind: 'aws',
-    secret: 'AKIAIOSFODNN7EXAMPLE',
-    text: 'AWS_ACCESS_KEY_ID вот такой: AKIAIOSFODNN7EXAMPLE',
-  },
-  {
-    kind: 'slack',
-    secret: 'xoxb-123456789012-abcdefghijkl',
-    text: 'slack bot token xoxb-123456789012-abcdefghijkl',
-  },
-  {
-    kind: 'telegram',
-    secret: '123456789:AAHrandomlookingtokenvaluewithlength',
-    text: 'curl https://api.telegram.org/bot123456789:AAHrandomlookingtokenvaluewithlength/getMe',
-  },
-];
+// Shared with secret-detect.test.ts: the composer guard must find all of these too.
+const SAMPLES = SCRUB_FIXTURES;
 
 for (const sample of SAMPLES) {
   test(`${sample.kind} credentials are removed`, () => {
@@ -61,14 +38,7 @@ for (const sample of SAMPLES) {
 }
 
 test('a private key block is removed whole', () => {
-  const text = [
-    'ключ ниже:',
-    '-----BEGIN RSA PRIVATE KEY-----',
-    'MIIEowIBAAKCAQEA1234567890abcdef',
-    'abcdefghijklmnopqrstuvwxyz012345',
-    '-----END RSA PRIVATE KEY-----',
-    'конец',
-  ].join('\n');
+  const { text } = scrubFixture('private-key');
 
   const result = scrubSecrets(text);
 
@@ -77,17 +47,19 @@ test('a private key block is removed whole', () => {
 });
 
 test('credentials in a URL lose the password but keep the host', () => {
-  const result = scrubSecrets('postgres://admin:sUpErSeCrEtValue@db.internal:5432/app');
+  const { text, secret } = scrubFixture('url-credentials');
+  const result = scrubSecrets(text);
 
-  assert.ok(!result.text.includes('sUpErSeCrEtValue'));
+  assert.ok(!result.text.includes(secret));
   assert.ok(result.text.includes('db.internal'), 'the host is diagnostic, not secret');
 });
 
 test('an assignment keeps the key name and drops the value', () => {
-  const result = scrubSecrets('DOLPHIN_TOKEN = "abcdefghijklmnopqrst"');
+  const { text, secret } = scrubFixture('assignment');
+  const result = scrubSecrets(text);
 
   assert.ok(result.text.includes('DOLPHIN_TOKEN'), 'knowing which key leaked is useful');
-  assert.ok(!result.text.includes('abcdefghijklmnopqrst'));
+  assert.ok(!result.text.includes(secret));
 });
 
 test('short assignments are left alone', () => {

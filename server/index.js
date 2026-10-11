@@ -83,6 +83,7 @@ import telegramWebhookRoutes from './modules/telegram/telegram-webhook.routes.js
 import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
+import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -271,6 +272,8 @@ app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
 // Sticky phone pushes (Consigliere tasks + dead bots). Public by design:
 // the service worker has no JWT, and the Mac/VPS reminder job has only a shared token.
 app.use('/api/sticky-push', stickyPushRoutes);
+// Secret guard: the composer moves a pasted key into the secrets file. Admin-only.
+app.use('/api/secrets', authenticateToken, requireAdmin, secretsStashRoutes);
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);

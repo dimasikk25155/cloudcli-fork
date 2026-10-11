@@ -12,6 +12,7 @@ import type {
 import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
+import { useAuth } from '../../auth';
 import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
 import { wrapCatalogBrief } from '../utils/catalogBrief';
 import { getUsageLimits } from '../../../utils/usageLimits';
@@ -44,6 +45,8 @@ import {
 import { downscaleImageFile } from '../utils/imageDownscale';
 import { isImeOwnedKey } from '../utils/imeComposition';
 import { modelForProvider } from '../utils/providerModelState';
+import { runSecretGuard } from '../utils/secretGuard';
+import { askSecretGuard } from '../view/subcomponents/SecretGuardDialog';
 
 import { useFileMentions } from './useFileMentions';
 import { useInputHistory } from './useInputHistory';
@@ -235,6 +238,24 @@ const restoreQueuedDraft = (sessionKey: string): QueuedDraft | null => {
     : null;
 };
 
+/** Secret guard «Убрать в .secrets.env»: resolves with the name the server used. */
+const stashSecretRequest = async (name: string, value: string): Promise<string> => {
+  const response = await authenticatedFetch('/api/secrets/stash', {
+    method: 'POST',
+    body: JSON.stringify({ name, value }),
+  });
+  let body: { name?: unknown; error?: unknown } | null = null;
+  try {
+    body = await response.json();
+  } catch {
+    // Non-JSON body: the status below is enough.
+  }
+  if (!response.ok || typeof body?.name !== 'string') {
+    throw new Error(typeof body?.error === 'string' ? body.error : `ошибка ${response.status}`);
+  }
+  return body.name;
+};
+
 const getNotificationSessionSummary = (
   selectedSession: ProjectSession | null,
   fallbackInput: string,
@@ -313,6 +334,11 @@ export function useChatComposerState({
   // no session id yet and would each create a session, spawning two parallel
   // runs. This flag is set synchronously so only one submit is ever in flight.
   const isSubmittingRef = useRef(false);
+  // Text already cleared by the secret guard at queue time; the queue flush
+  // replays it through handleSubmit and must not ask a second time.
+  const secretGuardPassedRef = useRef<string | null>(null);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   // What the last paste carried, for the duplicate-paste guard in handlePaste.
   const lastPasteRef = useRef<PasteRecord | null>(null);
   const inputValueRef = useRef(input);
@@ -822,12 +848,42 @@ export function useChatComposerState({
     }
   }, []);
 
+  // Secret guard: the one check before any text leaves the composer. Every
+  // send path funnels into handleSubmit (Enter, button, voice auto-send, queue
+  // at queue time, composer-draft auto-send) or handleAppendNow ("send now"),
+  // and both call this. Returns the text to send, or null to keep it in the field.
+  // `preChecked` is text the guard already cleared (a flushed queued draft).
+  const guardSecrets = useCallback(
+    async (text: string, preChecked: string | null = null): Promise<string | null> => {
+      if (preChecked !== null && preChecked === text) {
+        return text;
+      }
+      const outcome = await runSecretGuard(text, {
+        isAdmin,
+        ask: askSecretGuard,
+        stash: stashSecretRequest,
+      });
+      if (outcome.action === 'send') {
+        return outcome.text;
+      }
+      if (outcome.error) {
+        addMessage({ type: 'error', content: outcome.error, timestamp: new Date() });
+      }
+      return null;
+    },
+    [addMessage, isAdmin],
+  );
+
   const handleSubmit = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
     ) => {
+      // Consume the queue-flush pass on entry, so it is gone on every exit
+      // path — including the early returns below.
+      const secretGuardPassed = secretGuardPassedRef.current;
+      secretGuardPassedRef.current = null;
       event.preventDefault();
-      const currentInput = inputValueRef.current;
+      let currentInput = inputValueRef.current;
       if (!currentInput.trim() || !selectedProject) {
         return;
       }
@@ -838,6 +894,18 @@ export function useChatComposerState({
       }
       isSubmittingRef.current = true;
       try {
+
+      // Before queueing too: a queued message is persisted and may be sent by
+      // the app-level auto-send without coming back here.
+      const guardedInput = await guardSecrets(currentInput, secretGuardPassed);
+      if (guardedInput === null) {
+        return;
+      }
+      if (guardedInput !== currentInput) {
+        currentInput = guardedInput;
+        inputValueRef.current = guardedInput;
+        setInput(guardedInput);
+      }
 
       // A turn is already in flight: stash this message instead of sending it.
       // It's auto-flushed (re-running this same function) once the turn ends,
@@ -1073,6 +1141,7 @@ export function useChatComposerState({
       buildSendOptions,
       currentSessionId,
       executeCommand,
+      guardSecrets,
       isLoading,
       onComposerModesConsumed,
       onSessionProcessing,
@@ -1132,6 +1201,8 @@ export function useChatComposerState({
       setQueuedDraft(null);
       setInput(queuedDraft.content);
       inputValueRef.current = queuedDraft.content;
+      // Checked by the secret guard when it was queued.
+      secretGuardPassedRef.current = queuedDraft.content;
       setAttachedImages(queuedDraft.images);
       // Set the ref synchronously too: handleSubmit fires on the next tick,
       // before setAttachedImages has propagated, and reads images from the ref.
@@ -1479,11 +1550,20 @@ export function useChatComposerState({
 
     // Queue card "Send now" keeps the snapshotted draft. Submit-while-loading
     // passes preferInput so the just-typed text wins over a stale queue card.
-    const source = (!opts?.preferInput && queuedDraft)
+    const fromQueue = Boolean(!opts?.preferInput && queuedDraft);
+    const source = fromQueue && queuedDraft
       ? { content: queuedDraft.content, images: queuedDraft.images }
       : { content: inputValueRef.current, images: attachedImages };
     if (!source.content.trim()) {
       return;
+    }
+    // A queued draft was checked when it was queued; fresh input is checked now.
+    if (!fromQueue) {
+      const guarded = await guardSecrets(source.content);
+      if (guarded === null) {
+        return;
+      }
+      source.content = guarded;
     }
 
     const targetSessionId = selectedSession?.id || currentSessionId || null;
@@ -1551,6 +1631,7 @@ export function useChatComposerState({
     attachedImages,
     buildSendOptions,
     canAbortSession,
+    guardSecrets,
     onComposerModesConsumed,
     currentSessionId,
     isAppendPending,
