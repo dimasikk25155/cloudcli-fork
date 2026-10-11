@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS telegram_bindings (
     user_id INTEGER NOT NULL,
     chat_id TEXT NOT NULL UNIQUE,
     telegram_username TEXT,
+    telegram_user_id TEXT,
     project_path TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

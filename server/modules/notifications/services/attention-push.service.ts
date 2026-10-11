@@ -19,7 +19,7 @@ import {
   type AnswerChoice,
   type IssuedToken,
 } from '@/modules/pending-answers/pending-answers.service.js';
-import type { AttentionChange } from '@/modules/session-attention/session-attention.service.js';
+import type { AttentionChange, AttentionQuestion } from '@/modules/session-attention/session-attention.service.js';
 
 /** Android shows at most two notification buttons. */
 const MAX_PUSH_ANSWER_BUTTONS = 2;
@@ -36,54 +36,71 @@ export type AttentionPushPlan = {
 };
 
 /**
- * Which buttons a waiting session gets (Решение 16):
- * - one question, single choice → its first two options;
- * - plan → «Одобрить» + «Открыть»;
+ * The one rule for "a question that can be answered with one tap": the
+ * request asks exactly one question and it is not multiselect. Push and
+ * Telegram buttons, and the Telegram text, all follow it.
+ */
+export function singleChoiceQuestion(
+  change: Pick<AttentionChange, 'reason' | 'detail'>,
+): AttentionQuestion | null {
+  if (change.reason !== 'ask') {
+    return null;
+  }
+  const questions = change.detail?.questions ?? [];
+  return questions.length === 1 && !questions[0].multiSelect ? questions[0] : null;
+}
+
+/**
+ * Answer choices of a waiting session, shared by push and Telegram (Решение 16):
+ * - one question, single choice → its options, first `maxOptions` of them;
+ * - plan → «Одобрить»;
  * - permission → «Разрешить» / «Отклонить»;
  * - anything else (several questions, multiselect, text question, manual
- *   ask, no request id to answer) → «Открыть» only.
- * Tapping the notification body always opens the session.
+ *   ask, no request id to answer) → none.
  */
-export function planAttentionPush(change: Pick<AttentionChange, 'reason' | 'detail'>): AttentionPushPlan {
+export function pickAnswerChoices(
+  change: Pick<AttentionChange, 'reason' | 'detail'>,
+  maxOptions: number,
+): AnswerChoice[] {
   const requestId = change.detail?.requestId;
   if (!requestId) {
-    return { choices: [], withOpenButton: true };
+    return [];
   }
 
   if (change.reason === 'ask') {
-    const questions = change.detail?.questions ?? [];
-    const only = questions.length === 1 ? questions[0] : null;
-    if (!only || only.multiSelect || only.options.length === 0) {
-      return { choices: [], withOpenButton: true };
+    const only = singleChoiceQuestion(change);
+    if (!only || only.options.length === 0) {
+      return [];
     }
-    return {
-      choices: only.options.slice(0, MAX_PUSH_ANSWER_BUTTONS).map((option, index) => ({
-        id: `opt${index + 1}`,
-        label: option.label,
-        decision: { allow: true, answers: { [only.question]: option.label } },
-      })),
-      withOpenButton: false,
-    };
+    return only.options.slice(0, Math.max(0, maxOptions)).map((option, index) => ({
+      id: `opt${index + 1}`,
+      label: option.label,
+      decision: { allow: true, answers: { [only.question]: option.label } },
+    }));
   }
 
   if (change.reason === 'plan') {
-    return {
-      choices: [{ id: 'approve', label: 'Одобрить', decision: { allow: true } }],
-      withOpenButton: true,
-    };
+    return [{ id: 'approve', label: 'Одобрить', decision: { allow: true } }];
   }
 
   if (change.reason === 'permission') {
-    return {
-      choices: [
-        { id: 'allow', label: 'Разрешить', decision: { allow: true } },
-        { id: 'deny', label: 'Отклонить', decision: { allow: false } },
-      ],
-      withOpenButton: false,
-    };
+    return [
+      { id: 'allow', label: 'Разрешить', decision: { allow: true } },
+      { id: 'deny', label: 'Отклонить', decision: { allow: false } },
+    ];
   }
 
-  return { choices: [], withOpenButton: true };
+  return [];
+}
+
+/**
+ * Which buttons a waiting session's push gets: the first two answer choices
+ * (Android limit), plus «Открыть» for a plan or when nothing is answerable.
+ * Tapping the notification body always opens the session.
+ */
+export function planAttentionPush(change: Pick<AttentionChange, 'reason' | 'detail'>): AttentionPushPlan {
+  const choices = pickAnswerChoices(change, MAX_PUSH_ANSWER_BUTTONS);
+  return { choices, withOpenButton: choices.length === 0 || change.reason === 'plan' };
 }
 
 type NotifyFn = (input: { userId: number; event: ReturnType<typeof createNotificationEvent> }) => void;

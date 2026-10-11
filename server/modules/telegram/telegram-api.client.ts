@@ -24,7 +24,20 @@ export type TelegramWebhookInfo = {
   pending_update_count?: number;
   last_error_message?: string;
   last_error_date?: number;
+  /** Absent when the bot never narrowed it — then every update type arrives. */
+  allowed_updates?: string[];
 };
+
+export type InlineKeyboardButton =
+  | { text: string; callback_data: string }
+  | { text: string; url: string };
+
+export type InlineKeyboardMarkup = { inline_keyboard: InlineKeyboardButton[][] };
+
+export type TelegramSentMessage = { message_id: number; chat?: { id: number | string } };
+
+/** Update types the webhook subscribes to: text messages and inline-button presses. */
+export const WEBHOOK_ALLOWED_UPDATES = ['message', 'callback_query'] as const;
 
 function readEnv(name: string): string {
   const value = process.env[name];
@@ -119,13 +132,52 @@ export const telegramApi = {
   },
 
   /** `text` must already be HTML-escaped and within Telegram's 4096-character limit. */
-  sendMessage(chatId: string, text: string): Promise<unknown> {
-    return callBotApi('sendMessage', {
+  sendMessage(
+    chatId: string,
+    text: string,
+    options: { replyMarkup?: InlineKeyboardMarkup | null } = {},
+  ): Promise<TelegramSentMessage> {
+    return callBotApi<TelegramSentMessage>('sendMessage', {
       chat_id: chatId,
       text,
       parse_mode: 'HTML',
       disable_web_page_preview: true,
+      ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
     });
+  },
+
+  /** Closes the spinner on a pressed inline button; `text` shows as a short popup (≤200 chars). */
+  answerCallbackQuery(callbackQueryId: string, text?: string): Promise<unknown> {
+    return callBotApi('answerCallbackQuery', {
+      callback_query_id: callbackQueryId,
+      ...(text ? { text: text.slice(0, 200) } : {}),
+    }, 8_000);
+  },
+
+  /** Replaces a sent message's text (HTML, already escaped) and its keyboard. */
+  editMessageText(
+    chatId: string,
+    messageId: number,
+    text: string,
+    options: { replyMarkup?: InlineKeyboardMarkup | null } = {},
+  ): Promise<unknown> {
+    return callBotApi('editMessageText', {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      reply_markup: options.replyMarkup ?? { inline_keyboard: [] },
+    }, 8_000);
+  },
+
+  /** Swaps a sent message's keyboard; null removes every button. */
+  editMessageReplyMarkup(chatId: string, messageId: number, replyMarkup: InlineKeyboardMarkup | null): Promise<unknown> {
+    return callBotApi('editMessageReplyMarkup', {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: replyMarkup ?? { inline_keyboard: [] },
+    }, 8_000);
   },
 
   /** Best-effort "bot is alive" indicator; Telegram clears it after ~5 seconds. */
@@ -133,12 +185,21 @@ export const telegramApi = {
     return callBotApi('sendChatAction', { chat_id: chatId, action }, 8_000);
   },
 
-  setWebhook(url: string, secretToken: string): Promise<unknown> {
+  /**
+   * `dropPendingUpdates` is on for a fresh registration from the panel and off
+   * when an existing webhook is only widened — updates already queued for the
+   * same URL must still arrive.
+   */
+  setWebhook(
+    url: string,
+    secretToken: string,
+    options: { allowedUpdates?: readonly string[]; dropPendingUpdates?: boolean } = {},
+  ): Promise<unknown> {
     return callBotApi('setWebhook', {
       url,
       secret_token: secretToken,
-      allowed_updates: ['message'],
-      drop_pending_updates: true,
+      allowed_updates: [...(options.allowedUpdates ?? WEBHOOK_ALLOWED_UPDATES)],
+      drop_pending_updates: options.dropPendingUpdates ?? true,
     });
   },
 };

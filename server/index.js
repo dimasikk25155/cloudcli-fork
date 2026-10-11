@@ -81,6 +81,7 @@ import pipelinesRoutes from './modules/pipelines/pipelines.routes.js';
 import schedulesRoutes from './modules/schedules/schedules.routes.js';
 import telegramRoutes from './modules/telegram/telegram.routes.js';
 import telegramWebhookRoutes from './modules/telegram/telegram-webhook.routes.js';
+import { telegramAttention } from './modules/telegram/index.js';
 import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
@@ -1735,6 +1736,8 @@ async function startServer() {
         // once the session stops waiting. Registered before the boot
         // reconcile so pushes of requests that died with the old process close.
         sessionAttention.onChange(createAttentionPushListener());
+        // The same «нужен ответ» in Telegram, with answer buttons, for bound chats.
+        sessionAttention.onChange((change) => { void telegramAttention.onAttentionChange(change); });
 
         // "Ждут тебя": a session still marked working belongs to the previous
         // process and will never finish — show it as interrupted, not running.
@@ -1780,6 +1783,14 @@ async function startServer() {
             // Start server-side plugin processes for enabled plugins
             startEnabledPluginServers().catch(err => {
                 console.error('[Plugins] Error during startup:', err.message);
+            });
+
+            // Telegram answer buttons need callback_query on the webhook: widen
+            // an existing registration (same URL and secret) once, if needed.
+            void telegramAttention.ensureWebhookAcceptsCallbacks().then((result) => {
+                if (result.action === 'reregistered') {
+                    console.log(`${c.info('[INFO]')} Telegram webhook now accepts answer buttons`);
+                }
             });
 
             // Server-panel watchdog: alerts to Telegram when a service dies or
