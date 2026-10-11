@@ -12,6 +12,8 @@ import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useConnectionWatchdog } from '../hooks/useConnectionWatchdog';
+import { useReplySuggestions } from '../hooks/useReplySuggestions';
+import { lastAssistantReply } from '../utils/replySuggestions';
 import { useSessionStore } from '../../../stores/useSessionStore';
 import { decisionExitsPlanMode, permissionModeAfterPlanApproval } from '../utils/planMode';
 import { AUTO_PLAN_MODE, autoApprovedRequestIds, isAutoPlanMode } from '../utils/autoPlanMode';
@@ -250,6 +252,7 @@ function ChatInterface({
     editQueuedDraft,
     deleteQueuedDraft,
     handleVoiceTranscript,
+    fillInput,
     handleInputChange,
     handleKeyDown,
     handlePaste,
@@ -301,6 +304,22 @@ function ChatInterface({
     setPendingPermissionRequests,
     resolvePermissionModeForProvider,
   });
+
+  // Reply chips: ready answers for the last reply, when it ended with a question
+  // or a request. The server decides and generates; any failure → no chips.
+  const lastReply = useMemo(() => lastAssistantReply(chatMessages), [chatMessages]);
+  const { suggestions: replySuggestions, dismiss: dismissReplySuggestions } = useReplySuggestions({
+    sessionId: currentSessionId || selectedSession?.id || null,
+    reply: lastReply,
+    isLoading: isProcessing,
+    input,
+  });
+  // A chip tap is "dictated and sent": the same handleSubmit path as Enter,
+  // so the secret guard, the queue and slash commands all apply.
+  const handleSendReplySuggestion = useCallback((text: string) => {
+    dismissReplySuggestions();
+    handleVoiceTranscript(text, true);
+  }, [dismissReplySuggestions, handleVoiceTranscript]);
 
   // On WebSocket reconnect, re-subscribe so missed live events replay and a
   // still-running stream re-attaches to this socket. Do NOT REST-refresh
@@ -729,6 +748,9 @@ function ChatInterface({
           onTextareaInput={handleTextareaInput}
           isInputFocused={isInputFocused}
           onInputFocusChange={handleInputFocusChange}
+          replySuggestions={replySuggestions}
+          onSendReplySuggestion={handleSendReplySuggestion}
+          onEditReplySuggestion={fillInput}
           placeholder={t('input.placeholder', {
             provider:
               provider === 'cursor'

@@ -85,6 +85,7 @@ import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
+import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -276,6 +277,8 @@ app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
 app.use('/api/sticky-push', stickyPushRoutes);
 // Secret guard: the composer moves a pasted key into the secrets file. Admin-only.
 app.use('/api/secrets', authenticateToken, requireAdmin, secretsStashRoutes);
+// Reply chips over the composer: local model, best effort, cached per reply.
+app.use('/api/reply-suggestions', authenticateToken, replySuggestionsRoutes);
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);

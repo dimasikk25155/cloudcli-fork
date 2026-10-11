@@ -47,6 +47,7 @@ import { isImeOwnedKey } from '../utils/imeComposition';
 import { modelForProvider } from '../utils/providerModelState';
 import { runSecretGuard } from '../utils/secretGuard';
 import { askSecretGuard } from '../view/subcomponents/SecretGuardDialog';
+import { stashSecretRequest } from '../utils/secretStash';
 
 import { useFileMentions } from './useFileMentions';
 import { useInputHistory } from './useInputHistory';
@@ -236,24 +237,6 @@ const restoreQueuedDraft = (sessionKey: string): QueuedDraft | null => {
   return saved
     ? { content: saved.content, images: [], uploadedImages: saved.images, options: saved.options }
     : null;
-};
-
-/** Secret guard «Убрать в .secrets.env»: resolves with the name the server used. */
-const stashSecretRequest = async (name: string, value: string): Promise<string> => {
-  const response = await authenticatedFetch('/api/secrets/stash', {
-    method: 'POST',
-    body: JSON.stringify({ name, value }),
-  });
-  let body: { name?: unknown; error?: unknown } | null = null;
-  try {
-    body = await response.json();
-  } catch {
-    // Non-JSON body: the status below is enough.
-  }
-  if (!response.ok || typeof body?.name !== 'string') {
-    throw new Error(typeof body?.error === 'string' ? body.error : `ошибка ${response.status}`);
-  }
-  return body.name;
 };
 
 const getNotificationSessionSummary = (
@@ -1245,6 +1228,18 @@ export function useChatComposerState({
     if (send) handleSubmitRef.current?.(createFakeSubmitEvent());
   }, [setInput]);
 
+  // Reply chip pencil: put the text in the field, caret at the end, to edit first.
+  const fillInput = useCallback((text: string) => {
+    inputValueRef.current = text;
+    setInput(text);
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(text.length, text.length);
+    });
+  }, [setInput]);
+
   useEffect(() => {
     inputValueRef.current = input;
   }, [input]);
@@ -1757,6 +1752,7 @@ export function useChatComposerState({
     editQueuedDraft,
     deleteQueuedDraft,
     handleVoiceTranscript,
+    fillInput,
     handleInputChange,
     handleKeyDown,
     handlePaste,

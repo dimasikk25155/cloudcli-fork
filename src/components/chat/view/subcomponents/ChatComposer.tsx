@@ -35,6 +35,8 @@ import CommandMenu from './CommandMenu';
 import ActivityIndicator from './ActivityIndicator';
 import ImageAttachment from './ImageAttachment';
 import VoiceInputButton from './VoiceInputButton';
+import ReplySuggestionChips from './ReplySuggestionChips';
+import { shouldShowReplyChips } from '../../utils/replySuggestions';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
 import EffortControl from './EffortControl';
@@ -122,6 +124,10 @@ interface ChatComposerProps {
   onInputFocusChange?: (focused: boolean) => void;
   placeholder: string;
   isTextareaExpanded: boolean;
+  /** Ready answers for the last reply (empty → nothing drawn). */
+  replySuggestions?: string[];
+  onSendReplySuggestion?: (text: string) => void;
+  onEditReplySuggestion?: (text: string) => void;
 }
 
 // Dot + button tints per permission mode, shared by the trigger button and
@@ -218,6 +224,9 @@ export default function ChatComposer({
   onInputFocusChange,
   placeholder,
   isTextareaExpanded,
+  replySuggestions = [],
+  onSendReplySuggestion,
+  onEditReplySuggestion,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const commandMenuPosition = useMemo(() => {
@@ -491,6 +500,13 @@ export default function ChatComposer({
   const hasActivityIndicator = Boolean(activity && !hasPendingPermissions);
 
   const hasQueuedDraft = Boolean(queuedDraft);
+  const showReplyChips = Boolean(onSendReplySuggestion && onEditReplySuggestion) && shouldShowReplyChips({
+    suggestions: replySuggestions,
+    input,
+    isLoading,
+    hasPendingPermission: pendingPermissionRequests.length > 0,
+    hasQueuedDraft,
+  });
   const canQueueDraft = isLoading && Boolean(input.trim());
   const submitAriaLabel = canQueueDraft
     ? hasQueuedDraft
@@ -527,6 +543,14 @@ export default function ChatComposer({
           onSendNow={onAppendNow}
           canSendNow={isLoading}
           isSendingNow={isAppendPending}
+        />
+      )}
+
+      {showReplyChips && onSendReplySuggestion && onEditReplySuggestion && (
+        <ReplySuggestionChips
+          suggestions={replySuggestions}
+          onSend={onSendReplySuggestion}
+          onEdit={onEditReplySuggestion}
         />
       )}
 
