@@ -587,11 +587,15 @@ function runHookCommand({ command, timeoutMs, stdinJson }) {
       // A failed hook must never fail the run — its context is best-effort.
       resolve(String(stdout || ''));
     });
+    // A hook may exit without reading stdin (most do). Writing into its closed
+    // pipe then emits EPIPE asynchronously on child.stdin; an unhandled stream
+    // 'error' would crash the whole server. The hook counts as finished by its
+    // own exit code — the execFile callback above — so the error is dropped.
+    child.stdin?.on('error', () => {});
     try {
-      child.stdin?.write(JSON.stringify(stdinJson ?? {}));
-      child.stdin?.end();
+      child.stdin?.end(JSON.stringify(stdinJson ?? {}));
     } catch {
-      // stdin already closed — the hook simply reads nothing.
+      // stdin already closed synchronously — the hook simply reads nothing.
     }
   });
 }

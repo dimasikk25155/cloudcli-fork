@@ -60,3 +60,28 @@ test('a Stop hook that exits on the marker produces no follow-up turn', { skip: 
     assert.equal(await collectGrokStopReason('sess-2'), '');
   });
 });
+
+test('a hook that exits without reading a large stdin does not crash the server (EPIPE handled)', { skip: process.platform === 'win32' }, async () => {
+  // The hook answers and exits at once, never reading stdin. The stdin JSON
+  // (4 MB session id) is far larger than a pipe buffer, so the write is
+  // guaranteed to hit a closed pipe: EPIPE on child.stdin. Unhandled, that
+  // error event takes the whole process down; handled, the hook simply counts
+  // as finished by its own exit code and its output is used.
+  await withHooks(
+    { Stop: [{ hooks: [{ type: 'command', command: `printf '%s' '{"decision":"block","reason":"answered early"}'; exit 0` }] }] },
+    async () => {
+      const uncaught = [];
+      const onUncaught = (error) => uncaught.push(error);
+      process.on('uncaughtException', onUncaught);
+      try {
+        const reason = await collectGrokStopReason('x'.repeat(4 * 1024 * 1024));
+        // Give a late 'error' event the chance to surface before judging.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.equal(reason, 'answered early');
+        assert.deepEqual(uncaught.map((error) => error.code ?? error.message), []);
+      } finally {
+        process.off('uncaughtException', onUncaught);
+      }
+    },
+  );
+});
