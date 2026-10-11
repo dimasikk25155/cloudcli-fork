@@ -7,6 +7,7 @@ import { IS_PLATFORM } from '../../../../constants/config';
 import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
 import { cn } from '../../../../lib/utils';
 import type { SidebarSearchMode } from '../../types/types';
+import AttentionHubButton from '../../../attention/view/AttentionHubButton';
 
 import Neo3Logo from '../../../branding/Neo3Logo';
 
@@ -32,6 +33,8 @@ type SidebarHeaderProps = {
   onCreateProject: () => void;
   onCollapseSidebar: () => void;
   onGoHome?: () => void;
+  /** Opens the «Ждут тебя» hub. */
+  onOpenAttention?: () => void;
   t: TFunction;
 };
 
@@ -54,6 +57,7 @@ export default function SidebarHeader({
   onCreateProject,
   onCollapseSidebar,
   onGoHome,
+  onOpenAttention,
   t,
 }: SidebarHeaderProps) {
   const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0 || recentSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
@@ -164,6 +168,7 @@ export default function SidebarHeader({
           )}
 
           <div className="flex flex-shrink-0 items-center gap-0.5">
+            {onOpenAttention && <AttentionHubButton onClick={onOpenAttention} />}
             {onGoHome && (
               <Button
                 variant="ghost"
@@ -280,6 +285,7 @@ export default function SidebarHeader({
           )}
 
           <div className="flex flex-shrink-0 gap-1.5">
+            {onOpenAttention && <AttentionHubButton onClick={onOpenAttention} variant="touch" />}
             {onGoHome && (
               <button
                 type="button"

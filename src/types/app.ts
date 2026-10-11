@@ -1,3 +1,16 @@
+/**
+ * Mirror of `GatewayEventKind` in `server/shared/types.ts`: app-level websocket
+ * kinds emitted by the gateway on top of provider message kinds. Keep both
+ * unions identical.
+ */
+export type GatewayEventKind =
+  | 'chat_subscribed'
+  | 'session_upserted'
+  | 'loading_progress'
+  | 'protocol_error'
+  /** Session status changed; payload `{sessionId, timestamp}` only — re-read `/api/attention`. */
+  | 'attention_changed';
+
 export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini' | 'grok';
 
 export type ProviderModelOption = {
