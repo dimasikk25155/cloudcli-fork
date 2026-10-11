@@ -759,6 +759,7 @@ function ChatInterface({
           replySuggestions={replySuggestions}
           onSendReplySuggestion={handleSendReplySuggestion}
           onEditReplySuggestion={fillInput}
+          memorySessionId={chipsSessionId}
           placeholder={t('input.placeholder', {
             provider:
               provider === 'cursor'

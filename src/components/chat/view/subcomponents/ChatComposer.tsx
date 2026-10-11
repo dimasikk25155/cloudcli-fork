@@ -42,6 +42,7 @@ import TokenUsageSummary from './TokenUsageSummary';
 import EffortControl from './EffortControl';
 import UsageLimitsBadge from './UsageLimitsBadge';
 import QueuedMessageCard from './QueuedMessageCard';
+import MemorySuggestionBanner from '../../../attention/memory/MemorySuggestionBanner';
 
 interface MentionableFile {
   name: string;
@@ -128,6 +129,8 @@ interface ChatComposerProps {
   replySuggestions?: string[];
   onSendReplySuggestion?: (text: string) => void;
   onEditReplySuggestion?: (text: string) => void;
+  /** Session whose proposed vault note is shown over the composer (admins only). */
+  memorySessionId?: string | null;
 }
 
 // Dot + button tints per permission mode, shared by the trigger button and
@@ -227,6 +230,7 @@ export default function ChatComposer({
   replySuggestions = [],
   onSendReplySuggestion,
   onEditReplySuggestion,
+  memorySessionId = null,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const commandMenuPosition = useMemo(() => {
@@ -545,6 +549,8 @@ export default function ChatComposer({
           isSendingNow={isAppendPending}
         />
       )}
+
+      {!isLoading && !hasPendingPermissions && <MemorySuggestionBanner sessionId={memorySessionId} />}
 
       {showReplyChips && onSendReplySuggestion && onEditReplySuggestion && (
         <ReplySuggestionChips

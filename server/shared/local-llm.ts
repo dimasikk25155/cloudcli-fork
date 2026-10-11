@@ -37,6 +37,11 @@ export type CompleteJsonOptions = {
   timeoutMs: number;
   maxTokens: number;
   temperature?: number;
+  /**
+   * Ollama context window (`num_ctx`). Unset = the model's default, which is
+   * small (4–8K tokens) and silently truncates a long prompt from the start.
+   */
+  numCtx?: number;
   /** Defaults to `LOCAL_LLM_BASE_URL`. */
   baseUrl?: string;
   /** Test seam; defaults to the global fetch. */
@@ -89,6 +94,7 @@ export async function completeJson(options: CompleteJsonOptions): Promise<unknow
         options: {
           temperature: options.temperature ?? 0.4,
           num_predict: options.maxTokens,
+          ...(options.numCtx ? { num_ctx: options.numCtx } : {}),
         },
         messages: [
           { role: 'system', content: options.system },

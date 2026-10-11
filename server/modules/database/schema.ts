@@ -420,6 +420,35 @@ CREATE TABLE IF NOT EXISTS answer_tokens (
 CREATE INDEX IF NOT EXISTS idx_answer_tokens_request ON answer_tokens(request_id);
 `;
 
+// Vault-note suggestions (memory-suggestions): one row per app session, so a
+// session is reviewed by the local model at most once. `status`:
+//   ineligible — quiet but not worth a look (re-checked only after new activity,
+//                tracked by source_updated_at);
+//   pending    — model failed, retried on the next tick (attempts < 3);
+//   ready      — note proposed, shown in the session and the hub;
+//   writing    — «Записать» claimed the row, file being created (ready → writing → written);
+//   skipped    — model said not worth it; failed — 3 failed attempts;
+//   written / dismissed — Dima pressed «Записать» / «Не надо».
+// No foreign keys, same reason as session_attention.
+export const MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS memory_suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE,
+    user_id INTEGER,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    source_updated_at TEXT NOT NULL,
+    title TEXT,
+    folder TEXT,
+    body TEXT,
+    written_path TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_suggestions_status ON memory_suggestions(status);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -501,6 +530,8 @@ ${SESSION_ATTENTION_TABLE_SCHEMA_SQL}
 ${SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL}
 
 ${ANSWER_TOKENS_TABLE_SCHEMA_SQL}
+
+${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
 
 ${LAST_SCANNED_AT_SQL}
 

@@ -87,6 +87,7 @@ import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
 import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
+import { memorySuggestionsRoutes, startMemorySuggestionsLoop } from './modules/memory-suggestions/index.js';
 import { pendingAnswers, pendingAnswersRoutes } from './modules/pending-answers/index.js';
 import { createAttentionPushListener } from './modules/notifications/index.js';
 import userRoutes from './routes/user.js';
@@ -294,6 +295,9 @@ app.use('/api/sticky-push', stickyPushRoutes);
 app.use('/api/secrets', authenticateToken, requireAdmin, secretsStashRoutes);
 // Reply chips over the composer: local model, best effort, cached per reply.
 app.use('/api/reply-suggestions', authenticateToken, replySuggestionsRoutes);
+// Vault-note suggestions (replaces the obsidian-memory Stop hook inside Neo3).
+// Writing and dismissing are admin-only inside the router.
+app.use('/api/memory-suggestions', authenticateToken, memorySuggestionsRoutes);
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);
@@ -1784,6 +1788,15 @@ async function startServer() {
             startEnabledPluginServers().catch(err => {
                 console.error('[Plugins] Error during startup:', err.message);
             });
+
+            // Vault-note suggestions: every 10 minutes the local model reviews
+            // quiet admin sessions (no-op without a vault folder or with
+            // NEO3_MEMORY_SUGGESTIONS=off).
+            try {
+                startMemorySuggestionsLoop();
+            } catch (err) {
+                console.error('[memory-suggestions] loop failed to start:', err.message);
+            }
 
             // Server-panel watchdog: alerts to Telegram when a service dies or
             // a disk fills up. No-op until it is enabled in the panel.
