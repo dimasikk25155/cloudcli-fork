@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '../../shared/view/ui';
+import { cn } from '../../lib/utils';
 
 // Shell for the feature panels reachable from the sidebar footer.
 //
@@ -17,15 +18,18 @@ export default function PanelModal({
   icon: Icon,
   onClose,
   children,
+  contentClassName,
 }: {
   title: string;
   icon: LucideIcon;
   onClose: () => void;
   children: ReactNode;
+  /** Extra classes for the dialog box, e.g. a narrower desktop width. */
+  contentClassName?: string;
 }) {
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex h-[100dvh] w-screen max-w-none flex-col overflow-hidden rounded-none border-0 bg-background p-0 text-foreground shadow-2xl md:h-[min(90dvh,52rem)] md:w-[calc(100vw-2rem)] md:max-w-5xl md:rounded-2xl md:border md:border-border">
+      <DialogContent className={cn('flex h-[100dvh] w-screen max-w-none flex-col overflow-hidden rounded-none border-0 bg-background p-0 text-foreground shadow-2xl md:h-[min(90dvh,52rem)] md:w-[calc(100vw-2rem)] md:max-w-5xl md:rounded-2xl md:border md:border-border', contentClassName)}>
         <DialogTitle>{title}</DialogTitle>
 
         <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">

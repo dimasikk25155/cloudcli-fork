@@ -6,6 +6,7 @@ import type { SessionActivityMap } from '../../../../hooks/useSessionProtection'
 import type { SessionWithProvider } from '../../types/types';
 import { APP_NAME } from '../../../../constants/branding';
 import { partitionCodexInboxProjects } from '../../utils/utils';
+import { setPageBaseTitle } from '../../../../utils/pageTitleNotification';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
 import SidebarProjectItem from './SidebarProjectItem';
@@ -30,7 +31,6 @@ export type SidebarProjectListProps = {
   onLoadMoreSessions: (projectId: string) => void;
   loadingMoreProjects: Set<string>;
   activeSessions: SessionActivityMap;
-  attentionSessionIds: ReadonlySet<string>;
   isJournalView?: boolean;
   expandedJournalProjects: Set<string>;
   isRecentView?: boolean;
@@ -72,7 +72,6 @@ export default function SidebarProjectList({
   onLoadMoreSessions,
   loadingMoreProjects,
   activeSessions,
-  attentionSessionIds,
   isJournalView = false,
   expandedJournalProjects,
   isRecentView = false,
@@ -112,7 +111,9 @@ export default function SidebarProjectList({
     if (displayName) {
       baseTitle = `${displayName} — ${baseTitle}`;
     }
-    document.title = baseTitle;
+    // Only the base part: the «(N)» attention counter is owned separately
+    // and must survive project switches.
+    setPageBaseTitle(baseTitle);
   }, [selectedProject]);
 
   const showProjects = !isLoading && projects.length > 0 && filteredProjects.length > 0;
@@ -153,7 +154,6 @@ export default function SidebarProjectList({
       onSessionSelect={onSessionSelect}
       onLoadMoreSessions={onLoadMoreSessions}
       activeSessions={activeSessions}
-      attentionSessionIds={attentionSessionIds}
       isRecentView={isRecentView}
       isFoldOnlyHeader={isJournalView}
       onNewSession={onNewSession}

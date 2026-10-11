@@ -1,6 +1,8 @@
 import { Settings, PanelLeftOpen, Bug, AlertTriangle, Home } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
+import AttentionHubButton from '../../../attention/view/AttentionHubButton';
+
 const DISCORD_INVITE_URL = 'https://discord.gg/buxwujPNRE';
 const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
 
@@ -16,6 +18,7 @@ type SidebarCollapsedProps = {
   onExpand: () => void;
   onShowSettings: () => void;
   onGoHome?: () => void;
+  onOpenAttention?: () => void;
   restartRequired: boolean;
   t: TFunction;
 };
@@ -24,6 +27,7 @@ export default function SidebarCollapsed({
   onExpand,
   onShowSettings,
   onGoHome,
+  onOpenAttention,
   restartRequired,
   t,
 }: SidebarCollapsedProps) {
@@ -40,6 +44,8 @@ export default function SidebarCollapsed({
       </button>
 
       <div className="nav-divider my-1 w-6" />
+
+      {onOpenAttention && <AttentionHubButton onClick={onOpenAttention} />}
 
       {onGoHome && (
         <button

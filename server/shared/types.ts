@@ -208,7 +208,13 @@ export type GatewayEventKind =
   | 'chat_subscribed'
   | 'session_upserted'
   | 'loading_progress'
-  | 'protocol_error';
+  | 'protocol_error'
+  /**
+   * "Ждут тебя": some session's status changed. Content-free
+   * (`{kind, sessionId, timestamp}`); clients re-read `GET /api/attention`.
+   * Mirrored in `src/types/app.ts` `GatewayEventKind`.
+   */
+  | 'attention_changed';
 
 /**
  * Complete set of `kind` values emitted to websocket clients.
