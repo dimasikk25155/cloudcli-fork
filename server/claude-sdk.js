@@ -903,17 +903,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       }
 
       const requestId = createRequestId();
+      // The "нужен ответ" push (with answer buttons) is sent by session-attention
+      // for every engine when this request turns the session to waiting.
       ws.send(createNormalizedMessage({ kind: 'permission_request', requestId, toolName, input, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
-      emitNotification(createNotificationEvent({
-        provider: 'claude',
-        sessionId: capturedSessionId || sessionId || null,
-        kind: 'action_required',
-        code: 'permission.required',
-        meta: { toolName, sessionName: sessionSummary },
-        severity: 'warning',
-        requiresUserAction: true,
-        dedupeKey: `claude:permission:${capturedSessionId || sessionId || 'none'}:${requestId}`
-      }));
 
       const decision = await waitForToolApproval(requestId, {
         // Wait indefinitely for every permission prompt, not just interactive
@@ -1452,6 +1444,23 @@ function getPendingApprovalsForSession(sessionId) {
 }
 
 /**
+ * One pending tool approval by its request id (answer routing and access
+ * checks when the session status registry does not know the request).
+ * @param {string} requestId
+ * @returns {{requestId: string, sessionId: string|null, toolName: string, input: unknown}|null}
+ */
+function getPendingApprovalById(requestId) {
+  const resolver = pendingToolApprovals.get(requestId);
+  if (!resolver) return null;
+  return {
+    requestId,
+    sessionId: resolver._sessionId || null,
+    toolName: resolver._toolName || 'UnknownTool',
+    input: resolver._input,
+  };
+}
+
+/**
  * Reconnect a session's WebSocketWriter to a new raw WebSocket.
  * Called when client reconnects (e.g. page refresh) while SDK is still running.
  * @param {string} sessionId - The session ID
@@ -1476,6 +1485,7 @@ export {
   getActiveClaudeSDKSessions,
   resolveToolApproval,
   getPendingApprovalsForSession,
+  getPendingApprovalById,
   reconnectSessionWriter,
   loadMcpConfig
 };
