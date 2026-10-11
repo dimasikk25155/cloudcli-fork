@@ -5,6 +5,8 @@ export type TelegramBindingRow = {
   user_id: number;
   chat_id: string;
   telegram_username: string | null;
+  /** Telegram user id of whoever sent /start; null for bindings made before it was stored. */
+  telegram_user_id: string | null;
   project_path: string | null;
   enabled: number;
   created_at: string;
@@ -23,10 +25,11 @@ type UpsertBindingInput = {
   userId: number;
   chatId: string;
   telegramUsername?: string | null;
+  telegramUserId?: string | number | null;
   projectPath?: string | null;
 };
 
-const BINDING_COLUMNS = 'id, user_id, chat_id, telegram_username, project_path, enabled, created_at, updated_at';
+const BINDING_COLUMNS = 'id, user_id, chat_id, telegram_username, telegram_user_id, project_path, enabled, created_at, updated_at';
 const LINK_CODE_COLUMNS = 'code, user_id, expires_at, used_at, created_at';
 
 function normalizeChatId(chatId: unknown): string {
@@ -104,11 +107,12 @@ export const telegramDb = {
 
     const db = getConnection();
     db.prepare(`
-      INSERT INTO telegram_bindings (user_id, chat_id, telegram_username, project_path, enabled, updated_at)
-      VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+      INSERT INTO telegram_bindings (user_id, chat_id, telegram_username, telegram_user_id, project_path, enabled, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
       ON CONFLICT(chat_id) DO UPDATE SET
         user_id = excluded.user_id,
         telegram_username = excluded.telegram_username,
+        telegram_user_id = excluded.telegram_user_id,
         project_path = CASE
           WHEN telegram_bindings.user_id = excluded.user_id THEN telegram_bindings.project_path
           ELSE NULL
@@ -119,6 +123,7 @@ export const telegramDb = {
       input.userId,
       chatId,
       normalizeNullableText(input.telegramUsername),
+      normalizeChatId(input.telegramUserId ?? null) || null,
       normalizeNullableText(input.projectPath)
     );
 

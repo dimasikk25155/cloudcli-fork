@@ -523,6 +523,13 @@ export const runMigrations = (db: Database) => {
       addColumnToTableIfNotExists(db, 'user_provider_preferences', preferencesColumnNames, 'default_provider', 'TEXT');
     }
 
+    // Telegram id of whoever sent /start: answer buttons in a group are
+    // accepted from that person only. Older bindings keep NULL (username fallback).
+    if (tableExists(db, 'telegram_bindings')) {
+      const telegramColumnNames = getTableInfo(db, 'telegram_bindings').map((column) => column.name);
+      addColumnToTableIfNotExists(db, 'telegram_bindings', telegramColumnNames, 'telegram_user_id', 'TEXT');
+    }
+
     // Audit log. Created here as well as in INIT_SCHEMA_SQL so that an existing
     // ~/.cloudcli/auth.db gains the table (and its append-only triggers) on
     // upgrade — `CREATE TABLE IF NOT EXISTS` in the init script does nothing for

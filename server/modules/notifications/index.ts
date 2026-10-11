@@ -15,6 +15,8 @@ export { handleDesktopNotificationsConnection } from '@/modules/notifications/we
 export { ATTENTION_PUSH_CODE, attentionPushTag } from '@/modules/notifications/services/attention-push.constants.js';
 export {
   createAttentionPushListener,
+  pickAnswerChoices,
+  singleChoiceQuestion,
   planAttentionPush,
 } from '@/modules/notifications/services/attention-push.service.js';
 export type { AttentionPushAction, AttentionPushPlan } from '@/modules/notifications/services/attention-push.service.js';
