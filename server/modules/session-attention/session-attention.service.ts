@@ -26,12 +26,12 @@ import path from 'node:path';
 
 import {
   sessionAttentionDb,
-  userProjectAccessDb,
   type SessionAttentionListRow,
   type SessionAttentionRow,
 } from '@/modules/database/index.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { listGrokQuestionsForAppSession } from '@/shared/grok-question.js';
+import { projectAccessFor } from '@/shared/project-access.js';
 import { classifyTurnEnding, clipText } from '@/shared/turn-ending.js';
 
 // ---------------------------------------------------------------------------
@@ -314,10 +314,6 @@ function parseDetail(json: string | null): AttentionDetail | null {
   }
 }
 
-function isAdmin(user: AttentionUser): boolean {
-  return user.role === 'admin';
-}
-
 function defaultIsRequestPending(input: {
   provider: string;
   appSessionId: string;
@@ -570,16 +566,9 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
   }
 
   function visibleRows(user: AttentionUser): SessionAttentionListRow[] {
-    const userId = toUserId(user.id);
-    const rows = sessionAttentionDb.listWithSeen(userId);
-    if (isAdmin(user)) {
-      return rows;
-    }
-    if (userId === null) {
-      return [];
-    }
-    const accessible = new Set(userProjectAccessDb.getAccessibleProjectIds(userId));
-    return rows.filter((row) => row.resolved_project_id !== null && accessible.has(row.resolved_project_id));
+    const rows = sessionAttentionDb.listWithSeen(toUserId(user.id));
+    const mayAccess = projectAccessFor(user);
+    return rows.filter((row) => mayAccess(row.resolved_project_id));
   }
 
   function toItem(row: SessionAttentionListRow): AttentionItem {
@@ -702,6 +691,27 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
         settleAfterRequest({ appSessionId: sessionId, provider: row?.provider ?? 'unknown' }, mem);
         return;
       }
+    },
+
+    /**
+     * Which session an open request belongs to (answer routing and access
+     * checks). Only requests that can still be answered are known: Claude's
+     * live approvals and Grok's questions/plan exits after the CLI exited.
+     */
+    findPendingRequest(requestId: string): {
+      requestId: string;
+      sessionId: string;
+      provider: string;
+      reason: AttentionReason;
+    } | null {
+      for (const [sessionId, mem] of memory) {
+        const pending = mem.pending.find((entry) => entry.requestId === requestId);
+        if (pending) {
+          const row = sessionAttentionDb.get(sessionId);
+          return { requestId, sessionId, provider: row?.provider ?? 'unknown', reason: pending.reason };
+        }
+      }
+      return null;
     },
 
     /** Sessions the user may see (admin: all; others: granted projects), newest first. */

@@ -394,6 +394,16 @@ export function takeGrokPlanExit(requestId: string): GrokPendingPlanExit | null 
   return record;
 }
 
+/** Looks a plan exit up without consuming it (answer routing / access checks). */
+export function peekGrokPlanExit(requestId: string): GrokPendingPlanExit | null {
+  return pendingGrokPlanExits.get(requestId) || null;
+}
+
+/** Looks a question up without consuming it (answer routing / access checks). */
+export function peekGrokQuestion(requestId: string): GrokPendingQuestion | null {
+  return pendingGrokQuestions.get(requestId) || null;
+}
+
 export function registerGrokQuestion(record: GrokPendingQuestion): void {
   pendingGrokQuestions.set(record.requestId, record);
 }

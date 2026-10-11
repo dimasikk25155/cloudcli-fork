@@ -2,8 +2,15 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
-import { projectsDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
+import { projectsDb, sessionsDb, userDb } from '@/modules/database/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '@/modules/governance/index.js';
+import {
+  pendingAnswers,
+  type AnswerDeliverer,
+  type AnswerEngine,
+  type AnswerReason,
+  type PendingRequestInfo,
+} from '@/modules/pending-answers/pending-answers.service.js';
 import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -16,16 +23,22 @@ import {
 } from '@/shared/image-attachments.js';
 import {
   listGrokQuestionsForAppSession,
+  peekGrokPlanExit,
+  peekGrokQuestion,
+  registerGrokPlanExit,
+  registerGrokQuestion,
   rewriteGrokHeadlessQuestionStub,
   serializeGrokQuestionAnswers,
   takeGrokPlanExit,
   takeGrokQuestion,
   takeGrokQuestionsForAppSession,
 } from '@/shared/grok-question.js';
+import { canUserAccessSession } from '@/shared/project-access.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
   LLMProvider,
+  RealtimeClientConnection,
 } from '@/shared/types.js';
 import { createNormalizedMessage, parseIncomingJsonObject } from '@/shared/utils.js';
 
@@ -77,7 +90,7 @@ type ProviderSpawnFn = (
   writer: unknown
 ) => Promise<unknown>;
 
-type ChatWebSocketDependencies = {
+export type ChatWebSocketDependencies = {
   /** Provider runtimes keyed by provider id. */
   spawnFns: Record<LLMProvider, ProviderSpawnFn>;
   /**
@@ -97,6 +110,8 @@ type ChatWebSocketDependencies = {
   ) => void;
   /** Claude-only today: pending tool approvals included in `chat_subscribed`. */
   getPendingApprovalsForSession: (providerSessionId: string) => unknown[];
+  /** Claude: one pending approval by request id (`sessionId` = provider-native id). */
+  getPendingApprovalById?: (requestId: string) => { sessionId: string | null; input?: unknown } | null;
 };
 
 /**
@@ -128,7 +143,7 @@ function readRequestUserRole(request: AuthenticatedWebSocketRequest | undefined)
   return typeof role === 'string' ? role : null;
 }
 
-function sendJson(ws: WebSocket, payload: unknown): void {
+function sendJson(ws: RealtimeClientConnection, payload: unknown): void {
   if (ws.readyState === WS_OPEN_STATE) {
     ws.send(JSON.stringify(payload));
   }
@@ -142,7 +157,7 @@ function sendJson(ws: WebSocket, payload: unknown): void {
  * invalid" from "the model run produced an error" without inspecting text.
  */
 function sendProtocolError(
-  ws: WebSocket,
+  ws: RealtimeClientConnection,
   code: string,
   error: string,
   sessionId?: string
@@ -161,22 +176,42 @@ function readRequiredSessionId(data: AnyRecord): string | null {
   return sessionId.length > 0 ? sessionId : null;
 }
 
+type ChatSendStart = { started: false } | { started: true; finished: Promise<void> };
+
 /**
  * Handles `chat.send`: resolves the session row (provider, project path, and
  * provider-native id all come from the database — never from the client),
  * registers the run, and dispatches to the provider runtime.
  */
 async function handleChatSend(
-  ws: WebSocket,
+  ws: RealtimeClientConnection,
   userId: string | number | null,
   userRole: string | null,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
 ): Promise<void> {
+  const start = beginChatSend(ws, userId, userRole, data, dependencies);
+  if (start.started) {
+    await start.finished;
+  }
+}
+
+/**
+ * Synchronous half of `chat.send`: validation, access check and run
+ * registration. `started` is the explicit result of registering the run;
+ * `finished` settles when the runtime is done.
+ */
+function beginChatSend(
+  ws: RealtimeClientConnection,
+  userId: string | number | null,
+  userRole: string | null,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies
+): ChatSendStart {
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
     sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.send requires a sessionId.');
-    return;
+    return { started: false };
   }
 
   const session = sessionsDb.getSessionById(sessionId);
@@ -187,45 +222,37 @@ async function handleChatSend(
       `Session "${sessionId}" was not found. Create it via POST /api/providers/sessions first.`,
       sessionId
     );
-    return;
+    return { started: false };
   }
 
   // Non-admin employees may only open sessions for projects an admin granted
   // them via the admin panel — listing already filters the sidebar, but a
   // known/guessed sessionId must not bypass that (see user_project_access).
-  if (userRole && userRole !== 'admin' && userId !== null && session.project_path) {
-    const projectRow = projectsDb.getProjectPath(session.project_path);
-    const accessibleProjectIds = userProjectAccessDb.getAccessibleProjectIds(Number(userId));
-    if (!projectRow || !accessibleProjectIds.includes(projectRow.project_id)) {
-      sendProtocolError(
-        ws,
-        'PROJECT_ACCESS_DENIED',
-        'You do not have access to this project.',
-        sessionId
-      );
-      return;
-    }
+  // Chat keeps its historic scope: a token without a role gets it from the
+  // database, and sessions without a project / connections without a user id
+  // are not checked here.
+  const effectiveRole = userRole ?? (userId !== null ? userDb.getUserById(Number(userId))?.role ?? null : null);
+  if (
+    effectiveRole
+    && effectiveRole !== 'admin'
+    && userId !== null
+    && session.project_path
+    && !canUserAccessSession({ id: userId, role: effectiveRole }, sessionId)
+  ) {
+    sendProtocolError(
+      ws,
+      'PROJECT_ACCESS_DENIED',
+      'You do not have access to this project.',
+      sessionId
+    );
+    return { started: false };
   }
 
   const provider = session.provider as LLMProvider;
   const spawnFn = dependencies.spawnFns[provider];
   if (!spawnFn) {
     sendProtocolError(ws, 'UNSUPPORTED_PROVIDER', `Provider "${provider}" is not available.`, sessionId);
-    return;
-  }
-
-  // Typing an answer while Grok's synthetic question panel is up is the
-  // supported fallback ("2" as text). Drop the panel so a later click does
-  // not start a second resume.
-  if (provider === 'grok') {
-    for (const pending of takeGrokQuestionsForAppSession(sessionId)) {
-      sendJson(ws, createNormalizedMessage({
-        kind: 'permission_cancelled',
-        requestId: pending.requestId,
-        sessionId,
-        provider: 'grok',
-      }));
-    }
+    return { started: false };
   }
 
   const run = chatRunRegistry.startRun({
@@ -244,7 +271,22 @@ async function handleChatSend(
       `Session "${sessionId}" already has a run in progress.`,
       sessionId
     );
-    return;
+    return { started: false };
+  }
+
+  // Typing an answer while Grok's synthetic question panel is up is the
+  // supported fallback ("2" as text). Drop the panel so a later click does
+  // not start a second resume. Only once the new turn is registered: a send
+  // that did not start must not destroy the open questions.
+  if (provider === 'grok') {
+    for (const pending of takeGrokQuestionsForAppSession(sessionId)) {
+      sendJson(ws, createNormalizedMessage({
+        kind: 'permission_cancelled',
+        requestId: pending.requestId,
+        sessionId,
+        provider: 'grok',
+      }));
+    }
   }
 
   const clientOptions = (data.options ?? {}) as AnyRecord;
@@ -305,44 +347,48 @@ async function handleChatSend(
     detail: command,
   });
 
-  let outcome: 'ok' | 'error' = 'ok';
-  let failureDetail: string | null = null;
+  const finished = (async () => {
+    let outcome: 'ok' | 'error' = 'ok';
+    let failureDetail: string | null = null;
 
-  try {
-    await spawnFn(command, runtimeOptions, run.writer);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    outcome = 'error';
-    failureDetail = message;
-    console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: message });
-  } finally {
-    const cost = meter.finish();
-    recordAuditEvent({
-      actor: 'user',
-      event: outcome === 'error' ? 'run.error' : 'run.finish',
-      userId: userId === null ? null : Number(userId),
-      projectPath: session.project_path ?? null,
-      sessionId,
-      runId,
-      provider,
-      model: cost.model ?? (typeof clientOptions.model === 'string' ? clientOptions.model : null),
-      outcome,
-      detail: failureDetail,
-      tokensIn: cost.breakdown.inputTokens,
-      tokensOut: cost.breakdown.outputTokens,
-      cacheRead: cost.breakdown.cacheReadTokens,
-      cacheWrite5m: cost.breakdown.cacheWrite5mTokens,
-      cacheWrite1h: cost.breakdown.cacheWrite1hTokens,
-      costMicroUsd: cost.costMicroUsd,
-      durationMs: Date.now() - startedAt,
-    });
-    // Safety net: a runtime that crashed (or resolved) without emitting its
-    // terminal `complete` would otherwise leave the session stuck in
-    // "processing" forever on every connected client. Scoped to THIS run —
-    // a queued message can start the session's next run before this promise
-    // settles, and the session-keyed completeRun would kill that new run.
-    chatRunRegistry.completeRunIfCurrent(run, { exitCode: 1 });
-  }
+    try {
+      await spawnFn(command, runtimeOptions, run.writer);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      outcome = 'error';
+      failureDetail = message;
+      console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: message });
+    } finally {
+      const cost = meter.finish();
+      recordAuditEvent({
+        actor: 'user',
+        event: outcome === 'error' ? 'run.error' : 'run.finish',
+        userId: userId === null ? null : Number(userId),
+        projectPath: session.project_path ?? null,
+        sessionId,
+        runId,
+        provider,
+        model: cost.model ?? (typeof clientOptions.model === 'string' ? clientOptions.model : null),
+        outcome,
+        detail: failureDetail,
+        tokensIn: cost.breakdown.inputTokens,
+        tokensOut: cost.breakdown.outputTokens,
+        cacheRead: cost.breakdown.cacheReadTokens,
+        cacheWrite5m: cost.breakdown.cacheWrite5mTokens,
+        cacheWrite1h: cost.breakdown.cacheWrite1hTokens,
+        costMicroUsd: cost.costMicroUsd,
+        durationMs: Date.now() - startedAt,
+      });
+      // Safety net: a runtime that crashed (or resolved) without emitting its
+      // terminal `complete` would otherwise leave the session stuck in
+      // "processing" forever on every connected client. Scoped to THIS run —
+      // a queued message can start the session's next run before this promise
+      // settles, and the session-keyed completeRun would kill that new run.
+      chatRunRegistry.completeRunIfCurrent(run, { exitCode: 1 });
+    }
+  })();
+
+  return { started: true, finished };
 }
 
 /**
@@ -492,9 +538,190 @@ function handleChatSubscribe(
 }
 
 /**
- * Handles `chat.permission-response`: forwards a tool-approval decision to the
- * pending approval resolver. Claude pauses the SDK for this; Grok has already
- * exited, so a panel click becomes the next user turn via `--resume`.
+ * Stands in for a websocket when an answer arrives from a push or Telegram:
+ * nobody is watching live, so the resumed run's events are only buffered in
+ * the run registry (replayed by `chat.subscribe` when the session is opened,
+ * which swaps in the real socket) and fed to the session status. A fresh
+ * object per run: nothing is shared between runs, nothing is registered
+ * anywhere, and it is dropped with the run.
+ */
+function createDetachedConnection(): RealtimeClientConnection {
+  return {
+    readyState: 3, // CLOSED: the writer buffers, never sends
+    send: () => {},
+  };
+}
+
+/** App session id behind a provider-native (or already app) session id. */
+function appSessionIdOf(sessionId: string | null): string | null {
+  if (!sessionId) {
+    return null;
+  }
+  return sessionsDb.getSessionByProviderSessionId(sessionId)?.session_id
+    ?? sessionsDb.getSessionById(sessionId)?.session_id
+    ?? null;
+}
+
+/** Original AskUserQuestion input of a paused Claude approval (answers get merged into it). */
+function findClaudeApprovalInput(
+  requestId: string,
+  appSessionId: string | null,
+  dependencies: ChatWebSocketDependencies,
+): Record<string, unknown> | null {
+  const asRecord = (value: unknown) => (
+    value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+  );
+  const direct = asRecord(dependencies.getPendingApprovalById?.(requestId)?.input);
+  if (direct) {
+    return direct;
+  }
+  if (!appSessionId) {
+    return null;
+  }
+  const providerSessionId = chatRunRegistry.getRun(appSessionId)?.providerSessionId
+    ?? sessionsDb.getSessionById(appSessionId)?.provider_session_id
+    ?? null;
+  if (!providerSessionId) {
+    return null;
+  }
+  const approval = dependencies.getPendingApprovalsForSession(providerSessionId)
+    .find((entry) => entry && typeof entry === 'object' && (entry as AnyRecord).requestId === requestId) as AnyRecord | undefined;
+  return asRecord(approval?.input);
+}
+
+/**
+ * Engines' side of `pending-answers`, one decision whichever channel it came
+ * from. Claude pauses the SDK on the request, so the decision resolves it;
+ * Grok has already exited, so the answer becomes the next user turn via
+ * `--resume` (same path as a panel click). With no connection the resumed
+ * run streams into the registry only. A Grok request whose resumed turn did
+ * not start goes back to its store — the question stays open.
+ */
+export function createPermissionAnswerEngine(dependencies: ChatWebSocketDependencies): AnswerEngine {
+  const locate = (requestId: string): PendingRequestInfo | null => {
+    const grokQuestion = peekGrokQuestion(requestId);
+    if (grokQuestion) {
+      return { requestId, sessionId: grokQuestion.appSessionId, provider: 'grok', reason: 'ask' };
+    }
+    const grokPlan = peekGrokPlanExit(requestId);
+    if (grokPlan) {
+      return { requestId, sessionId: grokPlan.appSessionId, provider: 'grok', reason: 'plan' };
+    }
+    const approval = dependencies.getPendingApprovalById?.(requestId);
+    if (approval) {
+      return { requestId, sessionId: appSessionIdOf(approval.sessionId), provider: 'claude', reason: null };
+    }
+    return null;
+  };
+
+  const startResumedRun = (
+    connection: RealtimeClientConnection | null,
+    actor: { id: number | null; role: string | null },
+    data: AnyRecord,
+  ): boolean => {
+    const target = connection ?? createDetachedConnection();
+    let start: ChatSendStart;
+    try {
+      start = beginChatSend(target, actor.id, actor.role, data, dependencies);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[Chat] Resumed run failed to start', { sessionId: data.sessionId, error: message });
+      return false;
+    }
+    if (start.started) {
+      void start.finished.catch((error: unknown) => {
+        console.error('[Chat] Resumed run failed', {
+          sessionId: data.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+    return start.started;
+  };
+
+  const deliver: AnswerDeliverer = async ({ requestId, decision, actor, connection, request }) => {
+    const grokPending = takeGrokQuestion(requestId);
+    if (grokPending) {
+      const updatedInput = decision.updatedInput
+        ?? (decision.answers ? { ...grokPending.input, answers: decision.answers } : undefined);
+      const answersText = decision.allow === false
+        ? 'Skip'
+        : serializeGrokQuestionAnswers(updatedInput, grokPending.input);
+      // Before the start: the resumed CLI reads its transcript when it spawns.
+      rewriteGrokHeadlessQuestionStub({
+        workingDir: grokPending.resumeOptions?.cwd ?? grokPending.resumeOptions?.projectPath,
+        sessionUuid: grokPending.providerSessionId,
+        answersText,
+      });
+      const started = startResumedRun(connection, actor, {
+        sessionId: grokPending.appSessionId,
+        content: answersText,
+        options: grokPending.resumeOptions ?? {},
+      });
+      if (!started) {
+        registerGrokQuestion(grokPending);
+        return false;
+      }
+      return true;
+    }
+
+    const grokPlan = takeGrokPlanExit(requestId);
+    if (grokPlan) {
+      const approved = decision.allow !== false;
+      const started = startResumedRun(connection, actor, {
+        sessionId: grokPlan.appSessionId,
+        content: approved
+          ? 'The plan is approved. Carry it out to the end in this turn. Do not ask for another OK. Close with: the project is done, the user should check it.'
+          : (typeof decision.message === 'string' && decision.message.trim()
+            ? decision.message
+            : 'Revise the plan.'),
+        options: {
+          ...(grokPlan.resumeOptions ?? {}),
+          permissionMode: approved ? 'bypassPermissions' : 'plan',
+        },
+      });
+      if (!started) {
+        registerGrokPlanExit(grokPlan);
+        return false;
+      }
+      return true;
+    }
+
+    let updatedInput = decision.updatedInput;
+    if (updatedInput === undefined && decision.answers) {
+      // Answers without the original questions would hand the CLI a broken
+      // AskUserQuestion input — better not to deliver at all.
+      const original = findClaudeApprovalInput(requestId, request.sessionId, dependencies);
+      if (!original) {
+        return false;
+      }
+      updatedInput = { ...original, answers: decision.answers };
+    }
+    dependencies.resolveToolApproval(requestId, {
+      allow: Boolean(decision.allow),
+      updatedInput,
+      message: typeof decision.message === 'string' ? decision.message : undefined,
+      rememberEntry: decision.rememberEntry,
+    });
+    return true;
+  };
+
+  return { locate, deliver };
+}
+
+const PERMISSION_FAILURES: Record<AnswerReason, { code: string; error: string }> = {
+  not_pending: { code: 'PERMISSION_REQUEST_NOT_FOUND', error: 'This request is no longer waiting for an answer.' },
+  forbidden: { code: 'PERMISSION_ACCESS_DENIED', error: 'You do not have access to this session.' },
+  unavailable: { code: 'PERMISSION_DELIVERY_FAILED', error: 'The answer could not be delivered; the request is still open.' },
+  in_progress: { code: 'PERMISSION_ANSWER_IN_PROGRESS', error: 'This request is already being answered.' },
+};
+
+/**
+ * Handles `chat.permission-response`: the chat panel's answer to an open
+ * request. Goes through `pending-answers` like push and Telegram do, so the
+ * same access rule applies — a session of a project the user was not granted
+ * cannot be answered by guessing its request id. A refused answer is reported
+ * back as a `protocol_error`, never dropped silently.
  */
 async function handlePermissionResponse(
   ws: WebSocket,
@@ -507,57 +734,30 @@ async function handlePermissionResponse(
     return;
   }
 
-  const grokPending = takeGrokQuestion(data.requestId);
-  if (grokPending) {
-    const answersText = data.allow === false
-      ? 'Skip'
-      : serializeGrokQuestionAnswers(data.updatedInput, grokPending.input);
-    rewriteGrokHeadlessQuestionStub({
-      workingDir: grokPending.resumeOptions?.cwd ?? grokPending.resumeOptions?.projectPath,
-      sessionUuid: grokPending.providerSessionId,
-      answersText,
-    });
-    await handleChatSend(ws, userId, userRole, {
-      sessionId: grokPending.appSessionId,
-      content: answersText,
-      options: grokPending.resumeOptions ?? {},
-    }, dependencies);
-    return;
-  }
-
-  const grokPlan = takeGrokPlanExit(data.requestId);
-  if (grokPlan) {
-    const approved = data.allow !== false;
-    await handleChatSend(ws, userId, userRole, {
-      sessionId: grokPlan.appSessionId,
-      content: approved
-        ? 'The plan is approved. Carry it out to the end in this turn. Do not ask for another OK. Close with: the project is done, the user should check it.'
-        : (typeof data.message === 'string' && data.message.trim()
-          ? data.message
-          : 'Revise the plan.'),
-      options: {
-        ...(grokPlan.resumeOptions ?? {}),
-        permissionMode: approved ? 'bypassPermissions' : 'plan',
-      },
-    }, dependencies);
-    return;
-  }
-
-  dependencies.resolveToolApproval(data.requestId, {
-    allow: Boolean(data.allow),
-    updatedInput: data.updatedInput,
-    message: typeof data.message === 'string' ? data.message : undefined,
-    rememberEntry: data.rememberEntry,
+  const result = await pendingAnswers.answer({
+    requestId: data.requestId,
+    decision: {
+      allow: typeof data.allow === 'boolean' ? data.allow : undefined,
+      updatedInput: data.updatedInput,
+      message: typeof data.message === 'string' ? data.message : undefined,
+      rememberEntry: data.rememberEntry,
+    },
+    actorUserId: userId,
+    actorRole: userRole,
+    via: 'ui',
+    connection: ws,
+    engine: createPermissionAnswerEngine(dependencies),
   });
 
-  // Status follows delivery and must never block it (Grok answers above start
-  // a new run, which already resets the status to working).
-  try {
-    sessionAttention.recordAnswer(data.requestId);
-  } catch (error) {
-    console.error('[Chat] Session attention answer update failed', {
+  if (!result.ok) {
+    const failure = PERMISSION_FAILURES[result.reason];
+    sendJson(ws, {
+      kind: 'protocol_error',
+      code: failure.code,
+      error: failure.error,
       requestId: data.requestId,
-      error: error instanceof Error ? error.message : String(error),
+      sessionId: null,
+      timestamp: new Date().toISOString(),
     });
   }
 }
