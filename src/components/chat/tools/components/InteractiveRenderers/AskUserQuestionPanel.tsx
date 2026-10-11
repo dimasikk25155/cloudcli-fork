@@ -165,9 +165,11 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
     }
   }, [voiceBusy, otherTexts, otherActive, isAdmin, onDecision, request.requestId, input, buildAnswers]);
 
+  // Same lock as Submit: a dictation in progress is not thrown away by «Пропустить» / Escape.
   const handleSkip = useCallback(() => {
+    if (isSubmittingRef.current || voiceBusy) return;
     onDecision(request.requestId, { allow: true, updatedInput: { ...input, answers: {} } });
-  }, [onDecision, request.requestId, input]);
+  }, [voiceBusy, onDecision, request.requestId, input]);
 
   // Keyboard handler for number keys and navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -455,7 +457,8 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
           <button
             type="button"
             onClick={handleSkip}
-            className="text-[13px] text-muted-foreground transition-colors duration-fast ease-ui hover:text-foreground"
+            disabled={voiceBusy}
+            className="text-[13px] text-muted-foreground transition-colors duration-fast ease-ui hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
           >
             {isSingle ? 'Пропустить' : 'Пропустить все'}
             <span className="ml-1 text-[11px] text-muted-foreground/70">Esc</span>

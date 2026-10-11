@@ -4,30 +4,47 @@
  * the client only knows which reply they belong to and when to hide them.
  */
 
-import type { ChatMessage } from '../types/types';
+import { lastReplyTurn, type ReplyTurnMessage } from '../../../../shared/reply-turn';
 
-function isReplyText(message: ChatMessage): boolean {
-  return (
-    message.type === 'assistant'
-    && !message.isToolUse
-    && !message.isThinking
-    && typeof message.content === 'string'
-    && message.content.trim().length > 0
-  );
+/**
+ * Text of the reply the chips belong to, picked from the normalized store
+ * messages by the same rule the server uses (shared/reply-turn.ts) — so the
+ * fingerprint the client sends matches the server's. Null once the user has
+ * written after the reply.
+ */
+export function replyForChips(messages: ReplyTurnMessage[]): string | null {
+  return lastReplyTurn(messages)?.assistant ?? null;
 }
 
-/** Text of the last assistant reply, or null once the user has written after it. */
-export function lastAssistantReply(messages: ChatMessage[]): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.type === 'user') {
-      return null;
+export type ReplySuggestionsAnswer = { suggestions: string[]; stale: boolean };
+
+/**
+ * Asks for chips; while the server says its transcript has not caught up with
+ * the reply on screen (`stale`), asks again a few times with a pause. A result
+ * that is still stale must not be cached as "no chips" for this reply.
+ */
+export async function requestReplySuggestions(
+  fetchOnce: () => Promise<{ suggestions?: unknown; stale?: unknown }>,
+  options: { attempts: number; delayMs: number; sleep?: (ms: number) => Promise<void>; isCancelled?: () => boolean },
+): Promise<ReplySuggestionsAnswer> {
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 1; attempt <= options.attempts; attempt += 1) {
+    const body = await fetchOnce();
+    if (body?.stale !== true) {
+      const suggestions = Array.isArray(body?.suggestions)
+        ? body.suggestions.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : [];
+      return { suggestions, stale: false };
     }
-    if (isReplyText(message)) {
-      return (message.content as string).trim();
+    if (attempt === options.attempts || options.isCancelled?.()) {
+      break;
+    }
+    await sleep(options.delayMs);
+    if (options.isCancelled?.()) {
+      break;
     }
   }
-  return null;
+  return { suggestions: [], stale: true };
 }
 
 /** Decision 17: chips come as a choice of 2–3; a single one is not shown. */

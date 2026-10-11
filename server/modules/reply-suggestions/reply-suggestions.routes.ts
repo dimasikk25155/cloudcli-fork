@@ -8,7 +8,8 @@ import {
 import { asyncHandler } from '@/shared/utils.js';
 
 /**
- * POST /api/reply-suggestions {sessionId, replyHash} → {suggestions: string[]} (0 or 2–3, ≤60 chars each).
+ * POST /api/reply-suggestions {sessionId, replyHash} → {suggestions: string[]} (0 or 2–3, ≤60 chars each),
+ * or {suggestions: [], stale: true} when the server transcript shows another reply.
  * `replyHash` = replyFingerprint() of the reply on screen (shared/reply-fingerprint.ts).
  * Mounted behind authenticateToken. A missing or confused local model is an
  * empty list, not an error: the composer just shows no chips.
@@ -44,6 +45,11 @@ export function createReplySuggestionsRouter(service: ReplySuggestionsService = 
       }
       if (result.status === 'forbidden') {
         res.status(403).json({ error: 'Нет доступа к сессии' });
+        return;
+      }
+      if (result.status === 'stale') {
+        // Distinct from "no question": the client retries a couple of times.
+        res.json({ suggestions: [], stale: true });
         return;
       }
       res.json({ suggestions: result.suggestions });

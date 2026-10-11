@@ -13,7 +13,7 @@ import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useConnectionWatchdog } from '../hooks/useConnectionWatchdog';
 import { useReplySuggestions } from '../hooks/useReplySuggestions';
-import { lastAssistantReply } from '../utils/replySuggestions';
+import { replyForChips } from '../utils/replySuggestions';
 import { useSessionStore } from '../../../stores/useSessionStore';
 import { decisionExitsPlanMode, permissionModeAfterPlanApproval } from '../utils/planMode';
 import { AUTO_PLAN_MODE, autoApprovedRequestIds, isAutoPlanMode } from '../utils/autoPlanMode';
@@ -307,9 +307,17 @@ function ChatInterface({
 
   // Reply chips: ready answers for the last reply, when it ended with a question
   // or a request. The server decides and generates; any failure → no chips.
-  const lastReply = useMemo(() => lastAssistantReply(chatMessages), [chatMessages]);
+  // Picked from the raw store messages by the same rule as the server, so the
+  // reply fingerprint matches; chatMessages is only the change signal.
+  // Same order as the session store's active id (useChatSessionState).
+  const chipsSessionId = selectedSession?.id || currentSessionId || null;
+  const lastReply = useMemo(
+    () => (chipsSessionId ? replyForChips(sessionStore.getMessages(chipsSessionId)) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chipsSessionId, chatMessages, sessionStore],
+  );
   const { suggestions: replySuggestions, dismiss: dismissReplySuggestions } = useReplySuggestions({
-    sessionId: currentSessionId || selectedSession?.id || null,
+    sessionId: chipsSessionId,
     reply: lastReply,
     isLoading: isProcessing,
     input,

@@ -2,30 +2,35 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { authenticatedFetch } from '../../../utils/api';
 import { replyFingerprint } from '../../../../shared/reply-fingerprint';
+import { requestReplySuggestions } from '../utils/replySuggestions';
 
 // Give the transcript a moment to land on disk after the turn ends, so the
 // server reads the same reply the user is looking at.
 const SETTLE_MS = 600;
+// Server transcript still shows another reply: ask again this many times.
+const STALE_ATTEMPTS = 3;
+const STALE_RETRY_MS = 1500;
 
-/** Best effort: any failure is "no chips", never an error on screen. */
-async function fetchReplySuggestions(sessionId: string, reply: string, signal: AbortSignal): Promise<string[]> {
+/** One request. Best effort: any failure is "no chips", never an error on screen. */
+async function fetchOnce(
+  sessionId: string,
+  reply: string,
+  signal: AbortSignal,
+): Promise<{ suggestions?: unknown; stale?: unknown }> {
   try {
     const response = await authenticatedFetch('/api/reply-suggestions', {
       method: 'POST',
       // The fingerprint ties the chips to the reply on screen: the server
-      // answers [] if its transcript shows a different one.
+      // answers {stale:true} if its transcript shows a different one.
       body: JSON.stringify({ sessionId, replyHash: replyFingerprint(reply) }),
       signal,
     });
     if (!response.ok) {
-      return [];
+      return { suggestions: [] };
     }
-    const body = (await response.json()) as { suggestions?: unknown };
-    return Array.isArray(body?.suggestions)
-      ? body.suggestions.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      : [];
+    return (await response.json()) as { suggestions?: unknown; stale?: unknown };
   } catch {
-    return [];
+    return { suggestions: [] };
   }
 }
 
@@ -61,8 +66,13 @@ export function useReplySuggestions({ sessionId, reply, isLoading, input }: Opti
     }
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void fetchReplySuggestions(sessionId, reply, controller.signal).then((suggestions) => {
-        if (!controller.signal.aborted) {
+      void requestReplySuggestions(() => fetchOnce(sessionId, reply, controller.signal), {
+        attempts: STALE_ATTEMPTS,
+        delayMs: STALE_RETRY_MS,
+        isCancelled: () => controller.signal.aborted,
+      }).then(({ suggestions, stale }) => {
+        // Still stale: keep nothing under this key, so the next trigger asks again.
+        if (!controller.signal.aborted && !stale) {
           setState({ key, suggestions });
         }
       });

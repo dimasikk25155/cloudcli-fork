@@ -1,22 +1,61 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { ChatMessage } from '../types/types.js';
+import { replyFingerprint } from '../../../../shared/reply-fingerprint.js';
+import { lastReplyTurn } from '../../../../shared/reply-turn.js';
 
-import { lastAssistantReply, shouldShowReplyChips } from './replySuggestions.js';
+import { replyForChips, requestReplySuggestions, shouldShowReplyChips } from './replySuggestions.js';
 
-const user = (content: string): ChatMessage => ({ type: 'user', timestamp: 1, content });
-const reply = (content: string): ChatMessage => ({ type: 'assistant', timestamp: 1, content });
-const tool = (): ChatMessage => ({ type: 'assistant', timestamp: 1, content: '', isToolUse: true, toolName: 'Bash' });
+// One normalized session (what the client store and the server transcript both
+// hold): a reply in several text blocks with tool calls between them.
+const LAST_BLOCK = 'Всё собрал. Выкатывать на прод или сначала на превью?';
+const SESSION = [
+  { kind: 'text', role: 'user', content: 'Собери лендинг.' },
+  { kind: 'text', role: 'assistant', content: 'Начинаю: ставлю зависимости.' },
+  { kind: 'tool_use', toolName: 'Bash' },
+  { kind: 'tool_result', content: 'ok' },
+  { kind: 'text', role: 'assistant', content: 'Сборка прошла, гоняю Lighthouse.' },
+  { kind: 'tool_use', toolName: 'Bash' },
+  { kind: 'text', role: 'assistant', content: `  ${LAST_BLOCK}\n` },
+  { kind: 'text', role: 'user', content: 'Stop hook feedback: запиши итог в вольт' },
+];
 
-test('the chips belong to the last assistant reply, and only while nobody has written after it', () => {
-  assert.equal(
-    lastAssistantReply([user('Выкати'), tool(), reply('Выкатить сейчас?'), tool()]),
-    'Выкатить сейчас?',
-  );
-  assert.equal(lastAssistantReply([reply('Выкатить сейчас?'), user('Да')]), null);
-  assert.equal(lastAssistantReply([user('Привет')]), null);
-  assert.equal(lastAssistantReply([]), null);
+test('client and server pick the same reply from one session, so their fingerprints agree', () => {
+  const clientReply = replyForChips(SESSION);
+  const serverTurn = lastReplyTurn(SESSION);
+
+  assert.equal(clientReply, LAST_BLOCK);
+  assert.equal(serverTurn?.assistant, LAST_BLOCK);
+  assert.equal(serverTurn?.user, 'Собери лендинг.');
+  assert.equal(replyFingerprint(clientReply!), replyFingerprint(serverTurn!.assistant));
+});
+
+test('no chips once the user has written after the reply', () => {
+  assert.equal(replyForChips([...SESSION, { kind: 'text', role: 'user', content: 'На прод' }]), null);
+  assert.equal(replyForChips([{ kind: 'text', role: 'user', content: 'Привет' }]), null);
+  assert.equal(replyForChips([]), null);
+});
+
+test('a stale answer is retried a few times with a pause, then given up without chips', async () => {
+  const answers = [{ suggestions: [], stale: true }, { suggestions: [], stale: true }, { suggestions: ['Да', 'Нет'] }];
+  const pauses: number[] = [];
+  let calls = 0;
+  const caughtUp = await requestReplySuggestions(async () => answers[calls++], {
+    attempts: 3,
+    delayMs: 1200,
+    sleep: async (ms) => { pauses.push(ms); },
+  });
+  assert.deepEqual(caughtUp, { suggestions: ['Да', 'Нет'], stale: false });
+  assert.equal(calls, 3);
+  assert.deepEqual(pauses, [1200, 1200]);
+
+  let staleCalls = 0;
+  const neverCaughtUp = await requestReplySuggestions(async () => {
+    staleCalls += 1;
+    return { suggestions: [], stale: true };
+  }, { attempts: 3, delayMs: 10, sleep: async () => {} });
+  assert.deepEqual(neverCaughtUp, { suggestions: [], stale: true });
+  assert.equal(staleCalls, 3);
 });
 
 test('chips show only on an idle, empty composer with no question, permission or queued message', () => {

@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 
 import { replyFingerprint } from '../../../shared/reply-fingerprint.js';
-import { projectsDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
+import { lastReplyTurn, type ReplyTurnMessage } from '../../../shared/reply-turn.js';
+import { sessionsDb } from '@/modules/database/index.js';
+import { canUserAccessSession } from '@/shared/project-access.js';
 import { completeJson, localLlmModel, type CompleteJsonOptions } from '@/shared/local-llm.js';
 import { classifyTurnEnding, clipText } from '@/shared/turn-ending.js';
 
@@ -23,7 +25,7 @@ const MODEL_MAX_TOKENS = 200;
 const HISTORY_WINDOW = 40;
 const CACHE_LIMIT = 300;
 
-type HistoryMessage = { kind?: string; role?: string; content?: unknown };
+type HistoryMessage = ReplyTurnMessage;
 
 export type ReplySuggestionsUser = { id: number | string; role?: string | null };
 
@@ -34,6 +36,8 @@ export type ReplySuggestionsDependencies = {
 
 export type ReplySuggestionsResult =
   | { status: 'ok'; suggestions: string[] }
+  /** The transcript shows a different reply than the client (not caught up yet). */
+  | { status: 'stale' }
   | { status: 'not_found' }
   | { status: 'forbidden' };
 
@@ -49,51 +53,6 @@ const SYSTEM_PROMPT = [
 async function defaultFetchHistory(sessionId: string): Promise<{ messages: HistoryMessage[] }> {
   const { sessionsService } = await import('@/modules/providers/services/sessions.service.js');
   return sessionsService.fetchHistory(sessionId, { limit: HISTORY_WINDOW, offset: 0 });
-}
-
-function isAdmin(user: ReplySuggestionsUser): boolean {
-  return user.role === 'admin';
-}
-
-function canOpenSession(user: ReplySuggestionsUser, projectPath: string | null): boolean {
-  if (isAdmin(user)) {
-    return true;
-  }
-  const userId = Number(user.id);
-  if (!Number.isFinite(userId) || !projectPath) {
-    return false;
-  }
-  const project = projectsDb.getProjectPath(projectPath);
-  return Boolean(project) && userProjectAccessDb.getAccessibleProjectIds(userId).includes(project!.project_id);
-}
-
-function textOf(message: HistoryMessage, role: 'user' | 'assistant'): string | null {
-  if (message.kind !== 'text' || message.role !== role || typeof message.content !== 'string') {
-    return null;
-  }
-  const trimmed = message.content.trim();
-  return trimmed ? trimmed : null;
-}
-
-/** The last assistant reply, and the user message that led to it — only if no user message came after. */
-function lastTurn(messages: HistoryMessage[]): { assistant: string; user: string } | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (textOf(messages[index], 'user') !== null) {
-      return null;
-    }
-    const assistant = textOf(messages[index], 'assistant');
-    if (assistant === null) {
-      continue;
-    }
-    for (let back = index - 1; back >= 0; back -= 1) {
-      const user = textOf(messages[back], 'user');
-      if (user !== null) {
-        return { assistant, user };
-      }
-    }
-    return { assistant, user: '' };
-  }
-  return null;
 }
 
 function buildPrompt(turn: { assistant: string; user: string }): string {
@@ -184,7 +143,7 @@ export function createReplySuggestionsService(dependencies: ReplySuggestionsDepe
     if (!session) {
       return { status: 'not_found' };
     }
-    if (!canOpenSession(user, session.project_path ?? null)) {
+    if (!canUserAccessSession(user, sessionId)) {
       return { status: 'forbidden' };
     }
 
@@ -194,9 +153,9 @@ export function createReplySuggestionsService(dependencies: ReplySuggestionsDepe
     } catch {
       return { status: 'ok', suggestions: [] };
     }
-    const turn = lastTurn(messages);
+    const turn = lastReplyTurn(messages);
     if (!turn || replyFingerprint(turn.assistant) !== replyHash) {
-      return { status: 'ok', suggestions: [] };
+      return { status: 'stale' };
     }
     if (classifyTurnEnding(turn.assistant).kind === 'none') {
       return { status: 'ok', suggestions: [] };

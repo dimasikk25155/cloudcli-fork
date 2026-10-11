@@ -247,7 +247,8 @@ test('a transcript that lags behind the reply on screen gives no chips and cache
     async ({ adminId, sessionId, post }) => {
       const stale = await post(adminId, 'admin', askFor(sessionId, onScreen));
       assert.equal(stale.status, 200);
-      assert.deepEqual(await stale.json(), { suggestions: [] });
+      // Not the same as "no question": the client should retry shortly.
+      assert.deepEqual(await stale.json(), { suggestions: [], stale: true });
       assert.equal(modelCalls, 0);
 
       // The transcript catches up: now the chips are generated for real.
@@ -297,6 +298,34 @@ test('a single usable chip is not enough: the answer is empty', async () => {
     },
     async ({ adminId, sessionId, post }) => {
       assert.deepEqual(await (await post(adminId, 'admin', askFor(sessionId))).json(), { suggestions: [] });
+    },
+  );
+});
+
+test('a reply split into several text blocks with tool calls between them is matched by its last block', async () => {
+  // The same normalized transcript the client store holds; the client sends the
+  // fingerprint of the last text block, written out here by hand.
+  const lastBlock = 'Всё собрал. Выкатывать на прод или сначала на превью?';
+  const messages: HistoryMessage[] = [
+    { kind: 'text', role: 'user', content: 'Собери лендинг.' },
+    { kind: 'text', role: 'assistant', content: 'Начинаю: ставлю зависимости.' },
+    { kind: 'tool_use' },
+    { kind: 'tool_result' },
+    { kind: 'text', role: 'assistant', content: 'Сборка прошла, гоняю Lighthouse.' },
+    { kind: 'tool_use' },
+    { kind: 'text', role: 'assistant', content: `  ${lastBlock}\n` },
+    { kind: 'text', role: 'user', content: 'Stop hook feedback: запиши итог в вольт' },
+  ];
+  await withServer(
+    {
+      fetchHistory: async () => ({ messages }),
+      complete: async () => ({ suggestions: ['На прод', 'Сначала превью'] }),
+    },
+    async ({ adminId, sessionId, post }) => {
+      assert.deepEqual(
+        await (await post(adminId, 'admin', askFor(sessionId, lastBlock))).json(),
+        { suggestions: ['На прод', 'Сначала превью'] },
+      );
     },
   );
 });
