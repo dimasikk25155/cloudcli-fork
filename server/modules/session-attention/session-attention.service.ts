@@ -29,6 +29,7 @@ import {
   type SessionAttentionListRow,
   type SessionAttentionRow,
 } from '@/modules/database/index.js';
+import { getConnection } from '@/modules/database/connection.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { listGrokQuestionsForAppSession } from '@/shared/grok-question.js';
 import { projectAccessFor } from '@/shared/project-access.js';
@@ -366,6 +367,48 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
   const fallbackTokens = new Map<string, number>();
   let fallbackCounter = 0;
 
+  /**
+   * Status updates and seen marks are compared by timestamp ("unread" =
+   * updated after seen). Two writes in the same millisecond made that
+   * ambiguous, so every timestamp this service writes is strictly later than
+   * the previous one. Rule: a seen mark equal to an update's stamp is a view of
+   * that very update (used when Stop marks the result seen); any later update
+   * always gets a larger stamp and is unread again.
+   */
+  let lastStampMs = 0;
+  let stampSeeded = false;
+
+  /**
+   * Lifts the stamp floor to the newest stamp already on disk, so a restarted
+   * process (or a clock that went back) never writes a status that compares
+   * as older than a previous update or seen mark. Lazy: the singleton is
+   * created at import time, before the database is initialized.
+   */
+  function seedStampFloor(): void {
+    const row = getConnection()
+      .prepare(`
+        SELECT MAX(stamp) AS max_stamp FROM (
+          SELECT MAX(updated_at) AS stamp FROM session_attention
+          UNION ALL
+          SELECT MAX(seen_at) AS stamp FROM session_attention_seen
+        )
+      `)
+      .get() as { max_stamp: string | null } | undefined;
+    const persisted = row?.max_stamp ? Date.parse(row.max_stamp) : NaN;
+    if (Number.isFinite(persisted)) {
+      lastStampMs = Math.max(lastStampMs, persisted);
+    }
+    stampSeeded = true;
+  }
+
+  function nextStamp(): string {
+    if (!stampSeeded) {
+      seedStampFloor();
+    }
+    lastStampMs = Math.max(now().getTime(), lastStampMs + 1);
+    return new Date(lastStampMs).toISOString();
+  }
+
   function memoryFor(sessionId: string): RunMemory {
     let entry = memory.get(sessionId);
     if (!entry) {
@@ -423,7 +466,7 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
       state: next.state,
       reason: next.reason,
       detail_json: detailJson,
-      updated_at: now().toISOString(),
+      updated_at: nextStamp(),
     };
     sessionAttentionDb.upsert(row);
 
@@ -574,6 +617,7 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
   function toItem(row: SessionAttentionListRow): AttentionItem {
     const state = row.state as AttentionState;
     const isFinal = state === 'done' || state === 'failed';
+    // Seen at or after the update's stamp = seen (see nextStamp for why ties are unambiguous).
     const unread = isFinal && (!row.seen_at || Date.parse(row.updated_at) > Date.parse(row.seen_at));
     const projectPath = row.project_path ?? '';
     const projectName = row.custom_project_name?.trim() || path.basename(projectPath) || projectPath;
@@ -751,7 +795,7 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
           : []);
         ids = items.filter((item) => wanted.has(item.sessionId)).map((item) => item.sessionId);
       }
-      sessionAttentionDb.markSeen(userId, ids, now().toISOString());
+      sessionAttentionDb.markSeen(userId, ids, nextStamp());
       for (const sessionId of ids) {
         broadcastChanged(sessionId);
       }
@@ -768,6 +812,7 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
      */
     reconcileOnBoot(options: { isRunAlive?: (appSessionId: string) => boolean } = {}): number {
       const isRunAlive = options.isRunAlive ?? (() => false);
+      seedStampFloor();
       let changed = 0;
       for (const row of sessionAttentionDb.listByStates(['working', 'waiting'])) {
         if (isRunAlive(row.session_id)) {

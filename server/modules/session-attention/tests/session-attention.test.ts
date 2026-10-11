@@ -176,9 +176,12 @@ test('plan approval and tool permission map to waiting/plan and waiting/permissi
   });
 });
 
+/** A clock frozen at one millisecond: every write would collide without the service's own ordering. */
+const frozenClock = () => new Date('2026-10-12T09:00:00.000Z');
+
 test('a crashed run is failed with a short error; Stop is done and already seen by whoever pressed it', async () => {
   await withIsolatedDatabase(({ adminId, sessionId, projectId }) => {
-    const service = quietService();
+    const service = quietService({ now: frozenClock });
     const run = { appSessionId: sessionId, provider: 'codex', userId: adminId, projectId };
     const admin = { id: adminId, role: 'admin' };
     const otherAdminId = Number(userDb.createUserWithRole('slavik', 'x', 'admin').id);
@@ -491,5 +494,63 @@ test('reconcileOnBoot: a Grok question stays waiting as a text question with the
     assert.equal(item.reason, 'text_question');
     assert.equal(item.detail?.question, 'Куда деплоим?');
     assert.equal(item.detail?.requestId, undefined);
+  });
+});
+
+test('unread is unambiguous when the clock does not move: a view covers only updates up to it', async () => {
+  await withIsolatedDatabase(({ adminId, sessionId, projectId }) => {
+    const service = quietService({ now: frozenClock });
+    const admin = { id: adminId, role: 'admin' };
+    const run = { appSessionId: sessionId, provider: 'claude', userId: adminId, projectId };
+    const finishDone = () => {
+      service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+      service.recordRunEvent(run, { kind: 'text', role: 'assistant', content: 'Готово.' });
+      service.recordRunEvent(run, { kind: 'complete', exitCode: 0, aborted: false });
+    };
+
+    finishDone();
+    assert.equal(service.listForUser(admin)[0].unread, true);
+
+    // Viewed in the same (frozen) millisecond as the update → that update is seen.
+    service.markSeen(admin, { sessionIds: [sessionId] });
+    assert.equal(service.listForUser(admin)[0].unread, false);
+
+    // A new result in the same millisecond as the view is still news.
+    finishDone();
+    assert.equal(service.listForUser(admin)[0].unread, true);
+
+    // Stop marks the aborted result seen at exactly its own update stamp.
+    service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+    service.recordStopActor(sessionId, adminId);
+    service.recordRunEvent(run, { kind: 'complete', exitCode: 0, aborted: true });
+    assert.equal(service.listForUser(admin)[0].unread, false);
+  });
+});
+
+test('after a restart on the same frozen clock, a new result is still unread past the old stamps', async () => {
+  await withIsolatedDatabase(({ adminId, sessionId, projectId }) => {
+    const admin = { id: adminId, role: 'admin' };
+    const run = { appSessionId: sessionId, provider: 'claude', userId: adminId, projectId };
+    const finishDone = (service: ReturnType<typeof quietService>) => {
+      service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+      service.recordRunEvent(run, { kind: 'text', role: 'assistant', content: 'Готово.' });
+      service.recordRunEvent(run, { kind: 'complete', exitCode: 0, aborted: false });
+    };
+
+    // The old process pushed its stamps several ms ahead of the frozen clock.
+    const before = quietService({ now: frozenClock });
+    finishDone(before);
+    finishDone(before);
+    finishDone(before);
+    before.markSeen(admin, { sessionIds: [sessionId] });
+    assert.equal(before.listForUser(admin)[0].unread, false);
+
+    const afterRestart = quietService({ now: frozenClock });
+    afterRestart.reconcileOnBoot();
+    finishDone(afterRestart);
+
+    const [item] = afterRestart.listForUser(admin);
+    assert.equal(item.state, 'done');
+    assert.equal(item.unread, true);
   });
 });
