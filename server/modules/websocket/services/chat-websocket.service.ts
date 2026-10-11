@@ -4,6 +4,7 @@ import type { WebSocket } from 'ws';
 
 import { projectsDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '@/modules/governance/index.js';
+import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -233,6 +234,7 @@ async function handleChatSend(
     providerSessionId: session.provider_session_id,
     connection: ws,
     userId,
+    projectId: session.project_path ? projectsDb.getProjectPath(session.project_path)?.project_id ?? null : null,
   });
 
   if (!run) {
@@ -351,7 +353,8 @@ async function handleChatSend(
 async function handleChatAbort(
   ws: WebSocket,
   data: AnyRecord,
-  dependencies: ChatWebSocketDependencies
+  dependencies: ChatWebSocketDependencies,
+  userId: string | number | null = null,
 ): Promise<void> {
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
@@ -366,6 +369,16 @@ async function handleChatAbort(
   }
 
   const abortFn = dependencies.abortFns[run.provider];
+
+  // "Ждут тебя": the aborted session is marked seen for whoever pressed Stop.
+  try {
+    sessionAttention.recordStopActor(sessionId, userId);
+  } catch (error) {
+    console.error('[Chat] Session attention stop update failed', {
+      sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   // Complete FIRST, kill second. Marking the run finished fences its event
   // stream (the registry drops everything a still-winding-down runtime emits),
@@ -536,6 +549,17 @@ async function handlePermissionResponse(
     message: typeof data.message === 'string' ? data.message : undefined,
     rememberEntry: data.rememberEntry,
   });
+
+  // Status follows delivery and must never block it (Grok answers above start
+  // a new run, which already resets the status to working).
+  try {
+    sessionAttention.recordAnswer(data.requestId);
+  } catch (error) {
+    console.error('[Chat] Session attention answer update failed', {
+      requestId: data.requestId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
@@ -578,7 +602,7 @@ export function handleChatConnection(
           await handleChatSend(ws, userId, userRole, data, dependencies);
           return;
         case 'chat.abort':
-          await handleChatAbort(ws, data, dependencies);
+          await handleChatAbort(ws, data, dependencies, userId);
           return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);

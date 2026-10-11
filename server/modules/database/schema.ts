@@ -368,6 +368,38 @@ CREATE TABLE IF NOT EXISTS telegram_link_codes (
 );
 `;
 
+// "Ждут тебя": the persisted status of every app session (working / waiting /
+// done / failed). The run registry lives in memory for five minutes; this row
+// is what survives a page reload and a server restart. `user_id` is who
+// started the last run; visibility is decided by project access, not by it.
+// No foreign keys on purpose: a status row must never block deleting a user
+// or a session, and orphans are filtered out by the list query.
+export const SESSION_ATTENTION_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_attention (
+    session_id TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER,
+    project_id TEXT,
+    provider TEXT NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT,
+    detail_json TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_attention_state ON session_attention(state);
+`;
+
+// Per-user "I have looked at this session" marks. Unread = the status row was
+// updated after the user's seen_at; kept per user so one employee opening a
+// session does not clear it for another.
+export const SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_attention_seen (
+    user_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, session_id)
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -444,6 +476,9 @@ CREATE INDEX IF NOT EXISTS idx_telegram_link_codes_user_id ON telegram_link_code
 ${AUDIT_LOG_TABLE_SCHEMA_SQL}
 ${AUDIT_LOG_INDEXES_SQL}
 ${AUDIT_LOG_GUARD_SQL}
+
+${SESSION_ATTENTION_TABLE_SCHEMA_SQL}
+${SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL}
 
 ${LAST_SCANNED_AT_SQL}
 

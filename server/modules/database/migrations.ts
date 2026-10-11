@@ -9,6 +9,8 @@ import {
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
+  SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL,
+  SESSION_ATTENTION_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
   USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL,
@@ -527,6 +529,11 @@ export const runMigrations = (db: Database) => {
     db.exec(AUDIT_LOG_TABLE_SCHEMA_SQL);
     db.exec(AUDIT_LOG_INDEXES_SQL);
     db.exec(AUDIT_LOG_GUARD_SQL);
+
+    // "Ждут тебя" session status — same reason as the audit log above: an
+    // existing auth.db only gains new tables through an explicit migration.
+    db.exec(SESSION_ATTENTION_TABLE_SCHEMA_SQL);
+    db.exec(SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL);
 
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');

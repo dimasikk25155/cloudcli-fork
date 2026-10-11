@@ -83,6 +83,7 @@ import telegramWebhookRoutes from './modules/telegram/telegram-webhook.routes.js
 import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
+import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import pluginsRoutes from './routes/plugins.js';
@@ -236,6 +237,7 @@ app.use('/api/settings', authenticateToken, settingsRoutes);
 app.use('/api/usage', authenticateToken, usageRoutes);
 
 app.use('/api/notifications', authenticateToken, notificationRoutes);
+app.use('/api/attention', authenticateToken, sessionAttentionRoutes);
 
 app.use('/api/nightshift', authenticateToken, nightshiftRoutes);
 
@@ -1709,6 +1711,14 @@ async function startServer() {
             pipelinesService.recoverInterruptedRuns();
         } catch (error) {
             console.warn('[pipelines] could not close interrupted runs:', error?.message || error);
+        }
+
+        // "Ждут тебя": a session still marked working belongs to the previous
+        // process and will never finish — show it as interrupted, not running.
+        try {
+            sessionAttention.reconcileOnBoot();
+        } catch (error) {
+            console.warn('[attention] could not reconcile session statuses:', error?.message || error);
         }
 
         // Check if running in production mode (dist folder exists)
