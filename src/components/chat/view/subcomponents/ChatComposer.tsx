@@ -132,6 +132,8 @@ interface ChatComposerProps {
   onEditReplySuggestion?: (text: string) => void;
   /** Session whose proposed vault note is shown over the composer (admins only). */
   memorySessionId?: string | null;
+  /** «Перенести в новый чат» band (src/components/relay); it decides its own visibility. */
+  relayBand?: ReactNode;
 }
 
 // Dot + button tints per permission mode, shared by the trigger button and
@@ -233,6 +235,7 @@ export default function ChatComposer({
   onSendReplySuggestion,
   onEditReplySuggestion,
   memorySessionId = null,
+  relayBand = null,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const commandMenuPosition = useMemo(() => {
@@ -553,6 +556,8 @@ export default function ChatComposer({
           isSendingNow={isAppendPending}
         />
       )}
+
+      {relayBand}
 
       {!isLoading && !hasPendingPermissions && <MemorySuggestionBanner sessionId={memorySessionId} />}
 
