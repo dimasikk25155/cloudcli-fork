@@ -974,15 +974,24 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   // the real session the moment it exists. Without this the picks would live
   // only in state and the chat would show the account default again when
   // reopened, since in-chat picks no longer touch that default.
-  const commitSessionModelAndEffort = useCallback((sessionId: string) => {
+  // Resolves once the choice is recorded (or failed — never rejects): the relay
+  // waits for it so the continuation chat's first send already uses this model.
+  // `choice` pins an explicit engine/model/effort (the relay's parent chat)
+  // instead of whatever the composer shows at call time.
+  const commitSessionModelAndEffort = useCallback(async (
+    sessionId: string,
+    choice?: { provider: LLMProvider; model: string; effort: string },
+  ): Promise<void> => {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) {
       return;
     }
 
-    const key = effortKey(provider, providerModels[provider], normalizedSessionId);
-    localStorage.setItem(key, currentProviderEffort);
-    void selectProviderModel(provider, providerModels[provider], normalizedSessionId)
+    const targetProvider = choice?.provider ?? provider;
+    const targetModel = choice?.model ?? providerModels[provider];
+    const key = effortKey(targetProvider, targetModel, normalizedSessionId);
+    localStorage.setItem(key, choice?.effort ?? currentProviderEffort);
+    await selectProviderModel(targetProvider, targetModel, normalizedSessionId)
       .catch((error) => {
         console.warn('Failed to record the new session model:', error);
       });

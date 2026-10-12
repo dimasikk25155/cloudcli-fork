@@ -89,6 +89,7 @@ import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
 import { sessionLinksRoutes } from './modules/session-links/index.js';
 import { codeStatusRoutes } from './modules/code-status/index.js';
 import { sessionTokenUsageRoute } from './routes/session-token-usage.js';
+import { relayRoutes } from './modules/relay/index.js';
 import { memorySuggestionsRoutes, startMemorySuggestionsLoop } from './modules/memory-suggestions/index.js';
 import { pendingAnswers, pendingAnswersRoutes } from './modules/pending-answers/index.js';
 import { createAttentionPushListener } from './modules/notifications/index.js';
@@ -306,6 +307,8 @@ app.use('/api/secrets', authenticateToken, requireAdmin, secretsStashRoutes);
 // Reply chips over the composer: local model, best effort, cached per reply.
 app.use('/api/reply-suggestions', authenticateToken, replySuggestionsRoutes);
 app.use('/api/sessions', authenticateToken, sessionLinksRoutes);
+// Relay: checks the handoff note an agent wrote before a continuation chat is opened.
+app.use('/api/sessions', authenticateToken, relayRoutes);
 // Vault-note suggestions (replaces the obsidian-memory Stop hook inside Neo3).
 // Writing and dismissing are admin-only inside the router.
 app.use('/api/memory-suggestions', authenticateToken, memorySuggestionsRoutes);
