@@ -493,6 +493,7 @@ export type ProviderMcpServer = {
   envVars?: string[];
   bearerTokenEnvVar?: string;
   envHttpHeaders?: Record<string, string>;
+  toolTimeoutSec?: number;
 };
 
 /**
@@ -515,6 +516,8 @@ export type UpsertProviderMcpServerInput = {
   envVars?: string[];
   bearerTokenEnvVar?: string;
   envHttpHeaders?: Record<string, string>;
+  /** Codex only: per-call timeout of the server's tools (`tool_timeout_sec`; Codex default 60). */
+  toolTimeoutSec?: number;
 };
 
 // ---------------------------

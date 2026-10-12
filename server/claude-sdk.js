@@ -26,6 +26,7 @@ import { providerModelsService } from './modules/providers/services/provider-mod
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
 import { workModeInstruction } from './shared/work-mode.js';
 import { withNeo3SessionMarker } from './shared/neo3-session.js';
+import { withThreadsEnv } from './shared/threads-env.js';
 import { neo3GuardsPlugins } from './shared/neo3-guards-plugin.js';
 import { createBackgroundTaskTracker } from './modules/background-tasks/index.js';
 import {
@@ -346,11 +347,14 @@ function mapCliOptionsToSDK(options = {}) {
   // NEO3_SESSION=1 lets user-level hooks (vault Stop hook, CLI secret guard)
   // step aside inside Neo3 — see server/shared/neo3-session.ts. Later branches
   // spread this env, so the marker survives every engine route.
-  sdkOptions.env = withNeo3SessionMarker({
+  // NEO3_THREADS_TOKEN / NEO3_THREADS_API_URL: this run's thread identity —
+  // the CLI hands its env to stdio MCP servers, so the neo3-threads server
+  // acts for this chat (see server/shared/threads-env.ts).
+  sdkOptions.env = withThreadsEnv(withNeo3SessionMarker({
     ...process.env,
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1',
     CLAUDE_CODE_RETRY_WATCHDOG: process.env.CLAUDE_CODE_RETRY_WATCHDOG || '1',
-  });
+  }), options);
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.

@@ -13,7 +13,9 @@ import {
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_TABLE_SCHEMA_SQL,
+  SESSION_THREADS_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
+  THREAD_TOKENS_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
   USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL,
   VAPID_KEYS_TABLE_SCHEMA_SQL,
@@ -559,6 +561,10 @@ export const runMigrations = (db: Database) => {
 
     // One-time answer buttons for push / Telegram (pending-answers).
     db.exec(ANSWER_TOKENS_TABLE_SCHEMA_SQL);
+
+    // Agent threads: run tokens and the thread list (threads module).
+    db.exec(THREAD_TOKENS_TABLE_SCHEMA_SQL);
+    db.exec(SESSION_THREADS_TABLE_SCHEMA_SQL);
 
     // Vault-note suggestions (memory-suggestions).
     db.exec(MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL);

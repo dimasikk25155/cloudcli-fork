@@ -75,6 +75,7 @@ export class CodexMcpProvider extends McpProvider {
         env: input.env ?? {},
         env_vars: input.envVars ?? [],
         cwd: input.cwd,
+        ...(typeof input.toolTimeoutSec === 'number' ? { tool_timeout_sec: input.toolTimeoutSec } : {}),
       };
     }
 
@@ -114,6 +115,7 @@ export class CodexMcpProvider extends McpProvider {
         env: readStringRecord(config.env),
         cwd: readOptionalString(config.cwd),
         envVars: readStringArray(config.env_vars),
+        ...(typeof config.tool_timeout_sec === 'number' ? { toolTimeoutSec: config.tool_timeout_sec } : {}),
       };
     }
 
