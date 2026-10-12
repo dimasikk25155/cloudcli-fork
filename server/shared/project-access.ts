@@ -32,6 +32,14 @@ function resolveUser(user: ProjectAccessUser): { id: number; role: string | null
 }
 
 /**
+ * Is this identity an active admin? The role is read from the database; a
+ * role carried by a token or a client message is ignored.
+ */
+export function isAdminUser(user: ProjectAccessUser): boolean {
+  return resolveUser(user)?.role === 'admin';
+}
+
+/**
  * Builds the access check for one user. The user and the granted list are
  * read once, so a caller filtering many rows asks the database a single time.
  */
