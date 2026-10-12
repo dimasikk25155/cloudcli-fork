@@ -1,3 +1,5 @@
+import type { SessionLinks } from '../../shared/session-links';
+
 /**
  * Mirror of `GatewayEventKind` in `server/shared/types.ts`: app-level websocket
  * kinds emitted by the gateway on top of provider message kinds. Keep both
@@ -78,6 +80,9 @@ export interface ProjectSession {
   // effect.
   model?: string | null;
   effort?: string | null;
+  // Chat links from the server (relay = continuation, thread): parent and
+  // children of this session, see shared/session-links.ts.
+  links?: SessionLinks;
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.
   __projectId?: string;

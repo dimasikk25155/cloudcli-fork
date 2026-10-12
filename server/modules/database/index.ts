@@ -27,6 +27,8 @@ export { providerPreferencesDb } from '@/modules/database/repositories/provider-
 export { pushSubscriptionsDb } from '@/modules/database/repositories/push-subscriptions.js';
 export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
+export { sessionLinksDb } from '@/modules/database/repositories/session-links.db.js';
+export type { SessionLinkRow } from '@/modules/database/repositories/session-links.db.js';
 export { sessionAttentionDb } from '@/modules/database/repositories/session-attention.db.js';
 export type {
   SessionAttentionListRow,

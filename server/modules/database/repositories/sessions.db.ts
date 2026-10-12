@@ -1,5 +1,6 @@
 import { getConnection } from '@/modules/database/connection.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
+import { sqliteTimestampToIso } from '@/shared/sqlite-time.js';
 import { canonicalizeProjectPath, normalizeProjectPath } from '@/shared/utils.js';
 
 type SessionRow = {
@@ -14,30 +15,20 @@ type SessionRow = {
   isArchived: number;
   created_at: string;
   updated_at: string;
+  /** Chat links (session-links): parent app session id and relation, NULL = no parent. */
+  parent_session_id: string | null;
+  relation: string | null;
+  /** 1 when some session names this one as its parent. */
+  has_children: number;
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, isArchived, created_at, updated_at, '
+  + 'parent_session_id, relation, '
+  + 'EXISTS (SELECT 1 FROM sessions AS link_child WHERE link_child.parent_session_id = sessions.session_id) AS has_children';
 
-const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
-
-function normalizeTimestamp(value?: string): string | null {
-  if (!value) return null;
-
-  // SQLite CURRENT_TIMESTAMP is stored as UTC without a timezone suffix.
-  // Normalize it here so every session reader returns canonical ISO strings
-  // and the sidebar never interprets fresh rows as local-time "hours old".
-  const normalizedValue = SQLITE_UTC_TIMESTAMP_REGEX.test(value)
-    ? `${value.replace(' ', 'T')}Z`
-    : value;
-
-  const parsed = new Date(normalizedValue);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed.toISOString();
-}
+// SQLite UTC → ISO; the one parser shared with session-links.
+const normalizeTimestamp = sqliteTimestampToIso;
 
 function normalizeSessionRow<T extends SessionRow | null | undefined>(row: T): T {
   if (!row) {

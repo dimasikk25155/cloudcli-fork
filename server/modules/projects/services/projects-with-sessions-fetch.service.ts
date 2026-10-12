@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
+import { projectsDb, sessionsDb, userProjectAccessDb, type SessionLinkRow } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
+import { linksForRows, type SessionLinks } from '@/modules/session-links/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
@@ -16,6 +17,8 @@ type SessionSummary = {
   lastActivity: string;
   model: string | null;
   effort: string | null;
+  /** Chat links (relay / thread) for the sidebar; `{children: []}` when none. */
+  links: SessionLinks;
 };
 
 type SessionRepositoryRow = {
@@ -158,14 +161,25 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     lastActivity: row.updated_at ?? createdAt,
     model: row.model ?? null,
     effort: row.effort ?? null,
+    links: { children: [] },
   };
 }
 
+/** Rows → sidebar summaries with their chat links. */
+function mapSessionRowsToSummaries(rows: Array<SessionRepositoryRow & SessionLinkRow>, options: { includeArchived?: boolean } = {}): SessionSummary[] {
+  // Rows already carry parent_session_id / relation: only parents and children are read.
+  const links = linksForRows(rows, options);
+  return rows.map((row) => ({
+    ...mapSessionRowToSummary(row),
+    links: links.get(row.session_id) ?? { children: [] },
+  }));
+}
+
 function readProjectSessionsIncludingArchived(projectPath: string): ProjectSessionsPageResult {
-  const rows = sessionsDb.getSessionsByProjectPathIncludingArchived(projectPath) as SessionRepositoryRow[];
+  const rows = sessionsDb.getSessionsByProjectPathIncludingArchived(projectPath);
 
   return {
-    sessions: rows.map(mapSessionRowToSummary),
+    sessions: mapSessionRowsToSummaries(rows, { includeArchived: true }),
     total: rows.length,
     hasMore: false,
   };
@@ -183,11 +197,11 @@ function readProjectSessionsPageByPath(
     projectPath,
     pagination.limit,
     pagination.offset,
-  ) as SessionRepositoryRow[];
+  );
   const total = sessionsDb.countSessionsByProjectPath(projectPath);
 
   return {
-    sessions: rows.map(mapSessionRowToSummary),
+    sessions: mapSessionRowsToSummaries(rows),
     total,
     hasMore: pagination.offset + rows.length < total,
   };

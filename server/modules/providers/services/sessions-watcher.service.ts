@@ -9,6 +9,7 @@ import { sessionSynchronizerService } from '@/modules/providers/services/session
 import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
 import type { LLMProvider } from '@/shared/types.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
+import { linksOfRow } from '@/modules/session-links/index.js';
 
 type WatcherEventType = 'add' | 'change';
 
@@ -178,6 +179,7 @@ async function buildSessionUpsertedEvent(updatedProviderSessionId: string): Prom
       messageCount: 0,
       createdAt: row.created_at ?? row.updated_at ?? new Date().toISOString(),
       lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+      links: linksOfRow(row),
     },
     project: project
       ? {

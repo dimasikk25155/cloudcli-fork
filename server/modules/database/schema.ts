@@ -118,6 +118,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- Chat links (session-links): app session id of the parent chat and the
+    -- kind of link ('relay' = continuation, 'thread'); both NULL = no parent.
+    parent_session_id TEXT,
+    relation TEXT,
     PRIMARY KEY (session_id),
     FOREIGN KEY (project_path) REFERENCES projects(project_path)
     ON DELETE SET NULL
