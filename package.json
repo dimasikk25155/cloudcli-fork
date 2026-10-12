@@ -17,6 +17,7 @@
     "dist-server/",
     "scripts/",
     "templates/",
+    "claude-plugins/",
     "README.md"
   ],
   "homepage": "https://cloudcli.ai",

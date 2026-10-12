@@ -662,6 +662,7 @@ function ChatInterface({
           handlePermissionDecision={handlePermissionDecision}
           handleGrantToolPermission={handleGrantToolPermission}
           activity={sessionActivity}
+          activitySessionId={selectedSession?.id || currentSessionId || null}
           isLoading={isProcessing}
           onAbortSession={handleAbortSession}
           onAppendNow={handleAppendNow}

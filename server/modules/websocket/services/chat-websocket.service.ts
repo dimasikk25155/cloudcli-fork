@@ -100,6 +100,13 @@ export type ChatWebSocketDependencies = {
    * The Claude abort is async; the rest are sync — both shapes are accepted.
    */
   abortFns: Record<LLMProvider, (providerSessionId: string) => boolean | Promise<boolean>>;
+  /**
+   * Stops one background task of a run (Claude only: background Bash,
+   * monitors, subagents). Addressed with the provider-native session id.
+   */
+  stopTaskFns?: Partial<Record<LLMProvider, (providerSessionId: string, taskId: string) => Promise<StopTaskResult>>>;
+  /** Current background tasks of a live run, sent on `chat.subscribe` (Claude only). */
+  backgroundTasksFns?: Partial<Record<LLMProvider, (providerSessionId: string) => unknown[]>>;
   resolveToolApproval: (
     requestId: string,
     payload: {
@@ -114,6 +121,9 @@ export type ChatWebSocketDependencies = {
   /** Claude: one pending approval by request id (`sessionId` = provider-native id). */
   getPendingApprovalById?: (requestId: string) => { sessionId: string | null; input?: unknown } | null;
 };
+
+/** Answer to `chat.stop-task`; `not_running` = the process or the task is already gone. */
+export type StopTaskResult = { ok: boolean; reason?: string };
 
 /**
  * Extracts the authenticated request user id in the formats currently produced
@@ -460,6 +470,59 @@ async function handleChatAbort(
 }
 
 /**
+ * Handles `chat.stop-task`: stops one background task of the session's live
+ * run and answers the requester with `background_task_stop`
+ * `{sessionId, taskId, ok, reason?}`. Access is checked by the caller.
+ */
+async function handleChatStopTask(
+  ws: RealtimeClientConnection,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies,
+): Promise<void> {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.stop-task requires a sessionId.');
+    return;
+  }
+  const taskId = typeof data.taskId === 'string' ? data.taskId.trim() : '';
+  if (!taskId) {
+    sendProtocolError(ws, 'TASK_ID_REQUIRED', 'chat.stop-task requires a taskId.', sessionId);
+    return;
+  }
+
+  const reply = (result: StopTaskResult) => sendJson(ws, {
+    kind: 'background_task_stop',
+    sessionId,
+    taskId,
+    ok: result.ok,
+    ...(result.reason ? { reason: result.reason } : {}),
+    timestamp: new Date().toISOString(),
+  });
+
+  const run = chatRunRegistry.getRun(sessionId);
+  const stopTaskFn = run ? dependencies.stopTaskFns?.[run.provider] : undefined;
+  if (!run || run.status !== 'running' || !run.providerSessionId) {
+    reply({ ok: false, reason: 'not_running' });
+    return;
+  }
+  if (!stopTaskFn) {
+    reply({ ok: false, reason: 'unsupported' });
+    return;
+  }
+
+  try {
+    reply(await stopTaskFn(run.providerSessionId, taskId));
+  } catch (error) {
+    console.error('[Chat] Stopping a background task failed', {
+      sessionId,
+      taskId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    reply({ ok: false, reason: 'failed' });
+  }
+}
+
+/**
  * Handles `chat.subscribe`: for each requested session, reports whether a run
  * is processing, re-attaches the live stream to this socket, replays missed
  * events (seq > lastSeq), and includes pending permission requests.
@@ -543,6 +606,19 @@ function handleChatSubscribe(
     if (isProcessing) {
       for (const event of chatRunRegistry.replayEvents(sessionId, lastSeq)) {
         sendJson(ws, event);
+      }
+
+      // «Фон: N» after a reload or a session switch: the live list now, not
+      // only whatever changes after this moment.
+      const listBackgroundTasks = run?.providerSessionId ? dependencies.backgroundTasksFns?.[run.provider] : undefined;
+      if (run?.providerSessionId && listBackgroundTasks) {
+        sendJson(ws, {
+          kind: 'background_tasks',
+          sessionId,
+          provider: run.provider,
+          tasks: listBackgroundTasks(run.providerSessionId),
+          timestamp: new Date().toISOString(),
+        });
       }
     }
   }
@@ -784,6 +860,7 @@ async function handlePermissionResponse(
  * Inbound protocol (client to server):
  * - `chat.send`                { sessionId, content, options? }
  * - `chat.abort`               { sessionId }
+ * - `chat.stop-task`           { sessionId, taskId } → `background_task_stop`
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
  *
@@ -824,6 +901,13 @@ export function handleChatConnection(
             return;
           }
           await handleChatAbort(ws, data, dependencies, userId);
+          return;
+        case 'chat.stop-task':
+          if (!canAccessSession(request.user, String(data.sessionId ?? ''))) {
+            sendProtocolError(ws, 'PROJECT_ACCESS_DENIED', 'You do not have access to this project.');
+            return;
+          }
+          await handleChatStopTask(ws, data, dependencies);
           return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);

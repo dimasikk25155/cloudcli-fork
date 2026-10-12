@@ -48,6 +48,7 @@ import { modelForProvider } from '../utils/providerModelState';
 import { runSecretGuard } from '../utils/secretGuard';
 import { askSecretGuard } from '../view/subcomponents/SecretGuardDialog';
 import { stashSecretRequest } from '../utils/secretStash';
+import { resetSessionSteps } from '../utils/stepTimer';
 
 import { useFileMentions } from './useFileMentions';
 import { useInputHistory } from './useInputHistory';
@@ -1077,9 +1078,12 @@ export function useChatComposerState({
       // Mark this request as processing in the per-session activity map (the
       // single source of truth the indicator derives from). The id is always
       // concrete at this point — no pending placeholder exists anymore.
+      // A new turn starts with no step: whatever a dead run left open is gone.
+      resetSessionSteps(targetSessionId);
       onSessionProcessing?.(targetSessionId, {
         statusText: null,
         canInterrupt: true,
+        step: null,
       });
 
       setIsUserScrolledUp(false);
