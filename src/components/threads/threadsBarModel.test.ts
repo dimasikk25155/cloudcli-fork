@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import type { SessionLinkRef, SessionLinks } from '../../../shared/session-links';
 
-import { buildThreadsBar } from './threadsBarModel';
+import { buildThreadsBar, currentSessionLinks } from './threadsBarModel';
 
 // Story 30 (R15.1): in the parent chat a strip «Треды: N (работают M)» with a
 // way into each thread.
@@ -51,4 +51,25 @@ test('each thread has its name, state and a state caption', () => {
 test('archived threads are not shown', () => {
   const bar = buildThreadsBar({ children: [ref('a'), ref('b', { isArchived: true })] }, new Map())!;
   assert.equal(bar.total, 1);
+});
+
+// The open chat object is a snapshot taken when the chat was opened; the
+// sidebar list is what `session_upserted` updates live. The strip must follow
+// the live list, or a thread opened by the agent shows only after a reload.
+
+test('links of the open chat come from the live session list, not the snapshot taken when it was opened', () => {
+  const snapshot: SessionLinks = { children: [] };
+  const live: SessionLinks = { children: [ref('t1')] };
+  const sessions = [{ id: 'other', links: { children: [] } }, { id: 'parent', links: live }];
+  assert.equal(currentSessionLinks('parent', sessions, snapshot), live);
+  const bar = buildThreadsBar(currentSessionLinks('parent', sessions, snapshot), states({ t1: 'working' }))!;
+  assert.equal(bar.label, 'Треды: 1 (работают 1)');
+});
+
+test('a chat missing from the list (or without links there) falls back to the snapshot', () => {
+  const snapshot: SessionLinks = { children: [ref('t1')] };
+  assert.equal(currentSessionLinks('parent', [{ id: 'other' }], snapshot), snapshot);
+  assert.equal(currentSessionLinks('parent', [{ id: 'parent' }], snapshot), snapshot);
+  assert.equal(currentSessionLinks('parent', undefined, snapshot), snapshot);
+  assert.equal(currentSessionLinks(undefined, [{ id: 'parent', links: { children: [] } }], snapshot), snapshot);
 });

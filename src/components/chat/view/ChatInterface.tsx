@@ -47,6 +47,7 @@ const COMPOSER_MODEL_GROUP_LABELS: Partial<Record<Provider, string>> = {
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import PinnedUserMessage from './subcomponents/PinnedUserMessage';
 import ThreadsBar from '../../threads/ThreadsBar';
+import { currentSessionLinks } from '../../threads/threadsBarModel';
 import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
 
@@ -659,7 +660,7 @@ function ChatInterface({
     <PermissionContext.Provider value={permissionContextValue}>
       <div className="flex h-full min-h-0 flex-col">
         <ThreadsBar
-          links={selectedSession?.links}
+          links={currentSessionLinks(selectedSession?.id, selectedProject?.sessions, selectedSession?.links)}
           onOpenThread={(threadId) => onNavigateToSession?.(threadId)}
           unnamedLabel={t('projects.newSession', { ns: 'sidebar', defaultValue: 'Новый сеанс' })}
         />

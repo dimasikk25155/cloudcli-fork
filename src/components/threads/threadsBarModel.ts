@@ -60,3 +60,21 @@ export function buildThreadsBar(
     items,
   };
 }
+
+/**
+ * Links of the open chat from the live session list (kept current by
+ * `session_upserted`), falling back to the snapshot the chat was opened with.
+ * The open chat object is only replaced when another chat is opened, so its
+ * own `links` miss a thread the agent opens mid-conversation.
+ */
+export function currentSessionLinks(
+  sessionId: string | null | undefined,
+  sessions: ReadonlyArray<{ id: string | number; links?: SessionLinks }> | null | undefined,
+  snapshot: SessionLinks | undefined,
+): SessionLinks | undefined {
+  if (!sessionId || !sessions) {
+    return snapshot;
+  }
+  const live = sessions.find((session) => String(session.id) === sessionId);
+  return live?.links ?? snapshot;
+}
