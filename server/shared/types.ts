@@ -303,6 +303,8 @@ export type NormalizedMessage = {
   summary?: string;
   tokenBudget?: unknown;
   subagentTools?: unknown;
+  /** Set on rows produced inside a subagent: id of the Agent/Task tool_use that started it. */
+  parentToolUseId?: string;
   toolUseResult?: unknown;
   sequence?: number;
   rowid?: number;

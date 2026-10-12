@@ -270,6 +270,8 @@ function ChatInterface({
     replaceAttachedImage,
     uploadingImages,
     imageErrors,
+    dropNotice,
+    dismissDropNotice,
     getRootProps,
     getInputProps,
     isDragActive,
@@ -828,6 +830,8 @@ function ChatInterface({
           onReplaceImage={replaceAttachedImage}
           uploadingImages={uploadingImages}
           imageErrors={imageErrors}
+          dropNotice={dropNotice}
+          onDismissDropNotice={dismissDropNotice}
           showFileDropdown={showFileDropdown}
           filteredFiles={filteredFiles}
           selectedFileIndex={selectedFileIndex}
