@@ -244,6 +244,7 @@ function ChatInterface({
     selectFile,
     attachedImages,
     setAttachedImages,
+    replaceAttachedImage,
     uploadingImages,
     imageErrors,
     getRootProps,
@@ -734,6 +735,7 @@ function ChatInterface({
               previous.filter((_, currentIndex) => currentIndex !== index),
             )
           }
+          onReplaceImage={replaceAttachedImage}
           uploadingImages={uploadingImages}
           imageErrors={imageErrors}
           showFileDropdown={showFileDropdown}

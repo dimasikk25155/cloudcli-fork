@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
-import { FileIcon } from 'lucide-react';
+import { FileIcon, Pencil } from 'lucide-react';
 
+import { isPictureFile } from '../../utils/screenshotCaption';
 import ImageLightbox from './ImageLightbox';
+import ImageMarkupEditor from './ImageMarkupEditor';
 
 interface ImageAttachmentProps {
   file: File;
   onRemove: () => void;
   uploadProgress?: number;
   error?: string;
+  /** Swap the attachment for its marked-up copy; enables the «✎» button. */
+  onReplace?: (file: File) => void;
 }
 
 /** Human-readable byte size, e.g. "3.2 MB". */
@@ -19,20 +23,18 @@ function formatBytes(bytes: number): string {
   return `${value >= 10 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${units[exponent]}`;
 }
 
-const isImageFile = (file: File): boolean =>
-  (typeof file.type === 'string' && file.type.startsWith('image/')) ||
-  /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name || '');
-
 /**
  * Composer attachment card. Images show a thumbnail preview that expands to a
  * lightbox on click; every other file type shows a compact card with a file
  * icon, its name, and size — since there is nothing to preview. Both carry
  * the upload-progress / error overlays and a remove button.
  */
-const ImageAttachment = ({ file, onRemove, uploadProgress, error }: ImageAttachmentProps) => {
+const ImageAttachment = ({ file, onRemove, uploadProgress, error, onReplace }: ImageAttachmentProps) => {
   const [preview, setPreview] = useState<string | undefined>(undefined);
   const [expanded, setExpanded] = useState(false);
-  const isImage = isImageFile(file);
+  const [editing, setEditing] = useState(false);
+  const isImage = isPictureFile(file);
+  const canMarkUp = Boolean(onReplace) && isImage && uploadProgress === undefined;
 
   useEffect(() => {
     if (!isImage) {
@@ -92,6 +94,27 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error }: ImageAttachm
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
+      {canMarkUp && (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="absolute -bottom-1.5 -left-1.5 flex h-7 w-7 items-center justify-center rounded-full border border-border/40 bg-background/95 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/60"
+          aria-label={`Пометки на ${file.name}`}
+          title="Обвести, стрелка, текст"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {editing && onReplace && (
+        <ImageMarkupEditor
+          file={file}
+          onCancel={() => setEditing(false)}
+          onSave={(marked) => {
+            setEditing(false);
+            onReplace(marked);
+          }}
+        />
+      )}
       {expanded && preview && (
         <ImageLightbox src={preview} alt={file.name} onClose={() => setExpanded(false)} />
       )}
