@@ -29,7 +29,7 @@ const RU_IMPERATIVES = [
   'открой', 'нажми', 'пришли', 'скопируй', 'сделай', 'проверь', 'отправь', 'скинь',
   'вставь', 'запусти', 'зайди', 'перезагрузи', 'перезапусти', 'обнови', 'введи',
   'выполни', 'подтверди', 'установи', 'скачай', 'загрузи', 'кликни', 'тапни', 'смахни',
-  'разреши', 'залогинься', 'авторизуйся',
+  'разреши', 'залогинься', 'авторизуйся', 'скажи', 'напиши',
 ];
 
 const RU_IMPERATIVE_PATTERN = new RegExp(
@@ -54,12 +54,35 @@ function stripCodeBlocks(text: string): string {
     .replace(/`[^`\n]*`/g, ' ');
 }
 
+/**
+ * A reply signature, not content: Dima's agents close every reply with a time
+ * stamp on its own line — «22:30 МСК», «*2026-10-07 16:29 МСК*»,
+ * «_30.09.2026 22:16 МСК_», «<sub>…</sub>», «🕐 2026-10-01 11:46 МСК · ✉️ #4».
+ * Without skipping it the question right above it was never seen.
+ */
+export function isTimestampLine(paragraph: string): boolean {
+  const bare = paragraph.replace(/<\/?sub>/gi, '').replace(/[*_`]/g, '').trim();
+  return bare.length > 0
+    && bare.length <= 60
+    && /\d{1,2}:\d{2}/.test(bare)
+    && !/\p{L}/u.test(bare.replace(/МСК|MSK|UTC|GMT/gi, ''));
+}
+
 function lastParagraph(text: string): string {
   const paragraphs = text
     .split(/\n\s*\n/)
     .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0);
+    .filter((paragraph) => paragraph.length > 0 && !isTimestampLine(paragraph));
   return paragraphs.length > 0 ? paragraphs[paragraphs.length - 1] : '';
+}
+
+/**
+ * The asking part of a reply for reply chips: its last paragraph (time stamp
+ * skipped), whole and with inline code kept — the classifier's excerpt is cut
+ * from the start and would lose the last of several questions.
+ */
+export function finalParagraph(text: string): string {
+  return typeof text === 'string' ? lastParagraph(text.replace(/```[\s\S]*?(?:```|$)/g, '\n\n')) : '';
 }
 
 /** Sentences and list items of one paragraph, each trimmed of list markers. */

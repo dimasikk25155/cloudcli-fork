@@ -5,7 +5,19 @@ import { lastReplyTurn, type ReplyTurnMessage } from '../../../shared/reply-turn
 import { sessionsDb } from '@/modules/database/index.js';
 import { canUserAccessSession } from '@/shared/project-access.js';
 import { completeJson, localLlmModel, type CompleteJsonOptions } from '@/shared/local-llm.js';
-import { classifyTurnEnding, clipText } from '@/shared/turn-ending.js';
+import { classifyTurnEnding, finalParagraph } from '@/shared/turn-ending.js';
+import {
+  buildPrompt,
+  filterSuggestions,
+  SYSTEM_PROMPT,
+  type ReplyPromptTurn,
+} from '@/modules/reply-suggestions/reply-suggestions.prompt.js';
+
+export {
+  MAX_SUGGESTION_CHARS,
+  MAX_SUGGESTIONS,
+  MIN_SUGGESTIONS,
+} from '@/modules/reply-suggestions/reply-suggestions.prompt.js';
 
 /**
  * Reply chips: 2–3 short answers Dima can tap after a turn that ended with a
@@ -15,13 +27,9 @@ import { classifyTurnEnding, clipText } from '@/shared/turn-ending.js';
  * Works for every engine: the input is the normalized transcript.
  */
 
-export const MIN_SUGGESTIONS = 2;
-export const MAX_SUGGESTIONS = 3;
-export const MAX_SUGGESTION_CHARS = 60;
-const ASSISTANT_TAIL_CHARS = 4000;
-const USER_MESSAGE_CHARS = 1000;
 const MODEL_TIMEOUT_MS = 8000;
 const MODEL_MAX_TOKENS = 200;
+const MODEL_TEMPERATURE = 0.3;
 const HISTORY_WINDOW = 40;
 const CACHE_LIMIT = 300;
 
@@ -41,58 +49,9 @@ export type ReplySuggestionsResult =
   | { status: 'not_found' }
   | { status: 'forbidden' };
 
-const SYSTEM_PROMPT = [
-  'Ты подсказываешь пользователю короткие ответы ИИ-агенту в чате.',
-  'Агент закончил ход вопросом или просьбой. Предложи 2–3 разных варианта ответа,',
-  'которые пользователь мог бы отправить сам: от первого лица, на «ты», по-русски,',
-  'разговорно, каждый не длиннее 60 символов. Покрой разные решения',
-  '(например «да», «нет», уточнение). Не повторяй вопрос и не объясняй.',
-  'Верни только JSON: {"suggestions": ["…", "…"]}',
-].join(' ');
-
 async function defaultFetchHistory(sessionId: string): Promise<{ messages: HistoryMessage[] }> {
   const { sessionsService } = await import('@/modules/providers/services/sessions.service.js');
   return sessionsService.fetchHistory(sessionId, { limit: HISTORY_WINDOW, offset: 0 });
-}
-
-function buildPrompt(turn: { assistant: string; user: string }): string {
-  const assistantTail = turn.assistant.length > ASSISTANT_TAIL_CHARS
-    ? `…${turn.assistant.slice(-ASSISTANT_TAIL_CHARS)}`
-    : turn.assistant;
-  const user = turn.user.slice(0, USER_MESSAGE_CHARS);
-  return [
-    user ? `Последнее сообщение пользователя:\n${user}` : '',
-    `Ответ агента (конец):\n${assistantTail}`,
-    'Варианты ответа пользователя — JSON.',
-  ].filter(Boolean).join('\n\n');
-}
-
-/** Model output → 2–3 distinct, non-empty lines of ≤60 chars, or none at all. */
-function normalizeSuggestions(raw: unknown): string[] {
-  const list = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === 'object' && Array.isArray((raw as { suggestions?: unknown }).suggestions)
-      ? (raw as { suggestions: unknown[] }).suggestions
-      : [];
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const item of list) {
-    if (typeof item !== 'string') {
-      continue;
-    }
-    const line = clipText(item.replace(/^["«']+|["»']+$/g, ''), MAX_SUGGESTION_CHARS);
-    const key = line.toLowerCase();
-    if (!line || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(line);
-    if (result.length === MAX_SUGGESTIONS) {
-      break;
-    }
-  }
-  // Decision 17: 2–3 chips. One lonely chip reads as a button, not a choice.
-  return result.length >= MIN_SUGGESTIONS ? result : [];
 }
 
 export function createReplySuggestionsService(dependencies: ReplySuggestionsDependencies = {}) {
@@ -112,19 +71,20 @@ export function createReplySuggestionsService(dependencies: ReplySuggestionsDepe
     }
   }
 
-  async function generate(key: string, turn: { assistant: string; user: string }): Promise<string[] | null> {
+  async function generate(key: string, turn: ReplyPromptTurn): Promise<string[] | null> {
     const raw = await complete({
       system: SYSTEM_PROMPT,
       prompt: buildPrompt(turn),
       model: localLlmModel('suggest'),
       timeoutMs: MODEL_TIMEOUT_MS,
       maxTokens: MODEL_MAX_TOKENS,
+      temperature: MODEL_TEMPERATURE,
     });
     if (raw === null) {
       // Model down or confused: show nothing now, try again next time.
       return null;
     }
-    const suggestions = normalizeSuggestions(raw);
+    const suggestions = filterSuggestions(raw, turn.question);
     remember(key, suggestions);
     return suggestions;
   }
@@ -168,7 +128,7 @@ export function createReplySuggestionsService(dependencies: ReplySuggestionsDepe
     }
     let pending = inFlight.get(key);
     if (!pending) {
-      pending = generate(key, turn).finally(() => inFlight.delete(key));
+      pending = generate(key, { ...turn, question: finalParagraph(turn.assistant) }).finally(() => inFlight.delete(key));
       inFlight.set(key, pending);
     }
     return { status: 'ok', suggestions: (await pending) ?? [] };
