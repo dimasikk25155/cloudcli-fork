@@ -31,6 +31,8 @@ import autopilotRoutes, { serveAutopilotAsset } from './routes/autopilot.js';
 import {
     queryClaudeSDK,
     abortClaudeSDKSession,
+    stopClaudeTask,
+    getClaudeBackgroundTasks,
     abortAllActiveClaudeSDKSessions,
     resolveToolApproval,
     getPendingApprovalsForSession,
@@ -161,6 +163,13 @@ const chatDependencies = {
         kimi: abortKimiSession,
         gemini: abortGeminiSession,
         grok: abortGrokSession,
+    },
+    // Background tasks exist only in Claude runs (see background-tasks module).
+    stopTaskFns: {
+        claude: stopClaudeTask,
+    },
+    backgroundTasksFns: {
+        claude: getClaudeBackgroundTasks,
     },
     resolveToolApproval,
     getPendingApprovalsForSession,

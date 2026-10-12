@@ -17,7 +17,15 @@ export type GatewayEventKind =
    * (`{kind, sessionId, timestamp}`); clients re-read `GET /api/memory-suggestions`.
    * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
    */
-  | 'memory_suggestions_changed';
+  | 'memory_suggestions_changed'
+  /**
+   * Claude background tasks of a session changed: `{sessionId, tasks:[{taskId,
+   * kind, description, startedAt, lastTool?}]}`, the full list (replace).
+   * Not a chat row. Mirrored in `server/shared/types.ts` `GatewayEventKind`.
+   */
+  | 'background_tasks'
+  /** Answer to `chat.stop-task`: `{sessionId, taskId, ok, reason?}`. Not a chat row. */
+  | 'background_task_stop';
 
 export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini' | 'grok';
 

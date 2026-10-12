@@ -26,6 +26,8 @@ import { providerModelsService } from './modules/providers/services/provider-mod
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
 import { workModeInstruction } from './shared/work-mode.js';
 import { withNeo3SessionMarker } from './shared/neo3-session.js';
+import { neo3GuardsPlugins } from './shared/neo3-guards-plugin.js';
+import { createBackgroundTaskTracker } from './modules/background-tasks/index.js';
 import {
   createNotificationEvent,
   notifyRunFailed,
@@ -516,6 +518,12 @@ function mapCliOptionsToSDK(options = {}) {
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
 
+  // neo3-guards mod: no foreground wait loops past the limit (Neo3 sessions only).
+  const plugins = neo3GuardsPlugins();
+  if (plugins.length > 0) {
+    sdkOptions.plugins = plugins;
+  }
+
   if (sessionId) {
     sdkOptions.resume = sessionId;
   }
@@ -541,7 +549,8 @@ function addSession(sessionId, queryInstance, writer = null, controls = null) {
     writer,
     releaseInput: controls?.releaseInput ?? null,
     abortController: controls?.abortController ?? null,
-    runState: controls?.runState ?? null
+    runState: controls?.runState ?? null,
+    backgroundTasks: controls?.backgroundTasks ?? null
   });
 }
 
@@ -780,7 +789,17 @@ async function queryClaudeSDK(command, options = {}, ws) {
   const runControls = {
     releaseInput: () => releaseInput(),
     abortController: runAbortController,
-    runState
+    runState,
+    // Background work of the current CLI process (see stopClaudeTask).
+    backgroundTasks: null
+  };
+  // «Фон: N»: full list on every change, `[]` once the process is gone.
+  const publishBackgroundTasks = (tasks) => {
+    ws.send(createNormalizedMessage({ kind: 'background_tasks', tasks, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
+  };
+  const resetBackgroundTasks = () => {
+    if (runControls.backgroundTasks?.list().length > 0) publishBackgroundTasks([]);
+    runControls.backgroundTasks = null;
   };
 
   try {
@@ -976,6 +995,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     while (true) {
       try {
+        // A new CLI process starts with no background tasks.
+        resetBackgroundTasks();
+        runControls.backgroundTasks = createBackgroundTaskTracker();
         try {
           queryInstance = query({
             prompt: await createPrompt(),
@@ -1158,6 +1180,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
             ws.send(msg);
           }
 
+          const backgroundTasks = runControls.backgroundTasks?.apply(message);
+          if (backgroundTasks) {
+            publishBackgroundTasks(backgroundTasks);
+          }
+
           // Bill the run. The meter reads the *raw* usage fields rather than the
           // blended `tokenBudget.inputTokens` below, because cache reads bill at
           // 0.1x and cache writes at 1.25x/2x — charging the blended number as
@@ -1232,6 +1259,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     }
 
     // Clean up session on completion
+    resetBackgroundTasks();
     if (capturedSessionId) {
       removeSession(capturedSessionId);
     }
@@ -1260,6 +1288,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     console.error('SDK query error:', error);
 
     // Clean up session on error
+    resetBackgroundTasks();
     if (capturedSessionId) {
       removeSession(capturedSessionId);
     }
@@ -1377,6 +1406,60 @@ async function abortClaudeSDKSession(sessionId) {
   return true;
 }
 
+// stopTask is a control request over the CLI's stdin; a closed channel can
+// leave it hanging, and the button must answer either way.
+const STOP_TASK_TIMEOUT_MS = 5_000;
+
+/**
+ * Stops one background task (background Bash, monitor, subagent) of a live
+ * run — only it, the turn goes on. `not_running` when the CLI process or the
+ * task is already gone ("задача уже не идёт").
+ * @param {string} sessionId - Provider-native (Claude) session id
+ * @param {string} taskId - Task id from the `background_tasks` list
+ * @returns {Promise<{ok: boolean, reason?: string}>}
+ */
+async function stopClaudeTask(sessionId, taskId) {
+  const session = getSession(sessionId);
+  if (
+    !session
+    || session.runState?.finished
+    || typeof session.instance?.stopTask !== 'function'
+    || !session.backgroundTasks?.has(taskId)
+  ) {
+    return { ok: false, reason: 'not_running' };
+  }
+
+  let timer;
+  let outcome;
+  try {
+    outcome = await Promise.race([
+      session.instance.stopTask(taskId).then(() => 'stopped'),
+      new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), STOP_TASK_TIMEOUT_MS); }),
+    ]);
+  } catch (error) {
+    console.warn(`[Claude SDK] stopTask(${taskId}) failed for session ${sessionId}:`, error?.message || error);
+    outcome = 'error';
+  } finally {
+    clearTimeout(timer);
+  }
+  if (outcome === 'stopped') {
+    return { ok: true };
+  }
+  // "Уже не идёт" only when the task list confirms it is gone; anything else
+  // (timeout, a broken control channel) is a failed stop.
+  return session.backgroundTasks?.has(taskId) ? { ok: false, reason: 'failed' } : { ok: false, reason: 'not_running' };
+}
+
+/**
+ * Current background tasks of a live run (for `chat.subscribe`), `[]` when
+ * the session has no CLI process.
+ * @param {string} sessionId - Provider-native (Claude) session id
+ * @returns {Array<object>}
+ */
+function getClaudeBackgroundTasks(sessionId) {
+  return getSession(sessionId)?.backgroundTasks?.list() ?? [];
+}
+
 /**
  * Gracefully interrupts every active SDK session before the process exits.
  *
@@ -1485,6 +1568,8 @@ export {
   mapCliOptionsToSDK,
   queryClaudeSDK,
   abortClaudeSDKSession,
+  stopClaudeTask,
+  getClaudeBackgroundTasks,
   abortAllActiveClaudeSDKSessions,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
