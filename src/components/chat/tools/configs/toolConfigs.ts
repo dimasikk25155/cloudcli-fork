@@ -549,6 +549,9 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
   }
 };
 
+// Claude Code renamed the subagent tool from `Task` to `Agent`.
+TOOL_CONFIGS.Agent = TOOL_CONFIGS.Task;
+
 /**
  * Get configuration for a tool, with fallback to default
  */

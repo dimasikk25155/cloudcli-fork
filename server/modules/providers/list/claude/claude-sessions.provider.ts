@@ -12,6 +12,70 @@ import { sessionsDb } from '@/modules/database/index.js';
 
 const PROVIDER = 'claude';
 
+/**
+ * The live SDK stream marks every message produced inside a subagent with
+ * `parent_tool_use_id` (the Agent/Task tool_use that started it);
+ * `claude-sdk.js` also mirrors it as `parentToolUseId`.
+ */
+function readParentToolUseId(raw: AnyRecord): string | null {
+  const value = raw.parentToolUseId ?? raw.parent_tool_use_id;
+  return typeof value === 'string' && value ? value : null;
+}
+
+/**
+ * A subagent's prompt arrives as a `user` message and its actions as regular
+ * tool calls. Rendered as-is they read as the human's own bubble followed by
+ * their Read/Bash. Only the tool calls are kept, tagged with the parent
+ * Agent/Task id so the client nests them inside the subagent card; the
+ * subagent's prompt/text/thinking never become chat rows (the prompt is
+ * already shown in the card from the Agent tool input).
+ *
+ * Sidechain rows without a parent id (subagent transcript lines) carry no link
+ * to the card — their tools reach it through `subagentTools` instead.
+ */
+function normalizeSubagentMessage(
+  raw: AnyRecord,
+  sessionId: string | null,
+  parentToolUseId: string | null,
+): NormalizedMessage[] {
+  if (!parentToolUseId || !Array.isArray(raw.message?.content)) {
+    return [];
+  }
+  const messages: NormalizedMessage[] = [];
+  const ts = raw.timestamp || new Date().toISOString();
+  const baseId = raw.uuid || generateMessageId('claude');
+  const role = raw.message?.role;
+
+  raw.message.content.forEach((part: AnyRecord, partIndex: number) => {
+    if (role === 'assistant' && part?.type === 'tool_use') {
+      messages.push(createNormalizedMessage({
+        id: `${baseId}_${partIndex}`,
+        sessionId,
+        timestamp: ts,
+        provider: PROVIDER,
+        kind: 'tool_use',
+        toolName: part.name,
+        toolInput: part.input,
+        toolId: part.id,
+        parentToolUseId,
+      }));
+    } else if (role === 'user' && part?.type === 'tool_result') {
+      messages.push(createNormalizedMessage({
+        id: `${baseId}_tr_${part.tool_use_id}`,
+        sessionId,
+        timestamp: ts,
+        provider: PROVIDER,
+        kind: 'tool_result',
+        toolId: part.tool_use_id,
+        content: typeof part.content === 'string' ? part.content : JSON.stringify(part.content),
+        isError: Boolean(part.is_error),
+        parentToolUseId,
+      }));
+    }
+  });
+  return messages;
+}
+
 type ClaudeToolResult = {
   content: unknown;
   isError: boolean;
@@ -119,8 +183,27 @@ async function getSessionMessages(
     }
 
     const projectDir = path.dirname(jsonLPath);
-    const files = await fsp.readdir(projectDir);
-    const agentFiles = files.filter((file) => file.endsWith('.jsonl') && file.startsWith('agent-'));
+    // Subagent transcripts live next to the session in
+    // `<project>/<session-id>/subagents/agent-<id>.jsonl` (current CLI) or, in
+    // older CLIs, directly in the project dir as `agent-<id>.jsonl`.
+    const subagentDirs = [
+      path.join(projectDir, path.basename(jsonLPath, '.jsonl'), 'subagents'),
+      projectDir,
+    ];
+    const agentFilePaths = new Map<string, string>();
+    for (const dir of subagentDirs) {
+      let files: string[] = [];
+      try {
+        files = await fsp.readdir(dir);
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        if (file.startsWith('agent-') && file.endsWith('.jsonl') && !agentFilePaths.has(file)) {
+          agentFilePaths.set(file, path.join(dir, file));
+        }
+      }
+    }
 
     const messages: AnyRecord[] = [];
     const agentToolsCache = new Map<string, AnyRecord[]>();
@@ -155,12 +238,11 @@ async function getSessionMessages(
     }
 
     for (const agentId of agentIds) {
-      const agentFileName = `agent-${agentId}.jsonl`;
-      if (!agentFiles.includes(agentFileName)) {
+      const agentFilePath = agentFilePaths.get(`agent-${agentId}.jsonl`);
+      if (!agentFilePath) {
         continue;
       }
 
-      const agentFilePath = path.join(projectDir, agentFileName);
       const tools = await parseAgentTools(agentFilePath);
       agentToolsCache.set(agentId, tools);
     }
@@ -325,6 +407,11 @@ export class ClaudeSessionsProvider implements IProviderSessions {
     }
     if (raw.type === 'content_block_stop') {
       return [createNormalizedMessage({ kind: 'stream_end', sessionId, provider: PROVIDER })];
+    }
+
+    const parentToolUseId = readParentToolUseId(raw);
+    if (parentToolUseId || raw.isSidechain === true) {
+      return normalizeSubagentMessage(raw, sessionId, parentToolUseId);
     }
 
     const messages: NormalizedMessage[] = [];
