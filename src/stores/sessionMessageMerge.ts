@@ -167,7 +167,7 @@ function getUserTurnOrdinalBefore(
       // Optimistic local echo is the same turn as the disk user row.
       // Counting it as a second user made live assistant text look like the
       // *next* turn, so prune left the duplicate pack on screen.
-      if (candidate.id.startsWith('local_') && hasServerEchoForLocalUser(candidate, serverMessages)) {
+      if (typeof candidate.id === 'string' && candidate.id.startsWith('local_') && hasServerEchoForLocalUser(candidate, serverMessages)) {
         continue;
       }
       userCount++;
@@ -353,7 +353,7 @@ export function pruneRealtimeSupersededByServer(
       return false;
     }
 
-    if (message.id.startsWith('local_') && hasServerEchoForLocalUser(message, serverMessages)) {
+    if (typeof message.id === 'string' && message.id.startsWith('local_') && hasServerEchoForLocalUser(message, serverMessages)) {
       return false;
     }
 
@@ -407,7 +407,7 @@ export function computeMerged(server: NormalizedMessage[], realtime: NormalizedM
     // Optimistic user rows use `local_*` ids; once the same text exists on the
     // server-backed copy from the same send window, drop the realtime echo to
     // avoid duplicate bubbles without hiding repeated prompts from history.
-    if (message.id.startsWith('local_')) {
+    if (typeof message.id === 'string' && message.id.startsWith('local_')) {
       if (hasServerEchoForLocalUser(message, server)) {
         return false;
       }

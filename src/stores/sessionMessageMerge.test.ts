@@ -683,3 +683,15 @@ test('hidden catalog brief on disk still matches the visible bubble', () => {
   const merged = computeMerged([serverUser], [localUser]);
   assert.equal(merged.filter((row) => row.role === 'user').length, 1);
 });
+
+test('an id-less realtime row (e.g. a stray gateway frame) never breaks the history merge', () => {
+  const history = [
+    msg({ id: 'h1', kind: 'text', role: 'user', content: 'Вопрос', timestamp: '2026-10-12T11:00:00.000Z' }),
+    msg({ id: 'h2', kind: 'text', role: 'assistant', content: 'Ответ', timestamp: '2026-10-12T11:01:00.000Z' }),
+  ];
+  const stray = { kind: 'attention_changed', sessionId: SESSION, timestamp: '2026-10-12T16:40:47.438Z' } as unknown as NormalizedMessage;
+
+  const merged = computeMerged(history, [stray]);
+  assert.deepEqual(merged.slice(0, 2).map((row) => row.id), ['h1', 'h2']);
+  assert.doesNotThrow(() => pruneRealtimeSupersededByServer(history, [stray]));
+});

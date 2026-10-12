@@ -196,6 +196,14 @@ export function useChatRealtimeHandlers({
         case 'loading_progress':
           return;
 
+        // Content-free "re-read" signals — owned by useAttentionSync and the
+        // memory-suggestions hub. They carry a sessionId but are not chat rows:
+        // stored as a message they broke the history merge (no id), so a
+        // session opened from «Ждут тебя» rendered empty.
+        case 'attention_changed':
+        case 'memory_suggestions_changed':
+          return;
+
         default:
           break;
       }
