@@ -17,9 +17,9 @@ test('HALLUCINATION_RE matches YouTube outro artifacts (incl. Cyrillic suffixes)
   assert.ok(!HALLUCINATION_RE.test('Разверни проект на Vercel.'));
 });
 
-test('cleanTranscript collapses consecutive duplicate sentences', () => {
+test('cleanTranscript preserves intentionally repeated sentences', () => {
   const out = cleanTranscript('Привет мир. Привет мир. Как дела?');
-  assert.equal(out, 'Привет мир. Как дела?');
+  assert.equal(out, 'Привет мир. Привет мир. Как дела?');
 });
 
 test('cleanTranscript strips a hallucinated outro from the tail', () => {
@@ -102,4 +102,27 @@ test('glossaryPrompt prefers the terms list and stays inside the prompt cap', ()
   const capped = glossaryPrompt({}, many);
   assert.ok(capped.length < 600, `prompt too long: ${capped.length}`);
   assert.doesNotMatch(capped, /Термин\d+$/); // never ends mid-term
+});
+
+test('real speech is not deleted because Whisper assigns high silence probability', () => {
+  const segments = [
+    { text: 'Первая половина про Claude.', no_speech_prob: 0.01 },
+    { text: 'Вторая половина про API и деплой.', no_speech_prob: 0.92 },
+  ];
+  assert.deepEqual(dropHallucinatedEdges(segments).kept, segments);
+});
+
+test('cleanup keeps meaningful sentences resembling video intros', () => {
+  assert.equal(cleanTranscript('В этом видео нужно исправить звук.'), 'В этом видео нужно исправить звук.');
+});
+
+test('DimaTorzok credit attached to real text removes only the credit', () => {
+  assert.equal(cleanTranscript('Субтитры сделал DimaTorzok Привет, проверь API.'), 'Привет, проверь API.');
+  assert.equal(cleanTranscript('Первая часть. Субтитры сделал DimaTorzok. Вторая часть.'), 'Первая часть. Вторая часть.');
+  assert.equal(cleanTranscript('Удали фразу «Субтитры сделал DimaTorzok» из результата.'), 'Удали фразу «Субтитры сделал DimaTorzok» из результата.');
+});
+
+test('glossary retains terms with no aliases and terms with inline comments', () => {
+  const parsed = parseGlossary('terms:\n  API: []\n  Claude: [клауд] # canonical\n', false);
+  assert.deepEqual(parsed.terms, ['API', 'Claude']);
 });

@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Mic, Square, Loader2, RotateCw, X } from 'lucide-react';
+import { Mic, Square, Loader2, RotateCw, X, Download } from 'lucide-react';
 
 import { PromptInputButton } from '../../../../shared/view/ui';
 import type { VoiceInputState } from '../../hooks/useVoiceInput';
@@ -10,8 +10,10 @@ type Props = {
   state: VoiceInputState;
   onToggle: () => void;
   errorMsg?: string | null;
+  recoveryMessage?: string | null;
   /** Drop a recording that failed to transcribe (only shown in the error state). */
   onDiscard?: () => void;
+  onDownload?: () => void;
   /** Live mic level, 0..1 — drives the waveform while recording. */
   getLevel?: () => number;
   /** Milliseconds since recording started. */
@@ -25,7 +27,9 @@ export default function VoiceInputButton({
   state,
   onToggle,
   errorMsg,
+  recoveryMessage,
   onDiscard,
+  onDownload,
   getLevel,
   getElapsedMs,
 }: Props) {
@@ -35,7 +39,7 @@ export default function VoiceInputButton({
     state === 'recording' ? (
       // Filled, not outlined: a hollow square reads as an empty checkbox.
       <Square className="fill-red-500 text-red-500" />
-    ) : state === 'transcribing' ? (
+    ) : state === 'transcribing' || state === 'restoring' ? (
       <Loader2 className="animate-spin" />
     ) : state === 'error' ? (
       <RotateCw />
@@ -47,9 +51,10 @@ export default function VoiceInputButton({
 
   return (
     <span className="relative inline-flex items-center gap-1">
-      {errorMsg && (
-        <span className="absolute bottom-full left-1/2 mb-1 -translate-x-1/2 max-w-[70vw] truncate rounded bg-red-600 px-2 py-1 text-xs text-white shadow-lg">
-          {failed ? t('voice.retryHint', { error: errorMsg }) : errorMsg}
+      {(errorMsg || recoveryMessage) && (
+        <span role="status" className="absolute bottom-full right-0 mb-1 w-72 max-w-[70vw] whitespace-normal rounded bg-muted px-3 py-2 text-xs text-foreground shadow-lg">
+          {errorMsg && <span className="block text-destructive">{errorMsg}</span>}
+          {recoveryMessage && <span className="block">{recoveryMessage}</span>}
         </span>
       )}
       {state === 'recording' && getLevel && getElapsedMs && (
@@ -63,6 +68,7 @@ export default function VoiceInputButton({
               ? t('voice.stopRecording')
               : t('voice.input'),
         }}
+        disabled={state === 'restoring' || state === 'transcribing'}
         className={failed ? 'text-amber-500' : undefined}
         onClick={(e: { preventDefault: () => void }) => {
           e.preventDefault();
@@ -71,6 +77,15 @@ export default function VoiceInputButton({
       >
         {icon}
       </PromptInputButton>
+      {(failed || state === 'transcribing') && onDownload && (
+        <PromptInputButton
+          tooltip={{ content: t('voice.download', { defaultValue: 'Скачать запись' }) }}
+          aria-label={t('voice.download', { defaultValue: 'Скачать запись' })}
+          onClick={(event: { preventDefault: () => void }) => { event.preventDefault(); onDownload(); }}
+        >
+          <Download />
+        </PromptInputButton>
+      )}
       {/* The failed recording is still in memory: offer an explicit way to drop it. */}
       {failed && onDiscard && (
         <PromptInputButton

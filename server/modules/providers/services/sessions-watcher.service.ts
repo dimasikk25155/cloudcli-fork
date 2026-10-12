@@ -6,7 +6,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
-import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
+import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
 import type { LLMProvider } from '@/shared/types.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
 
@@ -222,13 +222,10 @@ async function flushPendingWatcherUpdate(): Promise<void> {
     }
 
     if (events.length > 0) {
-      connectedClients.forEach(client => {
-        if (client.readyState === WS_OPEN_STATE) {
-          for (const event of events) {
-            client.send(event);
-          }
-        }
-      });
+      for (const event of events) {
+        const projectId = (JSON.parse(event) as { project?: { projectId?: string } }).project?.projectId ?? null;
+        broadcastProjectEvent(event, projectId);
+      }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

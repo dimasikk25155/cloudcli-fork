@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { clientIdentities } from '@/modules/websocket/services/project-access.service.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, sessionsDb, userDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
 
@@ -73,6 +74,8 @@ test('session_created is swallowed and persisted as the provider-id mapping', as
   await withIsolatedDatabase(() => {
     sessionsDb.createAppSession('app-run-2', 'cursor', '/workspace/demo');
     const connection = new FakeConnection();
+    const admin = userDb.createUserWithRole('test-admin', 'unused', 'admin');
+    clientIdentities.set(connection, { id: Number(admin.id), role: 'admin' });
     connectedClients.add(connection as never);
     const run = chatRunRegistry.startRun({
       appSessionId: 'app-run-2',

@@ -33,8 +33,11 @@ const CACHE_READ_MULTIPLIER = 0.1;
 const CACHE_WRITE_5M_MULTIPLIER = 1.25;
 const CACHE_WRITE_1H_MULTIPLIER = 2;
 
-/** Fast mode (Opus 5 / Opus 4.8) runs the same model at premium rates. */
-const FAST_MODE_RATES: ModelRates = { input: 10, output: 50, contextWindow: 1_000_000 };
+/**
+ * Fast mode (Opus 5.5 / Opus 5 / Opus 4.8) runs the same model at 2x its
+ * standard rates: $8/$40 on Opus 5.5, $10/$50 on Opus 5 and 4.8.
+ */
+const FAST_MODE_MULTIPLIER = 2;
 
 /**
  * Longest-prefix match wins, so `claude-opus-5` and a dated/suffixed variant
@@ -47,6 +50,9 @@ const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: numb
   ['claude-fable-5', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
   ['claude-mythos-5', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
   ['claude-mythos-preview', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
+  // Opus 5.5 — cheaper than Opus 5, and its cache reads are $0.20 rather
+  // than the usual 10% of input.
+  ['claude-opus-5-5', { input: 4, output: 20, contextWindow: 1_000_000, cacheRead: 0.20 }, 1_000_000],
   ['claude-opus-5', { input: 5, output: 25, contextWindow: 1_000_000 }, 1_000_000],
   ['claude-opus-4-8', { input: 5, output: 25, contextWindow: 1_000_000 }, 1_000_000],
   ['claude-opus-4-7', { input: 5, output: 25, contextWindow: 1_000_000 }, 1_000_000],
@@ -99,7 +105,8 @@ const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: numb
 const MODEL_ALIASES: Record<string, string> = {
   // `fable` is the CLI's "newest Fable" alias — Fable 5.1 since 09.2026.
   fable: 'claude-fable-5-1',
-  opus: 'claude-opus-5',
+  // `opus` resolves to Opus 5.5 on the CLI since 09.2026.
+  opus: 'claude-opus-5-5',
   sonnet: 'claude-sonnet-5',
   haiku: 'claude-haiku-4-5',
 };
@@ -189,7 +196,7 @@ export const EMPTY_BREAKDOWN: TokenBreakdown = {
  * What this usage would have cost on the API. Returns null for models we have
  * no published rates for — a missing number is honest, a guessed one is not.
  *
- * `speed: 'fast'` selects the Opus fast-mode premium rates ($10/$50).
+ * `speed: 'fast'` selects the Opus fast-mode premium rates (2x standard).
  */
 export function estimateCostUsd(
   breakdown: TokenBreakdown,
@@ -201,7 +208,16 @@ export function estimateCostUsd(
     return null;
   }
 
-  const rates = options.speed === 'fast' ? FAST_MODE_RATES : entry.rates;
+  const rates: ModelRates = options.speed === 'fast'
+    ? {
+      ...entry.rates,
+      input: entry.rates.input * FAST_MODE_MULTIPLIER,
+      output: entry.rates.output * FAST_MODE_MULTIPLIER,
+      cacheRead: entry.rates.cacheRead != null
+        ? entry.rates.cacheRead * FAST_MODE_MULTIPLIER
+        : undefined,
+    }
+    : entry.rates;
   const perToken = rates.input / 1_000_000;
 
   const inputUsd = breakdown.inputTokens * perToken;

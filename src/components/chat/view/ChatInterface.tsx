@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
 import { SELECTABLE_PROVIDERS, selectableModels } from '../../../utils/providerSelectionPolicy';
+import { useAuth } from '../../../contexts/AuthContext';
+import { voiceRecoveryScope } from '../../../lib/voiceRecovery';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import PermissionContext, { type PermissionContextValue } from '../../../contexts/PermissionContext';
 import { QuickSettingsPanel } from '../../quick-settings-panel';
@@ -59,6 +61,7 @@ function ChatInterface({
 }: ChatInterfaceProps) {
   const { subscribe, isConnected, getLastFrameAt, forceReconnect } = useWebSocket();
   const { t } = useTranslation('chat');
+  const { user } = useAuth();
 
   const sessionStore = useSessionStore();
   const streamTimerRef = useRef<number | null>(null);
@@ -626,6 +629,8 @@ function ChatInterface({
           )}
 
           <ChatComposer
+          key={voiceRecoveryScope(user?.id ?? 'unavailable', selectedProject.projectId, currentSessionId || selectedSession?.id)}
+          voiceRecoveryScope={voiceRecoveryScope(user?.id ?? 'unavailable', selectedProject.projectId, currentSessionId || selectedSession?.id)}
           pendingPermissionRequests={pendingPermissionRequests}
           handlePermissionDecision={handlePermissionDecision}
           handleGrantToolPermission={handleGrantToolPermission}

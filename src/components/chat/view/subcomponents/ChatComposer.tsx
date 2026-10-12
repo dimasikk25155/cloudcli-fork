@@ -111,6 +111,7 @@ interface ChatComposerProps {
   renderInputWithMentions: (text: string) => ReactNode;
   textareaRef: RefObject<HTMLTextAreaElement>;
   input: string;
+  voiceRecoveryScope: string;
   onVoiceTranscript?: (text: string, send?: boolean) => void;
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onTextareaClick: (event: MouseEvent<HTMLTextAreaElement>) => void;
@@ -208,6 +209,7 @@ export default function ChatComposer({
   textareaRef,
   input,
   onVoiceTranscript,
+  voiceRecoveryScope,
   onInputChange,
   onTextareaClick,
   onTextareaKeyDown,
@@ -248,14 +250,16 @@ export default function ChatComposer({
   const noopTranscript = useCallback(() => {}, []);
   const {
     state: voiceState,
+    recoveryMessage: voiceRecoveryMessage,
     toggle: voiceToggle,
     stop: voiceStop,
     discard: voiceDiscard,
+    download: voiceDownload,
     getLevel: voiceLevel,
     getElapsedMs: voiceElapsed,
-  } = useVoiceInput(onVoiceTranscript ?? noopTranscript, handleVoiceError);
+  } = useVoiceInput(onVoiceTranscript ?? noopTranscript, handleVoiceError, voiceRecoveryScope);
   const isRecording = voiceState === 'recording';
-  const isTranscribing = voiceState === 'transcribing';
+  const isTranscribing = voiceState === 'transcribing' || voiceState === 'restoring';
   // While a failed recording is waiting to be retried, keep the reason on screen
   // instead of letting the 4s auto-hide leave an unexplained retry button.
   useEffect(() => {
@@ -889,7 +893,9 @@ export default function ChatComposer({
                 state={voiceState}
                 onToggle={voiceToggle}
                 errorMsg={voiceError}
+                recoveryMessage={voiceRecoveryMessage}
                 onDiscard={voiceDiscard}
+                onDownload={voiceDownload}
                 getLevel={voiceLevel}
                 getElapsedMs={voiceElapsed}
               />

@@ -8,11 +8,27 @@ import { setTimeout as delay } from 'node:timers/promises';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LABEL = 'com.dimasik.neo3-local';
 
-export function directChildren(table, parentPid) {
+/**
+ * Children that are part of the server itself, not a user's run: the plugin
+ * host (`cloudcli-plugin-starter`) is spawned once at boot and lives as long
+ * as the service does. Counting it as activity is why every restart since it
+ * landed timed out after 20 minutes without restarting anything (found
+ * 22.09.2026, with a month of Grok fixes sitting unserved).
+ */
+const SERVER_OWN_CHILDREN = [/cloudcli-plugin-starter/, /\/plugins\/.*\/server\.js/];
+
+export function directChildren(table, parentPid, { ignorePids = [] } = {}) {
+  const ignored = new Set(ignorePids.map(Number));
   return table.split('\n').filter((line) => line.trim()).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line);
     if (!match) throw new Error('Unrecognized process table; refusing to restart');
-    return Number(match[2]) === parentPid ? [{ pid: Number(match[1]), executable: match[3] }] : [];
+    const pid = Number(match[1]);
+    const executable = match[3];
+    if (Number(match[2]) !== parentPid || ignored.has(pid)) return [];
+    // `comm=` gives the binary only; the plugin host has to be matched on its
+    // full argv, so callers that can pass `args=` get the exclusion too.
+    if (SERVER_OWN_CHILDREN.some((pattern) => pattern.test(executable))) return [];
+    return [{ pid, executable }];
   });
 }
 
@@ -51,16 +67,20 @@ function servicePid() {
 }
 
 export async function applyWhenIdle(manifest, statusFile) {
+  // The session asking for the restart is itself a child of the service. It
+  // can never go idle before it stops waiting, so it is excluded by pid
+  // (written into the manifest by whoever schedules the restart).
+  const ignorePids = Array.isArray(manifest.ignorePids) ? manifest.ignorePids : [];
   const report = (status, detail) => writeFileSync(statusFile, JSON.stringify({ status, detail, timestamp: new Date().toISOString() }, null, 2));
   try {
     if (process.platform !== 'darwin') throw new Error('This maintenance job only supports macOS');
     report('waiting', 'Waiting for all current Neo3 child processes, including Codex');
     await waitForIdle({ sample: () => {
       if (servicePid() !== manifest.pid) throw new Error('Service PID changed independently; cancelling this restart');
-      return directChildren(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' }), manifest.pid);
+      return directChildren(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,args='], { encoding: 'utf8' }), manifest.pid, { ignorePids });
     } });
     if (serverFingerprint() !== manifest.serverHash) throw new Error('Server build changed after approval; cancelling restart');
-    const children = directChildren(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' }), manifest.pid);
+    const children = directChildren(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,args='], { encoding: 'utf8' }), manifest.pid, { ignorePids });
     if (children.length || servicePid() !== manifest.pid) throw new Error('Activity changed before restart; cancelling');
     report('restarting', LABEL);
     execFileSync('/bin/launchctl', ['kickstart', '-k', `gui/${process.getuid()}/${LABEL}`]);

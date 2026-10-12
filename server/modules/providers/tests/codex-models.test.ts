@@ -15,7 +15,7 @@ import { GROK_FALLBACK_MODELS } from '../list/grok/grok-models.provider.js';
 
 const RECOMMENDED_CODEX_MODELS = [
   'gpt-6-astra',
-  'gpt-5.6-sol',
+  'gpt-6-sol',
 ];
 
 test('Codex fallback always offers the selected Astra and Sol families', () => {
@@ -23,15 +23,15 @@ test('Codex fallback always offers the selected Astra and Sol families', () => {
     CODEX_FALLBACK_MODELS.OPTIONS.filter((option) => !option.hidden).map((option) => option.value),
     RECOMMENDED_CODEX_MODELS,
   );
-  assert.equal(CODEX_FALLBACK_MODELS.DEFAULT, 'gpt-5.6-sol');
+  assert.equal(CODEX_FALLBACK_MODELS.DEFAULT, 'gpt-6-sol');
 });
 
 test('partial cache retains curated families, correct defaults and maximum CLI context', () => {
   const result = buildCodexModelsDefinition([{ slug: 'gpt-5.6-terra', visibility: 'list' }]);
   assert.deepEqual(result.OPTIONS.filter((o) => !o.hidden).map((o) => o.value), RECOMMENDED_CODEX_MODELS);
   assert.equal(result.OPTIONS.find((o) => o.value === 'gpt-6-astra')?.effort?.default, 'medium');
-  assert.equal(result.OPTIONS.find((o) => o.value === 'gpt-5.6-sol')?.effort?.default, 'low');
-  assert.equal(result.OPTIONS.find((o) => o.value === 'gpt-5.6-sol')?.contextWindow, 872000);
+  assert.equal(result.OPTIONS.find((o) => o.value === 'gpt-6-sol')?.effort?.default, 'medium');
+  assert.equal(result.OPTIONS.find((o) => o.value === 'gpt-6-sol')?.contextWindow, 872000);
 });
 
 test('a rewritten cache discovers newer selected families and retains valid data on malformed refresh', async () => {
@@ -39,7 +39,7 @@ test('a rewritten cache discovers newer selected families and retains valid data
   const file = path.join(dir, 'models.json');
   const provider = new CodexProviderModels(file);
   try {
-    assert.equal((await provider.getSupportedModels()).DEFAULT, 'gpt-5.6-sol');
+    assert.equal((await provider.getSupportedModels()).DEFAULT, 'gpt-6-sol');
     await writeFile(file, JSON.stringify({ models: [
       { slug: 'gpt-6-sol', display_name: 'GPT-6 Sol', visibility: 'list', context_window: 300000, max_context_window: 900000,
         default_reasoning_level: 'low', supported_reasoning_levels: [{ effort: 'high' }, { effort: 'low' }] },
@@ -65,7 +65,7 @@ test('approved model metadata keeps exact per-version defaults, including the So
     .flatMap(catalogue => catalogue.OPTIONS.filter(option => !option.hidden));
   assert.deepEqual(Object.fromEntries(current.map(option => [option.value, option.effort?.default])), {
     'gpt-6-astra': 'medium',
-    'gpt-5.6-sol': 'low',
+    'gpt-6-sol': 'medium',
     'opus[1m]': 'medium',
     'sonnet[1m]': 'high',
     fable: 'high',

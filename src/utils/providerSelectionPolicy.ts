@@ -5,7 +5,7 @@ export const SELECTABLE_PROVIDERS = ['claude', 'codex', 'grok'] as const;
 export type SelectableProvider = typeof SELECTABLE_PROVIDERS[number];
 export const SELECTABLE_MODEL_FALLBACKS: Record<SelectableProvider, string> = {
   claude: 'opus[1m]',
-  codex: 'gpt-5.6-sol',
+  codex: 'gpt-6-sol',
   grok: 'grok-4.7',
 };
 

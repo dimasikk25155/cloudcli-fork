@@ -73,16 +73,16 @@ test('modelForProvider reads grok from grok, not from the catch-all', () => {
 });
 
 const astra = { value: 'gpt-6-astra', label: 'GPT-6 Astra', effort: { default: 'medium', values: ['low', 'medium', 'high', 'ultra'].map(value => ({ value })) } };
-const sol = { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', effort: { default: 'low', values: ['low', 'medium', 'high', 'ultra'].map(value => ({ value })) } };
+const sol = { value: 'gpt-6-sol', label: 'GPT-6 Sol', effort: { default: 'medium', values: ['low', 'medium', 'high', 'ultra'].map(value => ({ value })) } };
 
 test('model defaults remain symbolic and an explicit override cannot cross model boundaries', () => {
   assert.equal(resolveModelEffort(astra), 'default');
   assert.equal(resolveModelEffort(sol, { model: 'gpt-6-astra', effort: 'high' }), 'default');
-  assert.equal(resolveModelEffort(sol, { model: 'gpt-5.6-sol', effort: 'ultra' }), 'ultra');
+  assert.equal(resolveModelEffort(sol, { model: 'gpt-6-sol', effort: 'ultra' }), 'ultra');
 });
 
 test('reset survives persistence and follows changed catalogue defaults rather than freezing old defaults', () => {
-  const saved = JSON.parse(JSON.stringify({ model: 'gpt-5.6-sol', effort: 'default' }));
+  const saved = JSON.parse(JSON.stringify({ model: 'gpt-6-sol', effort: 'default' }));
   assert.equal(resolveModelEffort(sol, saved), 'default');
   assert.equal(resolveModelEffort({ ...sol, effort: { ...sol.effort, default: 'medium' } }, saved), 'default');
   assert.equal(resolveModelEffort(sol, { model: sol.value, effort: 'removed-level' }), 'default');
@@ -97,10 +97,10 @@ test('new-chat selection rejects stale providers and hidden saved models even wi
     sol,
   ] };
   assert.deepEqual(resolveChatSelection('cursor', 'cursor-auto'), { provider: 'grok', model: 'grok-4.7' });
-  assert.deepEqual(resolveChatSelection('codex', 'gpt-6-astra', definition), { provider: 'codex', model: 'gpt-5.6-sol' });
-  assert.deepEqual(resolveChatSelection('codex', 'gpt-5.6-terra', definition), { provider: 'codex', model: 'gpt-5.6-sol' });
+  assert.deepEqual(resolveChatSelection('codex', 'gpt-6-astra', definition), { provider: 'codex', model: 'gpt-6-sol' });
+  assert.deepEqual(resolveChatSelection('codex', 'gpt-5.6-terra', definition), { provider: 'codex', model: 'gpt-6-sol' });
   assert.deepEqual(resolveChatSelection('claude', 'local-qwen35-9b'), { provider: 'claude', model: 'opus[1m]' });
-  assert.deepEqual(resolveChatSelection('codex', 'removed-model', { DEFAULT: 'removed-model', OPTIONS: [] }), { provider: 'codex', model: 'gpt-5.6-sol' });
+  assert.deepEqual(resolveChatSelection('codex', 'removed-model', { DEFAULT: 'removed-model', OPTIONS: [] }), { provider: 'codex', model: 'gpt-6-sol' });
 });
 
 
@@ -108,7 +108,7 @@ test('historical sessions retain removed provider and model while the next draft
   const catalogue = { DEFAULT: sol.value, OPTIONS: [sol, { ...astra, hidden: true }] };
   assert.deepEqual(resolveChatSelection('cursor', 'cursor-auto', undefined, 'session-old'), { provider: 'cursor', model: 'cursor-auto' });
   assert.deepEqual(resolveChatSelection('codex', 'gpt-6-astra', catalogue, 'session-old'), { provider: 'codex', model: 'gpt-6-astra' });
-  assert.deepEqual(resolveChatSelection('codex', 'gpt-6-astra', catalogue, null), { provider: 'codex', model: 'gpt-5.6-sol' });
+  assert.deepEqual(resolveChatSelection('codex', 'gpt-6-astra', catalogue, null), { provider: 'codex', model: 'gpt-6-sol' });
 });
 
 
@@ -119,7 +119,7 @@ test('new choice lists stay curated across refreshes and never restore a hidden 
     { value: 'gpt-7-astra', label: 'Future confirmed Astra' },
   ] };
   assert.deepEqual(SELECTABLE_PROVIDERS, ['claude', 'codex', 'grok']);
-  assert.deepEqual(selectableModels('codex', definition).map(option => option.value), ['gpt-5.6-sol', 'gpt-7-astra']);
+  assert.deepEqual(selectableModels('codex', definition).map(option => option.value), ['gpt-6-sol', 'gpt-7-astra']);
   assert.deepEqual(selectableModels('cursor', definition), []);
   assert.deepEqual(selectableModels('codex', null), []);
   assert.deepEqual(selectableModels('claude', { DEFAULT: 'haiku', OPTIONS: [
@@ -138,7 +138,7 @@ test('changing a normalized hidden default persists model and effort together ac
   const saved = { model: 'gpt-5.6-terra', effort: 'high' };
   const loadedModel = resolveChatSelection('codex', saved.model, catalogue).model;
   const loadedEffort = resolveModelEffort(sol, saved);
-  assert.equal(loadedModel, 'gpt-5.6-sol');
+  assert.equal(loadedModel, 'gpt-6-sol');
   assert.equal(loadedEffort, 'default');
 
   const changedEffort = resolveModelEffort(astra, { model: loadedModel, effort: loadedEffort });

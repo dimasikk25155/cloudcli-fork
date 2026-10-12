@@ -35,7 +35,7 @@ import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/c
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   claude: 'opus[1m]',
   cursor: 'gpt-5.3-codex',
-  codex: 'gpt-5.6-sol',
+  codex: 'gpt-6-sol',
   opencode: 'anthropic/claude-sonnet-4-5',
   kimi: 'kimi-code/k3',
   gemini: 'gemini-2.5-pro',

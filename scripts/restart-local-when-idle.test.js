@@ -7,6 +7,22 @@ test('restart guard includes Codex, wrappers and unknown children but ignores un
   assert.throws(() => directChildren('invalid process output', 10));
 });
 
+test('the service\'s own plugin host is not activity, and the calling session can opt itself out', () => {
+  // Живой снимок 22.09.2026: плагин-хост висит с загрузки сервиса, поэтому
+  // «дождаться, пока детей не останется» не наступало никогда.
+  const table = [
+    '1217 934 node /Users/x/.claude-code-ui/plugins/cloudcli-plugin-starter/dist/server.js',
+    '28230 934 claude',
+    '28999 934 /vendor/bin/codex',
+  ].join('\n');
+
+  assert.deepEqual(directChildren(table, 934).map((child) => child.pid), [28230, 28999]);
+  assert.deepEqual(
+    directChildren(table, 934, { ignorePids: [28230] }).map((child) => child.pid),
+    [28999],
+  );
+});
+
 test('a new request during delivery grace resets the idle timer', async () => {
   let clock = 0;
   const states = [[1], [], [], [2], [], [], [], [], [], []];

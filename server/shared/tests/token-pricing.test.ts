@@ -190,3 +190,16 @@ test('older transcripts without a TTL split bill at the cheaper 5m rate', () => 
     cacheWrite1hTokens: 0,
   });
 });
+
+test('Opus 5.5 is priced below Opus 5 and the opus alias follows it', () => {
+  const breakdown = { ...EMPTY_BREAKDOWN, inputTokens: MILLION, outputTokens: MILLION, cacheReadTokens: MILLION };
+  // 4 + 20 + 0.20
+  assert.equal(estimateCostUsd(breakdown, 'claude-opus-5-5')?.totalUsd, 24.2);
+  assert.equal(estimateCostUsd(breakdown, 'opus[1m]')?.totalUsd, 24.2);
+  // 5 + 25 + 0.50 — the longer prefix must not leak onto Opus 5
+  assert.equal(estimateCostUsd(breakdown, 'claude-opus-5')?.totalUsd, 30.5);
+  assert.equal(getContextWindow('claude-opus-5-5[1m]'), 1_000_000);
+
+  const fast = estimateCostUsd({ ...EMPTY_BREAKDOWN, outputTokens: MILLION }, 'claude-opus-5-5', { speed: 'fast' });
+  assert.equal(fast?.totalUsd, 40);
+});

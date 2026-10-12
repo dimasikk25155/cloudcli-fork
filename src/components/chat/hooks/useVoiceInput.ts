@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { listVoiceRecordings, removeVoiceRecording, saveVoiceRecording, type SavedVoiceRecording } from '../../../lib/voiceRecovery';
 import { transcribeVoice } from '../../../lib/voiceApi';
+import { splitWav } from '../../../../shared/voiceAudio.js';
 import { toWav16kMono } from '../utils/audioToWav';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
@@ -23,7 +25,7 @@ function pickMime(): string {
   return '';
 }
 
-export type VoiceInputState = 'idle' | 'recording' | 'transcribing' | 'error';
+export type VoiceInputState = 'idle' | 'restoring' | 'recording' | 'transcribing' | 'error';
 
 /** Live loudness tap on the recording stream — feeds the waveform, nothing else. */
 type Meter = {
@@ -72,7 +74,7 @@ const RETRY_DELAYS_MS = [600, 1800];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-type PendingRecording = { blob: Blob; filename: string; send: boolean };
+type PendingRecording = SavedVoiceRecording & { send: boolean };
 
 /** Pull the server's own explanation out of a failed response. */
 async function readErrorMessage(res: Response): Promise<string> {
@@ -98,9 +100,16 @@ function isPermanent(status: number): boolean {
  */
 export function useVoiceInput(
   onTranscript: (text: string, send?: boolean) => void,
-  onError?: (msg: string) => void,
+  onError: ((msg: string) => void) | undefined,
+  recoveryScope: string,
 ) {
-  const [state, setState] = useState<VoiceInputState>('idle');
+  const [state, setState] = useState<VoiceInputState>('restoring');
+  const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
+  const busyRef = useRef(true);
+  const writeQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const recordingInfoRef = useRef<{ id: string; createdAt: number } | null>(null);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -123,18 +132,69 @@ export function useVoiceInput(
     startedAtRef.current = 0;
   };
 
-  // Stop the mic if the component unmounts mid-recording.
+  const persist = useCallback((recording: SavedVoiceRecording): Promise<boolean> => {
+    const saved = writeQueueRef.current.then(() => saveVoiceRecording(recording)).then(() => true, () => {
+      if (!cancelledRef.current) setRecoveryMessage('Автосохранение недоступно. Не закрывай страницу — скачай запись после остановки.');
+      return false;
+    });
+    writeQueueRef.current = saved;
+    return saved;
+  }, []);
+
+  const restoreNext = useCallback(async () => {
+    const saved = (await listVoiceRecordings(recoveryScope))[0];
+    if (cancelledRef.current) return;
+    pendingRef.current = saved ? { ...saved, send: false } : null;
+    busyRef.current = false;
+    setState(saved ? 'error' : 'idle');
+    setRecoveryMessage(saved ? (saved.status === 'recording'
+      ? 'Восстановлена прерванная запись. Проверь скачанный файл: последнее мгновение могло не сохраниться.'
+      : saved.transcript ? 'Расшифровка восстановлена. Нажми повтор — текст вставится без обращения к сети.'
+        : 'Запись восстановлена с устройства. Можно сменить VPN и нажать повтор или скачать аудио.') : null);
+  }, [recoveryScope]);
+
   useEffect(() => {
+    let disposed = false;
     cancelledRef.current = false;
+    void listVoiceRecordings(recoveryScope).then((saved) => {
+      if (disposed) return;
+      const recording = saved[0];
+      pendingRef.current = recording ? { ...recording, send: false } : null;
+      busyRef.current = false;
+      setState(recording ? 'error' : 'idle');
+      if (recording) setRecoveryMessage(recording.status === 'recording'
+        ? 'Восстановлена прерванная запись. Проверь файл перед отправкой.'
+        : recording.transcript ? 'Расшифровка восстановлена. Нажми повтор для вставки без сети.'
+          : 'Запись восстановлена с устройства. Сменить VPN можно без повторной диктовки.');
+    }).catch(() => {
+      if (disposed) return;
+      busyRef.current = false;
+      setState('idle');
+      setRecoveryMessage('Хранилище записей недоступно. При ошибке скачай аудио до закрытия страницы.');
+    });
     return () => {
+      disposed = true;
       cancelledRef.current = true;
       startingRef.current = false;
+      // onstop still persists the final blob, but may not send it into another chat.
+      const recorder = recorderRef.current;
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       recorderRef.current = null;
       closeMeter(meterRef.current);
       meterRef.current = null;
     };
+  }, [recoveryScope]);
+
+  useEffect(() => {
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (recorderRef.current?.state !== 'recording' && !busyRef.current && !pendingRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
   }, []);
 
   /** Current mic loudness, 0..1, ready to drive a bar height. */
@@ -164,25 +224,57 @@ export function useVoiceInput(
   // re-recording it.
   const runTranscription = useCallback(
     async (pending: PendingRecording) => {
+      if (busyRef.current || cancelledRef.current) return;
+      busyRef.current = true;
+      pendingRef.current = pending;
       setState('transcribing');
+      onError?.('');
+      if (await persist(pending)) setRecoveryMessage('Оригинал сохранён на устройстве. Если VPN мешает, запись можно повторить или скачать.');
       let lastError = '';
 
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
         if (cancelledRef.current) return;
         try {
-          const res = await transcribeVoice(pending.blob, pending.filename);
-          if (res.ok) {
+          let text = pending.transcript || '';
+          if (!text) {
+            const wav = await toWav16kMono(pending.blob);
+            if (!wav) throw new Error('Не удалось прочитать запись целиком. Аудио сохранено — скачай его или повтори распознавание.');
+            const audio = splitWav(new Uint8Array(await wav.arrayBuffer()));
+            const recordedSeconds = pending.recordedMs / 1000;
+            if (!audio || (recordedSeconds > 10 && audio.duration < recordedSeconds - Math.max(2, recordedSeconds * 0.1))) {
+              throw new Error('Длительность аудио меньше времени записи. Аудио сохранено — проверь файл перед отправкой.');
+            }
+            const res = await transcribeVoice(wav, 'recording.wav');
+            if (!res.ok) {
+              lastError = await readErrorMessage(res);
+              if (isPermanent(res.status)) break;
+              throw new Error(lastError);
+            }
             const data = await res.json();
-            if (cancelledRef.current) return;
-            pendingRef.current = null;
-            const text = String(data?.text || '').trim();
-            setState('idle');
-            if (text) onTranscript(text, pending.send);
-            else onError?.('No speech detected');
-            return;
+            text = String(data?.text || '').trim();
           }
-          lastError = await readErrorMessage(res);
-          if (isPermanent(res.status)) break;
+          if (cancelledRef.current) return;
+          if (!text) {
+            lastError = 'Речь не распознана. Запись сохранена — повтори распознавание.';
+            break;
+          }
+          pending = { ...pending, transcript: text, status: 'ready' };
+          pendingRef.current = pending;
+          await persist(pending);
+          if (cancelledRef.current) return;
+          // Restore/retry always fills the composer; it must not auto-send later.
+          onTranscript(text, pending.send);
+          await writeQueueRef.current;
+          try {
+            await removeVoiceRecording(pending.id);
+            await restoreNext();
+          } catch {
+            pendingRef.current = null;
+            busyRef.current = false;
+            setState('idle');
+            setRecoveryMessage('Текст вставлен. Не удалось удалить резервную запись — после перезагрузки она может появиться снова.');
+          }
+          return;
         } catch (e) {
           lastError = e instanceof Error ? e.message : String(e);
         }
@@ -190,15 +282,16 @@ export function useVoiceInput(
       }
 
       if (cancelledRef.current) return;
-      pendingRef.current = pending;
+      pendingRef.current = { ...pending, send: false };
+      busyRef.current = false;
       setState('error');
       onError?.(lastError);
     },
-    [onTranscript, onError],
+    [onTranscript, onError, persist, restoreNext],
   );
 
   const start = useCallback(async () => {
-    if (startingRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
+    if (busyRef.current || pendingRef.current || startingRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
     startingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -214,38 +307,36 @@ export function useVoiceInput(
       const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       recorderRef.current = rec;
       chunksRef.current = [];
+      recordingInfoRef.current = { id: crypto.randomUUID(), createdAt: Date.now() };
 
       rec.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+        if (e.data.size <= 0) return;
+        chunksRef.current.push(e.data);
+        const type = rec.mimeType || 'audio/webm';
+        const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+        void persist({ ...recordingInfoRef.current!, scope: recoveryScope,
+          blob: new Blob(chunksRef.current, { type }), filename: `recording.${ext}`,
+          recordedMs: Date.now() - startedAtRef.current, status: 'recording' });
       };
 
       rec.onstop = async () => {
+        const recordedMs = Date.now() - startedAtRef.current;
         stopTracks();
-        if (cancelledRef.current) return;
         // Capture and clear the send intent for this stop before any async work.
         const shouldSend = sendRef.current;
         sendRef.current = false;
         const type = rec.mimeType || 'audio/webm';
         const blob = new Blob(chunksRef.current, { type });
-        if (blob.size < 800) {
-          setState('idle');
-          onError?.('Recording too short');
-          return;
-        }
-        setState('transcribing');
-        // Re-encode to WAV so the backend reads a correct duration (see
-        // audioToWav). Falls back to the raw recording if decoding fails.
-        const wav = await toWav16kMono(blob);
-        if (cancelledRef.current) return;
         const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
-        await runTranscription(
-          wav
-            ? { blob: wav, filename: 'recording.wav', send: shouldSend }
-            : { blob, filename: `recording.${ext}`, send: shouldSend },
-        );
+        const pending: PendingRecording = { ...recordingInfoRef.current!, scope: recoveryScope,
+          blob, filename: `recording.${ext}`, send: shouldSend, recordedMs, status: 'pending' };
+        // Commit the original before any decoding/network work, even on navigation.
+        await persist(pending);
+        if (cancelledRef.current) return;
+        await runTranscription(pending);
       };
 
-      rec.start();
+      rec.start(1000);
       startedAtRef.current = Date.now();
       setState('recording');
     } catch (e) {
@@ -261,7 +352,7 @@ export function useVoiceInput(
     } finally {
       startingRef.current = false;
     }
-  }, [onError, runTranscription]);
+  }, [onError, runTranscription, persist, recoveryScope]);
 
   // Stop recording. Pass { send: true } to auto-send the transcript once it's ready.
   // Guard on the recorder's own state (not React state) so a double tap, or the mic
@@ -277,14 +368,35 @@ export function useVoiceInput(
   // Re-upload the kept recording.
   const retry = useCallback(() => {
     const pending = pendingRef.current;
-    if (pending) void runTranscription(pending);
+    if (pending) void runTranscription({ ...pending, send: false });
   }, [runTranscription]);
 
-  // Throw the failed recording away and go back to a clean mic.
-  const discard = useCallback(() => {
-    pendingRef.current = null;
-    setState('idle');
+  const download = useCallback(() => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    const url = URL.createObjectURL(pending.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = pending.filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, []);
+
+  // Throw the failed recording away and go back to a clean mic.
+  const discard = useCallback(async () => {
+    if (busyRef.current) return;
+    const pending = pendingRef.current;
+    if (!pending) return;
+    busyRef.current = true;
+    try {
+      await writeQueueRef.current;
+      await removeVoiceRecording(pending.id);
+      await restoreNext();
+    } catch {
+      busyRef.current = false;
+      onErrorRef.current?.('Не удалось удалить запись с устройства. Попробуй ещё раз.');
+    }
+  }, [restoreNext]);
 
   const toggle = useCallback(() => {
     if (state === 'recording') stop();
@@ -292,5 +404,5 @@ export function useVoiceInput(
     else if (state === 'idle') start();
   }, [state, start, stop, retry]);
 
-  return { state, toggle, stop, retry, discard, getLevel, getElapsedMs };
+  return { state, recoveryMessage, toggle, stop, retry, discard, download, getLevel, getElapsedMs };
 }

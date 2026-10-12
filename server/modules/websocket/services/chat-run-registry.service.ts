@@ -3,7 +3,7 @@ import path from 'node:path';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
-import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
+import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
 import type {
   LLMProvider,
   NormalizedMessage,
@@ -103,11 +103,7 @@ async function broadcastCanonicalSessionUpsert(appSessionId: string): Promise<vo
     timestamp: new Date().toISOString(),
   });
 
-  connectedClients.forEach((client) => {
-    if (client.readyState === WS_OPEN_STATE) {
-      client.send(payload);
-    }
-  });
+  broadcastProjectEvent(payload, project?.project_id ?? null);
 }
 
 function evictRunLater(appSessionId: string): void {

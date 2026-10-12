@@ -35,7 +35,7 @@ const CODEX_FALLBACK_EFFORT_WITH_ULTRA = {
   values: [...CODEX_FALLBACK_EFFORT.values, { value: 'ultra' }],
 };
 
-// Conservative CLI metadata verified 24.09.2026. Historical entries remain hidden.
+// Conservative CLI metadata verified 28.09.2026. Historical entries remain hidden.
 export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
@@ -46,11 +46,11 @@ export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
       effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
     },
     {
-      value: 'gpt-5.6-sol',
+      value: 'gpt-6-sol',
       contextWindow: 872_000,
-      label: 'GPT-5.6 Sol',
-      description: 'Reliable agentic workhorse for everyday tasks.',
-      effort: { ...CODEX_FALLBACK_EFFORT_WITH_ULTRA, default: 'low' },
+      label: 'GPT-6 Sol',
+      description: 'Workhorse model for coding and everyday work.',
+      effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
     },
     {
       value: 'gpt-5.6-terra',
@@ -77,7 +77,7 @@ export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
       },
     },
   ],
-  DEFAULT: 'gpt-5.6-sol',
+  DEFAULT: 'gpt-6-sol',
 };
 
 type CodexCachedModel = {

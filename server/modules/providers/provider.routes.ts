@@ -1,6 +1,7 @@
+import { canAccessProject, canAccessSession } from '@/modules/websocket/services/project-access.service.js';
 import express, { type Request, type Response } from 'express';
 
-import { appConfigDb } from '@/modules/database/index.js';
+import { appConfigDb, projectsDb } from '@/modules/database/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
@@ -9,6 +10,7 @@ import { providerSkillsService } from '@/modules/providers/services/skills.servi
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type {
+  AuthenticatedWebSocketUser,
   LLMProvider,
   McpScope,
   McpTransport,
@@ -20,6 +22,16 @@ import type {
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
 const router = express.Router();
+
+// Check stable session IDs before any history read or session mutation.
+router.param('sessionId', (req, res, next, sessionId: string) => {
+  const user = (req as Request & { user?: AuthenticatedWebSocketUser }).user;
+  if (!canAccessSession(user, sessionId)) {
+    res.status(403).json({ error: 'Project access denied', code: 'PROJECT_ACCESS_DENIED' });
+    return;
+  }
+  next();
+});
 
 const readPathParam = (value: unknown, name: string): string => {
   if (typeof value === 'string') {
@@ -579,6 +591,11 @@ router.post(
     const body = (req.body ?? {}) as Record<string, unknown>;
     const provider = parseProvider(body.provider);
     const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+    const user = (req as Request & { user?: AuthenticatedWebSocketUser }).user;
+    const project = projectsDb.getProjectPath(projectPath);
+    if (!canAccessProject(user, project?.project_id ?? null)) {
+      throw new AppError('Project access denied', { code: 'PROJECT_ACCESS_DENIED', statusCode: 403 });
+    }
     const result = sessionsService.createAppSession(provider, projectPath);
     res.status(201).json(createApiSuccessResponse(result));
   }),
@@ -586,17 +603,17 @@ router.post(
 
 router.get(
   '/sessions/running',
-  asyncHandler(async (_req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const sessions = sessionsService.listRunningSessions();
-    res.json(createApiSuccessResponse({ sessions }));
+    res.json(createApiSuccessResponse({ sessions: sessions.filter(session => canAccessSession((req as Request & { user?: AuthenticatedWebSocketUser }).user, session.sessionId)) }));
   }),
 );
 
 router.get(
   '/sessions/archived',
-  asyncHandler(async (_req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const sessions = sessionsService.listArchivedSessions();
-    res.json(createApiSuccessResponse({ sessions }));
+    res.json(createApiSuccessResponse({ sessions: sessions.filter(session => canAccessSession((req as Request & { user?: AuthenticatedWebSocketUser }).user, session.sessionId)) }));
   }),
 );
 

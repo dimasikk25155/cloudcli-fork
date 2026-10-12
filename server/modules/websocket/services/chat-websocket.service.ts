@@ -1,8 +1,9 @@
 import path from 'node:path';
+import { canAccessSession, clientIdentities } from './project-access.service.js';
 
 import type { WebSocket } from 'ws';
 
-import { projectsDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
+import { sessionsDb } from '@/modules/database/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '@/modules/governance/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -192,18 +193,9 @@ async function handleChatSend(
   // Non-admin employees may only open sessions for projects an admin granted
   // them via the admin panel — listing already filters the sidebar, but a
   // known/guessed sessionId must not bypass that (see user_project_access).
-  if (userRole && userRole !== 'admin' && userId !== null && session.project_path) {
-    const projectRow = projectsDb.getProjectPath(session.project_path);
-    const accessibleProjectIds = userProjectAccessDb.getAccessibleProjectIds(Number(userId));
-    if (!projectRow || !accessibleProjectIds.includes(projectRow.project_id)) {
-      sendProtocolError(
-        ws,
-        'PROJECT_ACCESS_DENIED',
-        'You do not have access to this project.',
-        sessionId
-      );
-      return;
-    }
+  if (!canAccessSession(clientIdentities.get(ws), sessionId)) {
+    sendProtocolError(ws, 'PROJECT_ACCESS_DENIED', 'You do not have access to this project.', sessionId);
+    return;
   }
 
   const provider = session.provider as LLMProvider;
@@ -278,7 +270,7 @@ async function handleChatSend(
     // routes on — the provider-native id above would not resolve there.
     appSessionId: sessionId,
     resume: Boolean(session.provider_session_id),
-    cwd: clientOptions.cwd ?? session.project_path ?? undefined,
+    cwd: userRole === 'admin' ? (clientOptions.cwd ?? session.project_path ?? undefined) : session.project_path ?? undefined,
     projectPath: session.project_path ?? clientOptions.projectPath,
   };
 
@@ -421,6 +413,11 @@ function handleChatSubscribe(
       continue;
     }
 
+    if (!canAccessSession(clientIdentities.get(ws), sessionId)) {
+      sendProtocolError(ws, 'PROJECT_ACCESS_DENIED', 'You do not have access to this project.', sessionId);
+      continue;
+    }
+
     const lastSeqRaw = (target as AnyRecord).lastSeq;
     const lastSeq = typeof lastSeqRaw === 'number' && Number.isFinite(lastSeqRaw)
       ? Math.max(0, Math.floor(lastSeqRaw))
@@ -558,6 +555,7 @@ export function handleChatConnection(
   dependencies: ChatWebSocketDependencies
 ): void {
   console.log('[INFO] Chat WebSocket connected');
+  clientIdentities.set(ws, request.user ?? {});
   connectedClients.add(ws);
 
   const userId = readRequestUserId(request);
@@ -578,6 +576,10 @@ export function handleChatConnection(
           await handleChatSend(ws, userId, userRole, data, dependencies);
           return;
         case 'chat.abort':
+          if (!canAccessSession(request.user, String(data.sessionId ?? ''))) {
+            sendProtocolError(ws, 'PROJECT_ACCESS_DENIED', 'You do not have access to this project.');
+            return;
+          }
           await handleChatAbort(ws, data, dependencies);
           return;
         case 'chat.subscribe':
