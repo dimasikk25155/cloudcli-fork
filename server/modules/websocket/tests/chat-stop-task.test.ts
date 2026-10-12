@@ -137,11 +137,11 @@ test('the owner stops one task: the runtime gets the native session id and the t
   });
 });
 
-test('no process for the session: the client is told the task is no longer running', async () => {
+test('no live run for the session: the client is told the turn is over', async () => {
   await withIsolatedDatabase(async (fixture) => {
     const { dependencies, stops } = fakeDependencies();
     const socket = new FakeSocket();
-    // No run started: the CLI process is already gone.
+    // No run started: the turn has ended and the CLI process is gone.
     handleChatConnection(socket as never, { user: { userId: fixture.adminId, role: 'admin' } } as never, dependencies);
 
     await socket.deliver({ type: 'chat.stop-task', sessionId: fixture.sessionId, taskId: 'b1' });
@@ -149,7 +149,7 @@ test('no process for the session: the client is told the task is no longer runni
     assert.equal(stops.length, 0);
     const reply = stopReply(socket);
     assert.equal(reply?.ok, false);
-    assert.equal(reply?.reason, 'not_running');
+    assert.equal(reply?.reason, 'turn_ended');
   });
 });
 

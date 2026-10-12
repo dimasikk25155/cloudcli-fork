@@ -554,6 +554,7 @@ function addSession(sessionId, queryInstance, writer = null, controls = null) {
     releaseInput: controls?.releaseInput ?? null,
     abortController: controls?.abortController ?? null,
     runState: controls?.runState ?? null,
+    isInputReleased: controls?.isInputReleased ?? null,
     backgroundTasks: controls?.backgroundTasks ?? null
   });
 }
@@ -792,6 +793,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
   const runState = { finished: false };
   const runControls = {
     releaseInput: () => releaseInput(),
+    // Closed stdin = no control channel: stopTask can no longer reach the CLI.
+    isInputReleased: () => inputReleased,
     abortController: runAbortController,
     runState,
     // Background work of the current CLI process (see stopClaudeTask).
@@ -804,6 +807,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
   const resetBackgroundTasks = () => {
     if (runControls.backgroundTasks?.list().length > 0) publishBackgroundTasks([]);
     runControls.backgroundTasks = null;
+  };
+  // The turn is over once the input is released: whatever still runs in the
+  // background can no longer be stopped from here, so the list goes away.
+  const releaseHeldInput = releaseInput;
+  releaseInput = () => {
+    if (!inputReleased) resetBackgroundTasks();
+    releaseHeldInput();
   };
 
   try {
@@ -1048,7 +1058,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
         const outstandingToolUseIds = new Set();
         idleFallbackTimer = setInterval(() => {
           if (inputReleased || !turnResultSeen) return;
-          if (outstandingToolUseIds.size > 0) {
+          if (isRunBusy({ openToolCalls: outstandingToolUseIds.size })) {
             lastStreamActivityAt = Date.now();
             return;
           }
@@ -1109,7 +1119,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
               // guard: defer the release while approvals are outstanding. Once
               // the user answers, a later idle (or the fallback timer) releases.
               const sid = capturedSessionId || sessionId || null;
-              if (outstandingToolUseIds.size > 0) {
+              if (isRunBusy({ openToolCalls: outstandingToolUseIds.size })) {
                 // A tool is still in flight (interactive tool blocked on the
                 // user, or a long tool call). The CLI can emit `idle` here
                 // because it has nothing to compute while waiting — do not
@@ -1128,7 +1138,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
                 setTimeout(() => {
                   if (inputReleased) return;
                   if (lastStreamActivityAt > idleAt) return;
-                  if (outstandingToolUseIds.size > 0) {
+                  if (isRunBusy({ openToolCalls: outstandingToolUseIds.size })) {
                     lastStreamActivityAt = Date.now();
                     return;
                   }
@@ -1410,26 +1420,45 @@ async function abortClaudeSDKSession(sessionId) {
   return true;
 }
 
+/**
+ * Whether the run still needs the CLI's stdin (the held-open prompt input)
+ * after `idle`: only while a tool call is open (its permission answer travels
+ * over it). Background tasks deliberately do NOT hold it — a `tail -f` or a dev
+ * server would keep the chat «working» forever and block the next message.
+ * So «Стоп» on a background task works while the turn runs; once the turn has
+ * ended the task is no longer controllable from Neo3 (see stopClaudeTask).
+ * @param {{openToolCalls?: number, backgroundTasks?: {list(): unknown[]}|null}} state
+ * @returns {boolean}
+ */
+function isRunBusy({ openToolCalls = 0 } = {}) {
+  return openToolCalls > 0;
+}
+
 // stopTask is a control request over the CLI's stdin; a closed channel can
 // leave it hanging, and the button must answer either way.
 const STOP_TASK_TIMEOUT_MS = 5_000;
 
 /**
  * Stops one background task (background Bash, monitor, subagent) of a live
- * run — only it, the turn goes on. `not_running` when the CLI process or the
- * task is already gone ("задача уже не идёт").
+ * run — only it, the turn goes on. Reasons when it cannot:
+ * - `turn_ended`: the turn is over (stdin released or the CLI gone), the task
+ *   is no longer controllable from Neo3;
+ * - `not_running`: the turn runs, but the task list says the task is gone;
+ * - `failed`: the stop request itself failed.
  * @param {string} sessionId - Provider-native (Claude) session id
  * @param {string} taskId - Task id from the `background_tasks` list
  * @returns {Promise<{ok: boolean, reason?: string}>}
  */
 async function stopClaudeTask(sessionId, taskId) {
   const session = getSession(sessionId);
-  if (
-    !session
+  const turnEnded = () => !session
     || session.runState?.finished
     || typeof session.instance?.stopTask !== 'function'
-    || !session.backgroundTasks?.has(taskId)
-  ) {
+    || session.isInputReleased?.() === true;
+  if (turnEnded()) {
+    return { ok: false, reason: 'turn_ended' };
+  }
+  if (!session.backgroundTasks?.has(taskId)) {
     return { ok: false, reason: 'not_running' };
   }
 
@@ -1448,6 +1477,9 @@ async function stopClaudeTask(sessionId, taskId) {
   }
   if (outcome === 'stopped') {
     return { ok: true };
+  }
+  if (turnEnded()) {
+    return { ok: false, reason: 'turn_ended' };
   }
   // "Уже не идёт" only when the task list confirms it is gone; anything else
   // (timeout, a broken control channel) is a failed stop.
@@ -1574,6 +1606,7 @@ export {
   abortClaudeSDKSession,
   stopClaudeTask,
   getClaudeBackgroundTasks,
+  isRunBusy,
   abortAllActiveClaudeSDKSessions,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,

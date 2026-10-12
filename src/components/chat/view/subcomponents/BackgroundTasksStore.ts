@@ -17,8 +17,22 @@ export type BackgroundTaskView = {
   lastTool?: string;
 };
 
-/** `gone` = the process or the task already ended («задача уже не идёт»). */
-export type BackgroundTaskStopState = 'stopping' | 'gone' | 'failed';
+/**
+ * `gone` = the task ended mid-turn; `turn_ended` = the turn is over and the
+ * task is no longer controllable from Neo3; `failed` = the stop itself failed.
+ */
+export type BackgroundTaskStopState = 'stopping' | 'gone' | 'turn_ended' | 'failed';
+
+const STOP_STATE_LABEL: Record<BackgroundTaskStopState, string> = {
+  stopping: 'Останавливаю…',
+  gone: 'Задача уже не идёт',
+  turn_ended: 'Ход уже закончился — задача больше не управляется отсюда',
+  failed: 'Не остановилась',
+};
+
+export function stopStateLabel(state: BackgroundTaskStopState): string {
+  return STOP_STATE_LABEL[state];
+}
 
 export type SessionBackgroundTasks = {
   tasks: BackgroundTaskView[];
@@ -73,7 +87,9 @@ export const backgroundTasksStore = {
   recordStopResult(sessionId: string, taskId: string, ok: boolean, reason?: string): void {
     if (ok) return;
     const previous = sessions.get(sessionId) ?? EMPTY;
-    const state: BackgroundTaskStopState = reason === 'not_running' ? 'gone' : 'failed';
+    const state: BackgroundTaskStopState = reason === 'not_running'
+      ? 'gone'
+      : reason === 'turn_ended' ? 'turn_ended' : 'failed';
     update(sessionId, { ...previous, stops: { ...previous.stops, [taskId]: state } });
   },
   /** The run ended: its process and every background task with it. */

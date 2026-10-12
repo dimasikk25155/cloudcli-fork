@@ -125,7 +125,10 @@ export type ChatWebSocketDependencies = {
   getPendingApprovalById?: (requestId: string) => { sessionId: string | null; input?: unknown } | null;
 };
 
-/** Answer to `chat.stop-task`; `not_running` = the process or the task is already gone. */
+/**
+ * Answer to `chat.stop-task`. `turn_ended` = the turn is over, the task is no
+ * longer controllable from here; `not_running` = the task itself is gone.
+ */
 export type StopTaskResult = { ok: boolean; reason?: string };
 
 /**
@@ -563,7 +566,7 @@ async function handleChatStopTask(
   const run = chatRunRegistry.getRun(sessionId);
   const stopTaskFn = run ? dependencies.stopTaskFns?.[run.provider] : undefined;
   if (!run || run.status !== 'running' || !run.providerSessionId) {
-    reply({ ok: false, reason: 'not_running' });
+    reply({ ok: false, reason: 'turn_ended' });
     return;
   }
   if (!stopTaskFn) {
