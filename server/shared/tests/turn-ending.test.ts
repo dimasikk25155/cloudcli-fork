@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { classifyTurnEnding } from '@/shared/turn-ending.js';
+import { classifyTurnEnding, finalParagraph, isTimestampLine } from '@/shared/turn-ending.js';
 
 // Endings taken from real Neo3 sessions (Claude/Grok/Codex replies to Dima):
 // the agent stops and asks for a manual action on the user's side.
@@ -76,4 +76,32 @@ test('a long final paragraph is cut to at most 200 characters', () => {
 test('empty or non-string input is none', () => {
   assert.deepEqual(classifyTurnEnding(''), { kind: 'none', excerpt: '' });
   assert.deepEqual(classifyTurnEnding(undefined as unknown as string), { kind: 'none', excerpt: '' });
+});
+
+// Dima's agents sign every reply with a time stamp on its own line (real endings).
+test('a time stamp under the question does not hide it', () => {
+  const STAMPS = [
+    '22:30 МСК',
+    '*08:32 МСК*',
+    '*2026-10-07 16:29 МСК*',
+    '`2026-10-03 23:16 МСК`',
+    '07.10.2026 16:27 МСК',
+    '_30.09.2026 22:16 МСК_',
+    '*03.10.2026, 22:14 МСК*',
+    '<sub>2026-10-12 00:39 МСК</sub>',
+    '🕐 2026-10-01 11:46 МСК · ✉️ #4',
+  ];
+  for (const stamp of STAMPS) {
+    assert.equal(isTimestampLine(stamp), true, stamp);
+    assert.equal(classifyTurnEnding(`Правки не закоммичены. Закоммитить и запушить?\n\n${stamp}`).kind, 'question', stamp);
+    assert.equal(classifyTurnEnding(`Готово, тесты зелёные.\n\n${stamp}`).kind, 'none', stamp);
+  }
+  assert.equal(isTimestampLine('Перезапуск в 16:30, жди'), false);
+  assert.equal(finalParagraph('Выбери:\n1. Армянский?\n2. Чинить вход сейчас?\n\n*08:32 МСК*'), 'Выбери:\n1. Армянский?\n2. Чинить вход сейчас?');
+});
+
+test('«скажи» and «напиши» ask the user for an answer', () => {
+  assert.equal(classifyTurnEnding('Обходной путь описал.\n\nЧтобы выкатить исправление, скажите «выкатывай».').kind, 'manual_ask');
+  assert.equal(classifyTurnEnding('Когда лимит восстановится, напиши «начинай перепроверку».').kind, 'manual_ask');
+  assert.equal(classifyTurnEnding('Если её нет, напиши «перезапусти Neo3».').kind, 'none', 'conditional offer');
 });
