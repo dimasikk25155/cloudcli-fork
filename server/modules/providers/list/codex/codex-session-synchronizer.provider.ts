@@ -11,6 +11,7 @@ import {
   readFileTimestamps,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
+import { stripAgentOnlyBlocks } from '../../../../../shared/agent-only-blocks.js';
 
 type ParsedSession = {
   sessionId: string;
@@ -212,8 +213,12 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
         const payloadType = typeof payload?.type === 'string' ? payload.type : undefined;
         const message = typeof payload?.message === 'string' ? payload.message : undefined;
 
-        if (eventType === 'event_msg' && payloadType === 'user_message' && message?.trim()) {
-          return message;
+        // Only what the user typed: agent-only blocks (screenshot captions,
+        // catalog briefs) never become the title; a picture-only prompt falls
+        // through to the next naming source.
+        const typed = message ? stripAgentOnlyBlocks(message) : '';
+        if (eventType === 'event_msg' && payloadType === 'user_message' && typed) {
+          return typed;
         }
       }
     } catch {

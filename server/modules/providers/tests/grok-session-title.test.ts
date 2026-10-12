@@ -121,3 +121,8 @@ test('the first real user turn is read from Grok history, skipping harness noise
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('composeGrokSessionTitle ignores the agent-only screenshot caption after the typed text', () => {
+  const sent = 'почини промокод\n\n<screenshot_context>\nскриншот a.png, вставлен из буфера, 12.10.2026 20:58; прикреплён в Neo3: проект Демо\n</screenshot_context>';
+  assert.equal(composeGrokSessionTitle(sent), 'Почини промокод');
+});

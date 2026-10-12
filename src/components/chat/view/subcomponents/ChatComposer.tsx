@@ -95,6 +95,8 @@ interface ChatComposerProps {
   onDeleteQueuedDraft: () => void;
   attachedImages: File[];
   onRemoveImage: (index: number) => void;
+  /** Swap an attachment for its marked-up copy (the «✎» editor). */
+  onReplaceImage?: (index: number, file: File) => void;
   uploadingImages: Map<string, number>;
   imageErrors: Map<string, string>;
   showFileDropdown: boolean;
@@ -198,6 +200,7 @@ export default function ChatComposer({
   onDeleteQueuedDraft,
   attachedImages,
   onRemoveImage,
+  onReplaceImage,
   uploadingImages,
   imageErrors,
   showFileDropdown,
@@ -636,6 +639,7 @@ export default function ChatComposer({
                       key={index}
                       file={file}
                       onRemove={() => onRemoveImage(index)}
+                      onReplace={onReplaceImage ? (marked) => onReplaceImage(index, marked) : undefined}
                       uploadProgress={uploadingImages.get(file.name)}
                       error={imageErrors.get(file.name)}
                     />

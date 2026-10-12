@@ -1,5 +1,6 @@
 import { extractGrokUserTurn } from '@/modules/providers/list/grok/grok-sessions.provider.js';
 import { extractFirstValidJsonlData, normalizeSessionName, readObjectRecord } from '@/shared/utils.js';
+import { stripAgentOnlyBlocks } from '../../../../../shared/agent-only-blocks.js';
 
 export const GROK_UNTITLED_SESSION_TITLE = 'Новый чат';
 export const GROK_LEGACY_UNTITLED_SESSION_TITLE = 'Untitled Grok Session';
@@ -117,7 +118,7 @@ function textFromGrokHistoryRow(raw: unknown): string {
 }
 
 function firstWordsFromPrompt(raw: string): string {
-  let text = raw.replace(/\s+/g, ' ').trim();
+  let text = stripAgentOnlyBlocks(raw).replace(/\s+/g, ' ').trim();
   if (!text) {
     return '';
   }
