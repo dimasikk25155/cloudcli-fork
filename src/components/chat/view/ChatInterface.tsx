@@ -246,6 +246,8 @@ function ChatInterface({
     setAttachedImages,
     uploadingImages,
     imageErrors,
+    dropNotice,
+    dismissDropNotice,
     getRootProps,
     getInputProps,
     isDragActive,
@@ -735,6 +737,8 @@ function ChatInterface({
           }
           uploadingImages={uploadingImages}
           imageErrors={imageErrors}
+          dropNotice={dropNotice}
+          onDismissDropNotice={dismissDropNotice}
           showFileDropdown={showFileDropdown}
           filteredFiles={filteredFiles}
           selectedFileIndex={selectedFileIndex}

@@ -97,6 +97,9 @@ interface ChatComposerProps {
   onRemoveImage: (index: number) => void;
   uploadingImages: Map<string, number>;
   imageErrors: Map<string, string>;
+  /** Why the last drag-and-drop attached nothing; null when there is nothing to say. */
+  dropNotice?: string | null;
+  onDismissDropNotice?: () => void;
   showFileDropdown: boolean;
   filteredFiles: MentionableFile[];
   selectedFileIndex: number;
@@ -200,6 +203,8 @@ export default function ChatComposer({
   onRemoveImage,
   uploadingImages,
   imageErrors,
+  dropNotice,
+  onDismissDropNotice,
   showFileDropdown,
   filteredFiles,
   selectedFileIndex,
@@ -641,6 +646,24 @@ export default function ChatComposer({
                     />
                   ))}
                 </div>
+              </div>
+            </PromptInputHeader>
+          )}
+
+          {dropNotice && (
+            <PromptInputHeader>
+              <div role="status" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-foreground">
+                <span className="flex-1">{dropNotice}</span>
+                {onDismissDropNotice && (
+                  <button
+                    type="button"
+                    onClick={onDismissDropNotice}
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label="Скрыть"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             </PromptInputHeader>
           )}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ChangeEvent,
   ClipboardEvent,
+  DragEvent,
   Dispatch,
   FormEvent,
   KeyboardEvent,
@@ -42,6 +43,7 @@ import {
   pasteSignature,
   type PasteRecord,
 } from '../utils/clipboardPaste';
+import { hasUsableFiles, resolveDroppedFiles, snapshotDrop } from '../utils/dropTransfer';
 import { downscaleImageFile } from '../utils/imageDownscale';
 import { isImeOwnedKey } from '../utils/imeComposition';
 import { modelForProvider } from '../utils/providerModelState';
@@ -302,6 +304,7 @@ export function useChatComposerState({
   const [attachedImages, setAttachedImages] = useState<File[]>([]);
   const [uploadingImages, setUploadingImages] = useState<Map<string, number>>(new Map());
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
+  const [dropNotice, setDropNotice] = useState<string | null>(null);
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
 
@@ -663,6 +666,7 @@ export function useChatComposerState({
     });
 
     if (validFiles.length > 0) {
+      setDropNotice(null);
       setAttachedImages((previous) => [...previous, ...validFiles].slice(0, MAX_ATTACHED_FILES));
     }
   }, []);
@@ -698,7 +702,7 @@ export function useChatComposerState({
     [handleImageFiles],
   );
 
-  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+  const { getRootProps: getDropzoneRootProps, getInputProps, isDragActive, open } = useDropzone({
     // No `accept` filter: any file type may be attached (images become vision
     // blocks, other files are read off disk by the agent).
     maxSize: MAX_ATTACHMENT_BYTES,
@@ -707,6 +711,35 @@ export function useChatComposerState({
     noClick: true,
     noKeyboard: true,
   });
+
+  // Runs before react-dropzone's own drop handler. A drop with real file bytes
+  // is left to it; anything else (a link/HTML flavour, a zero-byte promised
+  // file) it would swallow silently, so it is resolved here — or explained.
+  const handleNonFileDrop = useCallback((event: DragEvent<HTMLElement>) => {
+    const transfer = event.dataTransfer;
+    if (!transfer) {
+      return;
+    }
+    const snapshot = snapshotDrop(transfer);
+    if (hasUsableFiles(snapshot)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    void resolveDroppedFiles(snapshot).then(({ files, reason }) => {
+      if (files.length > 0) {
+        handleImageFiles(files);
+        return;
+      }
+      console.warn('[composer] drop produced no file', { types: snapshot.types, urls: snapshot.urls });
+      setDropNotice(reason);
+    });
+  }, [handleImageFiles]);
+
+  const getRootProps = useCallback(
+    (props: Record<string, unknown> = {}) => getDropzoneRootProps({ ...props, onDrop: handleNonFileDrop }),
+    [getDropzoneRootProps, handleNonFileDrop],
+  );
 
   // Snapshot of everything `chat.send` needs beyond the text itself. Built at
   // send time for immediate sends and at queue time for queued ones, so a
@@ -1743,6 +1776,8 @@ export function useChatComposerState({
     setAttachedImages,
     uploadingImages,
     imageErrors,
+    dropNotice,
+    dismissDropNotice: () => setDropNotice(null),
     getRootProps,
     getInputProps,
     isDragActive,
