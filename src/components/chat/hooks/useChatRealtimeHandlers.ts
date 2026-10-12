@@ -8,6 +8,7 @@ import { playChatCompletionSound, playNotificationSound } from '../../../utils/n
 import type { MarkSessionIdle, MarkSessionProcessing } from '../../../hooks/useSessionProtection';
 import type { PendingPermissionRequest } from '../types/types';
 import type { ProjectSession, LLMProvider } from '../../../types/app';
+import { CHAT_ROW_KINDS } from '../../../stores/useSessionStore';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
 import { classifyIdleAck, CONNECTION_LOST_MESSAGE } from '../utils/idleAck';
 
@@ -247,14 +248,8 @@ export function useChatRealtimeHandlers({
         return;
       }
 
-      // --- All other messages: route to store ---
-      const shouldPersist =
-        msg.kind !== 'complete'
-        && msg.kind !== 'status'
-        && msg.kind !== 'permission_request'
-        && msg.kind !== 'permission_cancelled';
-
-      if (sid && shouldPersist) {
+      // --- Conversation rows: route to store (allowlist, see CHAT_ROW_KINDS) ---
+      if (sid && CHAT_ROW_KINDS.has(msg.kind)) {
         sessionStore.appendRealtime(sid, msg as unknown as NormalizedMessage);
       }
 
