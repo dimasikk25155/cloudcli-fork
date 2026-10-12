@@ -6,7 +6,7 @@
 // previous path afterwards, so any write that lands after teardown (e.g. the
 // session-attention history fallback resolving a tick late) used to hit the
 // production database — 12.10.2026 it left `sess-alpha`/`app-run-*` rows in
-// «Ждут тебя». Pointing the whole run at a temp file makes "restore" harmless.
+// «Ждут тебя». Pointing the whole run at a temp home makes "restore" harmless.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,7 +24,15 @@ const args = [
 const child = spawn(tsxBin, args, {
   stdio: 'inherit',
   shell: process.platform === 'win32',
-  env: { ...process.env, DATABASE_PATH: path.join(scratch, 'auth.db') },
+  env: {
+    ...process.env,
+    // Services write ~/.cloudcli/* (sticky-push token, model cache, run
+    // outcomes, ...) straight from os.homedir(); a scratch HOME keeps every
+    // one of them — present and future — off the live files.
+    HOME: scratch,
+    USERPROFILE: scratch,
+    DATABASE_PATH: path.join(scratch, '.cloudcli', 'auth.db'),
+  },
 });
 
 child.on('exit', (code, signal) => {
