@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionLinksDb, sessionsDb } from '@/modules/database/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '@/modules/governance/index.js';
 import {
   pendingAnswers,
@@ -12,6 +12,8 @@ import {
   type PendingRequestInfo,
 } from '@/modules/pending-answers/pending-answers.service.js';
 import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
+import { threadTokens } from '@/modules/threads/thread-tokens.js';
+import type { ThreadRunControl } from '@/modules/threads/threads.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -35,6 +37,7 @@ import {
   takeGrokQuestionsForAppSession,
 } from '@/shared/grok-question.js';
 import { canAccessSession } from '@/shared/project-access.js';
+import { threadsApiUrl } from '@/shared/threads-env.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
@@ -197,7 +200,26 @@ type ChatSendStart = { started: false } | { started: true; finished: Promise<voi
  *   Telegram. There is no socket identity; the actor was already checked by
  *   `pendingAnswers` against the same project-access rule before delivery.
  */
-type ChatSendAccess = { kind: 'socket' } | { kind: 'verified-answer' };
+type ChatSendAccess =
+  | { kind: 'socket' }
+  | { kind: 'verified-answer' }
+  | { kind: 'thread'; userId: number; parentSessionId: string };
+
+/**
+ * `thread` access (agent threads): the actor is the parent chat's user, checked
+ * against the project-access rule now, and the target is either the parent
+ * itself («Треды готовы») or one of its threads.
+ */
+function canStartThreadRun(access: { userId: number; parentSessionId: string }, sessionId: string): boolean {
+  if (!canAccessSession({ id: access.userId }, sessionId)) {
+    return false;
+  }
+  if (sessionId === access.parentSessionId) {
+    return true;
+  }
+  const link = sessionLinksDb.getRow(sessionId);
+  return link?.relation === 'thread' && link.parent_session_id === access.parentSessionId;
+}
 
 /**
  * Handles `chat.send`: resolves the session row (provider, project path, and
@@ -254,7 +276,10 @@ function beginChatSend(
   // the database: no user → refused, a session without a project → admins
   // only. The single exception is a detached continuation whose actor
   // `pendingAnswers` has already checked (see ChatSendAccess).
-  if (access.kind === 'socket' && !canAccessSession(clientIdentities.get(ws), sessionId)) {
+  const accessDenied = access.kind === 'socket'
+    ? !canAccessSession(clientIdentities.get(ws), sessionId)
+    : access.kind === 'thread' && !canStartThreadRun(access, sessionId);
+  if (accessDenied) {
     sendProtocolError(
       ws,
       'PROJECT_ACCESS_DENIED',
@@ -351,6 +376,23 @@ function beginChatSend(
   const startedAt = Date.now();
   runtimeOptions.meter = meter;
 
+  // Threads: this run's identity for the neo3-threads MCP server, put into the
+  // engine env by the runtime (server/shared/threads-env.ts). Valid until the
+  // run ends + 24 h. A failure here never blocks the run — it only goes
+  // without threads.
+  let threadsToken: string | null = null;
+  try {
+    threadsToken = threadTokens.issue({ sessionId, userId, permissionMode: clientOptions.permissionMode });
+  } catch (error) {
+    console.error('[Chat] Thread token was not issued', {
+      sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (threadsToken) {
+    runtimeOptions.threadsEnv = { NEO3_THREADS_TOKEN: threadsToken, NEO3_THREADS_API_URL: threadsApiUrl() };
+  }
+
   recordAuditEvent({
     actor: 'user',
     event: 'run.start',
@@ -375,6 +417,11 @@ function beginChatSend(
       failureDetail = message;
       console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: message });
     } finally {
+      try {
+        threadTokens.end(threadsToken);
+      } catch {
+        // The token then expires at the next boot (threadTokens.reconcileOnBoot).
+      }
       const cost = meter.finish();
       recordAuditEvent({
         actor: 'user',
@@ -424,10 +471,23 @@ async function handleChatAbort(
     return;
   }
 
+  if (!(await abortSessionRun(sessionId, dependencies, userId))) {
+    sendProtocolError(ws, 'NO_ACTIVE_RUN', `Session "${sessionId}" has no active run.`, sessionId);
+  }
+}
+
+/**
+ * Stops the live run of one app session — the Stop button, also used by
+ * `stop_thread`. False when the session has nothing running.
+ */
+async function abortSessionRun(
+  sessionId: string,
+  dependencies: ChatWebSocketDependencies,
+  userId: string | number | null,
+): Promise<boolean> {
   const run = chatRunRegistry.getRun(sessionId);
   if (!run || run.status !== 'running') {
-    sendProtocolError(ws, 'NO_ACTIVE_RUN', `Session "${sessionId}" has no active run.`, sessionId);
-    return;
+    return false;
   }
 
   const abortFn = dependencies.abortFns[run.provider];
@@ -449,12 +509,12 @@ async function handleChatAbort(
   chatRunRegistry.completeRun(sessionId, { exitCode: 0, aborted: true });
 
   if (!abortFn) {
-    return;
+    return true;
   }
 
   if (run.providerSessionId) {
     await abortFn(run.providerSessionId);
-    return;
+    return true;
   }
 
   // Brand-new chat whose runtime has not announced its native session id yet:
@@ -467,6 +527,7 @@ async function handleChatAbort(
       console.error('[Chat] Deferred abort failed', { sessionId, error: message });
     });
   });
+  return true;
 }
 
 /**
@@ -636,6 +697,40 @@ function createDetachedConnection(): RealtimeClientConnection {
   return {
     readyState: 3, // CLOSED: the writer buffers, never sends
     send: () => {},
+  };
+}
+
+/**
+ * The chat gateway's side of agent threads: a thread run (and the
+ * «Треды готовы» message to its parent) is an ordinary run — registry,
+ * indicator, Stop, «Ждут тебя» — started without a socket on behalf of the
+ * parent's user (`thread` access). Nobody watches live; opening the chat
+ * subscribes and replays the buffered events.
+ */
+export function createThreadRunControl(dependencies: ChatWebSocketDependencies): ThreadRunControl {
+  return {
+    start({ sessionId, userId, parentSessionId, content, options }) {
+      const start = beginChatSend(
+        createDetachedConnection(),
+        userId,
+        null,
+        { sessionId, content, options },
+        dependencies,
+        { kind: 'thread', userId, parentSessionId },
+      );
+      if (start.started) {
+        void start.finished.catch((error: unknown) => {
+          console.error('[Chat] Thread run failed', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
+      return start.started;
+    },
+    abort(sessionId, actorUserId) {
+      return abortSessionRun(sessionId, dependencies, actorUserId);
+    },
   };
 }
 

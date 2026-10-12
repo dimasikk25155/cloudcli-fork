@@ -405,6 +405,42 @@ CREATE TABLE IF NOT EXISTS session_attention_seen (
 );
 `;
 
+// Threads (тредов агента): a token per run of a chat lets the Neo3 MCP server
+// act for that chat's user. Only the SHA-256 of the token is stored. Valid
+// while the run is going and 24 hours after it ended (`expires_at` is set at
+// the end; runs cut short by a restart get it at the next boot).
+export const THREAD_TOKENS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS thread_tokens (
+    token_hash TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    permission_mode TEXT,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_thread_tokens_session ON thread_tokens(session_id);
+`;
+
+// Threads opened by an agent: one row per thread chat (the link itself lives
+// in sessions.parent_session_id). `seen_at` — the parent already read the
+// settled result through thread_status; `notified_at` — included in the
+// automatic «Треды готовы» message. Both reset when the thread runs again.
+export const SESSION_THREADS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_threads (
+    thread_session_id TEXT PRIMARY KEY NOT NULL,
+    parent_session_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT,
+    permission_mode TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    seen_at TEXT,
+    notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_session_threads_parent ON session_threads(parent_session_id);
+`;
+
 // One-time answer buttons (push actions, Telegram callbacks). The token itself
 // is the right to answer: 16 random bytes, bound to one user, one pending
 // request and one choice, valid for 24 hours. Answering a request by any
@@ -535,6 +571,9 @@ ${SESSION_ATTENTION_TABLE_SCHEMA_SQL}
 ${SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL}
 
 ${ANSWER_TOKENS_TABLE_SCHEMA_SQL}
+
+${THREAD_TOKENS_TABLE_SCHEMA_SQL}
+${SESSION_THREADS_TABLE_SCHEMA_SQL}
 
 ${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
 

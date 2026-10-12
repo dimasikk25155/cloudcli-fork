@@ -19,7 +19,7 @@ import { AppError, WORKSPACES_ROOT, getOpenCodeDatabasePath, validateWorkspacePa
 import { getContextWindow } from '@/shared/token-pricing.js';
 import { getSessionCostSnapshot, snapshotToComposerBudget } from '@/shared/session-usage.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { createPermissionAnswerEngine, createWebSocketServer } from '@/modules/websocket/index.js';
+import { createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -93,6 +93,7 @@ import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
 import { sessionLinksRoutes } from './modules/session-links/index.js';
 import { memorySuggestionsRoutes, startMemorySuggestionsLoop } from './modules/memory-suggestions/index.js';
 import { pendingAnswers, pendingAnswersRoutes } from './modules/pending-answers/index.js';
+import { registerThreadsMcp, shouldRegisterThreadsMcp, threadsRoutes, threadsService, threadTokens } from './modules/threads/index.js';
 import { createAttentionPushListener } from './modules/notifications/index.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
@@ -180,6 +181,10 @@ const chatDependencies = {
 // same delivery the chat websocket uses.
 pendingAnswers.setEngine(createPermissionAnswerEngine(chatDependencies));
 
+// Agent threads (neo3-threads MCP): thread runs and the «Треды готовы» message
+// go through the same chat gateway — registry, indicator, Stop.
+threadsService.setRunControl(createThreadRunControl(chatDependencies));
+
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {
     verifyClient: {
@@ -233,6 +238,11 @@ app.get('/health', (req, res) => {
 
 // API responses carry tokens and must not be cached or answered with 304
 app.use('/api', noStoreApi);
+
+// Agent threads API for the neo3-threads MCP server running inside engine
+// processes. The thread token of the run is the credential (Bearer); mounted
+// before the optional API key and every JWT check — the MCP has neither.
+app.use('/api/threads', threadsRoutes);
 
 // Optional API key validation (if configured)
 app.use('/api', validateApiKey);
@@ -1757,12 +1767,38 @@ async function startServer() {
         // The same «нужен ответ» in Telegram, with answer buttons, for bound chats.
         sessionAttention.onChange((change) => { void telegramAttention.onAttentionChange(change); });
 
+        // Threads: a settled thread or a parent that finished its turn may
+        // complete a batch → one «Треды готовы» message to the parent.
+        sessionAttention.onChange((change) => { void threadsService.handleAttentionChange(change.sessionId); });
+
         // "Ждут тебя": a session still marked working belongs to the previous
         // process and will never finish — show it as interrupted, not running.
         try {
             sessionAttention.reconcileOnBoot();
         } catch (error) {
             console.warn('[attention] could not reconcile session statuses:', error?.message || error);
+        }
+
+        // Thread tokens of runs cut short by the restart: 24 hours from now.
+        try {
+            threadTokens.reconcileOnBoot();
+        } catch (error) {
+            console.warn('[threads] could not reconcile thread tokens:', error?.message || error);
+        }
+
+        // neo3-threads MCP in ~/.claude.json (Claude, Grok) and ~/.codex/config.toml.
+        // Production only: the LaunchAgent sets NEO3_THREADS_MCP=on; dev and test
+        // instances never write the real configs. Idempotent, .bak before the first change.
+        if (shouldRegisterThreadsMcp(process.env)) {
+            void registerThreadsMcp().then((results) => {
+                for (const result of results) {
+                    if (result.error) {
+                        console.warn(`[threads] MCP registration for ${result.provider} failed:`, result.error);
+                    } else if (result.changed) {
+                        console.log(`[threads] neo3-threads MCP registered for ${result.provider}`);
+                    }
+                }
+            });
         }
 
         // Check if running in production mode (dist folder exists)
