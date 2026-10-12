@@ -1,4 +1,5 @@
 // Service Worker for Claude CLI PWA
+// v7: «нужен ответ» — answer buttons POST a one-time token, quiet result notification.
 // v6: notification click navigates the existing TWA window to the finished session.
 // v5: sticky push — close-by-tag, Consigliere «Сделал», bot-dead click opens Server panel.
 // v4: NO app caching. Earlier versions cached HTML/JS ("cache-first" assets),
@@ -6,7 +7,7 @@
 // "why do I still see the old version" pain. This worker now NEVER intercepts
 // or caches app requests, so the browser always hits the network for the
 // latest build. It stays registered only for push notifications.
-const CACHE_NAME = 'claude-cli-v6-nocache';
+const CACHE_NAME = 'claude-cli-v7-nocache';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -49,6 +50,8 @@ self.addEventListener('push', event => {
     tag,
     silent: payload.silent === true,
     renotify: payload.silent !== true,
+    // «Нужен ответ» stays until answered (closed by tag from the server).
+    requireInteraction: payload.requireInteraction === true,
     actions: Array.isArray(payload.actions) ? payload.actions : []
   };
 
@@ -85,8 +88,73 @@ function openOrFocus(urlPath, data) {
   });
 }
 
+// An answer button of a «нужен ответ» push: the token is the right to answer,
+// no login needed. The push closes only once the answer went through (or the
+// question was already answered elsewhere). Otherwise it stays — shown again
+// with the reason: buttons kept when retrying can help (no network, 503,
+// 429 = another tap still being delivered),
+// dropped when they cannot work (403, expired, unknown). Решение 15: the push
+// hangs until the question is answered.
+function answerFromNotification(notification, data, token) {
+  const sessionId = data.sessionId || null;
+  const baseBody = typeof data.baseBody === 'string' ? data.baseBody : (notification.body || '');
+  const showResult = (title) => self.registration.showNotification(title, {
+    body: data.sessionName || '',
+    icon: '/logo-256.png',
+    badge: '/logo-128.png',
+    tag: `attention-result:${sessionId || 'none'}`,
+    silent: true,
+    renotify: false,
+    data: { sessionId, provider: data.provider || null, code: 'attention.result' }
+  });
+  const showAgain = (reason, keepButtons) => self.registration.showNotification(notification.title || 'Neo3', {
+    body: `${reason}\n${baseBody}`.trim(),
+    icon: '/logo-256.png',
+    badge: '/logo-128.png',
+    tag: notification.tag || `attention:${sessionId || 'none'}`,
+    silent: true,
+    renotify: false,
+    requireInteraction: true,
+    actions: keepButtons ? (notification.actions || []) : [{ action: 'open', title: 'Открыть' }],
+    data: { ...data, baseBody, answers: keepButtons ? data.answers : {} }
+  });
+
+  return fetch('/api/attention/answer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token })
+  }).then(
+    response => response.json().catch(() => ({})).then(result => {
+      const message = typeof result.message === 'string' && result.message ? result.message : null;
+      if (response.ok) {
+        notification.close();
+        return showResult(message || 'Ответ отправлен');
+      }
+      if (response.status === 409) {
+        notification.close();
+        return showResult(message || 'Уже отвечено');
+      }
+      if (response.status === 403 || response.status === 404 || response.status === 410) {
+        return showAgain(message || 'Эта кнопка не сработает — открой сессию', false);
+      }
+      if (response.status === 429) {
+        // Another tap is being delivered right now; keep the buttons in case it fails.
+        return showAgain(message || 'Ответ уже отправляется — подожди секунду', true);
+      }
+      return showAgain(message || 'Не получилось ответить — попробуй ещё раз', true);
+    }),
+    () => showAgain('Нет связи — ответ не отправлен, попробуй ещё раз', true)
+  );
+}
+
 self.addEventListener('notificationclick', event => {
   const data = event.notification.data || {};
+
+  if (data.code === 'attention.waiting' && event.action && data.answers
+    && typeof data.answers[event.action] === 'string') {
+    event.waitUntil(answerFromNotification(event.notification, data, data.answers[event.action]));
+    return;
+  }
 
   if (event.action === 'done' && data.code === 'consigliere.task') {
     event.waitUntil(

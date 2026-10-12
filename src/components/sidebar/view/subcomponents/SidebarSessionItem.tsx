@@ -9,6 +9,9 @@ import type { Project, ProjectSession, LLMProvider } from '../../../../types/app
 import type { SessionWithProvider } from '../../types/types';
 import { createSessionViewModel } from '../../utils/utils';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
+import { useAttentionItem } from '../../../attention/useAttention';
+import { attentionGroupOf } from '../../../attention/utils/attentionModel';
+import AttentionStatusDot from '../../../attention/view/AttentionStatusDot';
 
 type SidebarSessionItemProps = {
   project: Project;
@@ -21,7 +24,6 @@ type SidebarSessionItemProps = {
   shouldSuppressClick: () => boolean;
   selectedSession: ProjectSession | null;
   isProcessing: boolean;
-  needsAttention: boolean;
   isRecentView?: boolean;
   currentTime: Date;
   editingSession: string | null;
@@ -74,7 +76,6 @@ export default function SidebarSessionItem({
   shouldSuppressClick,
   selectedSession,
   isProcessing,
-  needsAttention,
   isRecentView = false,
   currentTime,
   editingSession,
@@ -94,7 +95,11 @@ export default function SidebarSessionItem({
   const compactSessionAge = formatCompactSessionAge(sessionView.sessionTime, currentTime);
   const editingContainerRef = useRef<HTMLDivElement>(null);
   const mobileEditingContainerRef = useRef<HTMLDivElement>(null);
-  const showAttentionIndicator = needsAttention && !isSelected;
+  // Server-side status: waiting / unread done / unread failed get their own
+  // coloured dot with a caption; working is already shown by the spinner.
+  const attention = useAttentionItem(session.id);
+  const attentionGroup = attention ? attentionGroupOf(attention) : null;
+  const showAttentionIndicator = Boolean(attention && attentionGroup && attentionGroup !== 'working' && !isSelected);
   const showRecentIndicator = !showAttentionIndicator && !isProcessing && sessionView.isActive;
   const providerLabel = t(`projects.providers.${session.__provider}`, session.__provider);
 
@@ -178,23 +183,17 @@ export default function SidebarSessionItem({
         }
       }}
     >
-      {(showAttentionIndicator || showRecentIndicator) && (
+      {showAttentionIndicator && attention ? (
+        <div className="absolute left-0 top-1/2 flex -translate-x-1 -translate-y-1/2 transform">
+          <AttentionStatusDot item={attention} />
+        </div>
+      ) : showRecentIndicator && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
-          <Tooltip
-            content={showAttentionIndicator
-              ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
-              : t('tooltips.activeSessionIndicator')}
-            position="right"
-          >
+          <Tooltip content={t('tooltips.activeSessionIndicator')} position="right">
             <div
               role="status"
-              aria-label={showAttentionIndicator
-                ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
-                : t('tooltips.activeSessionIndicator')}
-              className={cn(
-                'h-2 w-2 animate-pulse rounded-full',
-                showAttentionIndicator ? 'bg-warning' : 'bg-success',
-              )}
+              aria-label={t('tooltips.activeSessionIndicator')}
+              className="h-2 w-2 animate-pulse rounded-full bg-success"
             />
           </Tooltip>
         </div>

@@ -38,7 +38,6 @@ type SidebarProjectItemProps = {
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   onLoadMoreSessions: (projectId: string) => void;
   activeSessions: SessionActivityMap;
-  attentionSessionIds: ReadonlySet<string>;
   isRecentView?: boolean;
   isFoldOnlyHeader?: boolean;
   onNewSession: (project: Project) => void;
@@ -76,7 +75,6 @@ export default function SidebarProjectItem({
   onSessionSelect,
   onLoadMoreSessions,
   activeSessions,
-  attentionSessionIds,
   isRecentView = false,
   isFoldOnlyHeader = false,
   onNewSession,
@@ -341,7 +339,6 @@ export default function SidebarProjectItem({
         hasMoreSessions={Boolean(project.sessionMeta?.hasMore)}
         isLoadingMoreSessions={isLoadingMoreSessions}
         activeSessions={activeSessions}
-        attentionSessionIds={attentionSessionIds}
         isRecentView={isRecentView}
         currentTime={currentTime}
         editingSession={editingSession}

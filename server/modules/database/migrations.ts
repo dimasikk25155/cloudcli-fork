@@ -1,14 +1,18 @@
 import { Database } from 'better-sqlite3';
 
 import {
+  ANSWER_TOKENS_TABLE_SCHEMA_SQL,
   APP_CONFIG_TABLE_SCHEMA_SQL,
   AUDIT_LOG_GUARD_SQL,
   AUDIT_LOG_INDEXES_SQL,
   AUDIT_LOG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
+  MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
+  SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL,
+  SESSION_ATTENTION_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
   USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL,
@@ -520,6 +524,13 @@ export const runMigrations = (db: Database) => {
       addColumnToTableIfNotExists(db, 'user_provider_preferences', preferencesColumnNames, 'default_provider', 'TEXT');
     }
 
+    // Telegram id of whoever sent /start: answer buttons in a group are
+    // accepted from that person only. Older bindings keep NULL (username fallback).
+    if (tableExists(db, 'telegram_bindings')) {
+      const telegramColumnNames = getTableInfo(db, 'telegram_bindings').map((column) => column.name);
+      addColumnToTableIfNotExists(db, 'telegram_bindings', telegramColumnNames, 'telegram_user_id', 'TEXT');
+    }
+
     // Audit log. Created here as well as in INIT_SCHEMA_SQL so that an existing
     // ~/.cloudcli/auth.db gains the table (and its append-only triggers) on
     // upgrade — `CREATE TABLE IF NOT EXISTS` in the init script does nothing for
@@ -527,6 +538,17 @@ export const runMigrations = (db: Database) => {
     db.exec(AUDIT_LOG_TABLE_SCHEMA_SQL);
     db.exec(AUDIT_LOG_INDEXES_SQL);
     db.exec(AUDIT_LOG_GUARD_SQL);
+
+    // "Ждут тебя" session status — same reason as the audit log above: an
+    // existing auth.db only gains new tables through an explicit migration.
+    db.exec(SESSION_ATTENTION_TABLE_SCHEMA_SQL);
+    db.exec(SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL);
+
+    // One-time answer buttons for push / Telegram (pending-answers).
+    db.exec(ANSWER_TOKENS_TABLE_SCHEMA_SQL);
+
+    // Vault-note suggestions (memory-suggestions).
+    db.exec(MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL);
 
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');

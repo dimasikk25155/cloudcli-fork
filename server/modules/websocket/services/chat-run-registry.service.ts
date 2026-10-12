@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
+import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
 import type {
@@ -41,6 +42,9 @@ type ChatRun = {
    * fired the moment it does (see `armPendingAbort`).
    */
   pendingAbort: ((providerSessionId: string) => void) | null;
+  /** Who started the run and in which project — owner of the session status row. */
+  userId: string | number | null;
+  projectId: string | null;
 };
 
 /**
@@ -163,6 +167,17 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     run.events.splice(0, run.events.length - MAX_BUFFERED_EVENTS_PER_RUN);
   }
 
+  // "Ждут тебя": every engine's events pass here, so the session status is fed
+  // from this single point. A status failure must never break the stream.
+  try {
+    sessionAttention.recordRunEvent(run, outbound);
+  } catch (error) {
+    console.error('[ChatRunRegistry] Session attention update failed', {
+      appSessionId: run.appSessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return outbound;
 }
 
@@ -239,6 +254,7 @@ export const chatRunRegistry = {
     providerSessionId: string | null;
     connection: RealtimeClientConnection;
     userId: string | number | null;
+    projectId?: string | null;
   }): ChatRun | null {
     const existing = runs.get(input.appSessionId);
     if (existing && existing.status === 'running') {
@@ -256,6 +272,8 @@ export const chatRunRegistry = {
       startedAt: Date.now(),
       completedAt: null,
       pendingAbort: null,
+      userId: input.userId,
+      projectId: input.projectId ?? null,
     };
 
     run.writer = new ChatSessionWriter({
@@ -270,6 +288,21 @@ export const chatRunRegistry = {
     });
 
     runs.set(input.appSessionId, run);
+
+    try {
+      sessionAttention.recordRunStart({
+        appSessionId: run.appSessionId,
+        userId: run.userId,
+        provider: run.provider,
+        projectId: run.projectId,
+      });
+    } catch (error) {
+      console.error('[ChatRunRegistry] Session attention start failed', {
+        appSessionId: run.appSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     return run;
   },
 

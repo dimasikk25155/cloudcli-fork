@@ -12,6 +12,8 @@ import { randomInt } from 'node:crypto';
 import { projectsDb, userDb, userProjectAccessDb } from '@/modules/database/index.js';
 import { telegramDb, type TelegramBindingRow } from '@/modules/database/repositories/telegram.db.js';
 import { telegramApi } from '@/modules/telegram/telegram-api.client.js';
+import { telegramAttention } from '@/modules/telegram/telegram-attention.service.js';
+import { escapeHtml } from '@/modules/telegram/telegram-format.js';
 
 export const TELEGRAM_MESSAGE_LIMIT = 4096;
 export const LINK_CODE_TTL_SECONDS = 600;
@@ -78,14 +80,7 @@ async function loadAgentRun() {
 
 // --- text helpers -----------------------------------------------------------
 
-/** Escapes the characters Telegram's HTML parse mode would otherwise read as markup. */
-export function escapeHtml(text: string): string {
-  return String(text ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+export { escapeHtml };
 
 function escapedLength(text: string): number {
   return escapeHtml(text).length;
@@ -302,6 +297,7 @@ function startTypingHeartbeat(chatId: string): () => void {
 async function handleStart(
   chatId: string,
   telegramUsername: string | null,
+  telegramUserId: string | null,
   binding: TelegramBindingRow | null,
   code: string
 ): Promise<void> {
@@ -318,7 +314,7 @@ async function handleStart(
       return;
     }
 
-    telegramDb.upsertBinding({ userId: user.id, chatId, telegramUsername });
+    telegramDb.upsertBinding({ userId: user.id, chatId, telegramUsername, telegramUserId });
     resetChatSession(chatId);
 
     const choices = listAccessibleProjects(user.id);
@@ -415,6 +411,18 @@ async function handlePrompt(chatId: string, binding: TelegramBindingRow, prompt:
  * answered 200 by the time this runs, so failures are logged, not propagated.
  */
 export async function handleTelegramUpdate(update: unknown): Promise<void> {
+  const callbackQuery = (update as { callback_query?: Record<string, any> } | null)?.callback_query;
+  if (callbackQuery && typeof callbackQuery === 'object') {
+    try {
+      // Inline-button presses: answers to «нужен ответ» (the only buttons this bot sends).
+      await telegramAttention.handleCallbackQuery(callbackQuery);
+    } catch (error) {
+      const description = error instanceof Error ? error.message : String(error);
+      console.error('Telegram callback handling failed:', description);
+    }
+    return;
+  }
+
   const message = (update as { message?: Record<string, any> } | null)?.message;
   if (!message || typeof message !== 'object') return;
 
@@ -423,6 +431,7 @@ export async function handleTelegramUpdate(update: unknown): Promise<void> {
 
   const text = typeof message.text === 'string' ? message.text.trim() : '';
   const telegramUsername = typeof message.from?.username === 'string' ? message.from.username : null;
+  const telegramUserId = message.from?.id === undefined || message.from?.id === null ? null : String(message.from.id);
 
   const binding = getActiveBinding(chatId);
   const command = parseCommand(text);
@@ -430,7 +439,7 @@ export async function handleTelegramUpdate(update: unknown): Promise<void> {
   try {
     // /start is the only thing an unbound chat may run, because it carries the code.
     if (command?.name === 'start') {
-      await handleStart(chatId, telegramUsername, binding, command.args);
+      await handleStart(chatId, telegramUsername, telegramUserId, binding, command.args);
       return;
     }
 

@@ -25,6 +25,7 @@ import { CLAUDE_FALLBACK_MODELS, readClaudeModelsDefinition } from './modules/pr
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
 import { workModeInstruction } from './shared/work-mode.js';
+import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import {
   createNotificationEvent,
   notifyRunFailed,
@@ -340,11 +341,14 @@ function mapCliOptionsToSDK(options = {}) {
   // long, and (c) drops a 529 outright in background sub-requests (compaction,
   // subagents) — its own telemetry calls that `overload_background_dropped`.
   // With it: 300 retries, mid-stream 529s retried, long waits honoured.
-  sdkOptions.env = {
+  // NEO3_SESSION=1 lets user-level hooks (vault Stop hook, CLI secret guard)
+  // step aside inside Neo3 — see server/shared/neo3-session.ts. Later branches
+  // spread this env, so the marker survives every engine route.
+  sdkOptions.env = withNeo3SessionMarker({
     ...process.env,
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1',
     CLAUDE_CODE_RETRY_WATCHDOG: process.env.CLAUDE_CODE_RETRY_WATCHDOG || '1',
-  };
+  });
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
@@ -903,17 +907,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       }
 
       const requestId = createRequestId();
+      // The "нужен ответ" push (with answer buttons) is sent by session-attention
+      // for every engine when this request turns the session to waiting.
       ws.send(createNormalizedMessage({ kind: 'permission_request', requestId, toolName, input, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
-      emitNotification(createNotificationEvent({
-        provider: 'claude',
-        sessionId: capturedSessionId || sessionId || null,
-        kind: 'action_required',
-        code: 'permission.required',
-        meta: { toolName, sessionName: sessionSummary },
-        severity: 'warning',
-        requiresUserAction: true,
-        dedupeKey: `claude:permission:${capturedSessionId || sessionId || 'none'}:${requestId}`
-      }));
 
       const decision = await waitForToolApproval(requestId, {
         // Wait indefinitely for every permission prompt, not just interactive
@@ -1452,6 +1448,23 @@ function getPendingApprovalsForSession(sessionId) {
 }
 
 /**
+ * One pending tool approval by its request id (answer routing and access
+ * checks when the session status registry does not know the request).
+ * @param {string} requestId
+ * @returns {{requestId: string, sessionId: string|null, toolName: string, input: unknown}|null}
+ */
+function getPendingApprovalById(requestId) {
+  const resolver = pendingToolApprovals.get(requestId);
+  if (!resolver) return null;
+  return {
+    requestId,
+    sessionId: resolver._sessionId || null,
+    toolName: resolver._toolName || 'UnknownTool',
+    input: resolver._input,
+  };
+}
+
+/**
  * Reconnect a session's WebSocketWriter to a new raw WebSocket.
  * Called when client reconnects (e.g. page refresh) while SDK is still running.
  * @param {string} sessionId - The session ID
@@ -1469,6 +1482,7 @@ function reconnectSessionWriter(sessionId, newRawWs) {
 // Export public API
 export {
   matchesToolPermission,
+  mapCliOptionsToSDK,
   queryClaudeSDK,
   abortClaudeSDKSession,
   abortAllActiveClaudeSDKSessions,
@@ -1476,6 +1490,7 @@ export {
   getActiveClaudeSDKSessions,
   resolveToolApproval,
   getPendingApprovalsForSession,
+  getPendingApprovalById,
   reconnectSessionWriter,
   loadMcpConfig
 };

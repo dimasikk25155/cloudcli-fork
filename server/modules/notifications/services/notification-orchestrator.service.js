@@ -1,6 +1,7 @@
 import webPush from 'web-push';
 
-import { notificationPreferencesDb, pushSubscriptionsDb, sessionsDb } from '@/modules/database/index.js';
+import { notificationPreferencesDb, pushSubscriptionsDb, sessionAttentionDb, sessionsDb } from '@/modules/database/index.js';
+import { ATTENTION_PUSH_CODE, attentionPushTag } from '@/modules/notifications/services/attention-push.constants.js';
 import { sendDesktopNotification as sendDesktopNotificationToClients } from '@/modules/notifications/services/desktop-notification-clients.service.js';
 
 const KIND_TO_PREF_KEY = {
@@ -13,6 +14,7 @@ const PROVIDER_LABELS = {
   claude: 'Claude',
   cursor: 'Cursor',
   codex: 'Codex',
+  grok: 'Grok',
   system: 'System',
   consigliere: 'Консильери'
 };
@@ -161,6 +163,76 @@ function resolveSessionName(event) {
   return normalizeSessionName(sessionsDb.getSessionName(event.sessionId, event.provider));
 }
 
+const ATTENTION_BODY_MAX = 300;
+
+function clipBody(text) {
+  const normalized = String(text || '').replace(/[ \t]+/g, ' ').trim();
+  return normalized.length > ATTENTION_BODY_MAX ? `${normalized.slice(0, ATTENTION_BODY_MAX - 1)}…` : normalized;
+}
+
+/**
+ * "Нужен ответ" push (attention-push). Stays up until the session stops
+ * waiting (closed by the `attention:<session>` tag). `data.answers` maps an
+ * action id to its one-time token; the service worker POSTs the token to
+ * /api/attention/answer when that button is pressed.
+ */
+function buildAttentionWaitingPayload(event) {
+  const meta = event.meta || {};
+  const providerLabel = PROVIDER_LABELS[event.provider] || 'Агент';
+  const sessionName = resolveSessionName(event);
+  const question = typeof meta.question === 'string' ? meta.question : '';
+  const excerpt = typeof meta.excerpt === 'string' ? meta.excerpt : '';
+  const options = Array.isArray(meta.options) ? meta.options.filter((option) => typeof option === 'string') : [];
+  const questionCount = Number(meta.questionCount) || 0;
+
+  let body;
+  switch (meta.reason) {
+    case 'ask': {
+      body = `${providerLabel} спрашивает: ${question || 'нужен твой выбор'}`;
+      if (questionCount > 1) {
+        body += ` (вопросов: ${questionCount})`;
+      } else if (options.length > 2) {
+        body += `\nВарианты: ${options.join(' · ')}`;
+      }
+      break;
+    }
+    case 'plan':
+      body = `${providerLabel} просит одобрить план${question ? `: ${question}` : ''}`;
+      break;
+    case 'permission':
+      body = `${providerLabel} просит разрешение: ${question || 'инструмент'}`;
+      break;
+    case 'manual_ask':
+      body = `${providerLabel} ждёт твоего действия: ${excerpt || question}`;
+      break;
+    default:
+      body = `${providerLabel} ждёт ответа${question || excerpt ? `: ${question || excerpt}` : ''}`;
+  }
+
+  const actions = Array.isArray(meta.actions)
+    ? meta.actions
+      .filter((action) => action && typeof action.action === 'string' && typeof action.title === 'string')
+      .map((action) => ({ action: action.action, title: action.title }))
+    : [];
+  const answers = meta.answers && typeof meta.answers === 'object' ? { ...meta.answers } : {};
+
+  return {
+    title: sessionName || 'Neo3',
+    body: clipBody(body),
+    requireInteraction: true,
+    actions,
+    data: {
+      sessionId: event.sessionId || null,
+      code: ATTENTION_PUSH_CODE,
+      provider: event.provider || null,
+      sessionName,
+      reason: meta.reason || null,
+      tag: attentionPushTag(event.sessionId || 'none'),
+      answers
+    }
+  };
+}
+
 function buildNotificationPayload(event) {
   const normalizedEvent = normalizeNotificationSession(event);
 
@@ -196,6 +268,10 @@ function buildNotificationPayload(event) {
         provider: 'system'
       }
     };
+  }
+
+  if (normalizedEvent.code === ATTENTION_PUSH_CODE) {
+    return buildAttentionWaitingPayload(normalizedEvent);
   }
 
   if (normalizedEvent.code === 'bot.dead') {
@@ -312,7 +388,33 @@ function notifyUserIfEnabled({ userId, event }) {
   }
 }
 
+/**
+ * Engines send their terminal `complete` before this push, so session-attention
+ * has already classified the turn: when it ended waiting for the user, the
+ * "нужен ответ" push is the one notification for it (one push per question).
+ */
+function isSessionWaitingForUser(provider, sessionId) {
+  try {
+    const row = resolveSessionRow(sessionId, provider);
+    return sessionAttentionDb.get(row?.session_id || sessionId)?.state === 'waiting';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {{
+ *   userId: number|string|null,
+ *   provider: string,
+ *   sessionId?: string|null,
+ *   stopReason?: string,
+ *   sessionName?: string|null
+ * }} params
+ */
 function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null }) {
+  if (stopReason === 'completed' && sessionId && isSessionWaitingForUser(provider, sessionId)) {
+    return;
+  }
   notifyUserIfEnabled({
     userId,
     event: createNotificationEvent({

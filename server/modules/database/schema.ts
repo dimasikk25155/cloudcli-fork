@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS telegram_bindings (
     user_id INTEGER NOT NULL,
     chat_id TEXT NOT NULL UNIQUE,
     telegram_username TEXT,
+    telegram_user_id TEXT,
     project_path TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -368,6 +369,87 @@ CREATE TABLE IF NOT EXISTS telegram_link_codes (
 );
 `;
 
+// "Ждут тебя": the persisted status of every app session (working / waiting /
+// done / failed). The run registry lives in memory for five minutes; this row
+// is what survives a page reload and a server restart. `user_id` is who
+// started the last run; visibility is decided by project access, not by it.
+// No foreign keys on purpose: a status row must never block deleting a user
+// or a session, and orphans are filtered out by the list query.
+export const SESSION_ATTENTION_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_attention (
+    session_id TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER,
+    project_id TEXT,
+    provider TEXT NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT,
+    detail_json TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_attention_state ON session_attention(state);
+`;
+
+// Per-user "I have looked at this session" marks. Unread = the status row was
+// updated after the user's seen_at; kept per user so one employee opening a
+// session does not clear it for another.
+export const SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_attention_seen (
+    user_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, session_id)
+);
+`;
+
+// One-time answer buttons (push actions, Telegram callbacks). The token itself
+// is the right to answer: 16 random bytes, bound to one user, one pending
+// request and one choice, valid for 24 hours. Answering a request by any
+// channel spends every token of that request. No foreign keys, same reason as
+// session_attention: a stale button must never block deleting anything.
+export const ANSWER_TOKENS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS answer_tokens (
+    token TEXT PRIMARY KEY NOT NULL,
+    request_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    choice_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    decision_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_answer_tokens_request ON answer_tokens(request_id);
+`;
+
+// Vault-note suggestions (memory-suggestions): one row per app session, so a
+// session is reviewed by the local model at most once. `status`:
+//   ineligible — quiet but not worth a look (re-checked only after new activity,
+//                tracked by source_updated_at);
+//   pending    — model failed, retried on the next tick (attempts < 3);
+//   ready      — note proposed, shown in the session and the hub;
+//   writing    — «Записать» claimed the row, file being created (ready → writing → written);
+//   skipped    — model said not worth it; failed — 3 failed attempts;
+//   written / dismissed — Dima pressed «Записать» / «Не надо».
+// No foreign keys, same reason as session_attention.
+export const MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS memory_suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE,
+    user_id INTEGER,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    source_updated_at TEXT NOT NULL,
+    title TEXT,
+    folder TEXT,
+    body TEXT,
+    written_path TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_suggestions_status ON memory_suggestions(status);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -444,6 +526,13 @@ CREATE INDEX IF NOT EXISTS idx_telegram_link_codes_user_id ON telegram_link_code
 ${AUDIT_LOG_TABLE_SCHEMA_SQL}
 ${AUDIT_LOG_INDEXES_SQL}
 ${AUDIT_LOG_GUARD_SQL}
+
+${SESSION_ATTENTION_TABLE_SCHEMA_SQL}
+${SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL}
+
+${ANSWER_TOKENS_TABLE_SCHEMA_SQL}
+
+${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
 
 ${LAST_SCANNED_AT_SQL}
 

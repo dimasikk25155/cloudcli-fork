@@ -1,6 +1,16 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Mic } from 'lucide-react';
 import type { PermissionPanelProps } from '../../configs/permissionPanelRegistry';
 import type { Question } from '../../../types/types';
+import { useAuth } from '../../../../auth';
+import { useVoiceInput } from '../../../hooks/useVoiceInput';
+import { useVoiceAvailable } from '../../../hooks/useVoiceAvailable';
+import { voiceRecoveryScope } from '../../../../../lib/voiceRecovery';
+import VoiceInputButton from '../../../view/subcomponents/VoiceInputButton';
+import { askSecretGuard } from '../../../view/subcomponents/SecretGuardDialog';
+import { runSecretGuard } from '../../../utils/secretGuard';
+import { stashSecretRequest } from '../../../utils/secretStash';
+import { guardOwnAnswers } from '../../../utils/ownAnswers';
 
 export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
   request,
@@ -15,8 +25,19 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
   const [otherActive, setOtherActive] = useState<Map<number, boolean>>(() => new Map());
   const [mounted, setMounted] = useState(false);
 
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Synchronous double-submit guard: Enter + tap in the same tick both see
+  // the old state, the ref does not.
+  const isSubmittingRef = useRef(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const otherInputRef = useRef<HTMLInputElement>(null);
+  const currentStepRef = useRef(currentStep);
+  currentStepRef.current = currentStep;
+
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -68,25 +89,94 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
     setOtherTexts(prev => { const next = new Map(prev); next.set(qIdx, text); return next; });
   }, []);
 
-  const buildAnswers = useCallback(() => {
+  // Dictation for «Свой ответ»: the existing voice hook, transcript appended
+  // to the current question's own answer (never auto-sent from here).
+  const voiceAvailable = useVoiceAvailable();
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voiceErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleVoiceError = useCallback((msg: string) => {
+    setVoiceError(msg);
+    if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
+    voiceErrorTimer.current = setTimeout(() => setVoiceError(null), 4000);
+  }, []);
+  useEffect(() => () => {
+    if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
+  }, []);
+  // The step where dictation started: the transcript lands there even if it
+  // arrives later (navigation is blocked meanwhile anyway).
+  const voiceStepRef = useRef(0);
+  const handleOwnTranscript = useCallback((text: string) => {
+    const step = voiceStepRef.current;
+    setOtherTexts(prev => {
+      const next = new Map(prev);
+      const base = (prev.get(step) || '').trim();
+      next.set(step, base ? `${base} ${text}` : text);
+      return next;
+    });
+    setOtherActive(prev => (prev.get(step) ? prev : new Map(prev).set(step, true)));
+  }, []);
+  // Own recovery scope per question: a dictation saved here must never be
+  // restored into the composer (or another question), and vice versa.
+  const voice = useVoiceInput(
+    handleOwnTranscript,
+    handleVoiceError,
+    voiceRecoveryScope(user?.id ?? 'unavailable', 'ask-user-question', request.requestId),
+  );
+  // Recording, transcribing or a failed take waiting for retry/discard: the
+  // answer is not final yet, so no submit and no step change until it is.
+  const voiceBusy = voice.state !== 'idle';
+  const toggleVoice = useCallback(() => {
+    if (voice.state === 'idle') voiceStepRef.current = currentStepRef.current;
+    voice.toggle();
+  }, [voice]);
+  const goToStep = useCallback((step: number) => {
+    if (voiceBusy) return;
+    setCurrentStep(step);
+  }, [voiceBusy]);
+
+  const buildAnswers = useCallback((ownTexts: Map<number, string> = otherTexts) => {
     const answers: Record<string, string> = {};
     questions.forEach((q, idx) => {
       const selected = Array.from(selections.get(idx) || []);
       const isOther = otherActive.get(idx) || false;
-      const otherText = (otherTexts.get(idx) || '').trim();
+      const otherText = (ownTexts.get(idx) || '').trim();
       if (isOther && otherText) selected.push(otherText);
       if (selected.length > 0) answers[q.question] = selected.join(', ');
     });
     return answers;
   }, [questions, selections, otherActive, otherTexts]);
 
-  const handleSubmit = useCallback(() => {
-    onDecision(request.requestId, { allow: true, updatedInput: { ...input, answers: buildAnswers() } });
-  }, [onDecision, request.requestId, input, buildAnswers]);
+  // Own answers are text that reaches the agent: they pass the same secret
+  // guard as the composer before the decision is sent.
+  const handleSubmit = useCallback(async () => {
+    if (isSubmittingRef.current || voiceBusy) return;
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const ownTexts = new Map<number, string>();
+      otherTexts.forEach((text, idx) => {
+        if (otherActive.get(idx) && text.trim()) ownTexts.set(idx, text);
+      });
+      const guarded = await guardOwnAnswers(ownTexts, (text) =>
+        runSecretGuard(text, { isAdmin, ask: askSecretGuard, stash: stashSecretRequest }),
+      );
+      if (!guarded.ok) {
+        if (guarded.error) setSubmitError(guarded.error);
+        return;
+      }
+      onDecision(request.requestId, { allow: true, updatedInput: { ...input, answers: buildAnswers(guarded.texts) } });
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }, [voiceBusy, otherTexts, otherActive, isAdmin, onDecision, request.requestId, input, buildAnswers]);
 
+  // Same lock as Submit: a dictation in progress is not thrown away by «Пропустить» / Escape.
   const handleSkip = useCallback(() => {
+    if (isSubmittingRef.current || voiceBusy) return;
     onDecision(request.requestId, { allow: true, updatedInput: { ...input, answers: {} } });
-  }, [onDecision, request.requestId, input]);
+  }, [voiceBusy, onDecision, request.requestId, input]);
 
   // Keyboard handler for number keys and navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -117,8 +207,8 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
     if (e.key === 'Enter') {
       e.preventDefault();
       const isLast = currentStep === questions.length - 1;
-      if (isLast) handleSubmit();
-      else setCurrentStep(s => s + 1);
+      if (isLast) void handleSubmit();
+      else goToStep(currentStep + 1);
       return;
     }
 
@@ -128,7 +218,7 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
       handleSkip();
       return;
     }
-  }, [currentStep, questions, toggleOption, toggleOther, handleSubmit, handleSkip]);
+  }, [currentStep, questions, toggleOption, toggleOther, handleSubmit, handleSkip, goToStep]);
 
   if (questions.length === 0) return null;
 
@@ -170,7 +260,7 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
 
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <span className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
-                Claude needs your input
+                Нужен твой ответ
               </span>
               {q.header && (
                 <span className="inline-flex items-center rounded-ui-sm border border-primary/30 bg-primary/10 px-1.5 py-px text-[13px] font-semibold uppercase tracking-wider text-primary">
@@ -194,7 +284,8 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
                 <button
                   key={i}
                   type="button"
-                  onClick={() => setCurrentStep(i)}
+                  onClick={() => goToStep(i)}
+                  disabled={voiceBusy}
                   className={`h-[3px] rounded-full transition-all duration-slow ease-ui ${
                     i === currentStep
                       ? 'w-5 bg-primary'
@@ -219,6 +310,99 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
         {/* Options — tight spacing */}
         <div className="scrollbar-thin max-h-48 overflow-y-auto px-4 pb-2" role={multi ? 'group' : 'radiogroup'} aria-label={q.question}>
           <div className="space-y-1">
+            {/* «Свой ответ» — first: most answers are typed (or dictated), not picked */}
+            <div className="flex items-stretch gap-1.5">
+              <button
+                type="button"
+                onClick={() => toggleOther(currentStep, multi)}
+                aria-pressed={isOtherOn}
+                className={`group flex min-w-0 flex-1 items-center gap-2.5 rounded-ui-lg border px-3 py-2 text-left transition-all duration-fast ease-ui ${
+                  isOtherOn
+                    ? 'border-primary/50 bg-primary/10 ring-1 ring-primary/25'
+                    : 'border-primary/30 bg-primary/[0.04] hover:bg-primary/10'
+                }`}
+              >
+                <kbd className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-ui-sm font-mono text-[12px] transition-all duration-fast ease-ui ${
+                  isOtherOn
+                    ? 'bg-primary font-semibold text-primary-foreground'
+                    : 'border border-border bg-muted text-muted-foreground'
+                }`}>
+                  0
+                </kbd>
+                <span className={`text-[15px] font-medium leading-tight transition-colors ${
+                  isOtherOn ? 'text-foreground' : 'text-foreground/90'
+                }`}>
+                  Свой ответ
+                </span>
+                {isOtherOn && (
+                  <svg className="ml-auto h-4 w-4 flex-shrink-0 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                )}
+              </button>
+              {/* Collapsed: one tap opens the field and starts dictation. */}
+              {voiceAvailable && !isOtherOn && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    toggleOther(currentStep, multi);
+                    if (voice.state === 'idle') toggleVoice();
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  aria-label="Надиктовать свой ответ"
+                  title="Надиктовать свой ответ"
+                  className="flex w-11 flex-shrink-0 items-center justify-center rounded-ui-lg border border-primary/30 bg-primary/[0.04] text-primary transition-colors duration-fast ease-ui hover:bg-primary/10"
+                >
+                  <Mic className="h-4 w-4" aria-hidden />
+                </button>
+              )}
+            </div>
+
+            {/* Own answer field — inline, with the mic when voice is available */}
+            {isOtherOn && (
+              <div className="pl-[30px] pr-0.5">
+                <div className="flex items-center gap-1">
+                  <div className="relative min-w-0 flex-1">
+                    <input
+                      ref={otherInputRef}
+                      type="text"
+                      value={otherTexts.get(currentStep) || ''}
+                      onChange={(e) => setOtherText(currentStep, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (isLast) void handleSubmit();
+                          else goToStep(currentStep + 1);
+                        }
+                        // Prevent container keydown from firing
+                        e.stopPropagation();
+                      }}
+                      placeholder={voiceAvailable ? 'Напиши или надиктуй…' : 'Напиши свой ответ…'}
+                      aria-label="Свой ответ"
+                      className="w-full rounded-ui-lg border-0 bg-secondary/50 py-1.5 pl-3 pr-3 text-[15px] text-foreground outline-none ring-1 ring-border transition-shadow duration-base ease-ui placeholder:text-muted-foreground focus:ring-2 focus:ring-ring sm:pr-14"
+                    />
+                    <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-ui-sm border border-border bg-muted px-1 py-0.5 font-mono text-[11px] text-muted-foreground/70 sm:block">
+                      Enter
+                    </kbd>
+                  </div>
+                  {voiceAvailable && (
+                    <span onKeyDown={(e) => e.stopPropagation()}>
+                      <VoiceInputButton
+                        state={voice.state}
+                        onToggle={toggleVoice}
+                        errorMsg={voiceError}
+                        recoveryMessage={voice.recoveryMessage}
+                        onDiscard={voice.discard}
+                        onDownload={voice.download}
+                        getLevel={voice.getLevel}
+                        getElapsedMs={voice.getElapsedMs}
+                      />
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {q.options.map((opt, optIdx) => {
               const isSelected = selected.has(opt.label);
               return (
@@ -270,75 +454,22 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
               );
             })}
 
-            {/* "Other" option */}
-            <button
-              type="button"
-              onClick={() => toggleOther(currentStep, multi)}
-              className={`group flex w-full items-center gap-2.5 rounded-ui-lg border px-3 py-2 text-left transition-all duration-fast ease-ui ${
-                isOtherOn
-                  ? 'border-primary/50 bg-primary/10 ring-1 ring-primary/25'
-                  : 'border-dashed border-border hover:bg-secondary/60'
-              }`}
-            >
-              <kbd className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-ui-sm font-mono text-[12px] transition-all duration-fast ease-ui ${
-                isOtherOn
-                  ? 'bg-primary font-semibold text-primary-foreground'
-                  : 'border border-border bg-muted text-muted-foreground'
-              }`}>
-                0
-              </kbd>
-              <span className={`text-[15px] leading-tight transition-colors ${
-                isOtherOn
-                  ? 'font-medium text-foreground'
-                  : 'text-muted-foreground'
-              }`}>
-                Other...
-              </span>
-              {isOtherOn && (
-                <svg className="ml-auto h-4 w-4 flex-shrink-0 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-              )}
-            </button>
-
-            {/* Other text input — inline */}
-            {isOtherOn && (
-              <div className="pl-[30px] pr-0.5">
-                <div className="relative">
-                  <input
-                    ref={otherInputRef}
-                    type="text"
-                    value={otherTexts.get(currentStep) || ''}
-                    onChange={(e) => setOtherText(currentStep, e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (isLast) handleSubmit();
-                        else setCurrentStep(s => s + 1);
-                      }
-                      // Prevent container keydown from firing
-                      e.stopPropagation();
-                    }}
-                    placeholder="Type your answer..."
-                    className="w-full rounded-ui-lg border-0 bg-secondary/50 py-1.5 pl-3 pr-14 text-[15px] text-foreground outline-none ring-1 ring-border transition-shadow duration-base ease-ui placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
-                  />
-                  <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-ui-sm border border-border bg-muted px-1 py-0.5 font-mono text-[11px] text-muted-foreground/70">
-                    Enter
-                  </kbd>
-                </div>
-              </div>
-            )}
           </div>
         </div>
+
+        {submitError && (
+          <p role="alert" className="px-4 pb-2 text-[13px] text-destructive">{submitError}</p>
+        )}
 
         {/* Footer — compact */}
         <div className="flex items-center justify-between gap-2 border-t border-border bg-secondary/30 px-4 py-2">
           <button
             type="button"
             onClick={handleSkip}
-            className="text-[13px] text-muted-foreground transition-colors duration-fast ease-ui hover:text-foreground"
+            disabled={voiceBusy}
+            className="text-[13px] text-muted-foreground transition-colors duration-fast ease-ui hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
           >
-            {isSingle ? 'Skip' : 'Skip all'}
+            {isSingle ? 'Пропустить' : 'Пропустить все'}
             <span className="ml-1 text-[11px] text-muted-foreground/70">Esc</span>
           </button>
 
@@ -346,8 +477,9 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
             {!isSingle && !isFirst && (
               <button
                 type="button"
-                onClick={() => setCurrentStep(s => s - 1)}
-                className="inline-flex items-center gap-0.5 rounded-ui-lg px-2.5 py-1.5 text-[13px] font-medium text-foreground/80 transition-all duration-fast ease-ui hover:bg-secondary"
+                onClick={() => goToStep(currentStep - 1)}
+                disabled={voiceBusy}
+                className="inline-flex items-center gap-0.5 rounded-ui-lg px-2.5 py-1.5 text-[13px] font-medium text-foreground/80 transition-all duration-fast ease-ui hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -359,18 +491,19 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
             {isLast ? (
               <button
                 type="button"
-                onClick={handleSubmit}
-                disabled={!hasCurrentSelection && !Object.keys(buildAnswers()).length}
+                onClick={() => void handleSubmit()}
+                disabled={isSubmitting || voiceBusy || (!hasCurrentSelection && !Object.keys(buildAnswers()).length)}
                 className="inline-flex items-center gap-1 rounded-ui-lg bg-primary px-3.5 py-1.5 text-[13px] font-semibold text-primary-foreground shadow-1 transition-all duration-base ease-ui hover:shadow-2 disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none"
               >
-                Submit
+                Отправить
                 <span className="ml-0.5 font-mono text-[11px] opacity-70">Enter</span>
               </button>
             ) : (
               <button
                 type="button"
-                onClick={() => setCurrentStep(s => s + 1)}
-                className="inline-flex items-center gap-1 rounded-ui-lg bg-primary px-3.5 py-1.5 text-[13px] font-semibold text-primary-foreground shadow-1 transition-all duration-base ease-ui hover:shadow-2"
+                onClick={() => goToStep(currentStep + 1)}
+                disabled={voiceBusy}
+                className="inline-flex items-center gap-1 rounded-ui-lg bg-primary px-3.5 py-1.5 text-[13px] font-semibold text-primary-foreground shadow-1 transition-all duration-base ease-ui hover:shadow-2 disabled:cursor-not-allowed disabled:opacity-30"
               >
                 Next
                 <span className="ml-0.5 font-mono text-[11px] opacity-70">Enter</span>
