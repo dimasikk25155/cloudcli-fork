@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useWebSocket } from '../../../../contexts/WebSocketContext';
 import { formatDuration } from '../../utils/stepTimer';
 
-import { backgroundTasksStore, useBackgroundTasks } from './BackgroundTasksStore';
-import type { BackgroundTaskKind, BackgroundTaskStopState } from './BackgroundTasksStore';
+import { backgroundTasksStore, stopStateLabel, useBackgroundTasks } from './BackgroundTasksStore';
+import type { BackgroundTaskKind } from './BackgroundTasksStore';
 
 const KIND_LABEL: Record<BackgroundTaskKind, string> = {
   bash: 'Команда',
@@ -12,12 +12,6 @@ const KIND_LABEL: Record<BackgroundTaskKind, string> = {
   monitor: 'Монитор',
   workflow: 'Сценарий',
   other: 'Задача',
-};
-
-const STOP_LABEL: Record<BackgroundTaskStopState, string> = {
-  stopping: 'Останавливаю…',
-  gone: 'Задача уже не идёт',
-  failed: 'Не остановилась',
 };
 
 type BackgroundTasksButtonProps = {
@@ -101,17 +95,17 @@ export default function BackgroundTasksButton({ sessionId, tabClassName }: Backg
                       <span className="tabular-nums">{formatDuration(now - task.startedAt)}</span>
                       {task.lastTool ? ` · ${task.lastTool}` : ''}
                       {stopState && stopState !== 'stopping' ? (
-                        <span className="text-destructive">{` · ${STOP_LABEL[stopState]}`}</span>
+                        <span className="text-destructive">{` · ${stopStateLabel(stopState)}`}</span>
                       ) : null}
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => stopTask(task.taskId)}
-                    disabled={stopState === 'stopping' || stopState === 'gone'}
+                    disabled={stopState === 'stopping' || stopState === 'gone' || stopState === 'turn_ended'}
                     className="shrink-0 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:border-destructive/50 hover:text-destructive disabled:opacity-50"
                   >
-                    {stopState === 'stopping' ? STOP_LABEL.stopping : 'Стоп'}
+                    {stopState === 'stopping' ? stopStateLabel('stopping') : 'Стоп'}
                   </button>
                 </li>
               );
