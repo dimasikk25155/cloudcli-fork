@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { contextOccupancy, parseHandoffFile, relaySuggestion } from './relayRules.js';
+import { contextOccupancy, findHandoffAfterRequest, hasHumanMessageAfterRequest, isRelayRequestText, parseHandoffFile, relaySuggestion } from './relayRules.js';
 
 const HOUR = 60 * 60 * 1000;
 const NOW = Date.parse('2026-10-12T12:00:00.000Z');
@@ -121,4 +121,42 @@ test('unknown occupancy is not mistaken for zero or for the spend', () => {
   assert.equal(contextOccupancy({ inputTokens: 500_000, outputTokens: 10_000 }), null);
   assert.equal(contextOccupancy(null), null);
   assert.equal(contextOccupancy({ used: 450_000 }), 450_000);
+});
+
+test('custom thresholds replace only what they name (the server live-check hook)', () => {
+  const thresholds = { contextPercent: 50, contextTokens: 3000, ageHours: 12 };
+  assert.deepEqual(relaySuggestion({ usedTokens: 3000, contextWindow: 1_000_000, createdAt: ago(1), now: NOW }, thresholds), { show: true, reason: 'context' });
+  assert.equal(relaySuggestion({ usedTokens: 2999, contextWindow: 1_000_000, createdAt: ago(1), now: NOW }, thresholds).show, false);
+});
+
+test('a relay request is recognised by its tagged first line, a mention is not', () => {
+  assert.equal(isRelayRequestText('Переносим работу в новый чат (эстафета x1y2).\nСобери…'), true);
+  assert.equal(isRelayRequestText('Давай потом перенесём работу в новый чат'), false);
+  assert.equal(isRelayRequestText(undefined), false);
+});
+
+test('the note is taken from the answer after the tagged request only', () => {
+  const messages = [
+    { kind: 'text', role: 'assistant', content: 'HANDOFF_FILE: docs/handoff/old.md' },
+    { kind: 'text', role: 'user', content: 'Переносим работу в новый чат (эстафета ab12).' },
+    { kind: 'tool_use', role: 'assistant', content: 'HANDOFF_FILE: docs/handoff/tool.md' },
+    { kind: 'text', role: 'assistant', content: 'Готово.\nHANDOFF_FILE: docs/handoff/new.md' },
+    { kind: 'text', role: 'assistant', content: 'Если что — спрашивай.' },
+  ];
+  assert.equal(findHandoffAfterRequest(messages, 'эстафета ab12'), 'docs/handoff/new.md');
+  assert.equal(findHandoffAfterRequest(messages, 'эстафета zz99'), null);
+  assert.equal(findHandoffAfterRequest(messages.slice(0, 3), 'эстафета ab12'), null);
+});
+
+test('a note line counts only when no person wrote between the request and it', () => {
+  const request = { kind: 'text', role: 'user', content: 'Переносим работу в новый чат (эстафета ab12).' };
+  const note = { kind: 'text', role: 'assistant', content: 'HANDOFF_FILE: docs/handoff/new.md' };
+  assert.equal(findHandoffAfterRequest([request, note], 'эстафета ab12'), 'docs/handoff/new.md');
+  assert.equal(findHandoffAfterRequest([request, { kind: 'text', role: 'user', content: 'Стоп, а цены?' }, note], 'эстафета ab12'), null);
+  // The CLI's own nudge and hook follow-ups are not a person.
+  const nudge = { kind: 'text', role: 'user', content: '[Your previous response had no visible output. Please continue.]' };
+  const hook = { kind: 'text', role: 'user', content: 'Stop hook feedback: keep going' };
+  assert.equal(findHandoffAfterRequest([request, nudge, hook, note], 'эстафета ab12'), 'docs/handoff/new.md');
+  assert.equal(hasHumanMessageAfterRequest([request, nudge, note], 'эстафета ab12'), false);
+  assert.equal(hasHumanMessageAfterRequest([request, note, { kind: 'text', role: 'user', content: 'ещё' }], 'эстафета ab12'), true);
 });

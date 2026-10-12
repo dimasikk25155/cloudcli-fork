@@ -3,3 +3,6 @@ export { RELAY_CREATE_TIMEOUT_MS, useRelayFirstMessage, useRelaySuggestion } fro
 export type { RelayChatDeps, RelayEngine, RelaySession, RelaySuggestion } from './useRelaySuggestion';
 export { createRelaySession } from './relayApi';
 export { contextOccupancy } from './relayRules';
+export { useAutoRelay } from './useAutoRelay';
+export type { AutoRelayControl } from './useAutoRelay';
+export type { AutoRelayStatus } from './autoRelayModel';

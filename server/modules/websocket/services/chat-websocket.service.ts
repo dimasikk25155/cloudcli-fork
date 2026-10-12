@@ -12,7 +12,12 @@ import {
   type PendingRequestInfo,
 } from '@/modules/pending-answers/pending-answers.service.js';
 import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
+import { rememberRunOptions } from '@/modules/auto-relay/run-options.js';
+import type { AutoRelayRunControl } from '@/modules/auto-relay/auto-relay.service.js';
 import { threadTokens } from '@/modules/threads/thread-tokens.js';
+import { beginServiceTurn } from '@/shared/service-turns.js';
+
+import { isRelayRequestText } from '../../../../shared/relay-rules.js';
 import type { ThreadRunControl } from '@/modules/threads/threads.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities } from '@/modules/websocket/services/project-access.service.js';
@@ -202,11 +207,14 @@ type ChatSendStart = { started: false } | { started: true; finished: Promise<voi
  * - `verified-answer`: a detached continuation after an answer from a push or
  *   Telegram. There is no socket identity; the actor was already checked by
  *   `pendingAnswers` against the same project-access rule before delivery.
+ * - `thread` / `auto-relay`: runs the server starts for a chat's user (see
+ *   canStartLinkedRun).
  */
 type ChatSendAccess =
   | { kind: 'socket' }
   | { kind: 'verified-answer' }
-  | { kind: 'thread'; userId: number; parentSessionId: string };
+  | { kind: 'thread'; userId: number; parentSessionId: string }
+  | { kind: 'auto-relay'; userId: number; parentSessionId: string };
 
 /**
  * `thread` access (agent threads): the actor is the parent chat's user, checked
@@ -214,6 +222,22 @@ type ChatSendAccess =
  * itself («Треды готовы») or one of its threads.
  */
 function canStartThreadRun(access: { userId: number; parentSessionId: string }, sessionId: string): boolean {
+  return canStartLinkedRun(access, sessionId, 'thread');
+}
+
+/**
+ * Server-started runs on behalf of a chat's user: the actor must have access
+ * to the target now, and the target is the chat itself or its child of the
+ * given relation — which `linkSession` only allows in the same project
+ * (checked again here, the link may predate a project move).
+ * `thread`: «Треды готовы» to the parent, or a thread run.
+ * `auto-relay`: the handoff request in the chat, or its relay continuation.
+ */
+function canStartLinkedRun(
+  access: { userId: number; parentSessionId: string },
+  sessionId: string,
+  relation: 'thread' | 'relay',
+): boolean {
   if (!canAccessSession({ id: access.userId }, sessionId)) {
     return false;
   }
@@ -221,7 +245,11 @@ function canStartThreadRun(access: { userId: number; parentSessionId: string }, 
     return true;
   }
   const link = sessionLinksDb.getRow(sessionId);
-  return link?.relation === 'thread' && link.parent_session_id === access.parentSessionId;
+  if (link?.relation !== relation || link.parent_session_id !== access.parentSessionId) {
+    return false;
+  }
+  const parent = sessionLinksDb.getRow(access.parentSessionId);
+  return Boolean(parent && parent.project_path && parent.project_path === link.project_path);
 }
 
 /**
@@ -281,7 +309,9 @@ function beginChatSend(
   // `pendingAnswers` has already checked (see ChatSendAccess).
   const accessDenied = access.kind === 'socket'
     ? !canAccessSession(clientIdentities.get(ws), sessionId)
-    : access.kind === 'thread' && !canStartThreadRun(access, sessionId);
+    : access.kind === 'thread'
+      ? !canStartThreadRun(access, sessionId)
+      : access.kind === 'auto-relay' && !canStartLinkedRun(access, sessionId, 'relay');
   if (accessDenied) {
     sendProtocolError(
       ws,
@@ -336,6 +366,12 @@ function beginChatSend(
   const clientOptions = (data.options ?? {}) as AnyRecord;
   const rawContent = typeof data.content === 'string' ? data.content : '';
 
+  // Auto-relay repeats a person's engine settings (model, effort, mode, tools)
+  // on its own turns; only runs a person started count.
+  if (access.kind === 'socket') {
+    rememberRunOptions(sessionId, clientOptions);
+  }
+
   // Client attachments are re-validated to the upload store, then split: images
   // ride along as vision blocks (per provider), while other files are referenced
   // by path in an <attached_files> block the agent reads with its own tools.
@@ -369,6 +405,16 @@ function beginChatSend(
     cwd: userRole === 'admin' ? (clientOptions.cwd ?? session.project_path ?? undefined) : session.project_path ?? undefined,
     projectPath: session.project_path ?? clientOptions.projectPath,
   };
+
+  // Auto-relay handoff request: a service turn (no «run stopped» push of its
+  // own) that may write its note into docs/handoff/ without asking. Decided
+  // here from the access kind and the request text — a client cannot claim it.
+  delete runtimeOptions.autoRelayNoteDir;
+  const relayServiceTurn = access.kind === 'auto-relay' && isRelayRequestText(rawContent);
+  if (relayServiceTurn && session.project_path) {
+    runtimeOptions.autoRelayNoteDir = path.join(session.project_path, 'docs', 'handoff');
+  }
+  const endServiceTurn = relayServiceTurn ? beginServiceTurn(sessionId) : null;
 
   // One run, one audit trail. The meter rides along in the runtime options and
   // is fed by the engine as usage arrives. Claude and Grok report real usage;
@@ -420,6 +466,7 @@ function beginChatSend(
       failureDetail = message;
       console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: message });
     } finally {
+      endServiceTurn?.();
       try {
         threadTokens.end(threadsToken);
       } catch {
@@ -733,6 +780,51 @@ export function createThreadRunControl(dependencies: ChatWebSocketDependencies):
     },
     abort(sessionId, actorUserId) {
       return abortSessionRun(sessionId, dependencies, actorUserId);
+    },
+  };
+}
+
+/**
+ * The chat gateway's side of the auto-relay: the handoff request and the
+ * continuation's first message are ordinary runs — registry, indicator,
+ * Stop, «Ждут тебя» — started without a socket for the chat's user
+ * (`auto-relay` access). Opening the chat replays the buffered events.
+ */
+export function createAutoRelayRunControl(dependencies: ChatWebSocketDependencies): AutoRelayRunControl {
+  return {
+    start({ sessionId, userId, parentSessionId, content, options }) {
+      const start = beginChatSend(
+        createDetachedConnection(),
+        userId,
+        null,
+        { sessionId, content, options },
+        dependencies,
+        { kind: 'auto-relay', userId, parentSessionId },
+      );
+      if (start.started) {
+        void start.finished.catch((error: unknown) => {
+          console.error('[Chat] Auto-relay run failed', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
+      return start.started;
+    },
+    backgroundTaskCount(sessionId) {
+      const session = sessionsDb.getSessionById(sessionId);
+      const providerSessionId = session?.provider_session_id;
+      const lookup = session ? dependencies.backgroundTasksFns?.[session.provider as LLMProvider] : undefined;
+      if (!providerSessionId || !lookup) {
+        return 0;
+      }
+      try {
+        const tasks = lookup(providerSessionId);
+        return Array.isArray(tasks) ? tasks.length : 0;
+      } catch {
+        // Unknown = none: the fan-out of the run itself is gone with its process.
+        return 0;
+      }
     },
   };
 }

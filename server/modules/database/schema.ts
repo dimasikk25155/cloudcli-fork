@@ -441,6 +441,28 @@ CREATE TABLE IF NOT EXISTS session_threads (
 CREATE INDEX IF NOT EXISTS idx_session_threads_parent ON session_threads(parent_session_id);
 `;
 
+// Auto-relay («Авто-перенос»): per chat. `enabled` — the switch (off by
+// default); `state` — NULL idle, 'collecting' (the handoff request is running
+// in the chat), 'creating' (the note is being checked / the continuation
+// created), 'done' (moved — at most once per chat), 'failed' (told once, the
+// switch went off). `nonce` tags the request; `child_session_id` is the
+// continuation; `baseline_json` — a continuation's measures after its first
+// turn (it must grow past them before it moves again). No foreign keys, same
+// reason as session_attention.
+export const SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_auto_relay (
+    session_id TEXT PRIMARY KEY NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    state TEXT,
+    nonce TEXT,
+    user_id INTEGER,
+    child_session_id TEXT,
+    error TEXT,
+    baseline_json TEXT,
+    updated_at TEXT NOT NULL
+);
+`;
+
 // One-time answer buttons (push actions, Telegram callbacks). The token itself
 // is the right to answer: 16 random bytes, bound to one user, one pending
 // request and one choice, valid for 24 hours. Answering a request by any
@@ -574,6 +596,7 @@ ${ANSWER_TOKENS_TABLE_SCHEMA_SQL}
 
 ${THREAD_TOKENS_TABLE_SCHEMA_SQL}
 ${SESSION_THREADS_TABLE_SCHEMA_SQL}
+${SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL}
 
 ${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
 

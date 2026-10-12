@@ -4,6 +4,8 @@ export { answerTokensDb } from '@/modules/database/repositories/answer-tokens.db
 export type { AnswerTokenRow } from '@/modules/database/repositories/answer-tokens.db.js';
 export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
+export { sessionAutoRelayDb } from '@/modules/database/repositories/auto-relay.db.js';
+export type { AutoRelayPatch, AutoRelayState, SessionAutoRelayRow } from '@/modules/database/repositories/auto-relay.db.js';
 export { auditDb } from '@/modules/database/repositories/audit.db.js';
 export type {
   AppendAuditInput,

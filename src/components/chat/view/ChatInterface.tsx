@@ -23,6 +23,7 @@ import {
   RelayBand,
   contextOccupancy,
   createRelaySession,
+  useAutoRelay,
   useRelayFirstMessage,
   useRelaySuggestion,
   type RelayEngine,
@@ -617,6 +618,12 @@ function ChatInterface({
     messages: relayMessages,
   }, { engine: relayEngine, createChat: createRelayChat, openChat: openRelayChat });
   useRelayFirstMessage(chipsSessionId, isProcessing);
+  // «Авто-перенос»: the server moves a grown chat by itself; this tab follows
+  // the open chat to its continuation when the move finishes.
+  const followMovedChat = useCallback((childId: string) => {
+    onNavigateToSession?.(childId);
+  }, [onNavigateToSession]);
+  const autoRelay = useAutoRelay(chipsSessionId, followMovedChat);
 
   const permissionContextValue = useMemo(() => ({
     pendingPermissionRequests,
@@ -851,7 +858,7 @@ function ChatInterface({
           onSendReplySuggestion={handleSendReplySuggestion}
           onEditReplySuggestion={fillInput}
           memorySessionId={chipsSessionId}
-          relayBand={<RelayBand relay={relay} />}
+          relayBand={<RelayBand relay={relay} autoRelay={autoRelay} onOpenChat={followMovedChat} />}
           placeholder={t('input.placeholder', {
             provider:
               provider === 'cursor'
@@ -871,7 +878,7 @@ function ChatInterface({
         </div>
       </div>
 
-      <QuickSettingsPanel />
+      <QuickSettingsPanel autoRelay={chipsSessionId ? autoRelay : null} />
 
       <CommandResultModal
         payload={commandModalPayload}

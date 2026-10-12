@@ -357,6 +357,26 @@ export const chatRunRegistry = {
     return runs.get(appSessionId)?.status === 'running';
   },
 
+  /**
+   * Latest occupied context of the session's last run — the `used` of its
+   * last `token_budget` status (the number TokenUsageSummary shows) — and
+   * the model it reported. Nulls when the run is gone or reported none.
+   */
+  lastContextUsage(appSessionId: string): { usedTokens: number | null; model: string | null } {
+    const events = runs.get(appSessionId)?.events ?? [];
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index] as NormalizedMessage & { tokenBudget?: unknown };
+      if (event.kind !== 'status' || event.text !== 'token_budget' || !event.tokenBudget || typeof event.tokenBudget !== 'object') {
+        continue;
+      }
+      const budget = event.tokenBudget as { used?: unknown; model?: unknown };
+      const used = typeof budget.used === 'number' && Number.isFinite(budget.used) && budget.used >= 0 ? budget.used : null;
+      if (used === null) continue;
+      return { usedTokens: used, model: typeof budget.model === 'string' ? budget.model : null };
+    }
+    return { usedTokens: null, model: null };
+  },
+
   listRunningRuns(): Array<{
     sessionId: string;
     provider: LLMProvider;

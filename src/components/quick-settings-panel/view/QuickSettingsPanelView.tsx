@@ -7,11 +7,18 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { useQuickSettingsDrag } from '../hooks/useQuickSettingsDrag';
 import type { PreferenceToggleKey, QuickSettingsPreferences } from '../types';
 
+import type { AutoRelayControl } from '../../relay/useAutoRelay';
+
 import QuickSettingsContent from './QuickSettingsContent';
 import QuickSettingsHandle from './QuickSettingsHandle';
 import QuickSettingsPanelHeader from './QuickSettingsPanelHeader';
 
-export default function QuickSettingsPanelView() {
+type QuickSettingsPanelViewProps = {
+  /** «Авто-перенос» of the open chat; null when no chat is open. */
+  autoRelay?: AutoRelayControl | null;
+};
+
+export default function QuickSettingsPanelView({ autoRelay = null }: QuickSettingsPanelViewProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { isDarkMode } = useTheme();
@@ -78,6 +85,9 @@ export default function QuickSettingsPanelView() {
             preferences={quickSettingsPreferences}
             isMobile={isMobile}
             onPreferenceChange={handlePreferenceChange}
+            autoRelay={autoRelay}
+            autoRelayNewChats={preferences.autoRelayNewChats}
+            onAutoRelayNewChatsChange={(value) => setPreference('autoRelayNewChats', value)}
           />
         </div>
       </div>

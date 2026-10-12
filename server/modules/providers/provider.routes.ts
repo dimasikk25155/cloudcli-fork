@@ -7,6 +7,7 @@ import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
+import { autoRelayService } from '@/modules/auto-relay/auto-relay.service.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
@@ -610,8 +611,12 @@ router.post(
       throw new AppError('Project access denied', { code: 'PROJECT_ACCESS_DENIED', statusCode: 403 });
     }
     const parentSessionId = typeof body.parentSessionId === 'string' ? body.parentSessionId.trim() : '';
+    const userId = Number(user?.id ?? user?.userId);
+    const actorId = Number.isInteger(userId) && userId > 0 ? userId : null;
     if (!parentSessionId) {
-      res.status(201).json(createApiSuccessResponse(sessionsService.createAppSession(provider, projectPath)));
+      const created = sessionsService.createAppSession(provider, projectPath);
+      autoRelayService.applyNewChatDefaults({ sessionId: created.sessionId, userId: actorId });
+      res.status(201).json(createApiSuccessResponse(created));
       return;
     }
     // Child chat (relay / thread): the parent is vetted before anything is
@@ -624,6 +629,8 @@ router.post(
       sessionsDb.deleteSessionById(result.sessionId);
       throw error;
     }
+    // A relay continuation inherits the parent's «Авто-перенос».
+    autoRelayService.applyNewChatDefaults({ sessionId: result.sessionId, userId: actorId, parentSessionId, relation });
     // Both sidebar cards update without a refetch: the child appears with
     // «↳ …», the parent gains «→ продолжен в» / «треды: N».
     chatRunRegistry.broadcastSessionUpsert(result.sessionId);

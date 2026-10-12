@@ -1,4 +1,4 @@
-import { Image as ImageIcon, Palette } from 'lucide-react';
+import { ArrowRightLeft, Image as ImageIcon, Palette, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -23,6 +23,8 @@ import type {
   QuickSettingsPreferences,
 } from '../types';
 
+import type { AutoRelayControl } from '../../relay/useAutoRelay';
+
 import QuickSettingsSection from './QuickSettingsSection';
 import QuickSettingsToggleRow from './QuickSettingsToggleRow';
 
@@ -31,6 +33,10 @@ type QuickSettingsContentProps = {
   isMobile?: boolean;
   preferences: QuickSettingsPreferences;
   onPreferenceChange: (key: PreferenceToggleKey, value: boolean) => void;
+  /** «Авто-перенос» of the open chat; null when no chat is open. */
+  autoRelay?: AutoRelayControl | null;
+  autoRelayNewChats?: boolean;
+  onAutoRelayNewChatsChange?: (value: boolean) => void;
 };
 
 export default function QuickSettingsContent({
@@ -38,6 +44,9 @@ export default function QuickSettingsContent({
   isMobile = false,
   preferences,
   onPreferenceChange,
+  autoRelay = null,
+  autoRelayNewChats = false,
+  onAutoRelayNewChatsChange,
 }: QuickSettingsContentProps) {
   const { t } = useTranslation('settings');
   const {
@@ -148,6 +157,28 @@ export default function QuickSettingsContent({
 
       <QuickSettingsSection title={t('quickSettings.sections.toolDisplay')}>
         {renderToggleRows(TOOL_DISPLAY_TOGGLES)}
+      </QuickSettingsSection>
+
+      <QuickSettingsSection title="Авто-перенос">
+        {autoRelay && (
+          <QuickSettingsToggleRow
+            label="Этот чат"
+            icon={ArrowRightLeft}
+            checked={Boolean(autoRelay.status?.enabled)}
+            onCheckedChange={autoRelay.setEnabled}
+          />
+        )}
+        {onAutoRelayNewChatsChange && (
+          <QuickSettingsToggleRow
+            label="Включать в новых чатах"
+            icon={Sparkles}
+            checked={autoRelayNewChats}
+            onCheckedChange={onAutoRelayNewChatsChange}
+          />
+        )}
+        <p className="ml-3 text-xs text-muted-foreground">
+          Чат разросся — агент сам соберёт записку и продолжит в новом чате
+        </p>
       </QuickSettingsSection>
 
       <QuickSettingsSection title={t('quickSettings.sections.inputSettings')}>

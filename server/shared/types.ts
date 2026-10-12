@@ -228,7 +228,13 @@ export type GatewayEventKind =
    */
   | 'background_tasks'
   /** Answer to `chat.stop-task`: `{sessionId, taskId, ok, reason?}`. Not a chat row. */
-  | 'background_task_stop';
+  | 'background_task_stop'
+  /**
+   * Auto-relay of a chat changed: `{sessionId, status:{enabled, state,
+   * childSessionId, childTitle, error}}`. Not a chat row. Mirrored in
+   * `src/types/app.ts` `GatewayEventKind`.
+   */
+  | 'auto_relay';
 
 /**
  * Complete set of `kind` values emitted to websocket clients.

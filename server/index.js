@@ -16,7 +16,7 @@ import mime from 'mime-types';
 
 import { AppError, WORKSPACES_ROOT, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
+import { createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -90,6 +90,7 @@ import { sessionLinksRoutes } from './modules/session-links/index.js';
 import { codeStatusRoutes } from './modules/code-status/index.js';
 import { sessionTokenUsageRoute } from './routes/session-token-usage.js';
 import { relayRoutes } from './modules/relay/index.js';
+import { autoRelayRoutes, autoRelayService } from './modules/auto-relay/index.js';
 import { memorySuggestionsRoutes, startMemorySuggestionsLoop } from './modules/memory-suggestions/index.js';
 import { pendingAnswers, pendingAnswersRoutes } from './modules/pending-answers/index.js';
 import { registerThreadsMcp, shouldRegisterThreadsMcp, threadsRoutes, threadsService, threadTokens } from './modules/threads/index.js';
@@ -183,6 +184,10 @@ pendingAnswers.setEngine(createPermissionAnswerEngine(chatDependencies));
 // Agent threads (neo3-threads MCP): thread runs and the «Треды готовы» message
 // go through the same chat gateway — registry, indicator, Stop.
 threadsService.setRunControl(createThreadRunControl(chatDependencies));
+
+// Auto-relay: the handoff request and the continuation's first message go
+// through the same chat gateway — registry, indicator, Stop.
+autoRelayService.setRunControl(createAutoRelayRunControl(chatDependencies));
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {
@@ -319,6 +324,7 @@ app.use('/api/reply-suggestions', authenticateToken, replySuggestionsRoutes);
 app.use('/api/sessions', authenticateToken, sessionLinksRoutes);
 // Relay: checks the handoff note an agent wrote before a continuation chat is opened.
 app.use('/api/sessions', authenticateToken, relayRoutes);
+app.use('/api/sessions', authenticateToken, autoRelayRoutes);
 // Vault-note suggestions (replaces the obsidian-memory Stop hook inside Neo3).
 // Writing and dismissing are admin-only inside the router.
 app.use('/api/memory-suggestions', authenticateToken, memorySuggestionsRoutes);
@@ -1561,12 +1567,23 @@ async function startServer() {
         // complete a batch → one «Треды готовы» message to the parent.
         sessionAttention.onChange((change) => { void threadsService.handleAttentionChange(change.sessionId); });
 
+        // Auto-relay: a finished turn of a grown chat starts the move; the end
+        // of the handoff turn opens the continuation.
+        sessionAttention.onChange((change) => { void autoRelayService.handleAttentionChange(change); });
+
         // "Ждут тебя": a session still marked working belongs to the previous
         // process and will never finish — show it as interrupted, not running.
         try {
             sessionAttention.reconcileOnBoot();
         } catch (error) {
             console.warn('[attention] could not reconcile session statuses:', error?.message || error);
+        }
+
+        // Auto-relay moves cut short by the restart: told once, switched off.
+        try {
+            autoRelayService.reconcileOnBoot();
+        } catch (error) {
+            console.warn('[auto-relay] could not reconcile moves:', error?.message || error);
         }
 
         // Thread tokens of runs cut short by the restart: 24 hours from now.

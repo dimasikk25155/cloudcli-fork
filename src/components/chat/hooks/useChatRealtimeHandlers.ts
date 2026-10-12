@@ -207,6 +207,8 @@ export function useChatRealtimeHandlers({
         // session opened from «Ждут тебя» rendered empty.
         case 'attention_changed':
         case 'memory_suggestions_changed':
+        // «Авто-перенос» status — owned by useAutoRelay.
+        case 'auto_relay':
           return;
 
         // «Фон: N» — status frames, never chat rows.

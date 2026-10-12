@@ -40,6 +40,7 @@ import { providerAuthService } from './modules/providers/services/provider-auth.
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { recordRunOutcome, buildRunInterruptedNotice, isTransientRunFailure } from './shared/run-outcomes.js';
 import { checkUsageGuard, buildUsageGuardNotice } from './shared/claude-usage.js';
+import { isRelayNoteWrite } from './shared/relay-note-permission.js';
 import { getContextWindow } from './shared/token-pricing.js';
 
 // The CLI binary self-updates by swapping a versions/X.Y.Z file and
@@ -929,6 +930,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
         );
         if (isDisallowed) {
           return { behavior: 'deny', message: 'Tool disallowed by settings' };
+        }
+
+        // Auto-relay handoff turn: its note in <project>/docs/handoff/ is written
+        // without asking (default mode would otherwise stop it on approval).
+        // Only that path and only Write/Edit; the gateway sets the folder.
+        if (options.autoRelayNoteDir && isRelayNoteWrite(toolName, input, options.autoRelayNoteDir)) {
+          return { behavior: 'allow', updatedInput: input };
         }
 
         const isAllowed = (sdkOptions.allowedTools || []).some(entry =>
