@@ -73,7 +73,7 @@ export default function BotHealthButton() {
         />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-popover py-1.5 text-popover-foreground shadow-lg">
+        <div className="absolute right-0 top-full z-30 mt-1 max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-border bg-popover py-1.5 text-popover-foreground shadow-lg">
           <p className="px-3 pb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
             Боты
           </p>

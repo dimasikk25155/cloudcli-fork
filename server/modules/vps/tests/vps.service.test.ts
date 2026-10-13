@@ -239,8 +239,27 @@ describe('панель сервера: пульс WhatsApp-ботов', () => {
     assert.equal(missing.detail, 'нет пульса');
   });
 
-  it('показывает все четыре WhatsApp-линии, даже когда у какой-то нет пульса', () => {
+  it('читает пульс Квадробани (connection + updatedAt)', () => {
+    const fresh = JSON.stringify({ connection: 'connected', updatedAt: new Date(now - 5_000).toISOString() });
+    assert.equal(interpretHeartbeat('kvadrobanya-wa', 'Квадробаня', fresh, now).detail, 'на связи');
+    const lost = JSON.stringify({ connection: 'close', updatedAt: new Date(now).toISOString() });
+    assert.equal(interpretHeartbeat('kvadrobanya-wa', 'Квадробаня', lost, now).detail, 'WhatsApp отвалился');
+    const stale = JSON.stringify({ connection: 'connected', updatedAt: new Date(now - 120_000).toISOString() });
+    assert.equal(interpretHeartbeat('kvadrobanya-wa', 'Квадробаня', stale, now).detail, 'завис или не стучится');
+  });
+
+  it('показывает все девять WhatsApp-ботов, даже когда у какого-то нет пульса', () => {
     const ids = getBotsHealth().bots.map((bot) => bot.id);
-    assert.deepEqual(ids, ['tyres-wa-kz', 'tyres-wa-7su', 'tyres-wa-7su-kira', 'tyres-wa-store']);
+    assert.deepEqual(ids, [
+      'tyres-wa-ruslan',
+      'tyres-wa-sergey',
+      'tyres-wa-dmitry',
+      'tyres-wa-roman',
+      'tyres-wa-7su',
+      'tyres-wa-7su-kira',
+      'tyres-wa-7su-andrey',
+      'tyres-wa-7su-line3',
+      'kvadrobanya-wa',
+    ]);
   });
 });

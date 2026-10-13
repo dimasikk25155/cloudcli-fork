@@ -86,36 +86,25 @@ function homeHeartbeat(...parts: string[]): string {
   return join(os.homedir(), 'Antigravity Project', ...parts);
 }
 
+/** One row per WhatsApp line; path parts are relative to ~/Antigravity Project. */
+function waLine(id: string, label: string, ...parts: string[]): BotWatch {
+  return { id, label, required: true, paths: () => [homeHeartbeat(...parts)] };
+}
+
+// All nine WhatsApp bots on the Mac (launchd ru.tarariev.*-wa-bot*).
+// Tyres KZ: four managers, each its own folder (TYRES_MANAGER_ID in bot/.env).
+// 7su: four lines from one repo, each with its own logs dir (bot/.env.<line>).
+// Квадробаня writes state/health.json in its own format — see interpretHeartbeat.
 const BOT_WATCHLIST: BotWatch[] = [
-  {
-    id: 'tyres-wa-kz',
-    label: 'Tyres KZ',
-    required: true,
-    paths: () => [
-      homeHeartbeat('Tyres', 'bot', 'logs', 'heartbeat.json'),
-      '/home/agents/Antigravity Project/Tyres/bot/logs/heartbeat.json',
-    ],
-  },
-  {
-    id: 'tyres-wa-7su',
-    label: '7su',
-    required: true,
-    paths: () => [homeHeartbeat('Tyres-7su', 'bot', 'logs', 'heartbeat.json')],
-  },
-  {
-    // Second 7su line (Кира) runs from the same repo with its own logs dir.
-    id: 'tyres-wa-7su-kira',
-    label: '7su Кира',
-    required: true,
-    paths: () => [homeHeartbeat('Tyres-7su', 'bot', 'logs-kira', 'heartbeat.json')],
-  },
-  {
-    // tyres-kz.shop mirror (Сергей), launchd ru.tarariev.tyres-store-wa-bot.
-    id: 'tyres-wa-store',
-    label: 'Tyres Store',
-    required: true,
-    paths: () => [homeHeartbeat('tyres-store', 'bot', 'logs', 'heartbeat.json')],
-  },
+  waLine('tyres-wa-ruslan', 'Tyres KZ · Руслан', 'tyres-ruslan', 'bot', 'logs', 'heartbeat.json'),
+  waLine('tyres-wa-sergey', 'Tyres KZ · Сергей', 'tyres-store', 'bot', 'logs', 'heartbeat.json'),
+  waLine('tyres-wa-dmitry', 'Tyres KZ · Дмитрий', 'shina-kz', 'bot', 'logs', 'heartbeat.json'),
+  waLine('tyres-wa-roman', 'Tyres KZ · Роман', 'tyres-manager4', 'bot', 'logs', 'heartbeat.json'),
+  waLine('tyres-wa-7su', '7su · Михаил', 'Tyres-7su', 'bot', 'logs', 'heartbeat.json'),
+  waLine('tyres-wa-7su-kira', '7su · Кира', 'Tyres-7su', 'bot', 'logs-kira', 'heartbeat.json'),
+  waLine('tyres-wa-7su-andrey', '7su · Андрей', 'Tyres-7su', 'bot', 'logs-andrey', 'heartbeat.json'),
+  waLine('tyres-wa-7su-line3', '7su · Мария', 'Tyres-7su', 'bot', 'logs-line3', 'heartbeat.json'),
+  waLine('kvadrobanya-wa', 'Квадробаня', 'kvadrobanya-new', 'bot', 'state', 'health.json'),
 ];
 
 /** Exported for tests: turns a heartbeat file into the row the header shows. */
@@ -130,12 +119,20 @@ export function interpretHeartbeat(
     return { id, label, ok: false, detail: 'нет пульса' };
   }
   try {
-    const parsed = JSON.parse(raw) as { connected?: boolean; ts?: number };
-    const age = now - Number(parsed.ts || 0);
+    // Tyres/7su: { connected, ts }. Квадробаня: { connection: 'connected', updatedAt: ISO }.
+    const parsed = JSON.parse(raw) as {
+      connected?: boolean;
+      ts?: number;
+      connection?: string;
+      updatedAt?: string;
+    };
+    const ts = parsed.ts ?? (parsed.updatedAt ? Date.parse(parsed.updatedAt) : 0);
+    const connected = parsed.connected ?? parsed.connection === 'connected';
+    const age = now - Number(ts || 0);
     if (!Number.isFinite(age) || age > staleMs) {
       return { id, label, ok: false, detail: 'завис или не стучится' };
     }
-    if (!parsed.connected) {
+    if (!connected) {
       return { id, label, ok: false, detail: 'WhatsApp отвалился' };
     }
     return { id, label, ok: true, detail: 'на связи' };
