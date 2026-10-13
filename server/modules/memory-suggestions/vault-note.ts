@@ -122,19 +122,23 @@ export function buildMemoryPrompt(transcript: string, context: Pick<NoteContext,
   ].filter(Boolean).join('\n\n');
 }
 
+/** Last resort for a project the vault knows nothing about yet. */
+export const VAULT_HUB_NOTE = 'wiki/index';
+
 /**
  * Notes a note about `projectName` should link to, best first: a note named
  * after the project (`wiki/entities/insta-comments`), then the project's own
- * folder, then notes whose name mentions the project.
+ * folder, then notes whose name mentions the project, then the vault hub.
  */
 export function relatedNotes(knownNotes: readonly string[], projectName?: string | null): string[] {
   const key = (projectName ?? '').trim().toLowerCase();
-  if (!key) return [];
+  const hub = knownNotes.includes(VAULT_HUB_NOTE) ? [VAULT_HUB_NOTE] : [];
+  if (!key) return hub;
   const base = (note: string) => note.slice(note.lastIndexOf('/') + 1).toLowerCase();
   const named = knownNotes.filter((note) => base(note) === key);
   const inFolder = knownNotes.filter((note) => note.toLowerCase().startsWith(`${key}/`));
   const mentioned = knownNotes.filter((note) => base(note).includes(key));
-  return [...new Set([...named, ...inFolder, ...mentioned])].slice(0, RELATED_MAX);
+  return [...new Set([...named, ...inFolder, ...mentioned].slice(0, RELATED_MAX - hub.length).concat(hub))];
 }
 
 /** Obsidian resolution: a full vault path or a bare note name, case-insensitive. */
@@ -146,8 +150,12 @@ function linkResolves(target: string, knownNotes: readonly string[]): boolean {
   });
 }
 
-/** Made-up links become their text; with no real link left, the best related note is linked. */
-function fixLinks(text: string, knownNotes: readonly string[], related: readonly string[]): string {
+/**
+ * Made-up links become their text; with no real link left, the best related note is linked.
+ * Also applied when a note is written, so a suggestion made before a note was
+ * renamed (or by an older build) cannot put a dead link into the vault.
+ */
+export function fixLinks(text: string, knownNotes: readonly string[], related: readonly string[]): string {
   const fixed = text.replace(WIKILINKS, (whole, target: string, _heading: string | undefined, alias: string | undefined) =>
     linkResolves(target, knownNotes) ? whole : (alias ?? target).trim());
   if (WIKILINK.test(fixed) || related.length === 0) return fixed;

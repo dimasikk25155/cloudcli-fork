@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseNoteAnswer, relatedNotes, type NoteContext } from '@/modules/memory-suggestions/vault-note.js';
+import { fixLinks, parseNoteAnswer, relatedNotes, type NoteContext } from '@/modules/memory-suggestions/vault-note.js';
 
 // Spec story 46 / decision 20: the model decides whether a note is worth it;
 // a note follows the vault template (frontmatter created/tags/aliases, H1,
@@ -142,4 +142,17 @@ test('related notes: the project note first, then its folder, then name mentions
     ['wiki/entities/insta-comments', 'insta-comments/meta-app-setup', 'wiki/concepts/insta-comments-poll'],
   );
   assert.deepEqual(relatedNotes(['a/b'], null), []);
+});
+
+// 13.10: sport-bet has no notes in the vault yet — every answer failed with
+// «no wikilink». The vault hub is the last resort.
+test('a project the vault does not know links to the vault hub', () => {
+  assert.deepEqual(relatedNotes(['wiki/index', 'Tyres/x'], 'sport-bet'), ['wiki/index']);
+  assert.deepEqual(relatedNotes(['wiki/index'], null), ['wiki/index']);
+  assert.deepEqual(relatedNotes(['wiki/index', 'wiki/entities/tyres'], 'Tyres'), ['wiki/entities/tyres', 'wiki/index']);
+});
+
+test('fixLinks repairs a stored body: a link with .md to the wrong folder is dropped', () => {
+  const fixed = fixLinks('Текст.\n- [[wiki/entities/meta-app-setup.md]] (инструкция)', KNOWN, ['wiki/entities/insta-comments']);
+  assert.equal(fixed, 'Текст.\n- wiki/entities/meta-app-setup.md (инструкция)\n\n## Связи\n\n- [[wiki/entities/insta-comments]]');
 });

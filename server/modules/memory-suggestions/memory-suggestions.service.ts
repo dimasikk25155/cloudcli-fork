@@ -32,7 +32,7 @@ import { completeJson, localLlmModel, type CompleteJsonOptions } from '@/shared/
 import { canUserAccessSession } from '@/shared/project-access.js';
 
 import { hasWorkWorthNoting, isQuietStatus, type TranscriptMessage } from './quiet-session.js';
-import { buildMemoryPrompt, buildTranscript, MEMORY_SYSTEM_PROMPT, parseNoteAnswer, relatedNotes } from './vault-note.js';
+import { buildMemoryPrompt, buildTranscript, fixLinks, MEMORY_SYSTEM_PROMPT, parseNoteAnswer, relatedNotes } from './vault-note.js';
 import { listProjectFolders, listVaultNotes, vaultDir as defaultVaultDir, VaultPathError, writeVaultNote } from './vault-writer.js';
 
 export const MEMORY_CHECK_INTERVAL_MS = 10 * 60_000;
@@ -282,7 +282,11 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
       }
       let written;
       try {
-        written = await writeVaultNote({ vaultDir: getVaultDir(), folder: row.folder || 'wiki/synthesis', title: row.title, body: row.body });
+        const knownNotes = await listVaultNotes(getVaultDir());
+        const projectPath = sessionsDb.getSessionById(row.session_id)?.project_path;
+        const related = relatedNotes(knownNotes, projectPath ? path.basename(projectPath) : null);
+        const body = fixLinks(row.body, knownNotes, related);
+        written = await writeVaultNote({ vaultDir: getVaultDir(), folder: row.folder || 'wiki/synthesis', title: row.title, body });
       } catch (error) {
         memorySuggestionsDb.transition(id, 'writing', 'ready', now().toISOString());
         return {
