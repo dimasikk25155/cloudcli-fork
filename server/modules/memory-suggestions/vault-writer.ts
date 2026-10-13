@@ -51,6 +51,37 @@ export async function listProjectFolders(root: string = vaultDir()): Promise<str
   }
 }
 
+const NOTES_MAX = 5000;
+
+/**
+ * Every note of the vault as a vault-relative path without `.md`
+ * (`wiki/entities/insta-comments`) — what a [[wikilink]] may point at.
+ * Hidden folders and symlinks are skipped; missing vault → none.
+ */
+export async function listVaultNotes(root: string = vaultDir()): Promise<string[]> {
+  const notes: string[] = [];
+  const walk = async (relative: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await fs.readdir(path.join(root, relative), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (notes.length >= NOTES_MAX) return;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        await walk(child);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        notes.push(child.slice(0, -3));
+      }
+    }
+  };
+  await walk('');
+  return notes.sort((a, b) => a.localeCompare(b));
+}
+
 function isInside(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);

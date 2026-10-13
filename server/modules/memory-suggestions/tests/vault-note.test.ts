@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseNoteAnswer } from '@/modules/memory-suggestions/vault-note.js';
+import { parseNoteAnswer, relatedNotes, type NoteContext } from '@/modules/memory-suggestions/vault-note.js';
 
 // Spec story 46 / decision 20: the model decides whether a note is worth it;
 // a note follows the vault template (frontmatter created/tags/aliases, H1,
@@ -92,4 +92,54 @@ test('a key the model copied into the note is scrubbed before it can reach the v
   assert.equal(result.kind, 'note');
   if (result.kind !== 'note') return;
   assert.ok(!result.body.includes(key));
+});
+
+// 12.10: a live note came out in English with two links to notes that do not
+// exist. Links are now checked against the vault and the body must be Russian.
+
+const KNOWN = ['wiki/entities/insta-comments', 'insta-comments/meta-app-setup', 'wiki/index'];
+const LINKED = { ...CONTEXT, knownNotes: KNOWN, relatedNotes: ['wiki/entities/insta-comments'] };
+const bodyOf = (body: string, context: NoteContext = LINKED) => {
+  const result = parseNoteAnswer({ worth: true, title: 'T', folder: 'wiki/synthesis', body }, context);
+  return result.kind === 'note' ? result.body : `(${result.kind}${result.kind === 'invalid' ? `: ${result.reason}` : ''})`;
+};
+
+test('real links stay, by full path or by bare name, with alias and heading', () => {
+  const body = bodyOf('Факт. См. [[wiki/entities/insta-comments]], [[meta-app-setup|настройка]] и [[Wiki/Index#Боты]].');
+  assert.match(body, /\[\[wiki\/entities\/insta-comments\]\], \[\[meta-app-setup\|настройка\]\] и \[\[Wiki\/Index#Боты\]\]\./);
+  assert.doesNotMatch(body, /## Связи/);
+});
+
+test('made-up links become plain text and the project note is linked instead', () => {
+  const body = bodyOf('Факт про вебхук.\n\n[[insta-comments/Handoff-Grok-Sessions]]\n[[wiki/concepts/Meta-API-Limits|лимиты Meta]]');
+  assert.doesNotMatch(body, /Handoff-Grok-Sessions\]\]|Meta-API-Limits/);
+  assert.match(body, /insta-comments\/Handoff-Grok-Sessions\nлимиты Meta/);
+  assert.match(body, /## Связи\n\n- \[\[wiki\/entities\/insta-comments\]\]\n$/);
+});
+
+test('only made-up links and no related note → rejected', () => {
+  assert.equal(bodyOf('Факт. [[nope]]', { ...CONTEXT, knownNotes: KNOWN }), '(invalid: no wikilink)');
+});
+
+test('a note written in English is rejected', () => {
+  assert.equal(
+    bodyOf('Meta does not return ad post comments via GET /comments, so the bot cannot delete them. See [[wiki/index]].'),
+    '(invalid: not in Russian)',
+  );
+});
+
+test('Russian prose with code, commands and English terms passes', () => {
+  const body = bodyOf('Вебхук `api/webhook.js` ловит `comments` от Meta, poll — запасной путь.\n\n```bash\nnpm run subscribe --tenant buenos\n```\n\n[[wiki/index]]');
+  assert.match(body, /^---\n/);
+});
+
+test('related notes: the project note first, then its folder, then name mentions', () => {
+  assert.deepEqual(
+    relatedNotes(
+      ['insta-comments/meta-app-setup', 'wiki/concepts/insta-comments-poll', 'wiki/entities/insta-comments', 'Tyres/x'],
+      'insta-comments',
+    ),
+    ['wiki/entities/insta-comments', 'insta-comments/meta-app-setup', 'wiki/concepts/insta-comments-poll'],
+  );
+  assert.deepEqual(relatedNotes(['a/b'], null), []);
 });

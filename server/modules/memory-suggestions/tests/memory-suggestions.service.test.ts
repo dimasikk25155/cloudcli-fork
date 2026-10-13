@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -45,7 +45,10 @@ async function withIsolatedWorld(run: (fixture: Fixture) => Promise<void>): Prom
     const sessionId = sessionsDb.createSession('sess-mem', 'claude', '/workspace/alpha', 'Чиню хук');
     const projectId = projectsDb.getProjectPath('/workspace/alpha')!.project_id;
     const vault = path.join(await realpath(dir), 'vault');
-    await mkdir(vault);
+    await mkdir(path.join(vault, 'wiki', 'entities'), { recursive: true });
+    // Notes the model's links are checked against: one it links, one of the project.
+    await writeFile(path.join(vault, 'wiki', 'entities', 'neo3-agent-system.md'), '# Neo3\n');
+    await writeFile(path.join(vault, 'wiki', 'entities', 'alpha.md'), '# alpha\n');
     await run({ adminId: Number(admin.id), memberId: Number(member.id), sessionId, projectId, vault });
   } finally {
     closeConnection();
@@ -202,6 +205,7 @@ test('the model gets the memory model name and a transcript with secrets scrubbe
     assert.equal(calls[0].model, 'qwen3.5:9b');
     assert.ok(!calls[0].prompt.includes(key));
     assert.ok(calls[0].prompt.includes('почини стоп-хук'));
+    assert.ok(calls[0].prompt.includes('- wiki/entities/alpha'), 'the model sees the real notes of the project');
   });
 });
 

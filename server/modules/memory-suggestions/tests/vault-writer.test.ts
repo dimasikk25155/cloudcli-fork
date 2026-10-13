@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { writeVaultNote } from '@/modules/memory-suggestions/vault-writer.js';
+import { listVaultNotes, writeVaultNote } from '@/modules/memory-suggestions/vault-writer.js';
 
 // Spec story 48: «Записать» creates a file in the vault, never overwrites
 // (taken → suffix), and the path stays strictly inside the vault root.
@@ -74,4 +74,16 @@ test('a symlink out of the vault in the middle of the path: refused, nothing cre
 
   await assert.rejects(writeVaultNote({ vaultDir: vault, folder: 'wiki/synthesis', title: 'x', body: 'x' }));
   assert.deepEqual(await fs.readdir(outside), [], 'no folder was created through the link');
+});
+
+test('listVaultNotes: every .md as a path without extension, hidden folders skipped', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'neo3-vault-'));
+  await fs.mkdir(path.join(dir, 'wiki', 'entities'), { recursive: true });
+  await fs.mkdir(path.join(dir, '.obsidian'));
+  await fs.writeFile(path.join(dir, 'wiki', 'entities', 'insta-comments.md'), '# x');
+  await fs.writeFile(path.join(dir, 'wiki', 'image.png'), '');
+  await fs.writeFile(path.join(dir, '.obsidian', 'hidden.md'), '');
+  await fs.writeFile(path.join(dir, 'index.md'), '');
+  assert.deepEqual(await listVaultNotes(dir), ['index', 'wiki/entities/insta-comments']);
+  assert.deepEqual(await listVaultNotes(path.join(dir, 'missing')), []);
 });

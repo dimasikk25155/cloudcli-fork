@@ -32,8 +32,8 @@ import { completeJson, localLlmModel, type CompleteJsonOptions } from '@/shared/
 import { canUserAccessSession } from '@/shared/project-access.js';
 
 import { hasWorkWorthNoting, isQuietStatus, type TranscriptMessage } from './quiet-session.js';
-import { buildMemoryPrompt, buildTranscript, MEMORY_SYSTEM_PROMPT, parseNoteAnswer } from './vault-note.js';
-import { listProjectFolders, vaultDir as defaultVaultDir, VaultPathError, writeVaultNote } from './vault-writer.js';
+import { buildMemoryPrompt, buildTranscript, MEMORY_SYSTEM_PROMPT, parseNoteAnswer, relatedNotes } from './vault-note.js';
+import { listProjectFolders, listVaultNotes, vaultDir as defaultVaultDir, VaultPathError, writeVaultNote } from './vault-writer.js';
 
 export const MEMORY_CHECK_INTERVAL_MS = 10 * 60_000;
 export const MAX_ATTEMPTS = 3;
@@ -179,9 +179,11 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
     const projectFolders = await listProjectFolders(root);
     const today = now().toISOString().slice(0, 10);
     const projectName = path.basename(sessionsDb.getSessionById(status.session_id)?.project_path ?? '') || null;
+    const knownNotes = await listVaultNotes(root);
+    const related = relatedNotes(knownNotes, projectName);
     const raw = await complete({
       system: MEMORY_SYSTEM_PROMPT,
-      prompt: buildMemoryPrompt(buildTranscript(messages), { today, projectFolders, projectName }),
+      prompt: buildMemoryPrompt(buildTranscript(messages), { today, projectFolders, projectName, relatedNotes: related }),
       model: localLlmModel('memory'),
       timeoutMs: MODEL_TIMEOUT_MS,
       maxTokens: MODEL_MAX_TOKENS,
@@ -192,7 +194,7 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
       failed('model unavailable');
       return true;
     }
-    const parsed = parseNoteAnswer(raw, { today, projectFolders });
+    const parsed = parseNoteAnswer(raw, { today, projectFolders, knownNotes, relatedNotes: related });
     if (parsed.kind === 'invalid') {
       failed(`invalid answer: ${parsed.reason}`);
       return true;
