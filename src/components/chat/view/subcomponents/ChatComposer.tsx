@@ -39,6 +39,7 @@ import ReplySuggestionChips from './ReplySuggestionChips';
 import { shouldShowReplyChips } from '../../utils/replySuggestions';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
+import PromptCacheChip from './PromptCacheChip';
 import EffortControl from './EffortControl';
 import UsageLimitsBadge from './UsageLimitsBadge';
 import QueuedMessageCard from './QueuedMessageCard';
@@ -88,6 +89,8 @@ interface ChatComposerProps {
   onSelectEffort: (effort: string) => void;
   tokenBudget: Record<string, unknown> | null;
   onShowTokenUsage: () => void;
+  /** Prompt-cache timer («Кэш N мин»); null = not a Claude/Anthropic chat, no chip. */
+  promptCache?: { lastModelAt: number | null; isRunning: boolean } | null;
   hasInput: boolean;
   onClearInput: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
@@ -199,6 +202,7 @@ export default function ChatComposer({
   onSelectEffort,
   tokenBudget,
   onShowTokenUsage,
+  promptCache = null,
   hasInput,
   onClearInput,
   onSubmit,
@@ -706,6 +710,16 @@ export default function ChatComposer({
         </PromptInputBody>
 
         <PromptInputFooter>
+          {/* Phones: the cache timer is pinned outside the scrolling row so it is
+              in view the moment the chat opens; from 640px it sits in the row. */}
+          {promptCache && (
+            <PromptCacheChip
+              variant="compact"
+              className="mr-1 shrink-0 sm:hidden"
+              lastModelAt={promptCache.lastModelAt}
+              isRunning={promptCache.isRunning}
+            />
+          )}
           <PromptInputTools className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
             <PromptInputButton
               tooltip={{ content: t('input.attachFiles', { defaultValue: 'Attach files' }) }}
@@ -937,6 +951,10 @@ export default function ChatComposer({
             />
 
             <TokenUsageSummary usage={tokenBudget} contextWindow={selectedModelOption?.contextWindow} onClick={onShowTokenUsage} />
+
+            {promptCache && (
+              <PromptCacheChip className="hidden sm:block" lastModelAt={promptCache.lastModelAt} isRunning={promptCache.isRunning} />
+            )}
 
             <UsageLimitsBadge model={model} />
 

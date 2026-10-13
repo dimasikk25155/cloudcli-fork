@@ -19,6 +19,7 @@ import {
 } from '@/shared/grok-question.js';
 import {
   createSessionAttentionService,
+  promptCacheTtlMin,
   type SessionAttentionDependencies,
 } from '@/modules/session-attention/session-attention.service.js';
 
@@ -553,4 +554,55 @@ test('after a restart on the same frozen clock, a new result is still unread pas
     assert.equal(item.state, 'done');
     assert.equal(item.unread, true);
   });
+});
+
+test('prompt-cache timer: last model output is stored at turn end, not at run start, answer or boot', async () => {
+  await withIsolatedDatabase(({ adminId, sessionId, projectId }) => {
+    let clock = Date.parse('2026-10-13T10:00:00.000Z');
+    const service = quietService({ now: () => new Date(clock) });
+    const admin = { id: adminId, role: 'admin' };
+    const run = { appSessionId: sessionId, provider: 'claude', userId: adminId, projectId };
+
+    service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+    assert.equal(service.listForUser(admin)[0].lastModelAt, null);
+
+    clock += 60_000;
+    service.recordRunEvent(run, { kind: 'tool_use', toolName: 'Bash' });
+    clock += 60_000;
+    service.recordRunEvent(run, { kind: 'tool_result' });
+    clock += 60_000;
+    service.recordRunEvent(run, { kind: 'text', role: 'assistant', content: 'Готово.' });
+    const lastReply = new Date(clock).toISOString();
+    clock += 5_000;
+    service.recordRunEvent(run, { kind: 'complete', exitCode: 0 });
+
+    let [item] = service.listForUser(admin);
+    assert.equal(item.state, 'done');
+    assert.equal(item.lastModelAt, lastReply, 'time of the last model output, not of complete');
+    assert.equal(item.model, null);
+
+    // A new run starting later and the boot reconcile must not move it.
+    clock += 30 * 60_000;
+    service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+    quietService({ now: () => new Date(clock) }).reconcileOnBoot();
+    [item] = service.listForUser(admin);
+    assert.equal(item.state, 'failed');
+    assert.equal(item.lastModelAt, lastReply);
+
+    // A permission request is model output too: stored before the waiting status is broadcast.
+    clock += 60_000;
+    service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+    service.recordRunEvent(run, { kind: 'permission_request', requestId: 'req-c', toolName: 'Bash', input: { command: 'ls' } });
+    [item] = service.listForUser(admin);
+    assert.equal(item.state, 'waiting');
+    assert.equal(item.lastModelAt, new Date(clock).toISOString());
+  });
+});
+
+test('prompt-cache TTL: NEO3_PROMPT_CACHE_TTL_MIN overrides, junk falls back to 60', () => {
+  assert.equal(promptCacheTtlMin({}), 60);
+  assert.equal(promptCacheTtlMin({ NEO3_PROMPT_CACHE_TTL_MIN: '5' }), 5);
+  assert.equal(promptCacheTtlMin({ NEO3_PROMPT_CACHE_TTL_MIN: 'abc' }), 60);
+  assert.equal(promptCacheTtlMin({ NEO3_PROMPT_CACHE_TTL_MIN: '-3' }), 60);
+  assert.equal(promptCacheTtlMin({ NEO3_PROMPT_CACHE_TTL_MIN: '99999' }), 60);
 });

@@ -1,12 +1,12 @@
 import express from 'express';
 
-import { sessionAttention, type AttentionUser } from '@/modules/session-attention/session-attention.service.js';
+import { promptCacheTtlMin, sessionAttention, type AttentionUser } from '@/modules/session-attention/session-attention.service.js';
 import { asyncHandler } from '@/shared/utils.js';
 
 /**
  * "Ждут тебя" HTTP API. Mounted behind `authenticateToken` at `/api/attention`.
  *
- * GET  /            → { items: AttentionItem[], counts: { waiting, failed, unreadDone, working } }
+ * GET  /            → { items: AttentionItem[], counts: { waiting, failed, unreadDone, working }, promptCacheTtlMin }
  * POST /seen        { sessionIds: string[] } | { all: true } → { marked: number }
  */
 const router = express.Router();
@@ -29,7 +29,7 @@ router.get(
       return;
     }
     const items = sessionAttention.listForUser(user);
-    res.json({ items, counts: sessionAttention.countsFor(items) });
+    res.json({ items, counts: sessionAttention.countsFor(items), promptCacheTtlMin: promptCacheTtlMin() });
   }),
 );
 

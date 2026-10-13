@@ -29,6 +29,8 @@ import {
   type RelayEngine,
 } from '../../relay';
 import type { ReplyTurnMessage } from '../../../../shared/reply-turn';
+import { useAttentionItem } from '../../attention/useAttention';
+import { lastModelActivityAt, latestTimestamp, promptCacheApplies } from '../../../utils/promptCache';
 
 // Engines whose models share one list in the composer's model chip: picking
 // "Grok 4.6" right under "Fable 5.1" starts the chat on Grok, and picking Opus
@@ -351,6 +353,24 @@ function ChatInterface({
     isLoading: isProcessing,
     input,
   });
+  // Prompt-cache timer («Кэш N мин»): counted from the newest model output —
+  // the transcript's last assistant message (history or live) or the server's
+  // turn-end record in «Ждут тебя», whichever is newer. Never from the send.
+  // Claude on Anthropic models only (Codex/Grok cache differently).
+  const attentionEntry = useAttentionItem(chipsSessionId);
+  const transcriptModelAt = useMemo(
+    () => (chipsSessionId ? lastModelActivityAt(sessionStore.getMessages(chipsSessionId)) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chipsSessionId, chatMessages, sessionStore],
+  );
+  const composerModel = providerModels[provider];
+  const promptCache = useMemo(
+    () => (chipsSessionId && promptCacheApplies(provider, composerModel)
+      ? { lastModelAt: latestTimestamp(transcriptModelAt, attentionEntry?.lastModelAt), isRunning: isProcessing }
+      : null),
+    [chipsSessionId, provider, composerModel, transcriptModelAt, attentionEntry?.lastModelAt, isProcessing],
+  );
+
   // A chip tap is "dictated and sent": the same handleSubmit path as Enter,
   // so the secret guard, the queue and slash commands all apply.
   const handleSendReplySuggestion = useCallback((text: string) => {
@@ -814,6 +834,7 @@ function ChatInterface({
           }}
           tokenBudget={tokenBudget}
           onShowTokenUsage={showCostModal}
+          promptCache={promptCache}
           hasInput={Boolean(input.trim())}
           onClearInput={handleClearInput}
           onSubmit={handleSubmit}

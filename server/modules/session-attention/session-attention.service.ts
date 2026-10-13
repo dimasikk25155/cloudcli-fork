@@ -88,6 +88,10 @@ export interface AttentionItem {
   updatedAt: string;
   /** done/failed only: updated after this user last looked at the session. */
   unread: boolean;
+  /** Session's model override, null = account default (prompt-cache timer skips non-Anthropic models). */
+  model: string | null;
+  /** ISO time of the session's last model output (prompt-cache timer); null = unknown. */
+  lastModelAt: string | null;
 }
 
 export type AttentionCounts = {
@@ -185,10 +189,19 @@ type RunMemory = {
   lastError: string | null;
   pending: PendingRequest[];
   stopActorId: number | null;
+  /** Epoch ms of the run's last model output (text, thinking, tool call, request). */
+  modelAt: number | null;
 };
 
 function emptyMemory(): RunMemory {
-  return { lastText: '', deltaBuffer: '', deltaOpen: false, lastError: null, pending: [], stopActorId: null };
+  return { lastText: '', deltaBuffer: '', deltaOpen: false, lastError: null, pending: [], stopActorId: null, modelAt: null };
+}
+
+/** Event kinds that are model output — each one means the prompt cache was just used. */
+const MODEL_OUTPUT_KINDS = new Set(['stream_delta', 'thinking', 'tool_use', 'permission_request']);
+
+function isModelOutput(event: AttentionRunEvent): boolean {
+  return MODEL_OUTPUT_KINDS.has(event.kind) || (event.kind === 'text' && event.role === 'assistant');
 }
 
 function toUserId(value: unknown): number | null {
@@ -429,6 +442,23 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
     mem.deltaOpen = false;
     mem.lastError = null;
     mem.stopActorId = null;
+    mem.modelAt = null;
+  }
+
+  /**
+   * Stores the run's last model output time on the status row (prompt-cache
+   * timer). Called before the transition that broadcasts, so the re-read list
+   * already carries it. Best effort: a failure never breaks the status.
+   */
+  function persistModelAt(sessionId: string, mem: RunMemory): void {
+    if (mem.modelAt === null) {
+      return;
+    }
+    try {
+      sessionAttentionDb.touchLastModelAt(sessionId, new Date(mem.modelAt).toISOString());
+    } catch (error) {
+      console.error('[SessionAttention] could not store last model time', { sessionId, error: (error as Error)?.message });
+    }
   }
 
   function broadcastChanged(sessionId: string): void {
@@ -541,6 +571,7 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
     const lastText = mem.lastText;
     const lastError = mem.lastError;
     const stopActorId = mem.stopActorId;
+    persistModelAt(context.sessionId, mem);
 
     if (event.aborted === true) {
       mem.pending = [];
@@ -632,6 +663,8 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
       detail: parseDetail(row.detail_json),
       updatedAt: row.updated_at,
       unread,
+      model: row.session_model?.trim() ? row.session_model : null,
+      lastModelAt: row.last_model_at ?? null,
     };
   }
 
@@ -654,6 +687,9 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
     /** One outbound event of a live run (already remapped to the app session id). */
     recordRunEvent(run: AttentionRunRef, event: AttentionRunEvent): void {
       const mem = memoryFor(run.appSessionId);
+      if (isModelOutput(event)) {
+        mem.modelAt = now().getTime();
+      }
 
       if (event.kind === 'stream_delta') {
         if (typeof event.content === 'string') {
@@ -686,6 +722,7 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
           }
           mem.pending = mem.pending.filter((entry) => entry.requestId !== pending.requestId);
           mem.pending.push(pending);
+          persistModelAt(run.appSessionId, mem);
           transition(runContext(run), { state: 'waiting', reason: pending.reason, detail: pending.detail });
           return;
         }
@@ -865,6 +902,19 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
 }
 
 export type SessionAttentionService = ReturnType<typeof createSessionAttentionService>;
+
+/** Claude Code's prompt-cache lifetime in Neo3 sessions, minutes. */
+export const DEFAULT_PROMPT_CACHE_TTL_MIN = 60;
+
+/**
+ * Prompt-cache TTL for the client timer: `NEO3_PROMPT_CACHE_TTL_MIN` when it is
+ * a positive number of minutes up to a day, otherwise 60.
+ */
+export function promptCacheTtlMin(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.NEO3_PROMPT_CACHE_TTL_MIN?.trim();
+  const value = raw ? Number(raw) : NaN;
+  return Number.isFinite(value) && value > 0 && value <= 24 * 60 ? value : DEFAULT_PROMPT_CACHE_TTL_MIN;
+}
 
 /** Process-wide instance used by the run registry, routes and boot. */
 export const sessionAttention: SessionAttentionService = createSessionAttentionService();

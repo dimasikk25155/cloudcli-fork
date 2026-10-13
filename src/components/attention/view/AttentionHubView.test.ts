@@ -99,3 +99,34 @@ test('hub: extra sections slot renders after the status groups (place for «За
   assert.ok(html.indexOf('Ждут ответа') < html.indexOf('Заметки в вольт'));
   assert.match(html, /черновик заметки/);
 });
+
+test('hub: Claude rows say how long the prompt cache stays warm; Codex/Grok/local and running rows say nothing', () => {
+  const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+  const html = render(React.createElement(AttentionHubView, {
+    items: [
+      item({ sessionId: 'warm', state: 'done', unread: true, lastModelAt: minutesAgo(18) }),
+      item({ sessionId: 'cool', state: 'waiting', reason: 'text_question', lastModelAt: minutesAgo(55), detail: { question: 'Дальше?' } }),
+      item({ sessionId: 'cold', state: 'done', unread: true, lastModelAt: minutesAgo(75) }),
+      item({ sessionId: 'run', state: 'working', lastModelAt: minutesAgo(1) }),
+      item({ sessionId: 'grok', provider: 'grok', state: 'done', unread: true, lastModelAt: minutesAgo(5) }),
+      item({ sessionId: 'local', model: 'local-qwen35-agent', state: 'done', unread: true, lastModelAt: minutesAgo(5) }),
+      item({ sessionId: 'old', state: 'done', unread: true }),
+    ],
+    nowMs: NOW,
+    promptCacheTtlMin: 60,
+    onOpenSession: () => {},
+    onMarkAllSeen: () => {},
+  }));
+
+  const rowOf = (id: string) => {
+    const start = html.indexOf(`data-attention-row="${id}"`);
+    const end = html.indexOf('</button>', start);
+    return html.slice(start, end);
+  };
+  assert.match(rowOf('warm'), /кэш остынет через 42 мин/);
+  assert.match(rowOf('cool'), /class="[^"]*text-amber-500[^"]*">· кэш остынет через 5 мин/);
+  assert.match(rowOf('cold'), /class="[^"]*text-red-500[^"]*">· кэш остыл/);
+  for (const id of ['run', 'grok', 'local', 'old']) {
+    assert.doesNotMatch(rowOf(id), /кэш/, id);
+  }
+});

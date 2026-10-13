@@ -388,7 +388,9 @@ CREATE TABLE IF NOT EXISTS session_attention (
     state TEXT NOT NULL,
     reason TEXT,
     detail_json TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    -- Last model output of the session (prompt-cache timer); NULL = unknown.
+    last_model_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_session_attention_state ON session_attention(state);
 `;

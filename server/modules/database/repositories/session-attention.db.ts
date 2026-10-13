@@ -17,6 +17,8 @@ export type SessionAttentionRow = {
   reason: string | null;
   detail_json: string | null;
   updated_at: string;
+  /** Last model output of the session (prompt-cache timer); not written by `upsert`. */
+  last_model_at?: string | null;
 };
 
 /** Status row joined with its session/project for listing. */
@@ -25,6 +27,8 @@ export type SessionAttentionListRow = SessionAttentionRow & {
   project_path: string | null;
   custom_project_name: string | null;
   session_name: string | null;
+  /** Per-session model override (NULL = account default). */
+  session_model: string | null;
   seen_at: string | null;
 };
 
@@ -51,7 +55,29 @@ export const sessionAttentionDb = {
         reason = excluded.reason,
         detail_json = excluded.detail_json,
         updated_at = excluded.updated_at
-    `).run(row);
+    `).run({
+      session_id: row.session_id,
+      user_id: row.user_id,
+      project_id: row.project_id,
+      provider: row.provider,
+      state: row.state,
+      reason: row.reason,
+      detail_json: row.detail_json,
+      updated_at: row.updated_at,
+    });
+  },
+
+  /**
+   * Moves the session's last model output time forward (never back). Kept out
+   * of `upsert` so status transitions without a model reply — a new run, an
+   * answer, the boot reconcile — do not touch it.
+   */
+  touchLastModelAt(sessionId: string, at: string): void {
+    const db = getConnection();
+    db.prepare(`
+      UPDATE session_attention SET last_model_at = ?
+      WHERE session_id = ? AND (last_model_at IS NULL OR last_model_at < ?)
+    `).run(at, sessionId, at);
   },
 
   listByStates(states: string[]): SessionAttentionRow[] {
@@ -79,6 +105,7 @@ export const sessionAttentionDb = {
              COALESCE(p.project_path, s.project_path) AS project_path,
              p.custom_project_name AS custom_project_name,
              s.custom_name AS session_name,
+             s.model AS session_model,
              seen.seen_at AS seen_at
       FROM session_attention a
       JOIN sessions s ON s.session_id = a.session_id
