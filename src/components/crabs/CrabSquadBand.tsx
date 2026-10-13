@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { ChatMessage } from '../chat/types/types';
 import { useBackgroundTasks } from '../chat/view/subcomponents/BackgroundTasksStore';
+import { useUiPreferenceValue } from '../../hooks/useUiPreferences';
 
 import PixelCrab from './PixelCrab';
 import { buildCrabSquad, crabStatusLine, formatCrabDuration, squadSummary, type Crab } from './crabModel';
@@ -35,7 +36,7 @@ function summaryText(crabs: readonly Crab[], now: number): string {
  * running ones scuttle holding what they do, returned ones carry a tick. Hidden
  * when the turn launched none.
  */
-export default function CrabSquadBand({ chatMessages, sessionId, isRunActive }: CrabSquadBandProps) {
+function CrabSquad({ chatMessages, sessionId, isRunActive }: CrabSquadBandProps) {
   const { tasks } = useBackgroundTasks(sessionId);
   const backgroundLastTool = useMemo(() => {
     const byCall = new Map<string, string | undefined>();
@@ -95,4 +96,10 @@ export default function CrabSquadBand({ chatMessages, sessionId, isRunActive }: 
       )}
     </div>
   );
+}
+
+/** The band exists only while the «Крабики-помощники» mod is on. */
+export default function CrabSquadBand(props: CrabSquadBandProps) {
+  const crabs = useUiPreferenceValue('subagentCrabs');
+  return crabs ? <CrabSquad {...props} /> : null;
 }

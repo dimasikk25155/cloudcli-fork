@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from 'react';
+import { useEffect, useReducer, useRef, useSyncExternalStore } from 'react';
 
 import { authenticatedFetch } from '../utils/api';
 
@@ -11,6 +11,8 @@ type UiPreferences = {
   voiceEnabled: boolean;
   /** «Авто-перенос» is switched on in every new chat (server reads it on create). */
   autoRelayNewChats: boolean;
+  /** Built-in mod «Крабики-помощники»: subagents drawn as crabs (off = the plain card). */
+  subagentCrabs: boolean;
 };
 
 type UiPreferenceKey = keyof UiPreferences;
@@ -47,6 +49,7 @@ const DEFAULTS: UiPreferences = {
   // backend, so a deployment with no backend simply shows nothing.
   voiceEnabled: true,
   autoRelayNewChats: false,
+  subagentCrabs: true,
 };
 
 // Exported so other readers of the stored preferences blob (e.g. useVoiceAvailable)
@@ -285,4 +288,24 @@ export function useUiPreferences(storageKey = 'uiPreferences') {
     resetPreferences,
     dispatch,
   };
+}
+
+/**
+ * One preference, read-only, for components rendered many times (a row per
+ * subagent): no server fetch of its own — it follows the value the app-level
+ * `useUiPreferences` hydrates into localStorage and broadcasts on change.
+ */
+export function useUiPreferenceValue(key: UiPreferenceKey, storageKey = 'uiPreferences'): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      window.addEventListener(SYNC_EVENT, onChange);
+      window.addEventListener('storage', onChange);
+      return () => {
+        window.removeEventListener(SYNC_EVENT, onChange);
+        window.removeEventListener('storage', onChange);
+      };
+    },
+    () => readInitialPreferences(storageKey)[key],
+    () => DEFAULTS[key],
+  );
 }

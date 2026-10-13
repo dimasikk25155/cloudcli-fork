@@ -36,6 +36,8 @@ const ALLOWED_KEYS = new Set([
   'voiceEnabled',
   // «Авто-перенос» включается сам в каждом новом чате (auto-relay module).
   'autoRelayNewChats',
+  // Встроенный мод «Крабики-помощники»: субагенты в чате как крабы.
+  'subagentCrabs',
 ]);
 
 function isPreferenceValue(value: unknown): value is UiPreferenceValue {

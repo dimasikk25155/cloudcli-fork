@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 
 import { usePlugins } from '../../../contexts/PluginsContext';
+import { useUiPreferences } from '../../../hooks/useUiPreferences';
+import PixelCrab from '../../crabs/PixelCrab';
 import type { Plugin } from '../../../contexts/PluginsContext';
 
 import PluginIcon from './PluginIcon';
@@ -90,6 +92,50 @@ function ToggleSwitch({ checked, onChange, ariaLabel }: { checked: boolean; onCh
         `}
       />
     </label>
+  );
+}
+
+/* ─── Built-in mods ─────────────────────────────────────────────────────── */
+/**
+ * Mods that ship with Neo3 (no install): each is a switch over an account
+ * preference, so the choice follows the user to every device.
+ */
+export function BuiltInModsSection() {
+  const { preferences, setPreference } = useUiPreferences();
+  const crabsOn = preferences.subagentCrabs;
+  return (
+    <section className="space-y-2" data-builtin-mods>
+      <h4 className="text-sm font-semibold text-foreground">Встроенные моды</h4>
+      <div
+        className="relative flex overflow-hidden rounded-lg border border-border bg-card transition-opacity duration-200"
+        style={{ opacity: crabsOn ? 1 : 0.65 }}
+      >
+        <div className={`w-[3px] flex-shrink-0 ${crabsOn ? 'bg-success' : 'bg-muted-foreground/20'} transition-colors duration-300`} />
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-3 p-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex flex-shrink-0 gap-1 pt-1">
+              <PixelCrab tint="haiku" state={crabsOn ? 'running' : 'done'} scale={2} />
+              <PixelCrab tint="opus" state="done" scale={2} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold leading-none text-foreground">Крабики-помощники</div>
+              <p className="mt-1 text-sm leading-snug text-muted-foreground">
+                Помощники агента показываются крабиками: цвет — модель, в лапах — чем занят,
+                галочка — вернулся, и сколько это заняло. Английские задания спрятаны под «Подробности».
+                Выключено — прежняя карточка помощника.
+              </p>
+            </div>
+          </div>
+          <div className="flex-shrink-0 pt-0.5">
+            <ToggleSwitch
+              checked={crabsOn}
+              onChange={(value) => setPreference('subagentCrabs', value)}
+              ariaLabel="Крабики-помощники"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -485,6 +531,8 @@ export default function PluginSettingsTab() {
           {t('pluginSettings.description')}
         </p>
       </div>
+
+      <BuiltInModsSection />
 
       {/* Install from Git — compact */}
       <div className="flex items-center gap-0 overflow-hidden rounded-lg border border-border bg-card">

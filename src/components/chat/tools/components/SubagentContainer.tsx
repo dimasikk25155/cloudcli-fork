@@ -8,6 +8,8 @@ import {
   crabStatusLine,
 } from '../../../crabs/crabModel';
 import { useNow } from '../../../crabs/useNow';
+import { useUiPreferenceValue } from '../../../../hooks/useUiPreferences';
+import { SubagentCard } from './SubagentCard';
 
 interface SubagentContainerProps {
   toolInput: unknown;
@@ -67,7 +69,7 @@ function resultText(content: unknown): string {
  * it is doing, how long. The English task, its steps and its answer are for
  * debugging only and stay folded under «Подробности».
  */
-export const SubagentContainer: React.FC<SubagentContainerProps> = ({
+const CrabRow: React.FC<SubagentContainerProps> = ({
   toolInput,
   toolId,
   toolResult,
@@ -158,4 +160,10 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
       </CollapsibleContent>
     </Collapsible>
   );
+};
+
+/** A subagent in the transcript: a crab while the mod is on, else the plain card. */
+export const SubagentContainer: React.FC<SubagentContainerProps> = (props) => {
+  const crabs = useUiPreferenceValue('subagentCrabs');
+  return crabs ? <CrabRow {...props} /> : <SubagentCard {...props} />;
 };
