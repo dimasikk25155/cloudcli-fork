@@ -4,7 +4,7 @@ import { Check, X } from 'lucide-react';
 import { requestHubPanel } from '../hub/hubPanels';
 import { authenticatedFetch } from '../../utils/api';
 
-type BotRow = { id: string; label: string; ok: boolean; detail: string };
+type BotRow = { id: string; label: string; ok: boolean; detail: string; version?: string; outdated?: boolean };
 
 const POLL_MS = 20_000;
 
@@ -45,7 +45,7 @@ export default function BotHealthButton() {
     ok == null
       ? 'Боты: проверяю'
       : ok
-        ? bots.map((b) => `${b.label}: ${b.detail}`).join('\n') || 'Боты на связи'
+        ? bots.map((b) => `${b.label}: ${b.detail}${b.outdated ? ' · старая версия' : ''}`).join('\n') || 'Боты на связи'
         : bots.filter((b) => !b.ok).map((b) => `${b.label}: ${b.detail}`).join('\n') || 'Боты не отвечают';
 
   return (
@@ -87,10 +87,23 @@ export default function BotHealthButton() {
                 onClick={() => requestHubPanel('server')}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-accent"
               >
-                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${b.ok ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                <span
+                  className={`h-2 w-2 flex-shrink-0 rounded-full ${
+                    !b.ok ? 'bg-rose-500' : b.outdated ? 'bg-amber-500' : 'bg-emerald-500'
+                  }`}
+                />
                 <span className="min-w-0">
                   <span className="block text-sm text-foreground">{b.label}</span>
                   <span className="block text-[11px] text-muted-foreground">{b.detail}</span>
+                  {b.version && (
+                    <span
+                      className={`block text-[11px] ${
+                        b.outdated ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {b.outdated ? `старая версия: ${b.version}` : `версия ${b.version}`}
+                    </span>
+                  )}
                 </span>
               </button>
             ))

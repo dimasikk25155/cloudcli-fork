@@ -9,10 +9,13 @@ import {
   getBotsHealth,
   interpretHeartbeat,
   isControllable,
+  markOutdated,
+  parseReleaseCommand,
   parseJournalLine,
   parseLogFilePath,
   parseShowBlocks,
 } from '@/modules/vps/vps.service.js';
+import type { BotHealthItem } from '@/modules/vps/vps.service.js';
 
 // Панель сервера умеет останавливать сервисы, поэтому проверяем в первую
 // очередь не красоту вывода, а то, что она не может выстрелить себе в ногу.
@@ -246,6 +249,27 @@ describe('панель сервера: пульс WhatsApp-ботов', () => {
     assert.equal(interpretHeartbeat('kvadrobanya-wa', 'Квадробаня', lost, now).detail, 'WhatsApp отвалился');
     const stale = JSON.stringify({ connection: 'connected', updatedAt: new Date(now - 120_000).toISOString() });
     assert.equal(interpretHeartbeat('kvadrobanya-wa', 'Квадробаня', stale, now).detail, 'завис или не стучится');
+  });
+
+  it('достаёт версию Tyres KZ из командной строки бота', () => {
+    const sha = 'ec60f1b5083d7d0269f022c14061cc9623e8d489';
+    const command = `/usr/local/bin/node --import tsx /Users/x/Library/Application Support/TyresUnified/releases/${sha}/bot/src/index.ts`;
+    assert.equal(parseReleaseCommand(command), sha);
+    assert.equal(parseReleaseCommand('/usr/local/bin/node --env-file=.env --import tsx src/index.ts'), null);
+  });
+
+  it('подсвечивает линию, которая отстала от остальных', () => {
+    const item = (id: string): BotHealthItem => ({ id, label: id, ok: true, detail: 'на связи' });
+    const rows = [
+      { item: item('a'), group: 'tyres-kz', release: { sha: 'b'.repeat(40), stagedAt: now } },
+      { item: item('b'), group: 'tyres-kz', release: { sha: 'a'.repeat(40), stagedAt: now - 86_400_000 } },
+      { item: item('c'), release: null },
+    ];
+    markOutdated(rows);
+    assert.equal(rows[0].item.outdated, false);
+    assert.equal(rows[1].item.outdated, true);
+    assert.match(rows[1].item.version ?? '', /aaaaaaa$/);
+    assert.equal(rows[2].item.version, undefined);
   });
 
   it('показывает все девять WhatsApp-ботов, даже когда у какого-то нет пульса', () => {

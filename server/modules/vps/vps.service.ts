@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFile, execFileSync } from 'node:child_process';
+import { readFileSync, statSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
@@ -72,13 +72,21 @@ export type BotHealthItem = {
   label: string;
   ok: boolean;
   detail: string;
+  /** Tyres KZ release the running process was started from, e.g. «13.10 14:43 · ec60f1b». */
+  version?: string;
+  /** This line runs an older release than its siblings in the same group. */
+  outdated?: boolean;
 };
+
+type BotRelease = { sha: string; stagedAt: number };
 
 type BotWatch = {
   id: string;
   label: string;
   /** Always listed, even if the heartbeat file is missing. */
   required: boolean;
+  /** Lines in one group must run the same release (Tyres KZ). */
+  group?: string;
   paths: () => string[];
 };
 
@@ -91,15 +99,64 @@ function waLine(id: string, label: string, ...parts: string[]): BotWatch {
   return { id, label, required: true, paths: () => [homeHeartbeat(...parts)] };
 }
 
+/** Tyres KZ lines start from immutable release dirs (ops/unified/install-runtimes.py). */
+function tyresLine(id: string, label: string, folder: string): BotWatch {
+  return { ...waLine(id, label, folder, 'bot', 'logs', 'heartbeat.json'), group: 'tyres-kz' };
+}
+
+const RELEASE_RE = /\/TyresUnified\/releases\/([0-9a-f]{40})\//;
+
+/** Exported for tests: finds the release sha in a bot's command line. */
+export function parseReleaseCommand(command: string): string | null {
+  return RELEASE_RE.exec(command)?.[1] ?? null;
+}
+
+/** Reads which release the bot process from the heartbeat pid is running. */
+function readRelease(raw: string | null): BotRelease | null {
+  try {
+    const pid = Number((JSON.parse(raw ?? '') as { pid?: number }).pid);
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    const command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 3_000 });
+    const sha = parseReleaseCommand(command);
+    if (!sha) return null;
+    const dir = join(os.homedir(), 'Library', 'Application Support', 'TyresUnified', 'releases', sha);
+    return { sha, stagedAt: statSync(dir).mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+function formatRelease(release: BotRelease): string {
+  const at = new Date(release.stagedAt).toLocaleString('ru-RU', {
+    timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).replace(',', '');
+  return `${at} · ${release.sha.slice(0, 7)}`;
+}
+
+/** Exported for tests: flags lines whose release is older than the newest one in their group. */
+export function markOutdated(rows: Array<{ item: BotHealthItem; group?: string; release: BotRelease | null }>): void {
+  const newest = new Map<string, BotRelease>();
+  for (const row of rows) {
+    if (!row.group || !row.release) continue;
+    const best = newest.get(row.group);
+    if (!best || row.release.stagedAt > best.stagedAt) newest.set(row.group, row.release);
+  }
+  for (const row of rows) {
+    if (!row.group || !row.release) continue;
+    row.item.version = formatRelease(row.release);
+    row.item.outdated = row.release.sha !== newest.get(row.group)?.sha;
+  }
+}
+
 // All nine WhatsApp bots on the Mac (launchd ru.tarariev.*-wa-bot*).
 // Tyres KZ: four managers, each its own folder (TYRES_MANAGER_ID in bot/.env).
 // 7su: four lines from one repo, each with its own logs dir (bot/.env.<line>).
 // Квадробаня writes state/health.json in its own format — see interpretHeartbeat.
 const BOT_WATCHLIST: BotWatch[] = [
-  waLine('tyres-wa-ruslan', 'Tyres KZ · Руслан', 'tyres-ruslan', 'bot', 'logs', 'heartbeat.json'),
-  waLine('tyres-wa-sergey', 'Tyres KZ · Сергей', 'tyres-store', 'bot', 'logs', 'heartbeat.json'),
-  waLine('tyres-wa-dmitry', 'Tyres KZ · Дмитрий', 'shina-kz', 'bot', 'logs', 'heartbeat.json'),
-  waLine('tyres-wa-roman', 'Tyres KZ · Роман', 'tyres-manager4', 'bot', 'logs', 'heartbeat.json'),
+  tyresLine('tyres-wa-ruslan', 'Tyres KZ · Руслан', 'tyres-ruslan'),
+  tyresLine('tyres-wa-sergey', 'Tyres KZ · Сергей', 'tyres-store'),
+  tyresLine('tyres-wa-dmitry', 'Tyres KZ · Дмитрий', 'shina-kz'),
+  tyresLine('tyres-wa-roman', 'Tyres KZ · Роман', 'tyres-manager4'),
   waLine('tyres-wa-7su', '7su · Михаил', 'Tyres-7su', 'bot', 'logs', 'heartbeat.json'),
   waLine('tyres-wa-7su-kira', '7su · Кира', 'Tyres-7su', 'bot', 'logs-kira', 'heartbeat.json'),
   waLine('tyres-wa-7su-andrey', '7su · Андрей', 'Tyres-7su', 'bot', 'logs-andrey', 'heartbeat.json'),
@@ -153,12 +210,15 @@ function readHeartbeatFile(paths: string[]): string | null {
 }
 
 export function getBotsHealth(): { ok: boolean; bots: BotHealthItem[] } {
-  const bots: BotHealthItem[] = [];
+  const rows: Array<{ item: BotHealthItem; group?: string; release: BotRelease | null }> = [];
   for (const bot of BOT_WATCHLIST) {
     const raw = readHeartbeatFile(bot.paths());
     if (raw == null && !bot.required) continue;
-    bots.push(interpretHeartbeat(bot.id, bot.label, raw));
+    const item = interpretHeartbeat(bot.id, bot.label, raw);
+    rows.push({ item, group: bot.group, release: bot.group ? readRelease(raw) : null });
   }
+  markOutdated(rows);
+  const bots = rows.map((row) => row.item);
   return { ok: bots.length > 0 && bots.every((item) => item.ok), bots };
 }
 
