@@ -105,9 +105,41 @@ function service(
     now: () => NOW,
     vaultDir: () => fixture.vault,
     broadcast: () => {},
+    // The card flow below is tested with auto-write off; auto-write has its own tests.
+    autoWrite: () => false,
     ...overrides,
   });
 }
+
+// 13.10: Dima always pressed «Записать» — a good note is now written by itself.
+test('auto-write: a good note lands in the vault with no card and no tap', async () => {
+  await withIsolatedWorld(async (fixture) => {
+    finishRun(fixture, fixture.adminId, HOUR_AGO);
+    const memory = service(fixture, { autoWrite: () => true });
+
+    await memory.runCheck();
+
+    assert.deepEqual(memory.list({ id: fixture.adminId, role: 'admin' }), []);
+    const files = await readdir(path.join(fixture.vault, 'wiki', 'synthesis'));
+    assert.equal(files.length, 1);
+    assert.match(await readFile(path.join(fixture.vault, 'wiki', 'synthesis', files[0]), 'utf8'), /# Stop hook exits inside Neo3/);
+  });
+});
+
+test('auto-write that fails leaves the card, so the note is not lost', async () => {
+  await withIsolatedWorld(async (fixture) => {
+    finishRun(fixture, fixture.adminId, HOUR_AGO);
+    // A file where the folder should be: the write fails.
+    await writeFile(path.join(fixture.vault, 'wiki', 'synthesis'), 'not a folder');
+    const memory = service(fixture, { autoWrite: () => true });
+
+    await memory.runCheck();
+
+    const items = memory.list({ id: fixture.adminId, role: 'admin' });
+    assert.equal(items.length, 1);
+    assert.equal(items[0].title, 'Stop hook exits inside Neo3');
+  });
+});
 
 test('a quiet admin session with real work gets one proposed note, and the model is asked only once', async () => {
   await withIsolatedWorld(async (fixture) => {

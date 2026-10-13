@@ -6,6 +6,9 @@
  * session has gone quiet, hands its transcript to the local model (Windows
  * Ollama, free, outside the subscription) and shows the proposed note in the
  * session and in the «Ждут тебя» hub. Dima decides: «Записать» / «Не надо».
+ * Since 13.10 a good note is written straight away (Dima always said «Записать»);
+ * the card is left only when that write failed. `NEO3_MEMORY_AUTOWRITE=off`
+ * brings the manual choice back.
  *
  * Budget rules — the model must never be hammered:
  *   - the check runs every 10 minutes, only for sessions an admin ran;
@@ -71,6 +74,8 @@ export type MemorySuggestionsDependencies = {
   now?: () => Date;
   vaultDir?: () => string;
   broadcast?: (payload: Record<string, unknown>) => void;
+  /** Write a good note without asking; default on, `NEO3_MEMORY_AUTOWRITE=off` disables. */
+  autoWrite?: () => boolean;
 };
 
 export type WriteResult =
@@ -112,6 +117,7 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
   const now = dependencies.now ?? (() => new Date());
   const getVaultDir = dependencies.vaultDir ?? defaultVaultDir;
   const broadcast = dependencies.broadcast ?? defaultBroadcast;
+  const autoWrite = dependencies.autoWrite ?? (() => process.env.NEO3_MEMORY_AUTOWRITE?.trim().toLowerCase() !== 'off');
   let running: Promise<{ reviewed: number }> | null = null;
 
   function notifyChanged(sessionId: string): void {
@@ -204,8 +210,55 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
       return true;
     }
     save(status, { status: 'ready', attempts, title: parsed.title, folder: parsed.folder, body: parsed.body });
+    const saved = autoWrite() ? memorySuggestionsDb.getBySession(status.session_id) : null;
+    if (saved?.status === 'ready') {
+      // A failed write leaves the row ready: the card then asks as before.
+      await writeById(saved.id).catch(() => undefined);
+    }
     notifyChanged(status.session_id);
     return true;
+  }
+
+  /**
+   * The row is claimed atomically (ready → writing) before the file is created,
+   * so a second tap or tab — or the auto-write racing a tap — cannot create a
+   * second file, and «Не надо» cannot slip in mid-write.
+   */
+  async function writeById(id: number): Promise<WriteResult> {
+    const writtenAnswer = async (row: MemorySuggestionRow): Promise<WriteResult> => {
+      const root = await fs.promises.realpath(getVaultDir()).catch(() => getVaultDir());
+      return { status: 'ok', path: path.join(root, ...row.written_path!.split('/')), relativePath: row.written_path! };
+    };
+    const row = memorySuggestionsDb.getById(id);
+    if (!row) {
+      return { status: 'not_found' };
+    }
+    if (row.status === 'written' && row.written_path) {
+      // A repeated tap (or a second tab) gets the same answer, not a second file.
+      return writtenAnswer(row);
+    }
+    if (!row.title || !row.body || !memorySuggestionsDb.transition(id, 'ready', 'writing', now().toISOString())) {
+      const current = memorySuggestionsDb.getById(id);
+      if (current?.status === 'written' && current.written_path) return writtenAnswer(current);
+      return { status: current?.status === 'writing' ? 'busy' : 'gone' };
+    }
+    let written;
+    try {
+      const knownNotes = await listVaultNotes(getVaultDir());
+      const projectPath = sessionsDb.getSessionById(row.session_id)?.project_path;
+      const related = relatedNotes(knownNotes, projectPath ? path.basename(projectPath) : null);
+      const body = fixLinks(row.body, knownNotes, related);
+      written = await writeVaultNote({ vaultDir: getVaultDir(), folder: row.folder || 'wiki/synthesis', title: row.title, body });
+    } catch (error) {
+      memorySuggestionsDb.transition(id, 'writing', 'ready', now().toISOString());
+      return {
+        status: 'error',
+        message: error instanceof VaultPathError ? error.message : 'Не удалось записать заметку',
+      };
+    }
+    memorySuggestionsDb.transition(id, 'writing', 'written', now().toISOString(), written.relativePath);
+    notifyChanged(row.session_id);
+    return { status: 'ok', path: written.absolutePath, relativePath: written.relativePath };
   }
 
   async function checkOnce(): Promise<{ reviewed: number }> {
@@ -254,49 +307,12 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
         }));
     },
 
-    /**
-     * «Записать»: admin only. The row is claimed atomically (ready → writing)
-     * before the file is created, so a second tap or tab cannot create a
-     * second file and «Не надо» cannot slip in mid-write.
-     */
+    /** «Записать» on a card left after a failed auto-write (or with auto-write off): admin only. */
     async write(user: MemorySuggestionsUser, id: number): Promise<WriteResult> {
       if (!isAdmin(user)) {
         return { status: 'forbidden' };
       }
-      const writtenAnswer = async (row: MemorySuggestionRow): Promise<WriteResult> => {
-        const root = await fs.promises.realpath(getVaultDir()).catch(() => getVaultDir());
-        return { status: 'ok', path: path.join(root, ...row.written_path!.split('/')), relativePath: row.written_path! };
-      };
-      const row = memorySuggestionsDb.getById(id);
-      if (!row) {
-        return { status: 'not_found' };
-      }
-      if (row.status === 'written' && row.written_path) {
-        // A repeated tap (or a second tab) gets the same answer, not a second file.
-        return writtenAnswer(row);
-      }
-      if (!row.title || !row.body || !memorySuggestionsDb.transition(id, 'ready', 'writing', now().toISOString())) {
-        const current = memorySuggestionsDb.getById(id);
-        if (current?.status === 'written' && current.written_path) return writtenAnswer(current);
-        return { status: current?.status === 'writing' ? 'busy' : 'gone' };
-      }
-      let written;
-      try {
-        const knownNotes = await listVaultNotes(getVaultDir());
-        const projectPath = sessionsDb.getSessionById(row.session_id)?.project_path;
-        const related = relatedNotes(knownNotes, projectPath ? path.basename(projectPath) : null);
-        const body = fixLinks(row.body, knownNotes, related);
-        written = await writeVaultNote({ vaultDir: getVaultDir(), folder: row.folder || 'wiki/synthesis', title: row.title, body });
-      } catch (error) {
-        memorySuggestionsDb.transition(id, 'writing', 'ready', now().toISOString());
-        return {
-          status: 'error',
-          message: error instanceof VaultPathError ? error.message : 'Не удалось записать заметку',
-        };
-      }
-      memorySuggestionsDb.transition(id, 'writing', 'written', now().toISOString(), written.relativePath);
-      notifyChanged(row.session_id);
-      return { status: 'ok', path: written.absolutePath, relativePath: written.relativePath };
+      return writeById(id);
     },
 
     /** «Не надо»: admin only (same rule as the list); the suggestion goes away for good. */
