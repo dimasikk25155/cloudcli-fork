@@ -574,6 +574,7 @@ export const runMigrations = (db: Database) => {
     db.exec(SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL);
     const autoRelayColumnNames = getTableInfo(db, 'session_auto_relay').map((column) => column.name);
     addColumnToTableIfNotExists(db, 'session_auto_relay', autoRelayColumnNames, 'baseline_json', 'TEXT');
+    addColumnToTableIfNotExists(db, 'session_auto_relay', autoRelayColumnNames, 'manual', 'INTEGER NOT NULL DEFAULT 0');
 
     // Vault-note suggestions (memory-suggestions).
     db.exec(MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL);

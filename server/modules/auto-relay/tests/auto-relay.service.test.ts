@@ -603,6 +603,94 @@ test('switched off while the note was written: the turn ends and nothing more ha
   });
 });
 
+test('«Перенести» moves a chat now on the server: no threshold, the switch stays off, no push', async () => {
+  await withWorld(async (world) => {
+    rememberRunOptions(world.chatId, { model: 'opus[1m]', effort: 'medium' });
+    world.usage.set(world.chatId, 10_000);
+    const started = await world.service.startNow(world.chatId, world.member);
+    assert.deepEqual({ state: started.state, enabled: started.enabled, manual: started.manual }, { state: 'collecting', enabled: false, manual: true });
+    assert.equal(world.starts.length, 1);
+    assert.match(world.starts[0].content, /эстафета k7q2/);
+    assert.equal(existsSync(path.join(world.projectPath, 'docs', 'handoff')), true);
+
+    // Pressed again while the note is written: the same move, nothing sent twice.
+    assert.equal((await world.service.startNow(world.chatId, world.member)).state, 'collecting');
+    assert.equal(world.starts.length, 1);
+
+    const note = await writeNote(world, '2026-10-13-manual.md');
+    agentWroteNote(world, world.chatId, `HANDOFF_FILE: ${note}`);
+    await world.service.handleAttentionChange(turnEnded(world, world.chatId));
+
+    const status = world.service.getStatus(world.chatId);
+    assert.deepEqual({ state: status.state, enabled: status.enabled, manual: status.manual }, { state: 'done', enabled: false, manual: true });
+    const childId = status.childSessionId!;
+    assert.equal(sessionLinksDb.getRow(childId)?.relation, 'relay');
+    assert.equal(sessionsDb.getSessionById(childId)?.model, 'opus[1m]');
+    assert.deepEqual(
+      { sessionId: world.starts[1].sessionId, content: world.starts[1].content },
+      { sessionId: childId, content: `Прочитай ${note} и продолжай работу с того места` },
+    );
+    assert.equal(world.service.getStatus(childId).enabled, false, 'the continuation keeps the switch off');
+    assert.equal(world.notices.length, 0, 'the open tab follows by itself');
+    assert.deepEqual(world.seen, [{ userId: world.member, sessionId: world.chatId }]);
+  });
+});
+
+test('«Перенести» is refused while the agent works, for strangers and for a chat already continued', async () => {
+  await withWorld(async (world) => {
+    world.running.add(world.chatId);
+    await assert.rejects(world.service.startNow(world.chatId, world.member), /Агент ещё работает/);
+    world.running.delete(world.chatId);
+    await assert.rejects(world.service.startNow(world.chatId, world.outsider), /Нет доступа/);
+    await assert.rejects(world.service.startNow(world.chatId, null), /Нет доступа/);
+    world.limit.blocked = true;
+    await assert.rejects(world.service.startNow(world.chatId, world.member), /лимит/);
+    world.limit.blocked = false;
+    assert.equal(world.starts.length, 0);
+    assert.equal(world.service.getStatus(world.chatId).state, null);
+
+    const note = await writeNote(world, 'x.md');
+    await world.service.startNow(world.chatId, world.member);
+    agentWroteNote(world, world.chatId, `HANDOFF_FILE: ${note}`);
+    await world.service.handleAttentionChange(turnEnded(world, world.chatId));
+    assert.equal(world.service.getStatus(world.chatId).state, 'done');
+    await assert.rejects(world.service.startNow(world.chatId, world.member), /уже перенесён/);
+  });
+});
+
+test('a failed «Перенести» keeps the switch as it was and can be pressed again', async () => {
+  await withWorld(async (world) => {
+    await world.service.startNow(world.chatId, world.member);
+    world.messages.set(world.chatId, [
+      ...(world.messages.get(world.chatId) ?? []),
+      { kind: 'text', role: 'user', content: world.starts[0].content },
+      { kind: 'text', role: 'assistant', content: 'Не понял.' },
+    ]);
+    await world.service.handleAttentionChange(turnEnded(world, world.chatId));
+    const failed = world.service.getStatus(world.chatId);
+    assert.deepEqual({ state: failed.state, enabled: failed.enabled, manual: failed.manual }, { state: 'failed', enabled: false, manual: true });
+    assert.match(failed.error ?? '', /HANDOFF_FILE/);
+    assert.doesNotMatch(failed.error ?? '', /Авто-перенос выключен/);
+    assert.equal(world.notices.length, 1);
+
+    assert.equal((await world.service.startNow(world.chatId, world.member)).state, 'collecting');
+    assert.equal(world.starts.length, 2);
+  });
+});
+
+test('«Перенести» with the switch on: the move finishes and the continuation inherits the switch', async () => {
+  await withWorld(async (world) => {
+    arm(world);
+    await world.service.startNow(world.chatId, world.member);
+    const note = await writeNote(world, 'on.md');
+    agentWroteNote(world, world.chatId, `HANDOFF_FILE: ${note}`);
+    await world.service.handleAttentionChange(turnEnded(world, world.chatId));
+    const status = world.service.getStatus(world.chatId);
+    assert.equal(status.state, 'done');
+    assert.equal(world.service.getStatus(status.childSessionId!).enabled, true);
+  });
+});
+
 test('a move cut short by a restart is told once and switched off', async () => {
   await withWorld(async (world) => {
     arm(world);

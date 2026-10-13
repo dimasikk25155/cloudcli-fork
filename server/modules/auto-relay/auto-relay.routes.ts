@@ -16,6 +16,8 @@ function userIdOf(req: express.Request): number | null {
  * the chat's project access (requireSessionAccess).
  * GET /:sessionId/auto-relay → AutoRelayStatus
  * PUT /:sessionId/auto-relay {enabled: boolean} → AutoRelayStatus
+ * POST /:sessionId/auto-relay/start → AutoRelayStatus («Перенести»: the move
+ *   starts now on the server; refusals via AppError)
  */
 export function createAutoRelayRoutes(service: AutoRelayService = autoRelayService): express.Router {
   const router = express.Router();
@@ -34,6 +36,14 @@ export function createAutoRelayRoutes(service: AutoRelayService = autoRelayServi
         return;
       }
       res.json(service.setEnabled(String(req.params.sessionId), enabled, userIdOf(req)));
+    }),
+  );
+
+  router.post(
+    '/:sessionId/auto-relay/start',
+    requireSessionAccess,
+    asyncHandler(async (req, res) => {
+      res.json(await service.startNow(String(req.params.sessionId), userIdOf(req)));
     }),
   );
 

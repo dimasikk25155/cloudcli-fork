@@ -43,16 +43,37 @@ async function putEnabled(sessionId: string, enabled: boolean): Promise<AutoRela
   return readAutoRelayStatus(await response.json());
 }
 
+async function postStart(sessionId: string): Promise<AutoRelayStatus | null> {
+  const response = await authenticatedFetch(`/api/sessions/${encodeURIComponent(sessionId)}/auto-relay/start`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    let message = `Перенос не начать (${response.status})`;
+    try {
+      const body = await response.json() as { error?: { message?: unknown } | string; message?: unknown };
+      const text = typeof body?.error === 'string' ? body.error : body?.error?.message ?? body?.message;
+      if (typeof text === 'string' && text.trim()) message = text;
+    } catch {
+      // Not JSON: the status code says enough.
+    }
+    throw new Error(message);
+  }
+  return readAutoRelayStatus(await response.json());
+}
+
 export type AutoRelayControl = {
   /** Server status of the open chat; null until loaded / no chat. */
   status: AutoRelayStatus | null;
   setEnabled: (enabled: boolean) => void;
+  /** «Перенести»: the server moves the open chat now; rejects with the reason. */
+  startNow: () => Promise<void>;
 };
 
 /**
  * «Авто-перенос» of the open chat: loads the server status, follows the
- * `auto_relay` frames, flips the switch, and — when the open chat finishes
- * moving while this tab watches — calls `onMoved(childId)` to follow it.
+ * `auto_relay` frames, flips the switch, starts a move by «Перенести», and —
+ * when the open chat finishes moving while this tab watches — calls
+ * `onMoved(childId)` to follow it.
  */
 export function useAutoRelay(sessionId: string | null, onMoved: (childSessionId: string) => void): AutoRelayControl {
   const { subscribe } = useWebSocket();
@@ -110,5 +131,11 @@ export function useAutoRelay(sessionId: string | null, onMoved: (childSessionId:
       });
   }, [sessionId, refresh]);
 
-  return { status, setEnabled };
+  const startNow = useCallback(async () => {
+    if (!sessionId) return;
+    const next = await postStart(sessionId);
+    if (next) publish(next);
+  }, [sessionId]);
+
+  return { status, setEnabled, startNow };
 }

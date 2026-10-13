@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { autoRelayBandMode, readAutoRelayStatus, shouldFollowMove, type AutoRelayStatus } from './autoRelayModel.js';
 
-const base: AutoRelayStatus = { sessionId: 'a', enabled: true, state: null, childSessionId: null, childTitle: null, error: null };
+const base: AutoRelayStatus = { sessionId: 'a', enabled: true, state: null, childSessionId: null, childTitle: null, error: null, manual: false };
 
 test('the band reflects the server status of the auto-relay', () => {
   assert.equal(autoRelayBandMode(null), 'off');

@@ -14,6 +14,8 @@ export type AutoRelayStatus = {
   childSessionId: string | null;
   childTitle: string | null;
   error: string | null;
+  /** Started by «Перенести» (the switch may be off). */
+  manual: boolean;
 };
 
 /**
@@ -65,5 +67,6 @@ export function readAutoRelayStatus(value: unknown): AutoRelayStatus | null {
     childSessionId: text(raw.childSessionId),
     childTitle: text(raw.childTitle),
     error: text(raw.error),
+    manual: raw.manual === true,
   };
 }

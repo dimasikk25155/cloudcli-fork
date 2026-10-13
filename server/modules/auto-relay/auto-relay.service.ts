@@ -36,6 +36,7 @@ import { resolveRelayFile } from '@/modules/relay/relay-file.service.js';
 import { assertCanLinkNewChild, linkSession } from '@/modules/session-links/index.js';
 import { canAccessSession, projectIdOfSession } from '@/shared/project-access.js';
 import type { LLMProvider } from '@/shared/types.js';
+import { AppError } from '@/shared/utils.js';
 
 import { lastReplyTurn, type ReplyTurnMessage } from '../../../shared/reply-turn.js';
 import {
@@ -64,6 +65,8 @@ export type AutoRelayStatus = {
   childSessionId: string | null;
   childTitle: string | null;
   error: string | null;
+  /** The move was started by «Перенести» (the switch may be off). */
+  manual: boolean;
 };
 
 /** One run the auto-relay asks the chat gateway to start. */
@@ -250,6 +253,7 @@ function toStatus(sessionId: string, row: SessionAutoRelayRow | null): AutoRelay
     childSessionId,
     childTitle: childSessionId ? sessionTitle(childSessionId) : null,
     error: row?.error ?? null,
+    manual: Boolean(row?.manual),
   };
 }
 
@@ -371,8 +375,13 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
    * wins (end of turn, timeout, boot) tells it, everyone else does nothing.
    */
   function fail(sessionId: string, row: SessionAutoRelayRow, error: string): boolean {
-    const text = clip(error, ERROR_MAX);
-    if (!sessionAutoRelayDb.transition(sessionId, ['collecting', 'creating'], { state: 'failed', enabled: 0, error: text }, stamp())) {
+    // A move by «Перенести» leaves the switch as it was; the switch's own move turns it off.
+    const manual = Boolean(sessionAutoRelayDb.get(sessionId)?.manual ?? row.manual);
+    const text = clip(manual ? error : `${error} Авто-перенос выключен.`, ERROR_MAX);
+    const patch: Parameters<typeof sessionAutoRelayDb.transition>[2] = manual
+      ? { state: 'failed', error: text }
+      : { state: 'failed', enabled: 0, error: text };
+    if (!sessionAutoRelayDb.transition(sessionId, ['collecting', 'creating'], patch, stamp())) {
       return false;
     }
     clearCollectingTimer(sessionId);
@@ -391,8 +400,48 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
 
   function standDown(sessionId: string): void {
     clearCollectingTimer(sessionId);
-    sessionAutoRelayDb.transition(sessionId, ['collecting', 'creating'], { state: null, nonce: null }, stamp());
+    sessionAutoRelayDb.transition(sessionId, ['collecting', 'creating'], { state: null, nonce: null, manual: 0 }, stamp());
     emit(sessionId);
+  }
+
+  /**
+   * Sends the handoff request into the idle chat (state `collecting`, from one
+   * of `from`) and arms its timeout. False when the row moved meanwhile or the
+   * chat got busy — then nothing was sent.
+   */
+  function beginCollecting(input: {
+    sessionId: string;
+    projectPath: string;
+    userId: number;
+    options: Record<string, unknown>;
+    from: Array<AutoRelayState | null>;
+    manual: boolean;
+  }): boolean {
+    const { sessionId, userId } = input;
+    const control = runControl;
+    if (!control) return false;
+    const tag = nonce();
+    const patch = { state: 'collecting' as const, nonce: tag, user_id: userId, error: null, child_session_id: null, manual: input.manual ? 1 : 0 };
+    if (!sessionAutoRelayDb.transition(sessionId, input.from, patch, stamp())) {
+      return false;
+    }
+    prepareNoteFolder(input.projectPath);
+    const started = control.start({ sessionId, userId, parentSessionId: sessionId, content: buildRelayRequest(tag, input.projectPath), options: input.options });
+    if (!started) {
+      // Someone wrote to the chat meanwhile: back to idle, the next turn end decides again.
+      sessionAutoRelayDb.transition(sessionId, ['collecting'], { state: null, nonce: null, manual: 0 }, stamp());
+      return false;
+    }
+    const minutes = Math.round(collectingTimeoutMs / 60_000);
+    collectingTimers.set(sessionId, setTimer(() => {
+      collectingTimers.delete(sessionId);
+      const current = sessionAutoRelayDb.get(sessionId);
+      if (current?.state === 'collecting' && current.nonce === tag) {
+        fail(sessionId, current, `Записка не появилась за ${minutes} минут — новый чат не создан.`);
+      }
+    }, collectingTimeoutMs));
+    emit(sessionId);
+    return true;
   }
 
   /** Turn ended in an idle chat with the switch on: start the move when everything allows it. */
@@ -436,7 +485,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
     const verdict = relaySuggestion({ ...input, dismissed: floor }, thresholds);
     if (!verdict.show) return;
 
-    // A relay request typed by hand (the band) is finished by the client.
+    // A relay request already in the chat (an older tab's band) is not sent twice.
     const messages = await fetchMessages(sessionId);
     if (isRelayRequestText(lastReplyTurn(messages)?.user)) return;
 
@@ -445,26 +494,46 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
       if (guard.blocked) return; // next turn end tries again
     }
 
-    const tag = nonce();
-    if (!sessionAutoRelayDb.transition(sessionId, [null], { state: 'collecting', nonce: tag, user_id: userId, error: null }, stamp())) {
-      return;
+    beginCollecting({ sessionId, projectPath: session.project_path, userId, options, from: [null], manual: false });
+  }
+
+  /**
+   * «Перенести»: the same move as the switch's, started now by the person —
+   * no threshold, the switch stays as it is. The server finishes it even if
+   * the tab is closed or reloaded meanwhile; the tab follows by the frames.
+   */
+  async function startNow(sessionId: string, userId: number | null): Promise<AutoRelayStatus> {
+    const refuse = (message: string, code: string, statusCode = 409): never => {
+      throw new AppError(message, { code, statusCode });
+    };
+    if (!runControl) refuse('Перенос сейчас недоступен — сервер ещё запускается', 'RELAY_UNAVAILABLE', 503);
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) refuse('Чат не найден', 'SESSION_NOT_FOUND', 404);
+    if (userId === null || !canAccessSession({ id: userId }, sessionId)) refuse('Нет доступа к чату', 'SESSION_ACCESS_DENIED', 403);
+    if (!session!.project_path) refuse('У чата нет папки проекта', 'RELAY_NO_PROJECT', 400);
+    const row = sessionAutoRelayDb.get(sessionId);
+    if (row?.state === 'collecting' || row?.state === 'creating') return getStatus(sessionId);
+    await ensureRegistry();
+    if (isProcessing(sessionId)) refuse('Агент ещё работает — перенеси, когда он закончит ход', 'RELAY_CHAT_BUSY');
+    if (hasRelayChild(sessionId)) refuse('Этот чат уже перенесён', 'RELAY_ALREADY_CONTINUED');
+
+    const options = runOptionsFor(sessionId);
+    const model = typeof options.model === 'string' ? options.model : usageOf(sessionId).model;
+    if (session!.provider === 'claude' && !isLocalModel(model)) {
+      const guard = await checkClaudeLimit();
+      if (guard.blocked) refuse(guard.notice || 'Лимит Claude почти исчерпан — перенос подождёт', 'RELAY_LIMIT');
     }
-    prepareNoteFolder(session.project_path);
-    const started = control.start({ sessionId, userId, parentSessionId: sessionId, content: buildRelayRequest(tag, session.project_path), options });
-    if (!started) {
-      // Someone wrote to the chat meanwhile: back to idle, the next turn end decides again.
-      sessionAutoRelayDb.transition(sessionId, ['collecting'], { state: null, nonce: null }, stamp());
-      return;
-    }
-    const minutes = Math.round(collectingTimeoutMs / 60_000);
-    collectingTimers.set(sessionId, setTimer(() => {
-      collectingTimers.delete(sessionId);
-      const current = sessionAutoRelayDb.get(sessionId);
-      if (current?.state === 'collecting' && current.nonce === tag) {
-        fail(sessionId, current, `Записка не появилась за ${minutes} минут — новый чат не создан, авто-перенос выключен. Перенеси вручную, когда агент освободится.`);
-      }
-    }, collectingTimeoutMs));
-    emit(sessionId);
+    if (!row) sessionAutoRelayDb.upsert(sessionId, {}, stamp());
+    const started = beginCollecting({
+      sessionId,
+      projectPath: session!.project_path!,
+      userId: userId!,
+      options,
+      from: [null, 'failed', 'done'],
+      manual: true,
+    });
+    if (!started) refuse('Чат занят — попробуй ещё раз через минуту', 'RELAY_CHAT_BUSY');
+    return getStatus(sessionId);
   }
 
   /** The handoff turn ended (or paused): find the note, open the continuation. */
@@ -481,11 +550,11 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
     if (!handoffPath) {
       // Paused on a question or an approval: the person answers, the turn goes on.
       if (change.state === 'waiting' && MID_RUN_REASONS.has(String(change.reason ?? ''))) return;
-      fail(sessionId, row, 'Агент не вывел строку HANDOFF_FILE — записку не нашёл. Новый чат не создан, авто-перенос выключен.');
+      fail(sessionId, row, 'Агент не вывел строку HANDOFF_FILE — записку не нашёл. Новый чат не создан.');
       return;
     }
     const current = sessionAutoRelayDb.get(sessionId);
-    if (!current?.enabled) {
+    if (!current?.enabled && !current?.manual) {
       // Switched off while the note was being written: nothing more happens.
       standDown(sessionId);
       return;
@@ -507,7 +576,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
     try {
       absPath = (await resolveRelayFile({ sessionId, requestedPath: handoffPath, user })).absPath;
     } catch (error) {
-      fail(sessionId, row, `${error instanceof Error ? error.message : 'Записку не проверить'}. Новый чат не создан, авто-перенос выключен.`);
+      fail(sessionId, row, `${error instanceof Error ? error.message : 'Записку не проверить'}. Новый чат не создан.`);
       return;
     }
 
@@ -536,7 +605,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
       if (typeof options.model === 'string') sessionsDb.updateSessionModel(childId, options.model);
       if (typeof options.effort === 'string') sessionsDb.updateSessionEffort(childId, options.effort);
       // The continuation inherits the switch, idle: it moves only past its own threshold.
-      sessionAutoRelayDb.upsert(childId, { enabled: 1, state: null, user_id: userId }, stamp());
+      sessionAutoRelayDb.upsert(childId, { enabled: current.enabled ? 1 : 0, state: null, user_id: userId }, stamp());
     } catch (error) {
       sessionAutoRelayDb.delete(childId);
       sessionsDb.deleteSessionById(childId);
@@ -561,7 +630,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
     if (!started) {
       sessionAutoRelayDb.delete(childId);
       sessionsDb.deleteSessionById(childId);
-      fail(sessionId, row, 'Новый чат не запустился — авто-перенос выключен, перенеси вручную');
+      fail(sessionId, row, 'Новый чат не запустился.');
       return;
     }
 
@@ -570,7 +639,10 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
     broadcastUpsert(sessionId);
     markSeen(userId, sessionId);
     emit(sessionId);
-    notify({ kind: 'done', userId, provider: session.provider, sessionId, childSessionId: childId, childTitle });
+    // «Перенести» was pressed in the open tab, which follows by itself: no push for it.
+    if (!current.manual) {
+      notify({ kind: 'done', userId, provider: session.provider, sessionId, childSessionId: childId, childTitle });
+    }
   }
 
   /** Every status change of any chat (session-attention onChange). */
@@ -631,6 +703,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
       patch.state = null;
       patch.error = null;
       patch.nonce = null;
+      patch.manual = 0;
     }
     if (userId !== null) patch.user_id = userId;
     sessionAutoRelayDb.upsert(sessionId, patch, stamp());
@@ -663,7 +736,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
   function reconcileOnBoot(): number {
     const rows = sessionAutoRelayDb.listInProgress();
     for (const row of rows) {
-      fail(row.session_id, row, 'Сервер перезапустился во время авто-переноса — новый чат не создан, авто-перенос выключен.');
+      fail(row.session_id, row, 'Сервер перезапустился во время переноса — новый чат не создан.');
     }
     return rows.length;
   }
@@ -671,6 +744,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
   return {
     getStatus,
     setEnabled,
+    startNow,
     applyNewChatDefaults,
     handleAttentionChange,
     reconcileOnBoot,

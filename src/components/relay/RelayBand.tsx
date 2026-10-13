@@ -74,12 +74,11 @@ function Shell({ busy, children, actions }: { busy: boolean; children: ReactNode
 }
 
 /**
- * One band over the composer.
- * Manual relay: «Перенести в новый чат» / «Не сейчас», then «Собираю записку…»,
- * «Открываю новый чат…» (cancellable, times out), an error, or «Новый чат
- * готов → Открыть». Auto-relay (server): «Авто-перенос включён…» while armed,
+ * One band over the composer. Every move runs on the server, whoever starts
+ * it: «Перенести в новый чат» / «Не сейчас» (or a refusal of the start), then
  * «Переношу…» while the server moves the chat, «Перенёс → Открыть» on an
- * already moved chat, or the failure told once.
+ * already moved chat, or the failure told once. With the switch on and the
+ * chat not grown yet: «Авто-перенос включён…».
  */
 export default function RelayBand({ relay, autoRelay, onOpenChat }: RelayBandProps) {
   const auto = autoRelay?.status ?? null;
@@ -93,7 +92,7 @@ export default function RelayBand({ relay, autoRelay, onOpenChat }: RelayBandPro
   if (autoMode === 'moving') {
     return (
       <Shell busy>
-        <p className="text-xs font-medium text-primary/80">Авто-перенос</p>
+        <p className="text-xs font-medium text-primary/80">{auto?.manual ? 'Перенос' : 'Авто-перенос'}</p>
         <p className="mt-0.5 text-sm text-foreground" data-testid="auto-relay-moving">
           Переношу в новый чат…
         </p>
@@ -128,16 +127,17 @@ export default function RelayBand({ relay, autoRelay, onOpenChat }: RelayBandPro
         actions={(
           <>
             <Button size="sm" className="h-9 px-3" onClick={relay.start}>
-              Перенести вручную
+              {auto?.manual ? 'Повторить' : 'Перенести вручную'}
             </Button>
-            <Button size="sm" variant="ghost" className="h-9 px-3 text-muted-foreground" onClick={() => autoRelay?.setEnabled(false)}>
+            {/* Clears the failure; the switch stays as it is after a «Перенести». */}
+            <Button size="sm" variant="ghost" className="h-9 px-3 text-muted-foreground" onClick={() => autoRelay?.setEnabled(auto?.manual ? auto.enabled : false)}>
               Закрыть
             </Button>
           </>
         )}
       >
-        <p className="text-xs font-medium text-destructive">Авто-перенос не получился</p>
-        <p className="mt-0.5 break-words text-sm text-foreground">{auto?.error ?? 'Записку не нашёл — авто-перенос выключен'}</p>
+        <p className="text-xs font-medium text-destructive">{auto?.manual ? 'Перенос не удался' : 'Авто-перенос не получился'}</p>
+        <p className="mt-0.5 break-words text-sm text-foreground">{auto?.error ?? 'Записку не нашёл — новый чат не создан'}</p>
       </Shell>
     );
   }
@@ -159,65 +159,6 @@ export default function RelayBand({ relay, autoRelay, onOpenChat }: RelayBandPro
         </p>
         {autoRelay && auto && <AutoRelaySwitch checked={auto.enabled} onChange={autoRelay.setEnabled} showLabel={false} />}
       </div>
-    );
-  }
-
-  const busy = phase === 'collecting' || phase === 'creating';
-
-  if (phase === 'collecting') {
-    return (
-      <Shell
-        busy={busy}
-        actions={(
-          <>
-            <Button size="sm" className="h-9 px-3" disabled>
-              Перенести
-            </Button>
-            <Button size="sm" variant="ghost" className="h-9 px-3 text-muted-foreground" onClick={relay.reset}>
-              Отменить
-            </Button>
-          </>
-        )}
-      >
-        <p className="text-sm text-foreground">Собираю записку…</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">Агент пишет эстафету, потом откроется новый чат</p>
-      </Shell>
-    );
-  }
-
-  if (phase === 'creating') {
-    return (
-      <Shell
-        busy={busy}
-        actions={(
-          <Button size="sm" variant="ghost" className="h-9 px-3 text-muted-foreground" onClick={relay.reset}>
-            Отменить
-          </Button>
-        )}
-      >
-        <p className="text-sm text-foreground">Открываю новый чат…</p>
-      </Shell>
-    );
-  }
-
-  if (phase === 'done') {
-    return (
-      <Shell
-        busy={false}
-        actions={(
-          <>
-            <Button size="sm" className="h-9 px-3" onClick={relay.openChild}>
-              Открыть
-            </Button>
-            <Button size="sm" variant="ghost" className="h-9 px-3 text-muted-foreground" onClick={relay.reset}>
-              Закрыть
-            </Button>
-          </>
-        )}
-      >
-        <p className="text-xs font-medium text-primary/80">Новый чат готов</p>
-        <p className="mt-0.5 text-sm text-foreground">Записка передана, продолжение ждёт в новом чате</p>
-      </Shell>
     );
   }
 

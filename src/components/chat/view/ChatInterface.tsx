@@ -22,13 +22,9 @@ import { AUTO_PLAN_MODE, autoApprovedRequestIds, isAutoPlanMode } from '../utils
 import {
   RelayBand,
   contextOccupancy,
-  createRelaySession,
   useAutoRelay,
-  useRelayFirstMessage,
   useRelaySuggestion,
-  type RelayEngine,
 } from '../../relay';
-import type { ReplyTurnMessage } from '../../../../shared/reply-turn';
 import { useAttentionItem } from '../../attention/useAttention';
 import { lastModelActivityAt, latestTimestamp, promptCacheApplies } from '../../../utils/promptCache';
 
@@ -54,9 +50,6 @@ import CrabSquadBand from '../../crabs/CrabSquadBand';
 import { currentSessionLinks } from '../../threads/threadsBarModel';
 import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
-
-// Stable empty list for a chat without an id yet (no relay there).
-const NO_RELAY_MESSAGES: ReplyTurnMessage[] = [];
 
 function ChatInterface({
   selectedProject,
@@ -220,12 +213,9 @@ function ChatInterface({
   // Brand-new conversation: the composer allocated a stable session id via
   // the session gateway before the first send. Record it locally and put it
   // in the URL — this id never changes again, so there is no later handoff.
-  // `modelCommitted`: the caller already recorded this chat's model (the relay
-  // does it before opening the chat), so it is not written a second time.
   const handleSessionEstablished = useCallback((
     sessionId: string,
     context: Parameters<NonNullable<ChatInterfaceProps['onSessionEstablished']>>[1],
-    options: { modelCommitted?: boolean } = {},
   ) => {
     setCurrentSessionId(sessionId);
     // The chips picked while composing (no session id yet) become this
@@ -236,9 +226,7 @@ function ChatInterface({
     commitWorkModeToSession(sessionId);
     // Same story for the model and thinking level picked on the empty screen:
     // in-chat picks are session-scoped now, so they need a session to land on.
-    if (!options.modelCommitted) {
-      void commitSessionModelAndEffort(sessionId);
-    }
+    void commitSessionModelAndEffort(sessionId);
     onSessionEstablished?.(sessionId, context);
     onNavigateToSession?.(sessionId);
   }, [setCurrentSessionId, commitPermissionModeToSession, commitWorkModeToSession, commitSessionModelAndEffort, onSessionEstablished, onNavigateToSession]);
@@ -586,51 +574,19 @@ function ChatInterface({
     return { options, providerByModel };
   }, [providerModelCatalog, provider, currentSessionId, selectedSession?.id, t]);
 
-  // Relay (src/components/relay): «Перенести в новый чат» once the chat has
-  // grown or aged. The continuation chat keeps this chat's project, engine and
-  // model, is linked to it as `relay`, and gets its first message through the
-  // composer like a typed one.
-  // The store re-renders this component when the open chat's messages change
-  // and keeps `merged` stable between changes, so a plain read is the subscription.
-  const relayMessages = chipsSessionId ? sessionStore.getMessages(chipsSessionId) : NO_RELAY_MESSAGES;
+  // «Авто-перенос» and «Перенести»: the server moves a grown chat — by the
+  // switch or by the button — and this tab follows the open chat to its
+  // continuation when the move finishes.
+  const followMovedChat = useCallback((childId: string) => {
+    onNavigateToSession?.(childId);
+  }, [onNavigateToSession]);
+  const autoRelay = useAutoRelay(chipsSessionId, followMovedChat);
+  // Relay (src/components/relay): the band offers «Перенести в новый чат» once
+  // the chat has grown or aged; the continuation keeps this chat's project,
+  // engine and model and is linked to it as `relay` (all on the server).
   const relayUsedTokens = contextOccupancy(tokenBudget);
   const relayContextWindow = composerModelOptions
     .find((option) => option.value === providerModels[provider])?.contextWindow ?? null;
-  const relayEngine = useMemo<RelayEngine>(() => ({
-    provider,
-    model: providerModels[provider],
-    effort: currentProviderEffort,
-  }), [provider, providerModels, currentProviderEffort]);
-  const createRelayChat = useCallback(async (parentSessionId: string, engine: RelayEngine) => {
-    if (!selectedProject) {
-      throw new Error('Проект не выбран');
-    }
-    const childId = await createRelaySession({
-      provider: engine.provider,
-      projectPath: selectedProject.fullPath || selectedProject.path || '',
-      parentSessionId,
-    });
-    // Recorded once, before the chat opens, so its first send already runs on
-    // the parent's model; openRelayChat does not write it again.
-    await commitSessionModelAndEffort(childId, {
-      provider: engine.provider as Provider,
-      model: engine.model,
-      effort: engine.effort,
-    });
-    return childId;
-  }, [commitSessionModelAndEffort, selectedProject]);
-  const openRelayChat = useCallback((childId: string) => {
-    if (!selectedProject) {
-      return;
-    }
-    // The parent's summary is the relay request by now — not a title worth copying.
-    const childProvider = relayEngine.provider as Provider;
-    handleSessionEstablished(
-      childId,
-      { provider: childProvider, project: selectedProject, summary: 'Продолжение чата' },
-      { modelCommitted: true },
-    );
-  }, [handleSessionEstablished, relayEngine.provider, selectedProject]);
   const relay = useRelaySuggestion({
     id: chipsSessionId,
     createdAt: selectedSession?.createdAt ?? selectedSession?.created_at ?? null,
@@ -638,15 +594,7 @@ function ChatInterface({
     usedTokens: relayUsedTokens,
     contextWindow: relayContextWindow,
     isProcessing,
-    messages: relayMessages,
-  }, { engine: relayEngine, createChat: createRelayChat, openChat: openRelayChat });
-  useRelayFirstMessage(chipsSessionId, isProcessing);
-  // «Авто-перенос»: the server moves a grown chat by itself; this tab follows
-  // the open chat to its continuation when the move finishes.
-  const followMovedChat = useCallback((childId: string) => {
-    onNavigateToSession?.(childId);
-  }, [onNavigateToSession]);
-  const autoRelay = useAutoRelay(chipsSessionId, followMovedChat);
+  }, { startMove: autoRelay.startNow });
 
   const permissionContextValue = useMemo(() => ({
     pendingPermissionRequests,

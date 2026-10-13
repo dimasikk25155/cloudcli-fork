@@ -19,11 +19,12 @@ import {
 import { createAutoRelayRoutes, createAutoRelayService } from '@/modules/auto-relay/index.js';
 
 // GET/PUT /api/sessions/:id/auto-relay: the per-chat switch, behind the
-// chat's project access; off until someone turns it on.
+// chat's project access; off until someone turns it on. POST …/auto-relay/start
+// («Перенести») sits behind the same access check.
 
 type Reply = { status: number; body: Record<string, unknown> };
 
-async function withServer(runTest: (call: (method: 'GET' | 'PUT', sessionId: string, body?: unknown, as?: 'member' | 'stranger') => Promise<Reply>) => Promise<void>): Promise<void> {
+async function withServer(runTest: (call: (method: 'GET' | 'PUT' | 'POST', sessionId: string, body?: unknown, as?: 'member' | 'stranger') => Promise<Reply>) => Promise<void>): Promise<void> {
   const previous = process.env.DATABASE_PATH;
   const directory = await mkdtemp(path.join(tmpdir(), 'auto-relay-routes-'));
   closeConnection();
@@ -49,7 +50,7 @@ async function withServer(runTest: (call: (method: 'GET' | 'PUT', sessionId: str
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/sessions`;
   try {
     await runTest(async (method, sessionId, body, as = 'member') => {
-      const response = await fetch(`${base}/${encodeURIComponent(sessionId)}/auto-relay`, {
+      const response = await fetch(`${base}/${encodeURIComponent(sessionId)}/auto-relay${method === 'POST' ? '/start' : ''}`, {
         method,
         headers: { 'content-type': 'application/json', 'x-as': as },
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -69,7 +70,7 @@ test('the switch is off by default and turns on and off for a member of the proj
   await withServer(async (call) => {
     const initial = await call('GET', 'chat');
     assert.equal(initial.status, 200);
-    assert.deepEqual(initial.body, { sessionId: 'chat', enabled: false, state: null, childSessionId: null, childTitle: null, error: null });
+    assert.deepEqual(initial.body, { sessionId: 'chat', enabled: false, state: null, childSessionId: null, childTitle: null, error: null, manual: false });
 
     const on = await call('PUT', 'chat', { enabled: true });
     assert.equal(on.status, 200);
@@ -87,6 +88,8 @@ test('a stranger, an unknown chat and a malformed body are refused', async () =>
     assert.equal((await call('PUT', 'chat', { enabled: true }, 'stranger')).status, 403);
     assert.equal((await call('GET', 'missing')).status, 404);
     assert.equal((await call('PUT', 'chat', { enabled: 'yes' })).status, 400);
+    assert.equal((await call('POST', 'chat', undefined, 'stranger')).status, 403);
+    assert.equal((await call('POST', 'missing')).status, 404);
     assert.equal((await call('GET', 'chat')).body.enabled, false);
   });
 });

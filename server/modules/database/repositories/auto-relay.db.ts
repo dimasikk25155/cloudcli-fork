@@ -18,12 +18,14 @@ export type SessionAutoRelayRow = {
   error: string | null;
   /** JSON RelayDismissal: a continuation's measures after its first turn. */
   baseline_json: string | null;
+  /** 1 = the move was started by «Перенести», not by the switch. */
+  manual: number;
   updated_at: string;
 };
 
 export type AutoRelayPatch = Partial<Omit<SessionAutoRelayRow, 'session_id' | 'updated_at'>>;
 
-const COLUMNS = ['enabled', 'state', 'nonce', 'user_id', 'child_session_id', 'error', 'baseline_json'] as const;
+const COLUMNS = ['enabled', 'state', 'nonce', 'user_id', 'child_session_id', 'error', 'baseline_json', 'manual'] as const;
 
 export const sessionAutoRelayDb = {
   get(sessionId: string): SessionAutoRelayRow | null {

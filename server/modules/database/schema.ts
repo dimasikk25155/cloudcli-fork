@@ -461,6 +461,7 @@ CREATE TABLE IF NOT EXISTS session_auto_relay (
     child_session_id TEXT,
     error TEXT,
     baseline_json TEXT,
+    manual INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
 `;
