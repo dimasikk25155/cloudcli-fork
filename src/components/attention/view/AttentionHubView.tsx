@@ -3,6 +3,14 @@ import type { ReactNode } from 'react';
 import { CheckCheck, Inbox } from 'lucide-react';
 
 import { cn } from '../../../lib/utils';
+import {
+  getPromptCacheTtlMin,
+  latestTimestamp,
+  promptCacheApplies,
+  promptCacheHubNote,
+  promptCacheStatus,
+  type PromptCacheState,
+} from '../../../utils/promptCache';
 import { Button } from '../../../shared/view/ui/Button';
 import type { AttentionItem } from '../types';
 import {
@@ -37,7 +45,30 @@ export type AttentionHubViewProps = {
   renderProviderMark?: (provider: string) => ReactNode;
   /** Engine display name — the app shell passes the sidebar's i18n labels. */
   getProviderLabel?: (provider: string) => string;
+  /** Prompt-cache lifetime, minutes (default: the server's value). */
+  promptCacheTtlMin?: number;
 };
+
+const CACHE_NOTE_TONE: Partial<Record<PromptCacheState, string>> = {
+  warm: 'text-muted-foreground',
+  cooling: 'text-amber-500',
+  cold: 'text-red-500',
+};
+
+/** Claude rows only: how long the prompt cache stays warm — which chat to continue now. */
+function cacheNoteOf(item: AttentionItem, nowMs: number, ttlMin: number) {
+  if (!promptCacheApplies(item.provider, item.model)) {
+    return null;
+  }
+  const status = promptCacheStatus({
+    lastModelAt: latestTimestamp(item.lastModelAt),
+    isRunning: item.state === 'working',
+    now: nowMs,
+    ttlMin,
+  });
+  const text = promptCacheHubNote(status);
+  return text ? { text, tone: CACHE_NOTE_TONE[status.state] ?? 'text-muted-foreground' } : null;
+}
 
 const rawProviderLabel = (provider: string) => provider;
 
@@ -60,12 +91,14 @@ function SectionHeader({ title, count, accent }: { title: string; count?: number
 function AttentionRow({
   item,
   nowMs,
+  ttlMin,
   onOpen,
   renderProviderMark,
   getProviderLabel,
 }: {
   item: AttentionItem;
   nowMs: number;
+  ttlMin: number;
   onOpen: (item: AttentionItem) => void;
   renderProviderMark?: (provider: string) => ReactNode;
   getProviderLabel: (provider: string) => string;
@@ -73,6 +106,7 @@ function AttentionRow({
   const { statusLabel, ageLabel, summary } = describeAttention(item, nowMs);
   const title = item.title?.trim() || 'Без названия';
   const meta = [item.projectName, getProviderLabel(item.provider), statusLabel].filter(Boolean).join(' · ');
+  const cacheNote = cacheNoteOf(item, nowMs, ttlMin);
 
   return (
     <button
@@ -88,7 +122,14 @@ function AttentionRow({
           <span className="min-w-0 flex-1 truncate text-sm text-foreground">{title}</span>
           <span className="flex-shrink-0 text-[11px] text-muted-foreground">{ageLabel}</span>
         </div>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</p>
+        <p className="mt-0.5 flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate">{meta}</span>
+          {cacheNote && (
+            <span data-cache-note className={cn('flex-shrink-0 whitespace-nowrap', cacheNote.tone)}>
+              · {cacheNote.text}
+            </span>
+          )}
+        </p>
         {summary && <p className="mt-0.5 truncate text-xs text-foreground/80">{summary}</p>}
       </div>
     </button>
@@ -104,6 +145,7 @@ export default function AttentionHubView({
   extraSections = [],
   renderProviderMark,
   getProviderLabel = rawProviderLabel,
+  promptCacheTtlMin = getPromptCacheTtlMin(),
 }: AttentionHubViewProps) {
   const groups = groupAttention(items);
   const { total, counts } = countAttention(items);
@@ -143,6 +185,7 @@ export default function AttentionHubView({
                   key={entry.sessionId}
                   item={entry}
                   nowMs={nowMs}
+                  ttlMin={promptCacheTtlMin}
                   onOpen={onOpenSession}
                   renderProviderMark={renderProviderMark}
                   getProviderLabel={getProviderLabel}

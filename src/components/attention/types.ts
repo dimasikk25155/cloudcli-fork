@@ -49,6 +49,10 @@ export interface AttentionItem {
   updatedAt: string;
   /** done/failed only: changed after this user last looked at the session. */
   unread: boolean;
+  /** Session's model override; null/absent = account default. */
+  model?: string | null;
+  /** ISO time of the session's last model output (prompt-cache timer); null/absent = unknown. */
+  lastModelAt?: string | null;
 }
 
 export type AttentionCounts = {

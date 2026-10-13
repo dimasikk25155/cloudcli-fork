@@ -5,6 +5,7 @@ import type { ServerEvent } from '../../contexts/WebSocketContext';
 import type { GatewayEventKind } from '../../types/app';
 import { authenticatedFetch } from '../../utils/api';
 import { setPageAttentionCount } from '../../utils/pageTitleNotification';
+import { setPromptCacheTtlMin } from '../../utils/promptCache';
 
 import { createAttentionStore, type AttentionSnapshot } from './attentionStore';
 import type { AttentionItem, AttentionSeenTarget } from './types';
@@ -20,7 +21,9 @@ async function fetchAttentionList(): Promise<AttentionItem[]> {
   if (!response.ok) {
     throw new Error(`GET /api/attention → ${response.status}`);
   }
-  const payload = (await response.json()) as { items?: unknown };
+  const payload = (await response.json()) as { items?: unknown; promptCacheTtlMin?: unknown };
+  // The prompt-cache timer's TTL (server env NEO3_PROMPT_CACHE_TTL_MIN) rides along.
+  setPromptCacheTtlMin(payload.promptCacheTtlMin);
   return Array.isArray(payload.items) ? (payload.items as AttentionItem[]) : [];
 }
 

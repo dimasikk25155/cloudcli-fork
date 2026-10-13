@@ -1,5 +1,6 @@
 export {
   createSessionAttentionService,
+  promptCacheTtlMin,
   sessionAttention,
 } from '@/modules/session-attention/session-attention.service.js';
 export type {

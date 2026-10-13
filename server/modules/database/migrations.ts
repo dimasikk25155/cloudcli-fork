@@ -559,6 +559,9 @@ export const runMigrations = (db: Database) => {
     // existing auth.db only gains new tables through an explicit migration.
     db.exec(SESSION_ATTENTION_TABLE_SCHEMA_SQL);
     db.exec(SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL);
+    // Prompt-cache timer: when the model last answered in the session.
+    const attentionColumnNames = getTableInfo(db, 'session_attention').map((column) => column.name);
+    addColumnToTableIfNotExists(db, 'session_attention', attentionColumnNames, 'last_model_at', 'TEXT');
 
     // One-time answer buttons for push / Telegram (pending-answers).
     db.exec(ANSWER_TOKENS_TABLE_SCHEMA_SQL);
