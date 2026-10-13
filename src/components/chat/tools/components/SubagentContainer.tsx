@@ -3,11 +3,9 @@ import type { SubagentState } from '../../types/types';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../../../../shared/view/ui';
 import PixelCrab from '../../../crabs/PixelCrab';
 import {
-  CRAB_STATE_TEXT,
   CRAB_TINT_LABEL,
   crabFromMessage,
-  formatCrabDuration,
-  pluralActions,
+  crabStatusLine,
 } from '../../../crabs/crabModel';
 import { useNow } from '../../../crabs/useNow';
 
@@ -91,7 +89,6 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
 
   const prompt = parsedInput?.prompt || '';
   const { childTools } = subagentState;
-  const duration = formatCrabDuration(crab.durationMs);
   const answer = subagentState.isComplete && !subagentState.isAsync && toolResult ? resultText(toolResult.content) : '';
 
   return (
@@ -104,9 +101,7 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
           <div className="truncate text-sm font-medium text-foreground">{crab.title}</div>
           <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             <span>
-              {crab.state === 'running' && crab.activity ? crab.activity.verb : CRAB_STATE_TEXT[crab.state]}
-              {crab.state !== 'running' && crab.toolsUsed > 0 && ` · ${pluralActions(crab.toolsUsed)}`}
-              {duration && ` · ${duration}`}
+              {crabStatusLine(crab, { withActions: true })}
             </span>
             <CollapsibleTrigger className="flex items-center gap-0.5 text-[11px] text-muted-foreground/70 hover:text-foreground">
               <span>Подробности</span>

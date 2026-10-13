@@ -95,7 +95,8 @@ function tagText(text: string, tag: string): string | undefined {
 
 /**
  * A background task (usually an async subagent) came back. The harness feeds
- * it to the model as a non-human `<task-notification>` turn and, live, as a
+ * it to the model as a non-human `<task-notification>` turn, as a
+ * `queued_command` attachment when it lands mid-turn, and, live, as a
  * `system/task_notification` event. Only the facts the chat needs are kept —
  * which Agent call returned (`toolId`), how it ended and its effort; the
  * result text stays out (the main agent retells it to the human).
@@ -122,21 +123,27 @@ function taskNotificationRow(
   })];
 }
 
-export function parseTaskNotificationText(text: string) {
-  if (!text.trimStart().startsWith('<task-notification>')) {
-    return null;
-  }
-  const usage = tagText(text, 'usage') ?? '';
-  return {
-    toolId: tagText(text, 'tool-use-id'),
-    status: tagText(text, 'status'),
-    summary: tagText(text, 'summary'),
-    usage: compactUsage({
-      toolUses: readCount(tagText(usage, 'tool_uses')),
-      durationMs: readCount(tagText(usage, 'duration_ms')),
-      totalTokens: readCount(tagText(usage, 'subagent_tokens') ?? tagText(usage, 'total_tokens')),
-    }),
-  };
+/** Every `<task-notification>` block in a text (several can arrive batched). */
+export function parseTaskNotifications(text: string) {
+  const blocks = text.match(/<task-notification>[\s\S]*?(?:<\/task-notification>|$)/g) ?? [];
+  return blocks.map((block) => {
+    const usage = tagText(block, 'usage') ?? '';
+    return {
+      toolId: tagText(block, 'tool-use-id'),
+      status: tagText(block, 'status'),
+      summary: tagText(block, 'summary'),
+      usage: compactUsage({
+        toolUses: readCount(tagText(usage, 'tool_uses')),
+        durationMs: readCount(tagText(usage, 'duration_ms')),
+        totalTokens: readCount(tagText(usage, 'subagent_tokens') ?? tagText(usage, 'total_tokens')),
+      }),
+    };
+  });
+}
+
+function taskNotificationRows(text: string, baseId: string, sessionId: string | null, timestamp: string): NormalizedMessage[] {
+  return parseTaskNotifications(text).flatMap((fields, index) =>
+    taskNotificationRow(fields, `${baseId}_task_notification_${index}`, sessionId, timestamp));
 }
 
 function userTurnText(content: unknown): string {
@@ -505,8 +512,15 @@ export class ClaudeSessionsProvider implements IProviderSessions {
     }
 
     if (raw.message?.role === 'user' && readObjectRecord(raw.origin)?.kind === 'task-notification') {
-      const parsed = parseTaskNotificationText(userTurnText(raw.message.content));
-      return parsed ? taskNotificationRow(parsed, `${baseId}_task_notification`, sessionId, ts) : [];
+      return taskNotificationRows(userTurnText(raw.message.content), baseId, sessionId, ts);
+    }
+
+    // A return that landed while the main agent was still working is queued
+    // into its turn as an attachment instead of a turn of its own.
+    const attachment = readObjectRecord(raw.attachment);
+    if (raw.type === 'attachment' && attachment?.type === 'queued_command' && typeof attachment.prompt === 'string') {
+      const returns = taskNotificationRows(attachment.prompt, baseId, sessionId, ts);
+      if (returns.length > 0) return returns;
     }
 
     if (raw.message?.role === 'user' && raw.message?.content && !isNonHumanUserTurn(raw)) {

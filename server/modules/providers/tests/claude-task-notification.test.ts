@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ClaudeSessionsProvider, parseTaskNotificationText } from '@/modules/providers/list/claude/claude-sessions.provider.js';
+import { ClaudeSessionsProvider, parseTaskNotifications } from '@/modules/providers/list/claude/claude-sessions.provider.js';
 import { createBackgroundTaskTracker } from '@/modules/background-tasks/index.js';
 
 const AGENT_CALL = 'toolu_014puK854WG3EB4rEesYRPFL';
@@ -20,13 +20,15 @@ const NOTIFICATION_TEXT = [
 ].join('\n');
 
 test('parses which Agent call came back, how it ended and its effort', () => {
-  assert.deepEqual(parseTaskNotificationText(NOTIFICATION_TEXT), {
+  assert.deepEqual(parseTaskNotifications(NOTIFICATION_TEXT), [{
     toolId: AGENT_CALL,
     status: 'completed',
     summary: 'Agent "Find subagent rendering" finished',
     usage: { toolUses: 13, durationMs: 60062, totalTokens: 77211 },
-  });
-  assert.equal(parseTaskNotificationText('plain text'), null);
+  }]);
+  assert.deepEqual(parseTaskNotifications('plain text'), []);
+  const batched = parseTaskNotifications(`${NOTIFICATION_TEXT}\n${NOTIFICATION_TEXT.replace(AGENT_CALL, 'toolu_other')}`);
+  assert.deepEqual(batched.map((entry) => entry.toolId), [AGENT_CALL, 'toolu_other']);
 });
 
 test('history: the non-human notification turn becomes a task_notification row without the result text', () => {
@@ -87,4 +89,25 @@ test('background tracker links a subagent task to the Agent call that started it
   tracker.apply({ type: 'system', subtype: 'task_started', task_id: 't1', tool_use_id: AGENT_CALL, task_type: 'local_agent', description: 'Разведка' });
   const list = tracker.apply({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 't1', task_type: 'local_agent', description: 'Разведка' }] });
   assert.deepEqual(list, [{ taskId: 't1', kind: 'agent', description: 'Разведка', startedAt: 1000, toolUseId: AGENT_CALL }]);
+});
+
+test('history: a return queued into a running turn (attachment) is a task_notification row; a queued human prompt is not', () => {
+  const provider = new ClaudeSessionsProvider();
+  const [row] = provider.normalizeMessage({
+    type: 'attachment',
+    uuid: 'q1',
+    timestamp: '2026-10-13T07:33:10.092Z',
+    sessionId: 's1',
+    attachment: { type: 'queued_command', prompt: NOTIFICATION_TEXT },
+  }, 's1');
+  assert.equal(row.kind, 'task_notification');
+  assert.equal(row.toolId, AGENT_CALL);
+
+  const human = provider.normalizeMessage({
+    type: 'attachment',
+    uuid: 'q2',
+    sessionId: 's1',
+    attachment: { type: 'queued_command', prompt: 'ещё одно сообщение' },
+  }, 's1');
+  assert.ok(human.every((message) => message.kind !== 'task_notification'));
 });

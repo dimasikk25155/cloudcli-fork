@@ -6,7 +6,7 @@ import type { ChatMessage } from '../chat/types/types';
 import { useBackgroundTasks } from '../chat/view/subcomponents/BackgroundTasksStore';
 
 import PixelCrab from './PixelCrab';
-import { buildCrabSquad, CRAB_STATE_TEXT, formatCrabDuration, squadSummary, type Crab } from './crabModel';
+import { buildCrabSquad, crabStatusLine, formatCrabDuration, squadSummary, type Crab } from './crabModel';
 import { useNow } from './useNow';
 
 /** After the last crab is back, the band folds into its one-line tally. */
@@ -26,7 +26,7 @@ function summaryText(crabs: readonly Crab[], now: number): string {
   if (summary.failed > 0) parts.push(`⚠️ ${summary.failed} с ошибкой`);
   if (summary.lost > 0) parts.push(`${summary.lost} без связи`);
   const span = formatCrabDuration(summary.spanMs);
-  if (span && summary.spanMs > 0) parts.push(span);
+  if (span && summary.spanMs > 0) parts.push(summary.running > 0 ? `идёт ${span}` : `всё заняло ${span}`);
   return parts.join(' · ');
 }
 
@@ -87,8 +87,7 @@ export default function CrabSquadBand({ chatMessages, sessionId, isRunActive }: 
               </span>
               <span className="line-clamp-2 w-full break-words text-[11px] font-medium leading-tight text-foreground">{crab.title}</span>
               <span className="text-[10px] leading-tight text-muted-foreground">
-                {crab.state === 'running' && crab.activity ? crab.activity.verb : CRAB_STATE_TEXT[crab.state]}
-                {crab.durationMs !== undefined && ` · ${formatCrabDuration(crab.durationMs)}`}
+                {crabStatusLine(crab)}
               </span>
             </li>
           ))}

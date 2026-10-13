@@ -9,6 +9,7 @@ import {
   buildCrabSquad,
   crabBaseTitle,
   formatCrabDuration,
+  crabStatusLine,
   pluralActions,
   squadSummary,
   tintForModel,
@@ -161,13 +162,23 @@ test('only the current turn: crabs before the last human message are not in the 
 });
 
 test('durations and action counts read naturally', () => {
-  assert.equal(formatCrabDuration(42_000), '0:42');
-  assert.equal(formatCrabDuration(725_000), '12:05');
-  assert.equal(formatCrabDuration(3_727_000), '1:02:07');
+  assert.equal(formatCrabDuration(4_306), '4 с');
+  assert.equal(formatCrabDuration(42_000), '42 с');
+  assert.equal(formatCrabDuration(200_000), '3 мин 20 с');
+  assert.equal(formatCrabDuration(1_689_851), '28 мин');
+  assert.equal(formatCrabDuration(3_727_000), '1 ч 2 мин');
   assert.equal(formatCrabDuration(undefined), '');
   assert.equal(pluralActions(1), '1 действие');
   assert.equal(pluralActions(3), '3 действия');
   assert.equal(pluralActions(11), '11 действий');
   assert.equal(pluralActions(14), '14 действий');
   assert.equal(pluralActions(22), '22 действия');
+});
+
+test('status lines read as sentences, not clock times', () => {
+  const crab = { id: 'x', title: 'Разведчик', tint: 'opus' as const, toolsUsed: 14, activity: null };
+  assert.equal(crabStatusLine({ ...crab, state: 'done', durationMs: 1_689_851 }, { withActions: true }), 'вернулся за 28 мин · 14 действий');
+  assert.equal(crabStatusLine({ ...crab, state: 'running', activity: { verb: 'ищет', icon: '🔍' }, durationMs: 200_000 }), 'ищет · уже 3 мин 20 с');
+  assert.equal(crabStatusLine({ ...crab, state: 'failed', durationMs: 5_000 }), 'вернулся с ошибкой за 5 с');
+  assert.equal(crabStatusLine({ ...crab, state: 'lost' }), 'не вернулся');
 });

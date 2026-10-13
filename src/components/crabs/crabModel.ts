@@ -235,14 +235,20 @@ export function squadSummary(crabs: readonly Crab[], now = Date.now()): SquadSum
   return summary;
 }
 
-/** «0:42», «12:05», «1:02:07». */
+/**
+ * How long, in words a human reads at a glance — never clock-like «28:10»:
+ * «4 с», «3 мин 20 с», «28 мин», «1 ч 5 мин».
+ */
 export function formatCrabDuration(ms: number | undefined): string {
   if (ms === undefined || !Number.isFinite(ms)) return '';
   const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total} с`;
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
-  const seconds = String(total % 60).padStart(2, '0');
-  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
+  const seconds = total % 60;
+  if (hours > 0) return minutes > 0 ? `${hours} ч ${minutes} мин` : `${hours} ч`;
+  if (minutes < 10 && seconds > 0) return `${minutes} мин ${seconds} с`;
+  return `${minutes} мин`;
 }
 
 /** «1 действие», «3 действия», «14 действий». */
@@ -252,6 +258,26 @@ export function pluralActions(count: number): string {
   if (mod10 === 1 && mod100 !== 11) return `${count} действие`;
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} действия`;
   return `${count} действий`;
+}
+
+/**
+ * One line under a crab: «ищет · уже 3 мин», «вернулся за 28 мин · 14 действий»,
+ * «вернулся с ошибкой за 5 мин», «не вернулся».
+ */
+export function crabStatusLine(crab: Crab, options: { withActions?: boolean } = {}): string {
+  const duration = formatCrabDuration(crab.durationMs);
+  let line: string;
+  if (crab.state === 'running') {
+    line = (crab.activity?.verb ?? CRAB_STATE_TEXT.running) + (duration ? ` · уже ${duration}` : '');
+  } else if (crab.state === 'lost') {
+    line = CRAB_STATE_TEXT.lost;
+  } else {
+    line = CRAB_STATE_TEXT[crab.state] + (duration ? ` за ${duration}` : '');
+  }
+  if (options.withActions && crab.state !== 'running' && crab.toolsUsed > 0) {
+    line += ` · ${pluralActions(crab.toolsUsed)}`;
+  }
+  return line;
 }
 
 export const CRAB_STATE_TEXT: Record<CrabState, string> = {
