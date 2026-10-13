@@ -1,16 +1,22 @@
 import React from 'react';
-import type { SubagentChildTool } from '../../types/types';
-import { CollapsibleSection } from './CollapsibleSection';
+import type { SubagentState } from '../../types/types';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../../../../shared/view/ui';
+import PixelCrab from '../../../crabs/PixelCrab';
+import {
+  CRAB_STATE_TEXT,
+  CRAB_TINT_LABEL,
+  crabFromMessage,
+  formatCrabDuration,
+  pluralActions,
+} from '../../../crabs/crabModel';
+import { useNow } from '../../../crabs/useNow';
 
 interface SubagentContainerProps {
   toolInput: unknown;
+  toolId?: string;
   toolResult?: { content?: unknown; isError?: boolean } | null;
-  subagentState: {
-    childTools: SubagentChildTool[];
-    currentToolIndex: number;
-    isComplete: boolean;
-  };
+  subagentState: SubagentState;
+  isRunActive?: boolean;
 }
 
 const getCompactToolDisplay = (toolName: string, toolInput: unknown): string => {
@@ -41,68 +47,69 @@ const getCompactToolDisplay = (toolName: string, toolInput: unknown): string => 
   }
 };
 
+function resultText(content: unknown): string {
+  let value = content;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) value = parsed;
+    } catch {
+      return value as string;
+    }
+  }
+  if (Array.isArray(value)) {
+    const parts = value.filter((part: any) => part?.type === 'text' && part.text).map((part: any) => part.text);
+    return parts.join('\n');
+  }
+  return value ? JSON.stringify(value, null, 2) : '';
+}
+
+/**
+ * One subagent in the transcript: a crab with a Russian one-liner — who, what
+ * it is doing, how long. The English task, its steps and its answer are for
+ * debugging only and stay folded under «Подробности».
+ */
 export const SubagentContainer: React.FC<SubagentContainerProps> = ({
   toolInput,
+  toolId,
   toolResult,
   subagentState,
+  isRunActive = true,
 }) => {
   const parsedInput = typeof toolInput === 'string' ? (() => {
     try { return JSON.parse(toolInput); } catch { return {}; }
   })() : (toolInput || {});
 
-  const subagentType = parsedInput?.subagent_type || 'Agent';
-  const description = parsedInput?.description || 'Running task';
-  const prompt = parsedInput?.prompt || '';
-  const { childTools, currentToolIndex, isComplete } = subagentState;
-  const currentTool = currentToolIndex >= 0 ? childTools[currentToolIndex] : null;
+  const running = !subagentState.isComplete && isRunActive;
+  const now = useNow(running);
+  const crab = crabFromMessage(
+    { type: 'assistant', timestamp: 0, isSubagentContainer: true, subagentState, toolInput, toolId },
+    { isRunActive },
+    now,
+  );
+  if (!crab) return null;
 
-  const title = `Subagent / ${subagentType}: ${description}`;
+  const prompt = parsedInput?.prompt || '';
+  const { childTools } = subagentState;
+  const duration = formatCrabDuration(crab.durationMs);
+  const answer = subagentState.isComplete && !subagentState.isAsync && toolResult ? resultText(toolResult.content) : '';
 
   return (
-    <div className="my-1 border-l-2 border-l-purple-500 py-0.5 pl-3 dark:border-l-purple-400">
-      <CollapsibleSection
-        title={title}
-        toolName="Task"
-        open={false}
-      >
-        {/* Prompt/request to the subagent */}
-        {prompt && (
-          <div className="mb-2 line-clamp-4 whitespace-pre-wrap break-words text-xs text-muted-foreground">
-            {prompt}
-          </div>
-        )}
-
-        {/* Current tool indicator (while running) */}
-        {currentTool && !isComplete && (
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-purple-500 dark:bg-purple-400" />
-            <span className="text-muted-foreground/60">Currently:</span>
-            <span className="font-medium text-foreground">{currentTool.toolName}</span>
-            {getCompactToolDisplay(currentTool.toolName, currentTool.toolInput) && (
-              <>
-                <span className="text-muted-foreground/40">/</span>
-                <span className="truncate font-mono text-muted-foreground">
-                  {getCompactToolDisplay(currentTool.toolName, currentTool.toolInput)}
-                </span>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Completion status */}
-        {isComplete && (
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-            <svg className="h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            <span>Completed ({childTools.length} {childTools.length === 1 ? 'tool' : 'tools'})</span>
-          </div>
-        )}
-
-        {/* Tool history (collapsed) */}
-        {childTools.length > 0 && (
-          <Collapsible className="mt-2">
-            <CollapsibleTrigger className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+    <Collapsible className="my-1 py-0.5" data-crab-row={crab.state}>
+      <div className="flex items-center gap-3">
+        <span className={crab.state === 'running' ? 'crab-wander inline-flex pt-1.5' : 'inline-flex pt-1.5'}>
+          <PixelCrab tint={crab.tint} state={crab.state} holding={crab.activity?.icon} scale={2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-foreground">{crab.title}</div>
+          <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            <span>
+              {crab.state === 'running' && crab.activity ? crab.activity.verb : CRAB_STATE_TEXT[crab.state]}
+              {crab.state !== 'running' && crab.toolsUsed > 0 && ` · ${pluralActions(crab.toolsUsed)}`}
+              {duration && ` · ${duration}`}
+            </span>
+            <CollapsibleTrigger className="flex items-center gap-0.5 text-[11px] text-muted-foreground/70 hover:text-foreground">
+              <span>Подробности</span>
               <svg
                 className="h-2.5 w-2.5 flex-shrink-0 transition-transform duration-150 data-[state=open]:rotate-90"
                 fill="none"
@@ -111,12 +118,26 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
-              <span>View tool history ({childTools.length})</span>
             </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="mt-1 space-y-0.5 border-l border-border pl-3">
+          </div>
+        </div>
+      </div>
+
+      <CollapsibleContent>
+        <div className="ml-[44px] mt-1 space-y-2 border-l border-border pl-3 text-xs text-muted-foreground">
+          <div>Модель: {CRAB_TINT_LABEL[crab.tint]}{parsedInput?.subagent_type ? ` · ${parsedInput.subagent_type}` : ''}</div>
+          {prompt && (
+            <div>
+              <div className="mb-0.5 text-muted-foreground/70">Задание:</div>
+              <div className="line-clamp-6 whitespace-pre-wrap break-words">{prompt}</div>
+            </div>
+          )}
+          {childTools.length > 0 && (
+            <div>
+              <div className="mb-0.5 text-muted-foreground/70">Шаги ({childTools.length}):</div>
+              <div className="space-y-0.5">
                 {childTools.map((child, index) => (
-                  <div key={child.toolId} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <div key={child.toolId} className="flex items-center gap-1.5 text-[11px]">
                     <span className="w-4 flex-shrink-0 text-right text-muted-foreground/60">{index + 1}.</span>
                     <span className="font-medium text-foreground">{child.toolName}</span>
                     {getCompactToolDisplay(child.toolName, child.toolInput) && (
@@ -125,60 +146,21 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
                       </span>
                     )}
                     {child.toolResult?.isError && (
-                      <span className="flex-shrink-0 text-red-500">(error)</span>
+                      <span className="flex-shrink-0 text-red-500">(ошибка)</span>
                     )}
                   </div>
                 ))}
               </div>
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-
-        {/* Final result */}
-        {isComplete && toolResult && (
-          <div className="mt-2 text-xs text-muted-foreground">
-            {(() => {
-              let content = toolResult.content;
-
-              // Handle JSON string that needs parsing
-              if (typeof content === 'string') {
-                try {
-                  const parsed = JSON.parse(content);
-                  if (Array.isArray(parsed)) {
-                    // Extract text from array format like [{"type":"text","text":"..."}]
-                    const textParts = parsed
-                      .filter((p: any) => p.type === 'text' && p.text)
-                      .map((p: any) => p.text);
-                    if (textParts.length > 0) {
-                      content = textParts.join('\n');
-                    }
-                  }
-                } catch {
-                  // Not JSON, use as-is
-                }
-              } else if (Array.isArray(content)) {
-                // Direct array format
-                const textParts = content
-                  .filter((p: any) => p.type === 'text' && p.text)
-                  .map((p: any) => p.text);
-                if (textParts.length > 0) {
-                  content = textParts.join('\n');
-                }
-              }
-
-              return typeof content === 'string' ? (
-                <div className="line-clamp-6 whitespace-pre-wrap break-words">
-                  {content}
-                </div>
-              ) : content ? (
-                <pre className="line-clamp-6 whitespace-pre-wrap break-words font-mono text-[11px]">
-                  {JSON.stringify(content, null, 2)}
-                </pre>
-              ) : null;
-            })()}
-          </div>
-        )}
-      </CollapsibleSection>
-    </div>
+            </div>
+          )}
+          {answer && (
+            <div>
+              <div className="mb-0.5 text-muted-foreground/70">Ответ:</div>
+              <div className="line-clamp-6 whitespace-pre-wrap break-words">{answer}</div>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 };

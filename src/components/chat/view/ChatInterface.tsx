@@ -50,6 +50,7 @@ const COMPOSER_MODEL_GROUP_LABELS: Partial<Record<Provider, string>> = {
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import PinnedUserMessage from './subcomponents/PinnedUserMessage';
 import ThreadsBar from '../../threads/ThreadsBar';
+import CrabSquadBand from '../../crabs/CrabSquadBand';
 import { currentSessionLinks } from '../../threads/threadsBarModel';
 import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
@@ -883,7 +884,12 @@ function ChatInterface({
           onSendReplySuggestion={handleSendReplySuggestion}
           onEditReplySuggestion={fillInput}
           memorySessionId={chipsSessionId}
-          relayBand={<RelayBand relay={relay} autoRelay={autoRelay} onOpenChat={followMovedChat} />}
+          relayBand={(
+            <>
+              <CrabSquadBand chatMessages={chatMessages} sessionId={chipsSessionId} isRunActive={isProcessing} />
+              <RelayBand relay={relay} autoRelay={autoRelay} onOpenChat={followMovedChat} />
+            </>
+          )}
           placeholder={t('input.placeholder', {
             provider:
               provider === 'cursor'

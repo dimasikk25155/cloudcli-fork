@@ -75,12 +75,31 @@ export interface ChatMessage {
   isLocalCommandStdout?: boolean;
   isCompactSummary?: boolean;
   isSubagentContainer?: boolean;
-  subagentState?: {
-    childTools: SubagentChildTool[];
-    currentToolIndex: number;
-    isComplete: boolean;
-  };
+  subagentState?: SubagentState;
   [key: string]: unknown;
+}
+
+export interface SubagentUsage {
+  toolUses?: number;
+  durationMs?: number;
+  totalTokens?: number;
+}
+
+export interface SubagentState {
+  childTools: SubagentChildTool[];
+  currentToolIndex: number;
+  /** The subagent is back: its result (sync) or its task notification (async) arrived. */
+  isComplete: boolean;
+  /** Launched in the background: the tool result only says «started». */
+  isAsync?: boolean;
+  /** How it ended, when known: completed | failed | stopped. */
+  status?: string;
+  /** Model the subagent runs on (resolved by the CLI, else requested). */
+  model?: string;
+  /** Epoch ms. */
+  startedAt?: number;
+  finishedAt?: number;
+  usage?: SubagentUsage;
 }
 
 export interface ClaudeSettings {

@@ -1,7 +1,7 @@
 import React, { memo, useMemo, useCallback } from 'react';
 
 import type { Project } from '../../../types/app';
-import type { SubagentChildTool } from '../types/types';
+import type { SubagentState } from '../types/types';
 
 import { getToolConfig } from './configs/toolConfigs';
 import { OneLineDisplay, BashCommandDisplay, CollapsibleDisplay, ToolDiffViewer, MarkdownContent, FileListContent, TodoListContent, TaskListContent, TextContent, QuestionAnswerContent, SubagentContainer } from './components';
@@ -28,11 +28,7 @@ interface ToolRendererProps {
   rawToolInput?: string;
   isRunActive?: boolean;
   isSubagentContainer?: boolean;
-  subagentState?: {
-    childTools: SubagentChildTool[];
-    currentToolIndex: number;
-    isComplete: boolean;
-  };
+  subagentState?: SubagentState;
 }
 
 function getToolCategory(toolName: string): string {
@@ -120,8 +116,10 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
     return (
       <SubagentContainer
         toolInput={toolInput}
+        toolId={toolId}
         toolResult={toolResult}
         subagentState={subagentState}
+        isRunActive={isRunActive}
       />
     );
   }

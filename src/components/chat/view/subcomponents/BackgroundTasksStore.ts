@@ -15,6 +15,8 @@ export type BackgroundTaskView = {
   /** Epoch ms (server clock). */
   startedAt: number;
   lastTool?: string;
+  /** The Agent call that started it, when the task is a subagent. */
+  toolUseId?: string;
 };
 
 /**
@@ -66,6 +68,7 @@ function readTasks(raw: unknown): BackgroundTaskView[] {
       description: typeof task.description === 'string' ? task.description : '',
       startedAt: typeof task.startedAt === 'number' ? task.startedAt : Date.now(),
       ...(typeof task.lastTool === 'string' ? { lastTool: task.lastTool } : {}),
+      ...(typeof task.toolUseId === 'string' ? { toolUseId: task.toolUseId } : {}),
     }];
   });
 }

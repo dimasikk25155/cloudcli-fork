@@ -23,6 +23,8 @@ export type BackgroundTask = {
   /** Epoch ms when the task was first seen (start edge or level). */
   startedAt: number;
   lastTool?: string;
+  /** The tool call that started it (an async Agent call for subagents). */
+  toolUseId?: string;
 };
 
 export type BackgroundTaskTracker = {
@@ -34,7 +36,7 @@ export type BackgroundTaskTracker = {
   has(taskId: string): boolean;
 };
 
-type Meta = { startedAt: number; kind?: BackgroundTaskKind; description?: string; lastTool?: string };
+type Meta = { startedAt: number; kind?: BackgroundTaskKind; description?: string; lastTool?: string; toolUseId?: string };
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'killed', 'stopped']);
 
@@ -67,6 +69,7 @@ export function createBackgroundTaskTracker(options: { now?: () => number } = {}
       startedAt: known.startedAt,
     };
     if (known.lastTool) task.lastTool = known.lastTool;
+    if (known.toolUseId) task.toolUseId = known.toolUseId;
     return task;
   });
 
@@ -118,6 +121,7 @@ export function createBackgroundTaskTracker(options: { now?: () => number } = {}
           const known = metaFor(taskId);
           if (m.task_type !== undefined) known.kind = kindOf(m.task_type);
           known.description = text(m.description) ?? known.description;
+          known.toolUseId = text(m.tool_use_id) ?? known.toolUseId;
           return null;
         }
         case 'task_progress': {

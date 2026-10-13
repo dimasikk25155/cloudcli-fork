@@ -85,6 +85,8 @@ export interface NormalizedMessage {
   newSessionId?: string;
   status?: string;
   summary?: string;
+  /** task_notification: effort of the background agent that came back. */
+  usage?: { toolUses?: number; durationMs?: number; totalTokens?: number };
   exitCode?: number;
   actualSessionId?: string;
   parentToolUseId?: string;

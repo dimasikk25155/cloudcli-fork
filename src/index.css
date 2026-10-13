@@ -1196,6 +1196,69 @@
       background-color: transparent;
     }
   }
+
+  /* Subagent crabs: scuttle while working, hop once on return */
+  .crab--running .crab-sprite {
+    animation: crab-scuttle 0.45s steps(2, jump-none) infinite;
+  }
+  .crab--running .crab-legs-a {
+    animation: crab-legs-a 0.3s steps(1, end) infinite;
+  }
+  .crab--running .crab-legs-b {
+    animation: crab-legs-b 0.3s steps(1, end) infinite;
+  }
+  .crab--running .crab-holding {
+    animation: crab-scuttle 0.45s steps(2, jump-none) infinite;
+  }
+  .crab-wander {
+    animation: crab-wander 3.2s ease-in-out infinite alternate;
+  }
+  .crab--done .crab-sprite,
+  .crab--failed .crab-sprite {
+    animation: crab-return 0.5s ease-out 1;
+  }
+  .crab--lost .crab-sprite {
+    opacity: 0.45;
+  }
+
+  @keyframes crab-scuttle {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(-1.5px); }
+  }
+
+  @keyframes crab-legs-a {
+    0% { opacity: 1; }
+    50%, 100% { opacity: 0; }
+  }
+
+  @keyframes crab-legs-b {
+    0% { opacity: 0; }
+    50%, 100% { opacity: 1; }
+  }
+
+  @keyframes crab-wander {
+    0% { transform: translateX(-3px); }
+    100% { transform: translateX(3px); }
+  }
+
+  @keyframes crab-return {
+    0% { transform: translateY(0) scale(1); }
+    40% { transform: translateY(-4px) scale(1.08); }
+    100% { transform: translateY(0) scale(1); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .crab-sprite,
+    .crab-legs-a,
+    .crab-legs-b,
+    .crab-holding,
+    .crab-wander {
+      animation: none !important;
+    }
+    .crab-legs-b {
+      opacity: 0;
+    }
+  }
 }
 
 /* =========================================================================

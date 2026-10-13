@@ -4,7 +4,7 @@
  */
 
 import type { NormalizedMessage } from '../../../stores/useSessionStore';
-import type { ChatMessage, SubagentChildTool } from '../types/types';
+import type { ChatMessage, SubagentChildTool, SubagentState, SubagentUsage } from '../types/types';
 import { decodeHtmlEntities, unescapeWithMathProtection, formatUsageLimitText, isStopHookFeedbackText, stripAttachmentDisplayTags, stripMemoryCitations } from '../utils/chatFormatting';
 
 function formatToolResultContent(content: unknown): string {
@@ -61,6 +61,70 @@ function parseTaskNotification(content: string): ParsedTaskNotification | null {
  */
 export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Task', 'Agent']);
 
+function epochMs(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const ms = new Date(value as string | number).getTime();
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+function count(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function parseInput(input: unknown): Record<string, any> {
+  if (input && typeof input === 'object') return input as Record<string, any>;
+  if (typeof input !== 'string') return {};
+  try {
+    const parsed = JSON.parse(input);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * State of one Agent/Task call: who runs it, whether it is back and with what
+ * effort. An async agent's tool result only says «started» — it is back when
+ * its task notification (matched by tool id) arrives.
+ */
+function buildSubagentState(
+  msg: NormalizedMessage,
+  childTools: SubagentChildTool[],
+  toolResult: { toolUseResult?: unknown } | null,
+  resultTimestamp: unknown,
+  notification: NormalizedMessage | undefined,
+): SubagentState {
+  const input = parseInput(msg.toolInput);
+  const outcome = (toolResult?.toolUseResult && typeof toolResult.toolUseResult === 'object'
+    ? toolResult.toolUseResult
+    : {}) as Record<string, any>;
+  const isAsync = outcome.status === 'async_launched' || outcome.isAsync === true || input.run_in_background === true;
+  const isComplete = isAsync ? Boolean(notification) : Boolean(toolResult);
+  const notifiedUsage: SubagentUsage = notification?.usage ?? {};
+  const usage: SubagentUsage = isAsync
+    ? notifiedUsage
+    : {
+        toolUses: count(outcome.totalToolUseCount),
+        durationMs: count(outcome.totalDurationMs),
+        totalTokens: count(outcome.totalTokens),
+      };
+  const model = [outcome.resolvedModel, outcome.model, input.model].find((value) => typeof value === 'string' && value);
+
+  return {
+    childTools,
+    currentToolIndex: childTools.length > 0 ? childTools.length - 1 : -1,
+    isComplete,
+    isAsync,
+    status: isAsync
+      ? (notification ? String(notification.status || 'completed') : undefined)
+      : (toolResult ? ((toolResult as { isError?: boolean }).isError ? 'failed' : 'completed') : undefined),
+    model,
+    startedAt: epochMs(msg.timestamp),
+    finishedAt: isComplete ? epochMs(isAsync ? notification?.timestamp : resultTimestamp) : undefined,
+    usage: Object.values(usage).some((value) => value !== undefined) ? usage : undefined,
+  };
+}
+
 function toChildTool(tool: any): SubagentChildTool {
   return {
     toolId: tool.toolId,
@@ -89,7 +153,12 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
   // the subagent card of their Agent/Task call, never to the main transcript.
   const liveChildTools = new Map<string, NormalizedMessage[]>();
   const childResults = new Map<string, NormalizedMessage>();
+  // A background agent's return, keyed by the Agent call it closes.
+  const notifications = new Map<string, NormalizedMessage>();
   for (const msg of messages) {
+    if (msg.kind === 'task_notification' && msg.toolId && !notifications.has(msg.toolId)) {
+      notifications.set(msg.toolId, msg);
+    }
     if (msg.parentToolUseId) {
       if (msg.kind === 'tool_use' && msg.toolId) {
         const list = liveChildTools.get(msg.parentToolUseId) || [];
@@ -231,11 +300,13 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           toolResult,
           isSubagentContainer,
           subagentState: isSubagentContainer
-            ? {
+            ? buildSubagentState(
+                msg,
                 childTools,
-                currentToolIndex: childTools.length > 0 ? childTools.length - 1 : -1,
-                isComplete: Boolean(toolResult),
-              }
+                toolResult,
+                tr && 'timestamp' in tr ? tr.timestamp : undefined,
+                msg.toolId ? notifications.get(msg.toolId) : undefined,
+              )
             : undefined,
           ...sharedMetadata,
         });
@@ -274,6 +345,11 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         break;
 
       case 'task_notification':
+        // The return of a call shown in this chat folds into that call's row
+        // (the subagent's crab gets its tick); a background Bash just ends.
+        if (msg.toolId && toolUseIds.has(msg.toolId)) {
+          break;
+        }
         converted.push({
           type: 'assistant',
           content: msg.summary || 'Background task update',

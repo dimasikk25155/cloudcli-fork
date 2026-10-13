@@ -76,6 +76,78 @@ function normalizeSubagentMessage(
   return messages;
 }
 
+export type TaskNotificationUsage = { toolUses?: number; durationMs?: number; totalTokens?: number };
+
+function readCount(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function compactUsage(usage: TaskNotificationUsage): TaskNotificationUsage | undefined {
+  const entries = Object.entries(usage).filter(([, value]) => value !== undefined);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function tagText(text: string, tag: string): string | undefined {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return match?.[1]?.trim() || undefined;
+}
+
+/**
+ * A background task (usually an async subagent) came back. The harness feeds
+ * it to the model as a non-human `<task-notification>` turn and, live, as a
+ * `system/task_notification` event. Only the facts the chat needs are kept —
+ * which Agent call returned (`toolId`), how it ended and its effort; the
+ * result text stays out (the main agent retells it to the human).
+ */
+function taskNotificationRow(
+  fields: { toolId?: string; status?: string; summary?: string; usage?: TaskNotificationUsage },
+  id: string,
+  sessionId: string | null,
+  timestamp: string,
+): NormalizedMessage[] {
+  if (!fields.toolId) {
+    return [];
+  }
+  return [createNormalizedMessage({
+    id,
+    sessionId,
+    timestamp,
+    provider: PROVIDER,
+    kind: 'task_notification',
+    toolId: fields.toolId,
+    status: fields.status || 'completed',
+    summary: fields.summary || '',
+    usage: fields.usage,
+  })];
+}
+
+export function parseTaskNotificationText(text: string) {
+  if (!text.trimStart().startsWith('<task-notification>')) {
+    return null;
+  }
+  const usage = tagText(text, 'usage') ?? '';
+  return {
+    toolId: tagText(text, 'tool-use-id'),
+    status: tagText(text, 'status'),
+    summary: tagText(text, 'summary'),
+    usage: compactUsage({
+      toolUses: readCount(tagText(usage, 'tool_uses')),
+      durationMs: readCount(tagText(usage, 'duration_ms')),
+      totalTokens: readCount(tagText(usage, 'subagent_tokens') ?? tagText(usage, 'total_tokens')),
+    }),
+  };
+}
+
+function userTurnText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part: AnyRecord) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part: AnyRecord) => part.text)
+    .join('\n');
+}
+
 type ClaudeToolResult = {
   content: unknown;
   isError: boolean;
@@ -418,6 +490,25 @@ export class ClaudeSessionsProvider implements IProviderSessions {
     const ts = raw.timestamp || new Date().toISOString();
     const baseId = raw.uuid || generateMessageId('claude');
 
+    if (raw.type === 'system' && raw.subtype === 'task_notification') {
+      const usage = readObjectRecord(raw.usage);
+      return taskNotificationRow({
+        toolId: typeof raw.tool_use_id === 'string' ? raw.tool_use_id : undefined,
+        status: typeof raw.status === 'string' ? raw.status : undefined,
+        summary: typeof raw.summary === 'string' ? raw.summary : undefined,
+        usage: usage ? compactUsage({
+          toolUses: readCount(usage.tool_uses),
+          durationMs: readCount(usage.duration_ms),
+          totalTokens: readCount(usage.total_tokens),
+        }) : undefined,
+      }, `${baseId}_task_notification`, sessionId, ts);
+    }
+
+    if (raw.message?.role === 'user' && readObjectRecord(raw.origin)?.kind === 'task-notification') {
+      const parsed = parseTaskNotificationText(userTurnText(raw.message.content));
+      return parsed ? taskNotificationRow(parsed, `${baseId}_task_notification`, sessionId, ts) : [];
+    }
+
     if (raw.message?.role === 'user' && raw.message?.content && !isNonHumanUserTurn(raw)) {
       if (Array.isArray(raw.message.content)) {
         // Image attachments sent through the SDK are persisted as base64
@@ -451,7 +542,8 @@ export class ClaudeSessionsProvider implements IProviderSessions {
               content: typeof part.content === 'string' ? part.content : JSON.stringify(part.content),
               isError: Boolean(part.is_error),
               subagentTools: raw.subagentTools,
-              toolUseResult: raw.toolUseResult,
+              // History (JSONL) spells it camelCase, the live SDK snake_case.
+              toolUseResult: raw.toolUseResult ?? raw.tool_use_result,
             }));
           } else if (part.type === 'text') {
             const text = stripAttachmentReferenceTags(part.text || '');
