@@ -56,6 +56,22 @@ function parseTaskNotification(content: string): ParsedTaskNotification | null {
 }
 
 /**
+ * Tools that start a subagent. Claude Code renamed `Task` to `Agent`; both
+ * render as the subagent card.
+ */
+export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Task', 'Agent']);
+
+function toChildTool(tool: any): SubagentChildTool {
+  return {
+    toolId: tool.toolId,
+    toolName: tool.toolName,
+    toolInput: tool.toolInput,
+    toolResult: tool.toolResult || null,
+    timestamp: new Date(tool.timestamp || Date.now()),
+  };
+}
+
+/**
  * Convert NormalizedMessage[] from the session store into ChatMessage[]
  * that the existing UI components expect.
  *
@@ -69,7 +85,22 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
   // First pass: collect tool results for attachment
   const toolResultMap = new Map<string, NormalizedMessage>();
   const toolUseIds = new Set<string>();
+  // Rows produced inside a subagent (live stream: `parentToolUseId`) belong to
+  // the subagent card of their Agent/Task call, never to the main transcript.
+  const liveChildTools = new Map<string, NormalizedMessage[]>();
+  const childResults = new Map<string, NormalizedMessage>();
   for (const msg of messages) {
+    if (msg.parentToolUseId) {
+      if (msg.kind === 'tool_use' && msg.toolId) {
+        const list = liveChildTools.get(msg.parentToolUseId) || [];
+        list.push(msg);
+        liveChildTools.set(msg.parentToolUseId, list);
+      } else if (msg.kind === 'tool_result' && msg.toolId) {
+        childResults.set(msg.toolId, msg);
+      }
+      continue;
+    }
+
     if (msg.kind === 'tool_use' && msg.toolId) {
       toolUseIds.add(msg.toolId);
     }
@@ -80,6 +111,10 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
   }
 
   for (const msg of messages) {
+    if (msg.parentToolUseId) {
+      continue;
+    }
+
     const sharedMetadata = {
       displayText: msg.displayText,
       commandName: msg.commandName,
@@ -149,19 +184,31 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
 
       case 'tool_use': {
         const tr = msg.toolResult || (msg.toolId ? toolResultMap.get(msg.toolId) : null);
-        const isSubagentContainer = msg.toolName === 'Task';
+        const isSubagentContainer = SUBAGENT_TOOL_NAMES.has(msg.toolName || '');
 
-        // Build child tools from subagentTools
+        // Child tools: the subagent transcript (history) plus live rows tagged
+        // with this call's id; the same tool may come from both.
         const childTools: SubagentChildTool[] = [];
-        if (isSubagentContainer && msg.subagentTools && Array.isArray(msg.subagentTools)) {
-          for (const tool of msg.subagentTools as any[]) {
-            childTools.push({
-              toolId: tool.toolId,
-              toolName: tool.toolName,
-              toolInput: tool.toolInput,
-              toolResult: tool.toolResult || null,
-              timestamp: new Date(tool.timestamp || Date.now()),
-            });
+        if (isSubagentContainer) {
+          const seenChildIds = new Set<string>();
+          const pushChild = (child: SubagentChildTool) => {
+            if (child.toolId && seenChildIds.has(child.toolId)) return;
+            if (child.toolId) seenChildIds.add(child.toolId);
+            childTools.push(child);
+          };
+          if (Array.isArray(msg.subagentTools)) {
+            for (const tool of msg.subagentTools as any[]) {
+              pushChild(toChildTool(tool));
+            }
+          }
+          for (const child of (msg.toolId && liveChildTools.get(msg.toolId)) || []) {
+            const result = child.toolId ? childResults.get(child.toolId) : undefined;
+            pushChild(toChildTool({
+              ...child,
+              toolResult: result
+                ? { content: formatToolResultContent(result.content || ''), isError: Boolean(result.isError) }
+                : null,
+            }));
           }
         }
 

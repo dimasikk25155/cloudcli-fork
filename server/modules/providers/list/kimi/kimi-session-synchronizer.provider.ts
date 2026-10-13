@@ -9,6 +9,7 @@ import {
   readObjectRecord,
 } from '@/shared/utils.js';
 import { getKimiCodeHome } from '@/shared/utils.js';
+import { stripAgentOnlyBlocks } from '../../../../../shared/agent-only-blocks.js';
 
 type ParsedSession = {
   sessionId: string;
@@ -138,7 +139,8 @@ export class KimiSessionSynchronizer implements IProviderSessionSynchronizer {
     const existing = sessionsDb.getSessionByProviderSessionId(sessionId)
       ?? sessionsDb.getSessionById(sessionId);
     const existingName = existing?.custom_name;
-    const cliTitle = typeof state.title === 'string' && state.title.trim() ? state.title.trim() : undefined;
+    // The CLI may title a session from the prompt; agent-only blocks never count.
+    const cliTitle = typeof state.title === 'string' ? stripAgentOnlyBlocks(state.title) || undefined : undefined;
     const sessionName = existingName && existingName !== UNTITLED
       ? existingName
       : normalizeSessionName(cliTitle, UNTITLED);

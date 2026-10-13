@@ -2,6 +2,13 @@ import { useCallback, useRef, useState } from 'react';
 
 export type SessionActivityKind = 'thinking' | 'tools';
 
+/** The tool call the agent is in right now: from its tool_use to its tool_result. */
+export interface SessionStep {
+  name: string;
+  /** Client clock, ms. */
+  startedAt: number;
+}
+
 export interface SessionActivity {
   /** Provider-supplied status line; null renders the default activity label. */
   statusText: string | null;
@@ -9,6 +16,8 @@ export interface SessionActivity {
   activityKind: SessionActivityKind | null;
   toolName: string | null;
   canInterrupt: boolean;
+  /** Current step (top-level tool call) and when it began; null between steps. */
+  step?: SessionStep | null;
   /**
    * When this request was first marked as processing (client clock). Drives
    * the elapsed-time display and the stale `chat_subscribed` idle-ack guard.
@@ -34,6 +43,7 @@ export type MarkSessionProcessing = (
     activityKind?: SessionActivityKind | null;
     toolName?: string | null;
     canInterrupt?: boolean;
+    step?: SessionStep | null;
   },
 ) => void;
 
@@ -49,6 +59,10 @@ export type SyncProcessingSessions = (
 ) => void;
 
 const LOCAL_ACTIVITY_GRACE_MS = 10_000;
+
+const sameStep = (left?: SessionStep | null, right?: SessionStep | null): boolean =>
+  (left ?? null) === (right ?? null)
+  || (Boolean(left) && Boolean(right) && left!.name === right!.name && left!.startedAt === right!.startedAt);
 
 const sessionActivityMapsMatch = (
   left: ReadonlyMap<string, SessionActivity>,
@@ -67,6 +81,7 @@ const sessionActivityMapsMatch = (
       || leftActivity.toolName !== rightActivity.toolName
       || leftActivity.canInterrupt !== rightActivity.canInterrupt
       || leftActivity.startedAt !== rightActivity.startedAt
+      || !sameStep(leftActivity.step, rightActivity.step)
     ) {
       return false;
     }
@@ -107,6 +122,7 @@ export function useSessionProtection() {
         toolName:
           activity?.toolName !== undefined ? activity.toolName : existing?.toolName ?? null,
         canInterrupt: activity?.canInterrupt ?? existing?.canInterrupt ?? true,
+        step: activity?.step !== undefined ? activity.step : existing?.step ?? null,
         startedAt: existing?.startedAt ?? Date.now(),
       };
 
@@ -116,6 +132,7 @@ export function useSessionProtection() {
         && existing.activityKind === next.activityKind
         && existing.toolName === next.toolName
         && existing.canInterrupt === next.canInterrupt
+        && sameStep(existing.step, next.step)
       ) {
         return prev;
       }
@@ -184,6 +201,7 @@ export function useSessionProtection() {
           toolName:
             snapshot.toolName !== undefined ? snapshot.toolName : existing?.toolName ?? null,
           canInterrupt: snapshot.canInterrupt ?? existing?.canInterrupt ?? true,
+          step: existing?.step ?? null,
           startedAt: snapshotStartedAt ?? existing?.startedAt ?? now,
         });
       }

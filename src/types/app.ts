@@ -1,3 +1,5 @@
+import type { SessionLinks } from '../../shared/session-links';
+
 /**
  * Mirror of `GatewayEventKind` in `server/shared/types.ts`: app-level websocket
  * kinds emitted by the gateway on top of provider message kinds. Keep both
@@ -15,7 +17,21 @@ export type GatewayEventKind =
    * (`{kind, sessionId, timestamp}`); clients re-read `GET /api/memory-suggestions`.
    * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
    */
-  | 'memory_suggestions_changed';
+  | 'memory_suggestions_changed'
+  /**
+   * Claude background tasks of a session changed: `{sessionId, tasks:[{taskId,
+   * kind, description, startedAt, lastTool?}]}`, the full list (replace).
+   * Not a chat row. Mirrored in `server/shared/types.ts` `GatewayEventKind`.
+   */
+  | 'background_tasks'
+  /** Answer to `chat.stop-task`: `{sessionId, taskId, ok, reason?}`. Not a chat row. */
+  | 'background_task_stop'
+  /**
+   * Auto-relay of a chat changed: `{sessionId, status:{enabled, state,
+   * childSessionId, childTitle, error}}`. Not a chat row. Mirrored in
+   * `server/shared/types.ts` `GatewayEventKind`.
+   */
+  | 'auto_relay';
 
 export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini' | 'grok';
 
@@ -78,6 +94,9 @@ export interface ProjectSession {
   // effect.
   model?: string | null;
   effort?: string | null;
+  // Chat links from the server (relay = continuation, thread): parent and
+  // children of this session, see shared/session-links.ts.
+  links?: SessionLinks;
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.
   __projectId?: string;

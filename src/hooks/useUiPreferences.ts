@@ -9,6 +9,8 @@ type UiPreferences = {
   sendByDoubleEnter: boolean;
   sidebarVisible: boolean;
   voiceEnabled: boolean;
+  /** «Авто-перенос» is switched on in every new chat (server reads it on create). */
+  autoRelayNewChats: boolean;
 };
 
 type UiPreferenceKey = keyof UiPreferences;
@@ -44,6 +46,7 @@ const DEFAULTS: UiPreferences = {
   // backend is configured. useVoiceAvailable still gates it on a healthy
   // backend, so a deployment with no backend simply shows nothing.
   voiceEnabled: true,
+  autoRelayNewChats: false,
 };
 
 // Exported so other readers of the stored preferences blob (e.g. useVoiceAvailable)

@@ -67,6 +67,8 @@ interface ChatComposerProps {
   ) => void;
   handleGrantToolPermission: (suggestion: { entry: string; toolName: string }) => { success: boolean };
   activity: SessionActivity | null;
+  /** Session the activity indicator speaks for (its «Фон: N»). */
+  activitySessionId?: string | null;
   isLoading: boolean;
   onAbortSession: () => void;
   onAppendNow: () => void;
@@ -95,6 +97,8 @@ interface ChatComposerProps {
   onDeleteQueuedDraft: () => void;
   attachedImages: File[];
   onRemoveImage: (index: number) => void;
+  /** Swap an attachment for its marked-up copy (the «✎» editor). */
+  onReplaceImage?: (index: number, file: File) => void;
   uploadingImages: Map<string, number>;
   imageErrors: Map<string, string>;
   /** Why the last drag-and-drop attached nothing; null when there is nothing to say. */
@@ -135,6 +139,8 @@ interface ChatComposerProps {
   onEditReplySuggestion?: (text: string) => void;
   /** Session whose proposed vault note is shown over the composer (admins only). */
   memorySessionId?: string | null;
+  /** «Перенести в новый чат» band (src/components/relay); it decides its own visibility. */
+  relayBand?: ReactNode;
 }
 
 // Dot + button tints per permission mode, shared by the trigger button and
@@ -174,6 +180,7 @@ export default function ChatComposer({
   handlePermissionDecision,
   handleGrantToolPermission,
   activity,
+  activitySessionId = null,
   isLoading,
   onAbortSession,
   onAppendNow,
@@ -201,6 +208,7 @@ export default function ChatComposer({
   onDeleteQueuedDraft,
   attachedImages,
   onRemoveImage,
+  onReplaceImage,
   uploadingImages,
   imageErrors,
   dropNotice,
@@ -238,6 +246,7 @@ export default function ChatComposer({
   onSendReplySuggestion,
   onEditReplySuggestion,
   memorySessionId = null,
+  relayBand = null,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const commandMenuPosition = useMemo(() => {
@@ -533,7 +542,7 @@ export default function ChatComposer({
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
       {!hasPendingPermissions && (
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
-          <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} />
+          <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} sessionId={activitySessionId} />
         </div>
       )}
 
@@ -558,6 +567,8 @@ export default function ChatComposer({
           isSendingNow={isAppendPending}
         />
       )}
+
+      {relayBand}
 
       {!isLoading && !hasPendingPermissions && <MemorySuggestionBanner sessionId={memorySessionId} />}
 
@@ -641,6 +652,7 @@ export default function ChatComposer({
                       key={index}
                       file={file}
                       onRemove={() => onRemoveImage(index)}
+                      onReplace={onReplaceImage ? (marked) => onReplaceImage(index, marked) : undefined}
                       uploadProgress={uploadingImages.get(file.name)}
                       error={imageErrors.get(file.name)}
                     />

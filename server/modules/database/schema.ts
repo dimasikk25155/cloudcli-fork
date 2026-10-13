@@ -118,6 +118,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- Chat links (session-links): app session id of the parent chat and the
+    -- kind of link ('relay' = continuation, 'thread'); both NULL = no parent.
+    parent_session_id TEXT,
+    relation TEXT,
     PRIMARY KEY (session_id),
     FOREIGN KEY (project_path) REFERENCES projects(project_path)
     ON DELETE SET NULL
@@ -401,6 +405,64 @@ CREATE TABLE IF NOT EXISTS session_attention_seen (
 );
 `;
 
+// Threads (тредов агента): a token per run of a chat lets the Neo3 MCP server
+// act for that chat's user. Only the SHA-256 of the token is stored. Valid
+// while the run is going and 24 hours after it ended (`expires_at` is set at
+// the end; runs cut short by a restart get it at the next boot).
+export const THREAD_TOKENS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS thread_tokens (
+    token_hash TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    permission_mode TEXT,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_thread_tokens_session ON thread_tokens(session_id);
+`;
+
+// Threads opened by an agent: one row per thread chat (the link itself lives
+// in sessions.parent_session_id). `seen_at` — the parent already read the
+// settled result through thread_status; `notified_at` — included in the
+// automatic «Треды готовы» message. Both reset when the thread runs again.
+export const SESSION_THREADS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_threads (
+    thread_session_id TEXT PRIMARY KEY NOT NULL,
+    parent_session_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT,
+    permission_mode TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    seen_at TEXT,
+    notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_session_threads_parent ON session_threads(parent_session_id);
+`;
+
+// Auto-relay («Авто-перенос»): per chat. `enabled` — the switch (off by
+// default); `state` — NULL idle, 'collecting' (the handoff request is running
+// in the chat), 'creating' (the note is being checked / the continuation
+// created), 'done' (moved — at most once per chat), 'failed' (told once, the
+// switch went off). `nonce` tags the request; `child_session_id` is the
+// continuation; `baseline_json` — a continuation's measures after its first
+// turn (it must grow past them before it moves again). No foreign keys, same
+// reason as session_attention.
+export const SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_auto_relay (
+    session_id TEXT PRIMARY KEY NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    state TEXT,
+    nonce TEXT,
+    user_id INTEGER,
+    child_session_id TEXT,
+    error TEXT,
+    baseline_json TEXT,
+    updated_at TEXT NOT NULL
+);
+`;
+
 // One-time answer buttons (push actions, Telegram callbacks). The token itself
 // is the right to answer: 16 random bytes, bound to one user, one pending
 // request and one choice, valid for 24 hours. Answering a request by any
@@ -531,6 +593,10 @@ ${SESSION_ATTENTION_TABLE_SCHEMA_SQL}
 ${SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL}
 
 ${ANSWER_TOKENS_TABLE_SCHEMA_SQL}
+
+${THREAD_TOKENS_TABLE_SCHEMA_SQL}
+${SESSION_THREADS_TABLE_SCHEMA_SQL}
+${SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL}
 
 ${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
 

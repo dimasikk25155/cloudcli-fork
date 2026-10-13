@@ -16,6 +16,13 @@ import { authenticatedFetch } from '../../../utils/api';
 import { useAuth } from '../../auth';
 import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
 import { wrapCatalogBrief } from '../utils/catalogBrief';
+import {
+  buildScreenshotCaption,
+  isPictureFile,
+  withScreenshotContext,
+  type ScreenshotMeta,
+  type ScreenshotSource,
+} from '../utils/screenshotCaption';
 import { getUsageLimits } from '../../../utils/usageLimits';
 import type { MarkSessionProcessing } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
@@ -40,6 +47,7 @@ import {
   collectPastedFiles,
   isRedundantPastedText,
   isRepeatPaste,
+  pastedPageUrl,
   pasteSignature,
   type PasteRecord,
 } from '../utils/clipboardPaste';
@@ -50,6 +58,7 @@ import { modelForProvider } from '../utils/providerModelState';
 import { runSecretGuard } from '../utils/secretGuard';
 import { askSecretGuard } from '../view/subcomponents/SecretGuardDialog';
 import { stashSecretRequest } from '../utils/secretStash';
+import { resetSessionSteps } from '../utils/stepTimer';
 
 import { useFileMentions } from './useFileMentions';
 import { useInputHistory } from './useInputHistory';
@@ -344,6 +353,9 @@ export function useChatComposerState({
   // before invoking submit; a normal user submit leaves it null.
   const preUploadedImagesRef = useRef<unknown[] | null>(null);
   const catalogBriefRef = useRef<string | null>(null);
+  // «Откуда скрин» for each attachment, keyed by the File object itself so it
+  // follows the file through the queue and the markup editor's swap.
+  const attachmentMetaRef = useRef(new WeakMap<File, ScreenshotMeta>());
   const selectedProjectId = selectedProject?.projectId;
   // Prefer the stable backend-allocated id (selectedSession.id) but fall back
   // to currentSessionId for a just-established session that hasn't been
@@ -638,7 +650,10 @@ export function useChatComposerState({
     lastAutosizedInputRef.current = target.value;
   }, []);
 
-  const handleImageFiles = useCallback((files: File[]) => {
+  const handleImageFiles = useCallback((
+    files: File[],
+    origin: { source: ScreenshotSource; pageUrl?: string | null } = { source: 'file' },
+  ) => {
     const validFiles = files.filter((file) => {
       try {
         if (!file || typeof file !== 'object') {
@@ -667,8 +682,53 @@ export function useChatComposerState({
 
     if (validFiles.length > 0) {
       setDropNotice(null);
+      const attachedAt = new Date();
+      const projectName = String(selectedProject?.displayName || selectedProject?.name || '') || null;
+      const sessionName = getNotificationSessionSummary(selectedSession, '');
+      for (const file of validFiles) {
+        attachmentMetaRef.current.set(file, {
+          fileName: file.name,
+          source: origin.source,
+          attachedAt,
+          projectName,
+          sessionName,
+          pageUrl: origin.pageUrl ?? null,
+        });
+      }
       setAttachedImages((previous) => [...previous, ...validFiles].slice(0, MAX_ATTACHED_FILES));
     }
+  }, [selectedProject?.displayName, selectedProject?.name, selectedSession]);
+
+  // The markup editor's copy takes the original's place and its «откуда скрин».
+  const replaceAttachedImage = useCallback((index: number, file: File) => {
+    setAttachedImages((previous) => {
+      const original = previous[index];
+      if (!original) {
+        return previous;
+      }
+      const meta = attachmentMetaRef.current.get(original);
+      attachmentMetaRef.current.set(file, {
+        ...(meta ?? { source: 'file' as const, attachedAt: new Date() }),
+        fileName: file.name,
+        edited: true,
+      });
+      const next = previous.slice();
+      next[index] = file;
+      attachedImagesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  /** Agent-only captions for the pictures among `files`. */
+  const screenshotCaptionsFor = useCallback((files: File[]): string[] => {
+    const captions: string[] = [];
+    for (const file of files) {
+      const meta = file instanceof File ? attachmentMetaRef.current.get(file) : undefined;
+      if (meta && isPictureFile(file)) {
+        captions.push(buildScreenshotCaption(meta));
+      }
+    }
+    return captions;
   }, []);
 
   const handlePaste = useCallback(
@@ -697,7 +757,7 @@ export function useChatComposerState({
       }
       lastPasteRef.current = { signature, at: now };
 
-      handleImageFiles(files);
+      handleImageFiles(files, { source: 'paste', pageUrl: pastedPageUrl(clipboard) });
     },
     [handleImageFiles],
   );
@@ -707,7 +767,11 @@ export function useChatComposerState({
     // blocks, other files are read off disk by the agent).
     maxSize: MAX_ATTACHMENT_BYTES,
     maxFiles: MAX_ATTACHED_FILES,
-    onDrop: handleImageFiles,
+    // A real drop carries `dataTransfer`; the file picker (`open()`) does not.
+    onDrop: (files, _rejections, event) =>
+      handleImageFiles(files, {
+        source: event && 'dataTransfer' in event && event.dataTransfer ? 'drop' : 'file',
+      }),
     noClick: true,
     noKeyboard: true,
   });
@@ -1095,9 +1159,10 @@ export function useChatComposerState({
 
       const hiddenBrief = catalogBriefRef.current;
       catalogBriefRef.current = null;
-      const messageContent = hiddenBrief
-        ? wrapCatalogBrief(hiddenBrief, visibleContent)
-        : visibleContent;
+      const messageContent = withScreenshotContext(
+        hiddenBrief ? wrapCatalogBrief(hiddenBrief, visibleContent) : visibleContent,
+        screenshotCaptionsFor(imagesToSend),
+      );
 
       const userMessage: ChatMessage = {
         type: 'user',
@@ -1110,9 +1175,12 @@ export function useChatComposerState({
       // Mark this request as processing in the per-session activity map (the
       // single source of truth the indicator derives from). The id is always
       // concrete at this point — no pending placeholder exists anymore.
+      // A new turn starts with no step: whatever a dead run left open is gone.
+      resetSessionSteps(targetSessionId);
       onSessionProcessing?.(targetSessionId, {
         statusText: null,
         canInterrupt: true,
+        step: null,
       });
 
       setIsUserScrolledUp(false);
@@ -1126,7 +1194,9 @@ export function useChatComposerState({
         sessionId: targetSessionId,
         content: messageContent,
         options: {
-          ...buildSendOptions(messageContent),
+          // Options (session summary fallback) see only the typed text, never
+          // the agent-only blocks.
+          ...buildSendOptions(visibleContent),
           images: uploadedImages,
           ...(usageGuardOverride ? { usageGuardOverride: true } : {}),
         },
@@ -1172,6 +1242,7 @@ export function useChatComposerState({
       addMessage,
       setIsUserScrolledUp,
       slashCommands,
+      screenshotCaptionsFor,
       uploadAttachedImages,
     ],
   );
@@ -1626,9 +1697,10 @@ export function useChatComposerState({
       timestamp: new Date(),
     });
 
+    const appendContent = withScreenshotContext(source.content, screenshotCaptionsFor(source.images));
     pendingAppendRef.current = {
       sessionId: targetSessionId,
-      content: source.content,
+      content: appendContent,
       images: uploadedImages,
       options: buildSendOptions(source.content),
     };
@@ -1668,6 +1740,7 @@ export function useChatComposerState({
     selectedProject,
     selectedSession,
     sendMessage,
+    screenshotCaptionsFor,
     sessionKey,
     setInput,
     uploadAttachedImages,
@@ -1774,6 +1847,7 @@ export function useChatComposerState({
     selectFile,
     attachedImages,
     setAttachedImages,
+    replaceAttachedImage,
     uploadingImages,
     imageErrors,
     dropNotice,

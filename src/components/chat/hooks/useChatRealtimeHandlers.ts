@@ -11,6 +11,8 @@ import type { ProjectSession, LLMProvider } from '../../../types/app';
 import { CHAT_ROW_KINDS } from '../../../stores/useSessionStore';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
 import { classifyIdleAck, CONNECTION_LOST_MESSAGE } from '../utils/idleAck';
+import { resetSessionSteps, stepsFor } from '../utils/stepTimer';
+import { backgroundTasksStore } from '../view/subcomponents/BackgroundTasksStore';
 
 const isActionablePermissionRequest = (request: { toolName?: unknown } | null | undefined): boolean => {
   return request?.toolName !== 'ExitPlanMode' && request?.toolName !== 'exit_plan_mode';
@@ -123,6 +125,7 @@ export function useChatRealtimeHandlers({
           if (msg.isProcessing) {
             onSessionProcessing?.(sid);
           } else {
+            resetSessionSteps(sid);
             // Idle ack: the server lastSeq is authoritative for a run that
             // finished while this socket was down. Classify before warning —
             // a seq gap means "refresh the tail", not "connection died".
@@ -180,6 +183,7 @@ export function useChatRealtimeHandlers({
             // Surface the failure in the conversation and stop the spinner —
             // the run never started (or was rejected), so no `complete` follows.
             onSessionIdle?.(sid);
+            resetSessionSteps(sid);
             sessionStore.appendRealtime(sid, {
               id: `protocol_error_${Date.now()}`,
               sessionId: sid,
@@ -203,6 +207,18 @@ export function useChatRealtimeHandlers({
         // session opened from «Ждут тебя» rendered empty.
         case 'attention_changed':
         case 'memory_suggestions_changed':
+        // «Авто-перенос» status — owned by useAutoRelay.
+        case 'auto_relay':
+          return;
+
+        // «Фон: N» — status frames, never chat rows.
+        case 'background_tasks':
+          if (sid) backgroundTasksStore.setTasks(sid, msg.tasks);
+          return;
+        case 'background_task_stop':
+          if (sid && typeof msg.taskId === 'string') {
+            backgroundTasksStore.recordStopResult(sid, msg.taskId, msg.ok === true, typeof msg.reason === 'string' ? msg.reason : undefined);
+          }
           return;
 
         default:
@@ -266,6 +282,10 @@ export function useChatRealtimeHandlers({
             sessionStore.finalizeStreaming(sid);
           }
           accumulatedStreamRef.current = '';
+          if (sid) {
+            resetSessionSteps(sid);
+            backgroundTasksStore.clear(sid);
+          }
 
           // `complete` is the unified terminal event — every provider run ends
           // with exactly one, regardless of success, failure, or abort. The
@@ -389,16 +409,36 @@ export function useChatRealtimeHandlers({
 
         case 'tool_use':
           if (sid) {
+            const toolName = typeof msg.toolName === 'string' && msg.toolName.trim()
+              ? msg.toolName
+              : null;
+            // Steps are the agent's own calls; a subagent's inner calls run
+            // inside its Agent step and do not restart the timer.
+            const isTopLevel = !msg.parentToolUseId;
+            const step = isTopLevel && typeof msg.toolId === 'string' && msg.toolId
+              ? stepsFor(sid).start(msg.toolId, toolName ?? 'Tool', Date.now())
+              : undefined;
             onSessionProcessing?.(sid, {
               activityKind: 'tools',
-              toolName: typeof msg.toolName === 'string' && msg.toolName.trim()
-                ? msg.toolName
-                : null,
+              toolName,
+              ...(step !== undefined ? { step } : {}),
             });
           }
           break;
 
-        // text, tool_result, interactive_prompt, task_notification
+        case 'tool_result': {
+          const steps = sid ? stepsFor(sid) : undefined;
+          if (sid && steps && !msg.parentToolUseId && typeof msg.toolId === 'string') {
+            const before = steps.current();
+            const step = steps.finish(msg.toolId);
+            if (step !== before) {
+              onSessionProcessing?.(sid, { step });
+            }
+          }
+          break;
+        }
+
+        // text, interactive_prompt, task_notification
         // → already routed to store above, no UI side effects needed
         default:
           break;

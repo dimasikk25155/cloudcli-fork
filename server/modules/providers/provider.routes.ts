@@ -1,10 +1,13 @@
 import { canAccessProject, canAccessSession } from '@/modules/websocket/services/project-access.service.js';
 import express, { type Request, type Response } from 'express';
 
-import { appConfigDb, projectsDb } from '@/modules/database/index.js';
+import { appConfigDb, projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { assertCanLinkNewChild, linkSession, relatedSessionIds } from '@/modules/session-links/index.js';
+import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
+import { autoRelayService } from '@/modules/auto-relay/auto-relay.service.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
@@ -580,6 +583,17 @@ router.get(
 
 // ----------------- Session routes -----------------
 /**
+ * Chat links show the other chat's name and hide archived ones, so renaming,
+ * archiving, restoring or deleting a chat re-sends its parent's and
+ * children's sidebar cards (ids collected before the change).
+ */
+const broadcastLinkedCards = (sessionIds: string[]): void => {
+  for (const id of sessionIds) {
+    chatRunRegistry.broadcastSessionUpsert(id);
+  }
+};
+
+/**
  * Session gateway entry point: allocates the stable app-facing session id for
  * a brand-new chat. The frontend must call this before the first `chat.send`
  * so the session id in the URL, the store, and the websocket all agree from
@@ -596,8 +610,32 @@ router.post(
     if (!canAccessProject(user, project?.project_id ?? null)) {
       throw new AppError('Project access denied', { code: 'PROJECT_ACCESS_DENIED', statusCode: 403 });
     }
+    const parentSessionId = typeof body.parentSessionId === 'string' ? body.parentSessionId.trim() : '';
+    const userId = Number(user?.id ?? user?.userId);
+    const actorId = Number.isInteger(userId) && userId > 0 ? userId : null;
+    if (!parentSessionId) {
+      const created = sessionsService.createAppSession(provider, projectPath);
+      autoRelayService.applyNewChatDefaults({ sessionId: created.sessionId, userId: actorId });
+      res.status(201).json(createApiSuccessResponse(created));
+      return;
+    }
+    // Child chat (relay / thread): the parent is vetted before anything is
+    // written, so a refusal leaves no session or project row behind.
+    const relation = assertCanLinkNewChild({ parentSessionId, relation: String(body.relation ?? ''), projectPath, user });
     const result = sessionsService.createAppSession(provider, projectPath);
-    res.status(201).json(createApiSuccessResponse(result));
+    try {
+      linkSession({ childSessionId: result.sessionId, parentSessionId, relation, user });
+    } catch (error) {
+      sessionsDb.deleteSessionById(result.sessionId);
+      throw error;
+    }
+    // A relay continuation inherits the parent's «Авто-перенос».
+    autoRelayService.applyNewChatDefaults({ sessionId: result.sessionId, userId: actorId, parentSessionId, relation });
+    // Both sidebar cards update without a refetch: the child appears with
+    // «↳ …», the parent gains «→ продолжен в» / «треды: N».
+    chatRunRegistry.broadcastSessionUpsert(result.sessionId);
+    chatRunRegistry.broadcastSessionUpsert(parentSessionId);
+    res.status(201).json(createApiSuccessResponse({ ...result, parentSessionId, relation }));
   }),
 );
 
@@ -762,10 +800,12 @@ router.delete(
     const sessionId = parseSessionId(req.params.sessionId);
     const force = parseOptionalBooleanQuery(req.query.force, 'force') ?? false;
     const deletedFromDisk = parseOptionalBooleanQuery(req.query.deletedFromDisk, 'deletedFromDisk') ?? force;
+    const linked = relatedSessionIds(sessionId);
     const result = await sessionsService.deleteOrArchiveSessionById(sessionId, {
       force,
       deletedFromDisk,
     });
+    broadcastLinkedCards(linked);
     res.json(createApiSuccessResponse(result));
   }),
 );
@@ -775,6 +815,7 @@ router.post(
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
     const result = sessionsService.restoreSessionById(sessionId);
+    broadcastLinkedCards(relatedSessionIds(sessionId));
     res.json(createApiSuccessResponse(result));
   }),
 );
@@ -785,6 +826,7 @@ router.put(
     const sessionId = parseSessionId(req.params.sessionId);
     const summary = parseSessionRenameSummary(req.body);
     const result = sessionsService.renameSessionById(sessionId, summary);
+    broadcastLinkedCards(relatedSessionIds(sessionId));
     res.json(createApiSuccessResponse(result));
   }),
 );

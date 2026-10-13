@@ -26,6 +26,9 @@ import { providerModelsService } from './modules/providers/services/provider-mod
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
 import { workModeInstruction } from './shared/work-mode.js';
 import { withNeo3SessionMarker } from './shared/neo3-session.js';
+import { withThreadsEnv } from './shared/threads-env.js';
+import { neo3GuardsPlugins } from './shared/neo3-guards-plugin.js';
+import { createBackgroundTaskTracker } from './modules/background-tasks/index.js';
 import {
   createNotificationEvent,
   notifyRunFailed,
@@ -37,6 +40,7 @@ import { providerAuthService } from './modules/providers/services/provider-auth.
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { recordRunOutcome, buildRunInterruptedNotice, isTransientRunFailure } from './shared/run-outcomes.js';
 import { checkUsageGuard, buildUsageGuardNotice } from './shared/claude-usage.js';
+import { isRelayNoteWrite } from './shared/relay-note-permission.js';
 import { getContextWindow } from './shared/token-pricing.js';
 
 // The CLI binary self-updates by swapping a versions/X.Y.Z file and
@@ -344,11 +348,14 @@ function mapCliOptionsToSDK(options = {}) {
   // NEO3_SESSION=1 lets user-level hooks (vault Stop hook, CLI secret guard)
   // step aside inside Neo3 — see server/shared/neo3-session.ts. Later branches
   // spread this env, so the marker survives every engine route.
-  sdkOptions.env = withNeo3SessionMarker({
+  // NEO3_THREADS_TOKEN / NEO3_THREADS_API_URL: this run's thread identity —
+  // the CLI hands its env to stdio MCP servers, so the neo3-threads server
+  // acts for this chat (see server/shared/threads-env.ts).
+  sdkOptions.env = withThreadsEnv(withNeo3SessionMarker({
     ...process.env,
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1',
     CLAUDE_CODE_RETRY_WATCHDOG: process.env.CLAUDE_CODE_RETRY_WATCHDOG || '1',
-  });
+  }), options);
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
@@ -516,6 +523,12 @@ function mapCliOptionsToSDK(options = {}) {
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
 
+  // neo3-guards mod: no foreground wait loops past the limit (Neo3 sessions only).
+  const plugins = neo3GuardsPlugins();
+  if (plugins.length > 0) {
+    sdkOptions.plugins = plugins;
+  }
+
   if (sessionId) {
     sdkOptions.resume = sessionId;
   }
@@ -541,7 +554,9 @@ function addSession(sessionId, queryInstance, writer = null, controls = null) {
     writer,
     releaseInput: controls?.releaseInput ?? null,
     abortController: controls?.abortController ?? null,
-    runState: controls?.runState ?? null
+    runState: controls?.runState ?? null,
+    isInputReleased: controls?.isInputReleased ?? null,
+    backgroundTasks: controls?.backgroundTasks ?? null
   });
 }
 
@@ -779,8 +794,27 @@ async function queryClaudeSDK(command, options = {}, ws) {
   const runState = { finished: false };
   const runControls = {
     releaseInput: () => releaseInput(),
+    // Closed stdin = no control channel: stopTask can no longer reach the CLI.
+    isInputReleased: () => inputReleased,
     abortController: runAbortController,
-    runState
+    runState,
+    // Background work of the current CLI process (see stopClaudeTask).
+    backgroundTasks: null
+  };
+  // «Фон: N»: full list on every change, `[]` once the process is gone.
+  const publishBackgroundTasks = (tasks) => {
+    ws.send(createNormalizedMessage({ kind: 'background_tasks', tasks, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
+  };
+  const resetBackgroundTasks = () => {
+    if (runControls.backgroundTasks?.list().length > 0) publishBackgroundTasks([]);
+    runControls.backgroundTasks = null;
+  };
+  // The turn is over once the input is released: whatever still runs in the
+  // background can no longer be stopped from here, so the list goes away.
+  const releaseHeldInput = releaseInput;
+  releaseInput = () => {
+    if (!inputReleased) resetBackgroundTasks();
+    releaseHeldInput();
   };
 
   try {
@@ -898,6 +932,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
           return { behavior: 'deny', message: 'Tool disallowed by settings' };
         }
 
+        // Auto-relay handoff turn: its note in <project>/docs/handoff/ is written
+        // without asking (default mode would otherwise stop it on approval).
+        // Only that path and only Write/Edit; the gateway sets the folder.
+        if (options.autoRelayNoteDir && isRelayNoteWrite(toolName, input, options.autoRelayNoteDir)) {
+          return { behavior: 'allow', updatedInput: input };
+        }
+
         const isAllowed = (sdkOptions.allowedTools || []).some(entry =>
           matchesToolPermission(entry, toolName, input)
         );
@@ -976,6 +1017,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     while (true) {
       try {
+        // A new CLI process starts with no background tasks.
+        resetBackgroundTasks();
+        runControls.backgroundTasks = createBackgroundTaskTracker();
         try {
           queryInstance = query({
             prompt: await createPrompt(),
@@ -1022,7 +1066,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
         const outstandingToolUseIds = new Set();
         idleFallbackTimer = setInterval(() => {
           if (inputReleased || !turnResultSeen) return;
-          if (outstandingToolUseIds.size > 0) {
+          if (isRunBusy({ openToolCalls: outstandingToolUseIds.size })) {
             lastStreamActivityAt = Date.now();
             return;
           }
@@ -1083,7 +1127,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
               // guard: defer the release while approvals are outstanding. Once
               // the user answers, a later idle (or the fallback timer) releases.
               const sid = capturedSessionId || sessionId || null;
-              if (outstandingToolUseIds.size > 0) {
+              if (isRunBusy({ openToolCalls: outstandingToolUseIds.size })) {
                 // A tool is still in flight (interactive tool blocked on the
                 // user, or a long tool call). The CLI can emit `idle` here
                 // because it has nothing to compute while waiting — do not
@@ -1102,7 +1146,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
                 setTimeout(() => {
                   if (inputReleased) return;
                   if (lastStreamActivityAt > idleAt) return;
-                  if (outstandingToolUseIds.size > 0) {
+                  if (isRunBusy({ openToolCalls: outstandingToolUseIds.size })) {
                     lastStreamActivityAt = Date.now();
                     return;
                   }
@@ -1156,6 +1200,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
               msg.parentToolUseId = transformedMessage.parentToolUseId;
             }
             ws.send(msg);
+          }
+
+          const backgroundTasks = runControls.backgroundTasks?.apply(message);
+          if (backgroundTasks) {
+            publishBackgroundTasks(backgroundTasks);
           }
 
           // Bill the run. The meter reads the *raw* usage fields rather than the
@@ -1232,6 +1281,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     }
 
     // Clean up session on completion
+    resetBackgroundTasks();
     if (capturedSessionId) {
       removeSession(capturedSessionId);
     }
@@ -1260,6 +1310,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     console.error('SDK query error:', error);
 
     // Clean up session on error
+    resetBackgroundTasks();
     if (capturedSessionId) {
       removeSession(capturedSessionId);
     }
@@ -1378,6 +1429,82 @@ async function abortClaudeSDKSession(sessionId) {
 }
 
 /**
+ * Whether the run still needs the CLI's stdin (the held-open prompt input)
+ * after `idle`: only while a tool call is open (its permission answer travels
+ * over it). Background tasks deliberately do NOT hold it — a `tail -f` or a dev
+ * server would keep the chat «working» forever and block the next message.
+ * So «Стоп» on a background task works while the turn runs; once the turn has
+ * ended the task is no longer controllable from Neo3 (see stopClaudeTask).
+ * @param {{openToolCalls?: number, backgroundTasks?: {list(): unknown[]}|null}} state
+ * @returns {boolean}
+ */
+function isRunBusy({ openToolCalls = 0 } = {}) {
+  return openToolCalls > 0;
+}
+
+// stopTask is a control request over the CLI's stdin; a closed channel can
+// leave it hanging, and the button must answer either way.
+const STOP_TASK_TIMEOUT_MS = 5_000;
+
+/**
+ * Stops one background task (background Bash, monitor, subagent) of a live
+ * run — only it, the turn goes on. Reasons when it cannot:
+ * - `turn_ended`: the turn is over (stdin released or the CLI gone), the task
+ *   is no longer controllable from Neo3;
+ * - `not_running`: the turn runs, but the task list says the task is gone;
+ * - `failed`: the stop request itself failed.
+ * @param {string} sessionId - Provider-native (Claude) session id
+ * @param {string} taskId - Task id from the `background_tasks` list
+ * @returns {Promise<{ok: boolean, reason?: string}>}
+ */
+async function stopClaudeTask(sessionId, taskId) {
+  const session = getSession(sessionId);
+  const turnEnded = () => !session
+    || session.runState?.finished
+    || typeof session.instance?.stopTask !== 'function'
+    || session.isInputReleased?.() === true;
+  if (turnEnded()) {
+    return { ok: false, reason: 'turn_ended' };
+  }
+  if (!session.backgroundTasks?.has(taskId)) {
+    return { ok: false, reason: 'not_running' };
+  }
+
+  let timer;
+  let outcome;
+  try {
+    outcome = await Promise.race([
+      session.instance.stopTask(taskId).then(() => 'stopped'),
+      new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), STOP_TASK_TIMEOUT_MS); }),
+    ]);
+  } catch (error) {
+    console.warn(`[Claude SDK] stopTask(${taskId}) failed for session ${sessionId}:`, error?.message || error);
+    outcome = 'error';
+  } finally {
+    clearTimeout(timer);
+  }
+  if (outcome === 'stopped') {
+    return { ok: true };
+  }
+  if (turnEnded()) {
+    return { ok: false, reason: 'turn_ended' };
+  }
+  // "Уже не идёт" only when the task list confirms it is gone; anything else
+  // (timeout, a broken control channel) is a failed stop.
+  return session.backgroundTasks?.has(taskId) ? { ok: false, reason: 'failed' } : { ok: false, reason: 'not_running' };
+}
+
+/**
+ * Current background tasks of a live run (for `chat.subscribe`), `[]` when
+ * the session has no CLI process.
+ * @param {string} sessionId - Provider-native (Claude) session id
+ * @returns {Array<object>}
+ */
+function getClaudeBackgroundTasks(sessionId) {
+  return getSession(sessionId)?.backgroundTasks?.list() ?? [];
+}
+
+/**
  * Gracefully interrupts every active SDK session before the process exits.
  *
  * Root cause of the recurring `[ede_diagnostic] ... stop_reason=tool_use`
@@ -1485,6 +1612,9 @@ export {
   mapCliOptionsToSDK,
   queryClaudeSDK,
   abortClaudeSDKSession,
+  stopClaudeTask,
+  getClaudeBackgroundTasks,
+  isRunBusy,
   abortAllActiveClaudeSDKSessions,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,

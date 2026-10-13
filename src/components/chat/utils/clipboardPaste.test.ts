@@ -5,6 +5,7 @@ import {
   collectPastedFiles,
   isRedundantPastedText,
   isRepeatPaste,
+  pastedPageUrl,
   pasteSignature,
   REPEAT_PASTE_WINDOW_MS,
 } from './clipboardPaste.js';
@@ -124,4 +125,40 @@ test('a web link pasted alongside an image is kept', () => {
 
 test('multi-line text is kept even if it starts with a path', () => {
   assert.equal(isRedundantPastedText(`${telegramPath}\nsecond line`, [photo]), false);
+});
+
+/** Clipboard offering string flavours by MIME type. */
+const withFlavours = (flavours: Record<string, string>) =>
+  ({ items: [], files: [], getData: (type: string) => flavours[type] ?? '' }) as unknown as DataTransfer;
+
+test('page address comes from text/uri-list, skipping comment lines', () => {
+  const clipboard = withFlavours({
+    'text/uri-list': '# copied from browser\r\nhttps://shop.example/cart?step=2\r\nhttps://other.example/',
+  });
+  assert.equal(pastedPageUrl(clipboard), 'https://shop.example/cart?step=2');
+});
+
+test('page address comes from the HTML source marker when there is no uri-list', () => {
+  const clipboard = withFlavours({
+    'text/html': 'Version:0.9\r\nSourceURL:https://docs.example/page#top\r\n<html><body><!--StartFragment--><img src="https://cdn.example/a.png"><!--EndFragment--></body></html>',
+  });
+  assert.equal(pastedPageUrl(clipboard), 'https://docs.example/page#top');
+});
+
+test('a browser-copied picture gives its web address from the HTML', () => {
+  const clipboard = withFlavours({
+    'text/html': '<meta charset="utf-8"><img src="https://cdn.example/shots/1.png?w=800&amp;h=600" alt="">',
+  });
+  assert.equal(pastedPageUrl(clipboard), 'https://cdn.example/shots/1.png?w=800&h=600');
+});
+
+test('local, inline and blob addresses are not page addresses', () => {
+  assert.equal(pastedPageUrl(withFlavours({ 'text/uri-list': 'file:///Users/dima/shot.png' })), null);
+  assert.equal(pastedPageUrl(withFlavours({ 'text/html': '<img src="data:image/png;base64,AAAA">' })), null);
+  assert.equal(pastedPageUrl(withFlavours({ 'text/html': '<img src="blob:https://x.example/1">' })), null);
+});
+
+test('a clipboard with nothing but the picture carries no address', () => {
+  assert.equal(pastedPageUrl(withFlavours({})), null);
+  assert.equal(pastedPageUrl(null), null);
 });

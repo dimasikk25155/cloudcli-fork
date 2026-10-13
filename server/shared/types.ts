@@ -220,7 +220,21 @@ export type GatewayEventKind =
    * (`{kind, sessionId, timestamp}`); clients re-read `GET /api/memory-suggestions`.
    * Mirrored in `src/types/app.ts` `GatewayEventKind`.
    */
-  | 'memory_suggestions_changed';
+  | 'memory_suggestions_changed'
+  /**
+   * Claude background tasks of a session changed: `{sessionId, tasks:[{taskId,
+   * kind, description, startedAt, lastTool?}]}`, the full list (replace).
+   * Not a chat row. Mirrored in `src/types/app.ts` `GatewayEventKind`.
+   */
+  | 'background_tasks'
+  /** Answer to `chat.stop-task`: `{sessionId, taskId, ok, reason?}`. Not a chat row. */
+  | 'background_task_stop'
+  /**
+   * Auto-relay of a chat changed: `{sessionId, status:{enabled, state,
+   * childSessionId, childTitle, error}}`. Not a chat row. Mirrored in
+   * `src/types/app.ts` `GatewayEventKind`.
+   */
+  | 'auto_relay';
 
 /**
  * Complete set of `kind` values emitted to websocket clients.
@@ -289,6 +303,8 @@ export type NormalizedMessage = {
   summary?: string;
   tokenBudget?: unknown;
   subagentTools?: unknown;
+  /** Set on rows produced inside a subagent: id of the Agent/Task tool_use that started it. */
+  parentToolUseId?: string;
   toolUseResult?: unknown;
   sequence?: number;
   rowid?: number;
@@ -485,6 +501,7 @@ export type ProviderMcpServer = {
   envVars?: string[];
   bearerTokenEnvVar?: string;
   envHttpHeaders?: Record<string, string>;
+  toolTimeoutSec?: number;
 };
 
 /**
@@ -507,6 +524,8 @@ export type UpsertProviderMcpServerInput = {
   envVars?: string[];
   bearerTokenEnvVar?: string;
   envHttpHeaders?: Record<string, string>;
+  /** Codex only: per-call timeout of the server's tools (`tool_timeout_sec`; Codex default 60). */
+  toolTimeoutSec?: number;
 };
 
 // ---------------------------

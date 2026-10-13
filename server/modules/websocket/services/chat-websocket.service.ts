@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionLinksDb, sessionsDb } from '@/modules/database/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '@/modules/governance/index.js';
 import {
   pendingAnswers,
@@ -12,6 +12,13 @@ import {
   type PendingRequestInfo,
 } from '@/modules/pending-answers/pending-answers.service.js';
 import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
+import { rememberRunOptions } from '@/modules/auto-relay/run-options.js';
+import type { AutoRelayRunControl } from '@/modules/auto-relay/auto-relay.service.js';
+import { threadTokens } from '@/modules/threads/thread-tokens.js';
+import { beginServiceTurn } from '@/shared/service-turns.js';
+
+import { isRelayRequestText } from '../../../../shared/relay-rules.js';
+import type { ThreadRunControl } from '@/modules/threads/threads.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -35,6 +42,7 @@ import {
   takeGrokQuestionsForAppSession,
 } from '@/shared/grok-question.js';
 import { canAccessSession } from '@/shared/project-access.js';
+import { threadsApiUrl } from '@/shared/threads-env.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
@@ -100,6 +108,13 @@ export type ChatWebSocketDependencies = {
    * The Claude abort is async; the rest are sync — both shapes are accepted.
    */
   abortFns: Record<LLMProvider, (providerSessionId: string) => boolean | Promise<boolean>>;
+  /**
+   * Stops one background task of a run (Claude only: background Bash,
+   * monitors, subagents). Addressed with the provider-native session id.
+   */
+  stopTaskFns?: Partial<Record<LLMProvider, (providerSessionId: string, taskId: string) => Promise<StopTaskResult>>>;
+  /** Current background tasks of a live run, sent on `chat.subscribe` (Claude only). */
+  backgroundTasksFns?: Partial<Record<LLMProvider, (providerSessionId: string) => unknown[]>>;
   resolveToolApproval: (
     requestId: string,
     payload: {
@@ -114,6 +129,12 @@ export type ChatWebSocketDependencies = {
   /** Claude: one pending approval by request id (`sessionId` = provider-native id). */
   getPendingApprovalById?: (requestId: string) => { sessionId: string | null; input?: unknown } | null;
 };
+
+/**
+ * Answer to `chat.stop-task`. `turn_ended` = the turn is over, the task is no
+ * longer controllable from here; `not_running` = the task itself is gone.
+ */
+export type StopTaskResult = { ok: boolean; reason?: string };
 
 /**
  * Extracts the authenticated request user id in the formats currently produced
@@ -186,8 +207,50 @@ type ChatSendStart = { started: false } | { started: true; finished: Promise<voi
  * - `verified-answer`: a detached continuation after an answer from a push or
  *   Telegram. There is no socket identity; the actor was already checked by
  *   `pendingAnswers` against the same project-access rule before delivery.
+ * - `thread` / `auto-relay`: runs the server starts for a chat's user (see
+ *   canStartLinkedRun).
  */
-type ChatSendAccess = { kind: 'socket' } | { kind: 'verified-answer' };
+type ChatSendAccess =
+  | { kind: 'socket' }
+  | { kind: 'verified-answer' }
+  | { kind: 'thread'; userId: number; parentSessionId: string }
+  | { kind: 'auto-relay'; userId: number; parentSessionId: string };
+
+/**
+ * `thread` access (agent threads): the actor is the parent chat's user, checked
+ * against the project-access rule now, and the target is either the parent
+ * itself («Треды готовы») or one of its threads.
+ */
+function canStartThreadRun(access: { userId: number; parentSessionId: string }, sessionId: string): boolean {
+  return canStartLinkedRun(access, sessionId, 'thread');
+}
+
+/**
+ * Server-started runs on behalf of a chat's user: the actor must have access
+ * to the target now, and the target is the chat itself or its child of the
+ * given relation — which `linkSession` only allows in the same project
+ * (checked again here, the link may predate a project move).
+ * `thread`: «Треды готовы» to the parent, or a thread run.
+ * `auto-relay`: the handoff request in the chat, or its relay continuation.
+ */
+function canStartLinkedRun(
+  access: { userId: number; parentSessionId: string },
+  sessionId: string,
+  relation: 'thread' | 'relay',
+): boolean {
+  if (!canAccessSession({ id: access.userId }, sessionId)) {
+    return false;
+  }
+  if (sessionId === access.parentSessionId) {
+    return true;
+  }
+  const link = sessionLinksDb.getRow(sessionId);
+  if (link?.relation !== relation || link.parent_session_id !== access.parentSessionId) {
+    return false;
+  }
+  const parent = sessionLinksDb.getRow(access.parentSessionId);
+  return Boolean(parent && parent.project_path && parent.project_path === link.project_path);
+}
 
 /**
  * Handles `chat.send`: resolves the session row (provider, project path, and
@@ -244,7 +307,12 @@ function beginChatSend(
   // the database: no user → refused, a session without a project → admins
   // only. The single exception is a detached continuation whose actor
   // `pendingAnswers` has already checked (see ChatSendAccess).
-  if (access.kind === 'socket' && !canAccessSession(clientIdentities.get(ws), sessionId)) {
+  const accessDenied = access.kind === 'socket'
+    ? !canAccessSession(clientIdentities.get(ws), sessionId)
+    : access.kind === 'thread'
+      ? !canStartThreadRun(access, sessionId)
+      : access.kind === 'auto-relay' && !canStartLinkedRun(access, sessionId, 'relay');
+  if (accessDenied) {
     sendProtocolError(
       ws,
       'PROJECT_ACCESS_DENIED',
@@ -298,6 +366,12 @@ function beginChatSend(
   const clientOptions = (data.options ?? {}) as AnyRecord;
   const rawContent = typeof data.content === 'string' ? data.content : '';
 
+  // Auto-relay repeats a person's engine settings (model, effort, mode, tools)
+  // on its own turns; only runs a person started count.
+  if (access.kind === 'socket') {
+    rememberRunOptions(sessionId, clientOptions);
+  }
+
   // Client attachments are re-validated to the upload store, then split: images
   // ride along as vision blocks (per provider), while other files are referenced
   // by path in an <attached_files> block the agent reads with its own tools.
@@ -332,6 +406,16 @@ function beginChatSend(
     projectPath: session.project_path ?? clientOptions.projectPath,
   };
 
+  // Auto-relay handoff request: a service turn (no «run stopped» push of its
+  // own) that may write its note into docs/handoff/ without asking. Decided
+  // here from the access kind and the request text — a client cannot claim it.
+  delete runtimeOptions.autoRelayNoteDir;
+  const relayServiceTurn = access.kind === 'auto-relay' && isRelayRequestText(rawContent);
+  if (relayServiceTurn && session.project_path) {
+    runtimeOptions.autoRelayNoteDir = path.join(session.project_path, 'docs', 'handoff');
+  }
+  const endServiceTurn = relayServiceTurn ? beginServiceTurn(sessionId) : null;
+
   // One run, one audit trail. The meter rides along in the runtime options and
   // is fed by the engine as usage arrives. Claude and Grok report real usage;
   // other engines still record the run with token counts of zero rather than
@@ -340,6 +424,23 @@ function beginChatSend(
   const meter = new RunMeter();
   const startedAt = Date.now();
   runtimeOptions.meter = meter;
+
+  // Threads: this run's identity for the neo3-threads MCP server, put into the
+  // engine env by the runtime (server/shared/threads-env.ts). Valid until the
+  // run ends + 24 h. A failure here never blocks the run — it only goes
+  // without threads.
+  let threadsToken: string | null = null;
+  try {
+    threadsToken = threadTokens.issue({ sessionId, userId, permissionMode: clientOptions.permissionMode });
+  } catch (error) {
+    console.error('[Chat] Thread token was not issued', {
+      sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (threadsToken) {
+    runtimeOptions.threadsEnv = { NEO3_THREADS_TOKEN: threadsToken, NEO3_THREADS_API_URL: threadsApiUrl() };
+  }
 
   recordAuditEvent({
     actor: 'user',
@@ -365,6 +466,12 @@ function beginChatSend(
       failureDetail = message;
       console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: message });
     } finally {
+      endServiceTurn?.();
+      try {
+        threadTokens.end(threadsToken);
+      } catch {
+        // The token then expires at the next boot (threadTokens.reconcileOnBoot).
+      }
       const cost = meter.finish();
       recordAuditEvent({
         actor: 'user',
@@ -414,10 +521,23 @@ async function handleChatAbort(
     return;
   }
 
+  if (!(await abortSessionRun(sessionId, dependencies, userId))) {
+    sendProtocolError(ws, 'NO_ACTIVE_RUN', `Session "${sessionId}" has no active run.`, sessionId);
+  }
+}
+
+/**
+ * Stops the live run of one app session — the Stop button, also used by
+ * `stop_thread`. False when the session has nothing running.
+ */
+async function abortSessionRun(
+  sessionId: string,
+  dependencies: ChatWebSocketDependencies,
+  userId: string | number | null,
+): Promise<boolean> {
   const run = chatRunRegistry.getRun(sessionId);
   if (!run || run.status !== 'running') {
-    sendProtocolError(ws, 'NO_ACTIVE_RUN', `Session "${sessionId}" has no active run.`, sessionId);
-    return;
+    return false;
   }
 
   const abortFn = dependencies.abortFns[run.provider];
@@ -439,12 +559,12 @@ async function handleChatAbort(
   chatRunRegistry.completeRun(sessionId, { exitCode: 0, aborted: true });
 
   if (!abortFn) {
-    return;
+    return true;
   }
 
   if (run.providerSessionId) {
     await abortFn(run.providerSessionId);
-    return;
+    return true;
   }
 
   // Brand-new chat whose runtime has not announced its native session id yet:
@@ -457,6 +577,60 @@ async function handleChatAbort(
       console.error('[Chat] Deferred abort failed', { sessionId, error: message });
     });
   });
+  return true;
+}
+
+/**
+ * Handles `chat.stop-task`: stops one background task of the session's live
+ * run and answers the requester with `background_task_stop`
+ * `{sessionId, taskId, ok, reason?}`. Access is checked by the caller.
+ */
+async function handleChatStopTask(
+  ws: RealtimeClientConnection,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies,
+): Promise<void> {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.stop-task requires a sessionId.');
+    return;
+  }
+  const taskId = typeof data.taskId === 'string' ? data.taskId.trim() : '';
+  if (!taskId) {
+    sendProtocolError(ws, 'TASK_ID_REQUIRED', 'chat.stop-task requires a taskId.', sessionId);
+    return;
+  }
+
+  const reply = (result: StopTaskResult) => sendJson(ws, {
+    kind: 'background_task_stop',
+    sessionId,
+    taskId,
+    ok: result.ok,
+    ...(result.reason ? { reason: result.reason } : {}),
+    timestamp: new Date().toISOString(),
+  });
+
+  const run = chatRunRegistry.getRun(sessionId);
+  const stopTaskFn = run ? dependencies.stopTaskFns?.[run.provider] : undefined;
+  if (!run || run.status !== 'running' || !run.providerSessionId) {
+    reply({ ok: false, reason: 'turn_ended' });
+    return;
+  }
+  if (!stopTaskFn) {
+    reply({ ok: false, reason: 'unsupported' });
+    return;
+  }
+
+  try {
+    reply(await stopTaskFn(run.providerSessionId, taskId));
+  } catch (error) {
+    console.error('[Chat] Stopping a background task failed', {
+      sessionId,
+      taskId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    reply({ ok: false, reason: 'failed' });
+  }
 }
 
 /**
@@ -544,6 +718,19 @@ function handleChatSubscribe(
       for (const event of chatRunRegistry.replayEvents(sessionId, lastSeq)) {
         sendJson(ws, event);
       }
+
+      // «Фон: N» after a reload or a session switch: the live list now, not
+      // only whatever changes after this moment.
+      const listBackgroundTasks = run?.providerSessionId ? dependencies.backgroundTasksFns?.[run.provider] : undefined;
+      if (run?.providerSessionId && listBackgroundTasks) {
+        sendJson(ws, {
+          kind: 'background_tasks',
+          sessionId,
+          provider: run.provider,
+          tasks: listBackgroundTasks(run.providerSessionId),
+          timestamp: new Date().toISOString(),
+        });
+      }
     }
   }
 }
@@ -560,6 +747,85 @@ function createDetachedConnection(): RealtimeClientConnection {
   return {
     readyState: 3, // CLOSED: the writer buffers, never sends
     send: () => {},
+  };
+}
+
+/**
+ * The chat gateway's side of agent threads: a thread run (and the
+ * «Треды готовы» message to its parent) is an ordinary run — registry,
+ * indicator, Stop, «Ждут тебя» — started without a socket on behalf of the
+ * parent's user (`thread` access). Nobody watches live; opening the chat
+ * subscribes and replays the buffered events.
+ */
+export function createThreadRunControl(dependencies: ChatWebSocketDependencies): ThreadRunControl {
+  return {
+    start({ sessionId, userId, parentSessionId, content, options }) {
+      const start = beginChatSend(
+        createDetachedConnection(),
+        userId,
+        null,
+        { sessionId, content, options },
+        dependencies,
+        { kind: 'thread', userId, parentSessionId },
+      );
+      if (start.started) {
+        void start.finished.catch((error: unknown) => {
+          console.error('[Chat] Thread run failed', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
+      return start.started;
+    },
+    abort(sessionId, actorUserId) {
+      return abortSessionRun(sessionId, dependencies, actorUserId);
+    },
+  };
+}
+
+/**
+ * The chat gateway's side of the auto-relay: the handoff request and the
+ * continuation's first message are ordinary runs — registry, indicator,
+ * Stop, «Ждут тебя» — started without a socket for the chat's user
+ * (`auto-relay` access). Opening the chat replays the buffered events.
+ */
+export function createAutoRelayRunControl(dependencies: ChatWebSocketDependencies): AutoRelayRunControl {
+  return {
+    start({ sessionId, userId, parentSessionId, content, options }) {
+      const start = beginChatSend(
+        createDetachedConnection(),
+        userId,
+        null,
+        { sessionId, content, options },
+        dependencies,
+        { kind: 'auto-relay', userId, parentSessionId },
+      );
+      if (start.started) {
+        void start.finished.catch((error: unknown) => {
+          console.error('[Chat] Auto-relay run failed', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
+      return start.started;
+    },
+    backgroundTaskCount(sessionId) {
+      const session = sessionsDb.getSessionById(sessionId);
+      const providerSessionId = session?.provider_session_id;
+      const lookup = session ? dependencies.backgroundTasksFns?.[session.provider as LLMProvider] : undefined;
+      if (!providerSessionId || !lookup) {
+        return 0;
+      }
+      try {
+        const tasks = lookup(providerSessionId);
+        return Array.isArray(tasks) ? tasks.length : 0;
+      } catch {
+        // Unknown = none: the fan-out of the run itself is gone with its process.
+        return 0;
+      }
+    },
   };
 }
 
@@ -784,6 +1050,7 @@ async function handlePermissionResponse(
  * Inbound protocol (client to server):
  * - `chat.send`                { sessionId, content, options? }
  * - `chat.abort`               { sessionId }
+ * - `chat.stop-task`           { sessionId, taskId } → `background_task_stop`
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
  *
@@ -824,6 +1091,13 @@ export function handleChatConnection(
             return;
           }
           await handleChatAbort(ws, data, dependencies, userId);
+          return;
+        case 'chat.stop-task':
+          if (!canAccessSession(request.user, String(data.sessionId ?? ''))) {
+            sendProtocolError(ws, 'PROJECT_ACCESS_DENIED', 'You do not have access to this project.');
+            return;
+          }
+          await handleChatStopTask(ws, data, dependencies);
           return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, data, dependencies);

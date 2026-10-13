@@ -1,0 +1,8 @@
+{
+  "name": "neo3-guards",
+  "version": "0.1.0",
+  "description": "Neo3: refuses foreground Bash wait loops (until/while/for + sleep) longer than NEO3_FOREGROUND_LOOP_MAX_SEC and points the agent at run_in_background + Monitor.",
+  "author": {
+    "name": "Neo3"
+  }
+}

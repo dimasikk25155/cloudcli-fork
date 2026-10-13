@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Check, Edit2, Loader2, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
@@ -7,7 +7,8 @@ import { Badge, Tooltip, buttonVariants } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
-import { createSessionViewModel } from '../../utils/utils';
+import type { SessionLinkRef } from '../../../../../shared/session-links';
+import { createSessionViewModel, getSessionLinkLines } from '../../utils/utils';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import { useAttentionItem } from '../../../attention/useAttention';
 import { attentionGroupOf } from '../../../attention/utils/attentionModel';
@@ -110,6 +111,79 @@ export default function SidebarSessionItem({
       </span>
     </Tooltip>
   );
+
+  // Chat links: «↳ продолжение / тред от» on a child, «→ продолжен в / треды: N» on a parent.
+  const linkLines = getSessionLinkLines(session.links, t('projects.newSession'));
+  const [openLinkList, setOpenLinkList] = useState<string | null>(null);
+
+  const openLinkedSession = (ref: SessionLinkRef, alsoSelectProject: boolean) => {
+    const loaded = (project.sessions ?? []).find((candidate) => String(candidate.id) === ref.sessionId);
+    const target: SessionWithProvider = {
+      ...(loaded ?? { id: ref.sessionId, summary: ref.name ?? undefined }),
+      __provider: (loaded?.__provider ?? loaded?.provider ?? ref.provider) as LLMProvider,
+    };
+    if (alsoSelectProject) {
+      onProjectSelect(project);
+    }
+    onSessionSelect(target, project.projectId);
+  };
+
+  // A caption or list row that opens on click / Enter / Space and never starts
+  // a card drag or the card's own navigation.
+  const linkProps = (onActivate: () => void) => ({
+    role: 'link' as const,
+    tabIndex: 0,
+    className: 'block min-w-0 cursor-pointer truncate py-0.5 text-[11px] leading-tight text-muted-foreground hover:text-foreground hover:underline',
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => event.stopPropagation(),
+    onClick: (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onActivate();
+    },
+    onKeyDown: (event: { key: string; preventDefault: () => void; stopPropagation: () => void }) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        event.stopPropagation();
+        onActivate();
+      }
+    },
+  });
+
+  // Called as a function (not <Component/>) so the captions keep their DOM between renders.
+  const renderSessionLinks = (alsoSelectProject: boolean) => {
+    if (linkLines.length === 0) {
+      return null;
+    }
+    const expanded = linkLines.find((line) => line.key === openLinkList && line.targets.length > 1);
+    return (
+      <div className="mt-0.5 flex min-w-0 flex-col gap-0.5">
+        {linkLines.map((line) => (
+          <span
+            key={line.key}
+            data-session-link={line.key}
+            {...linkProps(() => {
+              if (line.targets.length === 1) {
+                openLinkedSession(line.targets[0], alsoSelectProject);
+              } else {
+                setOpenLinkList((current) => (current === line.key ? null : line.key));
+              }
+            })}
+          >
+            {line.text}
+          </span>
+        ))}
+        {expanded && (
+          <div className="ml-3 flex min-w-0 flex-col">
+            {expanded.targets.map((ref) => (
+              <span key={ref.sessionId} {...linkProps(() => openLinkedSession(ref, alsoSelectProject))}>
+                ↳ {ref.name?.trim() || t('projects.newSession')}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const saveEditedSession = () => {
     onSaveEditingSession(project.projectId, session.id, editingSessionName, session.__provider);
@@ -282,6 +356,7 @@ export default function SidebarSessionItem({
                       </Badge>
                     )}
                   </div>
+                  {renderSessionLinks(true)}
                 </div>
 
                 <button
@@ -371,6 +446,7 @@ export default function SidebarSessionItem({
               <div className="mt-0.5 flex items-center">
                 {sessionView.messageCount > 0 && <Badge variant="secondary" className="px-1 py-0 text-xs">{sessionView.messageCount}</Badge>}
               </div>
+              {renderSessionLinks(false)}
             </div>
           </div>
         </a>

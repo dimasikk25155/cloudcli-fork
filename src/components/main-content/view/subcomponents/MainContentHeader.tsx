@@ -5,6 +5,7 @@ import type { MainContentHeaderProps } from '../../types/types';
 import MobileMenuButton from './MobileMenuButton';
 import PlannerAttentionButton from '../../../consigliere/PlannerAttentionButton';
 import BotHealthButton from '../../../consigliere/BotHealthButton';
+import CodeStatusChip from '../../../code-status/CodeStatusChip';
 import MainContentTabSwitcher from './MainContentTabSwitcher';
 import MainContentTitle from './MainContentTitle';
 
@@ -56,7 +57,9 @@ export default function MainContentHeader({
     <div className="pwa-header-safe flex-shrink-0 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
       <div className="relative flex items-center gap-3">
         {/* LEFT: mobile menu + compact title (mobile only) */}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        {/* On a phone the menu and home buttons keep their room; the tabs
+            scroller on the right absorbs the squeeze (it scrolls with fades). */}
+        <div className={`flex flex-1 items-center gap-2 ${isMobile ? (onGoHome ? 'min-w-[4.5rem]' : 'min-w-8') : 'min-w-0'}`}>
           {isMobile && <MobileMenuButton onMenuClick={onMenuClick} />}
           {isMobile && homeButton}
           <div className="min-w-0 md:hidden">
@@ -84,6 +87,7 @@ export default function MainContentHeader({
 
         {/* RIGHT: bot health + overdue bell + tabs, pinned to the corner */}
         <div className="flex min-w-0 flex-shrink items-center gap-1.5 sm:flex-shrink-0">
+          {activeTab === 'chat' && <CodeStatusChip projectId={selectedProject.projectId} />}
           <BotHealthButton />
           <PlannerAttentionButton />
           <div className="relative min-w-0 overflow-hidden">

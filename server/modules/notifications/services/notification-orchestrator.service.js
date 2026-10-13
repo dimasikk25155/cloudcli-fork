@@ -1,6 +1,7 @@
 import webPush from 'web-push';
 
 import { notificationPreferencesDb, pushSubscriptionsDb, sessionAttentionDb, sessionsDb } from '@/modules/database/index.js';
+import { isServiceTurn } from '@/shared/service-turns.js';
 import { ATTENTION_PUSH_CODE, attentionPushTag } from '@/modules/notifications/services/attention-push.constants.js';
 import { sendDesktopNotification as sendDesktopNotificationToClients } from '@/modules/notifications/services/desktop-notification-clients.service.js';
 
@@ -292,6 +293,24 @@ function buildNotificationPayload(event) {
     };
   }
 
+  // Auto-relay (server/modules/auto-relay): the chat moved itself, or could not.
+  if (normalizedEvent.code === 'auto_relay.done' || normalizedEvent.code === 'auto_relay.failed') {
+    const done = normalizedEvent.code === 'auto_relay.done';
+    const childTitle = String(normalizedEvent.meta?.childTitle || 'Продолжение чата');
+    return {
+      title: done ? 'Авто-перенос' : 'Авто-перенос не получился',
+      body: done
+        ? `Перенёс в новый чат: ${childTitle}`
+        : clipBody(String(normalizedEvent.meta?.error || 'Записку не нашёл — авто-перенос выключен')),
+      data: {
+        sessionId: normalizedEvent.sessionId || null,
+        code: normalizedEvent.code,
+        provider: normalizedEvent.provider || null,
+        tag: `auto-relay:${normalizedEvent.sessionId || 'none'}`,
+      },
+    };
+  }
+
   const CODE_MAP = {
     'permission.required': normalizedEvent.meta?.toolName
       ? `Action Required: Tool "${normalizedEvent.meta.toolName}" needs approval`
@@ -403,6 +422,20 @@ function isSessionWaitingForUser(provider, sessionId) {
 }
 
 /**
+ * The auto-relay's own handoff turn is not news: its result is the
+ * «Перенёс в новый чат» push (or the failure push) that follows it. Only that
+ * run is covered — a person's turn in the same chat pushes as usual.
+ */
+function isAutoRelayTurn(provider, sessionId) {
+  try {
+    const row = resolveSessionRow(sessionId, provider);
+    return isServiceTurn(row?.session_id || sessionId);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * @param {{
  *   userId: number|string|null,
  *   provider: string,
@@ -413,6 +446,9 @@ function isSessionWaitingForUser(provider, sessionId) {
  */
 function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null }) {
   if (stopReason === 'completed' && sessionId && isSessionWaitingForUser(provider, sessionId)) {
+    return;
+  }
+  if (sessionId && isAutoRelayTurn(provider, sessionId)) {
     return;
   }
   notifyUserIfEnabled({

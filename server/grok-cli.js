@@ -9,6 +9,7 @@ import crossSpawn from 'cross-spawn';
 import { readGrokModelsDefinition, resolveGrokModePreset } from './modules/providers/list/grok/grok-models.provider.js';
 import { workModeInstruction } from './shared/work-mode.js';
 import { withNeo3SessionMarker } from './shared/neo3-session.js';
+import { withThreadsEnv } from './shared/threads-env.js';
 import {
   appendImagesInputTag,
   appendVisibleImagePathsTag,
@@ -799,6 +800,17 @@ export function buildGrokArgs({ prompt, promptJson, promptFile, sessionId, resol
   return args;
 }
 
+/**
+ * Environment of the Grok CLI child. grok >= 1.0.40 scans
+ * ~/.claude/settings.json hooks itself; this runtime emulates the hooks it
+ * needs, so the native scan is off (see the spawn below). The run's thread
+ * identity (NEO3_THREADS_TOKEN / NEO3_THREADS_API_URL) rides along: Grok
+ * passes its env to the stdio MCP servers it loads from ~/.claude.json.
+ */
+export function buildGrokSpawnEnv(options = {}) {
+  return withThreadsEnv({ ...process.env, GROK_CLAUDE_HOOKS_ENABLED: '0' }, options);
+}
+
 async function spawnGrok(command, options = {}, ws) {
   return new Promise((resolve, reject) => {
     const {
@@ -1259,7 +1271,7 @@ async function spawnGrok(command, options = {}, ws) {
           // This runtime already emulates every hook it needs (context into
           // the prompt, one wrapped Stop follow-up), so the native scan is
           // switched off for the child; skills/MCP/rules compat stays on.
-          env: { ...process.env, GROK_CLAUDE_HOOKS_ENABLED: '0' },
+          env: buildGrokSpawnEnv(options),
           // Own process group (POSIX): Stop must kill the whole tree. A plain
           // SIGTERM to the CLI alone leaves its bash children running — live
           // run 22.08: `sleep 120` survived the stop, reparented to init.

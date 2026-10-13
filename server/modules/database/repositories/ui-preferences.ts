@@ -34,6 +34,8 @@ const ALLOWED_KEYS = new Set([
   'sendByDoubleEnter',
   'sidebarVisible',
   'voiceEnabled',
+  // «Авто-перенос» включается сам в каждом новом чате (auto-relay module).
+  'autoRelayNewChats',
 ]);
 
 function isPreferenceValue(value: unknown): value is UiPreferenceValue {

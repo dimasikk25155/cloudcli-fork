@@ -103,3 +103,76 @@ export const isRepeatPaste = (
   now: number,
 ): boolean =>
   Boolean(previous) && previous!.signature === signature && now - previous!.at < REPEAT_PASTE_WINDOW_MS;
+
+/** http(s) only: local paths, `data:` and `blob:` say nothing about the page. */
+const asWebUrl = (raw: string | null | undefined): string | null => {
+  const text = (raw ?? '').trim();
+  if (!text) {
+    return null;
+  }
+  try {
+    const url = new URL(text);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+const decodeHtmlAttribute = (value: string): string =>
+  value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+
+const readFlavour = (clipboard: DataTransfer, type: string): string => {
+  try {
+    return clipboard.getData?.(type) ?? '';
+  } catch {
+    // Some engines throw for flavours they do not expose to the page.
+    return '';
+  }
+};
+
+/**
+ * The web address that came on the clipboard together with a picture, for the
+ * «откуда скрин» caption. In order of trust: `text/uri-list` (first non-comment
+ * line), the `SourceURL:` header / `<base href>` some apps put into
+ * `text/html`, then the picture's own `src` (a browser-copied image) or the
+ * first link in the fragment. Null when the clipboard brought none.
+ */
+export const pastedPageUrl = (clipboard: DataTransfer | null | undefined): string | null => {
+  if (!clipboard) {
+    return null;
+  }
+
+  const uriList = readFlavour(clipboard, 'text/uri-list');
+  for (const line of uriList.split(/\r?\n/)) {
+    if (line.trim().startsWith('#')) {
+      continue;
+    }
+    const url = asWebUrl(line);
+    if (url) {
+      return url;
+    }
+  }
+
+  const html = readFlavour(clipboard, 'text/html');
+  if (!html) {
+    return null;
+  }
+  const candidates = [
+    html.match(/^SourceURL:(\S+)/m)?.[1],
+    html.match(/<base\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i)?.[1],
+    html.match(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i)?.[1],
+    html.match(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i)?.[1],
+  ];
+  for (const candidate of candidates) {
+    const url = asWebUrl(candidate ? decodeHtmlAttribute(candidate) : null);
+    if (url) {
+      return url;
+    }
+  }
+  return null;
+};

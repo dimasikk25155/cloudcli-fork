@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 
+import type { SessionLinkRef, SessionLinks } from '../../../../shared/session-links';
 import type { LLMProvider, Project, ProjectSession } from '../../../types/app';
 import type { ProjectSortOrder, SettingsProject, SessionViewModel, SessionWithProvider } from '../types/types';
 
@@ -143,6 +144,47 @@ export const createSessionViewModel = (
     sessionTime: getSessionTime(session),
     messageCount: Number(session.messageCount || 0),
   };
+};
+
+/** One clickable link caption under a sidebar card; several targets open as a list. */
+export type SessionLinkLine = {
+  key: 'parent' | 'relay' | 'threads';
+  text: string;
+  targets: SessionLinkRef[];
+};
+
+/**
+ * Captions for a chat's links (relay = continuation, thread):
+ * child — «↳ продолжение: <родитель>» / «↳ тред от: <родитель>»;
+ * parent — «→ продолжен в: <новейшее продолжение>» and «треды: N».
+ * `unnamedLabel` stands in for a linked chat without a name.
+ */
+export const getSessionLinkLines = (links: SessionLinks | undefined, unnamedLabel: string): SessionLinkLine[] => {
+  if (!links) {
+    return [];
+  }
+
+  const nameOf = (ref: SessionLinkRef) => ref.name?.trim() || unnamedLabel;
+  const lines: SessionLinkLine[] = [];
+
+  if (links.parent) {
+    const prefix = links.parent.relation === 'thread' ? '↳ тред от' : '↳ продолжение';
+    lines.push({ key: 'parent', text: `${prefix}: ${nameOf(links.parent)}`, targets: [links.parent] });
+  }
+
+  const children = links.children ?? [];
+  const relays = children.filter((child) => child.relation === 'relay');
+  if (relays.length > 0) {
+    const newest = relays[relays.length - 1];
+    lines.push({ key: 'relay', text: `→ продолжен в: ${nameOf(newest)}`, targets: [newest] });
+  }
+
+  const threads = children.filter((child) => child.relation === 'thread');
+  if (threads.length > 0) {
+    lines.push({ key: 'threads', text: `треды: ${threads.length}`, targets: threads });
+  }
+
+  return lines;
 };
 
 /**

@@ -13,7 +13,10 @@ import {
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_TABLE_SCHEMA_SQL,
+  SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL,
+  SESSION_THREADS_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
+  THREAD_TOKENS_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
   USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL,
   VAPID_KEYS_TABLE_SCHEMA_SQL,
@@ -419,6 +422,17 @@ const addProviderSessionIdMapping = (db: Database): void => {
 };
 
 /**
+ * Chat links (session-links): a session may hang off a parent session as its
+ * continuation (`relay`) or as a thread (`thread`). Added after every sessions
+ * rebuild above so both fresh and legacy tables end up with the columns.
+ */
+const addSessionLinkColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'parent_session_id', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'relation', 'TEXT');
+};
+
+/**
  * Adds the `role` column ('admin' | 'user'). This app was single-user until
  * now, so whichever user has the smallest id (the original owner, if any)
  * becomes admin — that keeps existing installs' access unchanged. New
@@ -494,12 +508,14 @@ export const runMigrations = (db: Database) => {
     rebuildSessionsTableWithProjectSchema(db);
     migrateLegacySessionNames(db);
     addProviderSessionIdMapping(db);
+    addSessionLinkColumns(db);
     ensureProjectsForSessionPaths(db);
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_project_path ON sessions(project_path)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_is_archived ON sessions(isArchived)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_parent_session_id ON sessions(parent_session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_starred ON projects(isStarred)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_archived ON projects(isArchived)');
 
@@ -546,6 +562,15 @@ export const runMigrations = (db: Database) => {
 
     // One-time answer buttons for push / Telegram (pending-answers).
     db.exec(ANSWER_TOKENS_TABLE_SCHEMA_SQL);
+
+    // Agent threads: run tokens and the thread list (threads module).
+    db.exec(THREAD_TOKENS_TABLE_SCHEMA_SQL);
+    db.exec(SESSION_THREADS_TABLE_SCHEMA_SQL);
+
+    // Auto-relay switch and progress per chat (auto-relay module).
+    db.exec(SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL);
+    const autoRelayColumnNames = getTableInfo(db, 'session_auto_relay').map((column) => column.name);
+    addColumnToTableIfNotExists(db, 'session_auto_relay', autoRelayColumnNames, 'baseline_json', 'TEXT');
 
     // Vault-note suggestions (memory-suggestions).
     db.exec(MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL);

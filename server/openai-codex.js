@@ -23,6 +23,7 @@ import { sessionsService } from './modules/providers/services/sessions.service.j
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
+import { withThreadsEnv } from './shared/threads-env.js';
 
 const activeCodexSessions = new Map();
 
@@ -165,6 +166,23 @@ function transformCodexEvent(event) {
 }
 
 /**
+ * Codex SDK client options for one run. `env` is the full host env plus this
+ * run's thread identity (NEO3_THREADS_TOKEN / NEO3_THREADS_API_URL); the SDK
+ * uses it INSTEAD of process.env, so everything else is copied. Codex hands
+ * MCP servers only whitelisted variables — the neo3-threads registration
+ * lists these two in `env_vars` (see modules/threads/threads-mcp-registration.ts).
+ */
+export function buildCodexClientOptions(options = {}, policy = {}) {
+  const env = {};
+  for (const [name, value] of Object.entries(withThreadsEnv({ ...process.env }, options))) {
+    if (typeof value === 'string') {
+      env[name] = value;
+    }
+  }
+  return { config: { developer_instructions: policy.instructions }, env };
+}
+
+/**
  * Execute a Codex query with streaming
  * @param {string} command - The prompt to send
  * @param {object} options - Options including cwd, sessionId, model, permissionMode
@@ -215,7 +233,7 @@ export async function queryCodex(command, options = {}, ws) {
 
   try {
     const policy = codexRunPolicy(workMode, permissionMode);
-    codex = new Codex({ config: { developer_instructions: policy.instructions } });
+    codex = new Codex(buildCodexClientOptions(options, policy));
 
     const threadOptions = {
       workingDirectory,

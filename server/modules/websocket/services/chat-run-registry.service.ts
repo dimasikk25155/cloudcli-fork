@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
+import { linksOfRow } from '@/modules/session-links/index.js';
 import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
@@ -94,6 +95,7 @@ async function broadcastCanonicalSessionUpsert(appSessionId: string): Promise<vo
       messageCount: 0,
       createdAt: row.created_at ?? row.updated_at ?? new Date().toISOString(),
       lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+      links: linksOfRow(row),
     },
     project: project
       ? {
@@ -245,6 +247,19 @@ function recordProviderSessionId(run: ChatRun, providerSessionId: string): void 
  */
 export const chatRunRegistry = {
   /**
+   * Re-sends one session's sidebar card (`session_upserted`, with its chat
+   * links) to every client allowed to see it. Best effort: failures are logged.
+   */
+  broadcastSessionUpsert(appSessionId: string): void {
+    void broadcastCanonicalSessionUpsert(appSessionId).catch((error) => {
+      console.error('[ChatRunRegistry] Failed to broadcast session upsert', {
+        appSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  },
+
+  /**
    * Starts tracking a run and returns it, or `null` when a run is already in
    * progress for the session (callers must reject the duplicate send).
    */
@@ -340,6 +355,26 @@ export const chatRunRegistry = {
 
   isProcessing(appSessionId: string): boolean {
     return runs.get(appSessionId)?.status === 'running';
+  },
+
+  /**
+   * Latest occupied context of the session's last run — the `used` of its
+   * last `token_budget` status (the number TokenUsageSummary shows) — and
+   * the model it reported. Nulls when the run is gone or reported none.
+   */
+  lastContextUsage(appSessionId: string): { usedTokens: number | null; model: string | null } {
+    const events = runs.get(appSessionId)?.events ?? [];
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index] as NormalizedMessage & { tokenBudget?: unknown };
+      if (event.kind !== 'status' || event.text !== 'token_budget' || !event.tokenBudget || typeof event.tokenBudget !== 'object') {
+        continue;
+      }
+      const budget = event.tokenBudget as { used?: unknown; model?: unknown };
+      const used = typeof budget.used === 'number' && Number.isFinite(budget.used) && budget.used >= 0 ? budget.used : null;
+      if (used === null) continue;
+      return { usedTokens: used, model: typeof budget.model === 'string' ? budget.model : null };
+    }
+    return { usedTokens: null, model: null };
   },
 
   listRunningRuns(): Array<{

@@ -4,6 +4,8 @@ export { answerTokensDb } from '@/modules/database/repositories/answer-tokens.db
 export type { AnswerTokenRow } from '@/modules/database/repositories/answer-tokens.db.js';
 export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
 export { appConfigDb } from '@/modules/database/repositories/app-config.js';
+export { sessionAutoRelayDb } from '@/modules/database/repositories/auto-relay.db.js';
+export type { AutoRelayPatch, AutoRelayState, SessionAutoRelayRow } from '@/modules/database/repositories/auto-relay.db.js';
 export { auditDb } from '@/modules/database/repositories/audit.db.js';
 export type {
   AppendAuditInput,
@@ -27,12 +29,16 @@ export { providerPreferencesDb } from '@/modules/database/repositories/provider-
 export { pushSubscriptionsDb } from '@/modules/database/repositories/push-subscriptions.js';
 export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
+export { sessionLinksDb } from '@/modules/database/repositories/session-links.db.js';
+export type { SessionLinkRow } from '@/modules/database/repositories/session-links.db.js';
 export { sessionAttentionDb } from '@/modules/database/repositories/session-attention.db.js';
 export type {
   SessionAttentionListRow,
   SessionAttentionRow,
 } from '@/modules/database/repositories/session-attention.db.js';
 export { telegramDb } from '@/modules/database/repositories/telegram.db.js';
+export { sessionThreadsDb, threadTokensDb } from '@/modules/database/repositories/threads.db.js';
+export type { SessionThreadRow, ThreadTokenRow } from '@/modules/database/repositories/threads.db.js';
 export { uiPreferencesDb } from '@/modules/database/repositories/ui-preferences.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 export { userProjectAccessDb } from '@/modules/database/repositories/user-project-access.js';

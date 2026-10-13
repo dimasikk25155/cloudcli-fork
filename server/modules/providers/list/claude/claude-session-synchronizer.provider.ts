@@ -11,6 +11,7 @@ import {
   readFileTimestamps,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
+import { stripAgentOnlyBlocks } from '../../../../../shared/agent-only-blocks.js';
 
 type ParsedSession = {
   sessionId: string;
@@ -157,7 +158,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       };
     }
 
-    let sessionName = nameMap.get(parsed.sessionId);
+    // history.jsonl `display` is the raw prompt, agent-only blocks included.
+    let sessionName = stripAgentOnlyBlocks(nameMap.get(parsed.sessionId) ?? '') || undefined;
     if (!sessionName) {
       sessionName = await this.extractSessionAiTitleFromEnd(filePath, parsed.sessionId);
     }
@@ -249,7 +251,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         const eventType = typeof data.type === 'string' ? data.type : undefined;
         const eventSessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined;
         const aiTitle = typeof data.aiTitle === 'string' ? data.aiTitle : undefined;
-        const lastPrompt = typeof data.lastPrompt === 'string' ? data.lastPrompt : undefined;
+        // A prompt sent with pictures carries agent-only captions after the typed text.
+        const lastPrompt = typeof data.lastPrompt === 'string' ? stripAgentOnlyBlocks(data.lastPrompt) : undefined;
         const claudeRenamedTitle = typeof data.customTitle === 'string' ? data.customTitle : undefined;
 
         if (
