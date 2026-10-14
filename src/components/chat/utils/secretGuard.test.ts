@@ -97,3 +97,14 @@ test('an invalid name or a failed stash keeps the text and never leaks the value
   assert.equal(outcome.action, 'cancel');
   assert.ok(outcome.action === 'cancel' && outcome.error && !outcome.error.includes(KEY));
 });
+
+test('guard switched off («Страж ключей» выкл): a message with a key leaves as typed, no dialog, nothing stashed', async () => {
+  const text = `вот токен ${KEY}`;
+  const fake = deps({ action: 'cancel' });
+
+  const outcome = await runSecretGuard(text, { ...fake.deps, enabled: false });
+
+  assert.deepEqual(outcome, { action: 'send', text });
+  assert.equal(fake.asked.length, 0);
+  assert.equal(fake.stashed.length, 0);
+});

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { visibleUserText } from './catalogBrief.js';
-import { buildScreenshotCaption, withScreenshotContext } from './screenshotCaption.js';
+import { buildScreenshotCaption, pictureCaptions, withScreenshotContext } from './screenshotCaption.js';
 
 // Local wall-clock time, so the expectation holds in any test-runner timezone.
 const at = new Date(2026, 9, 12, 14, 5);
@@ -93,4 +93,22 @@ test('captions ride along for the agent but the bubble shows only what was typed
 
 test('no captions leave the message untouched', () => {
   assert.equal(withScreenshotContext('привет', []), 'привет');
+});
+
+test('captions go only for pictures with a record, and none at all with «Пометки на скриншоте» off', () => {
+  const shot = { name: 'image.png', type: 'image/png' };
+  const pdf = { name: 'отчёт.pdf', type: 'application/pdf' };
+  const unknown = { name: 'photo.jpg', type: 'image/jpeg' };
+  const records = new Map([
+    [shot, { fileName: 'image.png', source: 'paste' as const, attachedAt: at, projectName: 'Tyres', sessionName: 'Галерея шин' }],
+    [pdf, { fileName: 'отчёт.pdf', source: 'file' as const, attachedAt: at }],
+  ]);
+  const metaOf = (file: object) => records.get(file as typeof shot);
+
+  assert.deepEqual(pictureCaptions([shot, pdf, unknown], metaOf, true), [
+    'скриншот image.png, вставлен из буфера, 12.10.2026 14:05; прикреплён в Neo3: проект Tyres, чат «Галерея шин»',
+  ]);
+  assert.deepEqual(pictureCaptions([shot, pdf, unknown], metaOf, false), []);
+  // Off: the agent gets exactly what was typed.
+  assert.equal(withScreenshotContext('Глянь', pictureCaptions([shot], metaOf, false)), 'Глянь');
 });

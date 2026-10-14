@@ -37,6 +37,8 @@ type QuickSettingsContentProps = {
   autoRelay?: AutoRelayControl | null;
   autoRelayNewChats?: boolean;
   onAutoRelayNewChatsChange?: (value: boolean) => void;
+  /** «Перенести» in «Встроенные моды»; false → no «Авто-перенос» section. */
+  showAutoRelay?: boolean;
 };
 
 export default function QuickSettingsContent({
@@ -47,6 +49,7 @@ export default function QuickSettingsContent({
   autoRelay = null,
   autoRelayNewChats = false,
   onAutoRelayNewChatsChange,
+  showAutoRelay = true,
 }: QuickSettingsContentProps) {
   const { t } = useTranslation('settings');
   const {
@@ -159,27 +162,29 @@ export default function QuickSettingsContent({
         {renderToggleRows(TOOL_DISPLAY_TOGGLES)}
       </QuickSettingsSection>
 
-      <QuickSettingsSection title="Авто-перенос">
-        {autoRelay && (
-          <QuickSettingsToggleRow
-            label="Этот чат"
-            icon={ArrowRightLeft}
-            checked={Boolean(autoRelay.status?.enabled)}
-            onCheckedChange={autoRelay.setEnabled}
-          />
-        )}
-        {onAutoRelayNewChatsChange && (
-          <QuickSettingsToggleRow
-            label="Включать в новых чатах"
-            icon={Sparkles}
-            checked={autoRelayNewChats}
-            onCheckedChange={onAutoRelayNewChatsChange}
-          />
-        )}
-        <p className="ml-3 text-xs text-muted-foreground">
-          Чат разросся — агент сам соберёт записку и продолжит в новом чате
-        </p>
-      </QuickSettingsSection>
+      {showAutoRelay && (
+        <QuickSettingsSection title="Авто-перенос">
+          {autoRelay && (
+            <QuickSettingsToggleRow
+              label="Этот чат"
+              icon={ArrowRightLeft}
+              checked={Boolean(autoRelay.status?.enabled)}
+              onCheckedChange={autoRelay.setEnabled}
+            />
+          )}
+          {onAutoRelayNewChatsChange && (
+            <QuickSettingsToggleRow
+              label="Включать в новых чатах"
+              icon={Sparkles}
+              checked={autoRelayNewChats}
+              onCheckedChange={onAutoRelayNewChatsChange}
+            />
+          )}
+          <p className="ml-3 text-xs text-muted-foreground">
+            Чат разросся — агент сам соберёт записку и продолжит в новом чате
+          </p>
+        </QuickSettingsSection>
+      )}
 
       <QuickSettingsSection title={t('quickSettings.sections.inputSettings')}>
         {renderToggleRows(inputSettingToggles)}

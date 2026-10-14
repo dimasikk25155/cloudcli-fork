@@ -5,6 +5,7 @@ import { useWebSocket } from '../../../contexts/WebSocketContext';
 import type { ServerEvent } from '../../../contexts/WebSocketContext';
 import type { GatewayEventKind } from '../../../types/app';
 import { authenticatedFetch } from '../../../utils/api';
+import { useModEnabled } from '../../../hooks/useModEnabled';
 
 import { createMemorySuggestionsStore, type MemoryEntry, type MemorySnapshot, type MemorySuggestion } from './memorySuggestionsStore';
 
@@ -62,15 +63,18 @@ const subscribeNothing = () => () => {};
 export function useMemorySuggestions() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  // «Заметки в Obsidian» off: no banner, no hub section, no polling.
+  const memoryNotesOn = useModEnabled('modMemoryNotes');
+  const active = isAdmin && memoryNotesOn;
   const { subscribe } = useWebSocket();
   const snapshot = useSyncExternalStore(
-    isAdmin ? subscribeStore : subscribeNothing,
-    isAdmin ? readSnapshot : readEmpty,
-    isAdmin ? readSnapshot : readEmpty,
+    active ? subscribeStore : subscribeNothing,
+    active ? readSnapshot : readEmpty,
+    active ? readSnapshot : readEmpty,
   );
 
   useEffect(() => {
-    if (!isAdmin) return undefined;
+    if (!active) return undefined;
     void memorySuggestionsStore.refresh();
     const unsubscribe = subscribe((event: ServerEvent) => {
       if (event.kind === MEMORY_CHANGED || event.kind === 'websocket_reconnected') {
@@ -82,7 +86,7 @@ export function useMemorySuggestions() {
       unsubscribe();
       window.clearInterval(interval);
     };
-  }, [isAdmin, subscribe]);
+  }, [active, subscribe]);
 
   const write = useCallback((id: number) => memorySuggestionsStore.write(id), []);
   const dismiss = useCallback((id: number) => memorySuggestionsStore.dismiss(id), []);

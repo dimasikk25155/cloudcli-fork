@@ -3,6 +3,7 @@ import { Mic } from 'lucide-react';
 import type { PermissionPanelProps } from '../../configs/permissionPanelRegistry';
 import type { Question } from '../../../types/types';
 import { useAuth } from '../../../../auth';
+import { useModEnabled } from '../../../../../hooks/useModEnabled';
 import { useVoiceInput } from '../../../hooks/useVoiceInput';
 import { useVoiceAvailable } from '../../../hooks/useVoiceAvailable';
 import { voiceRecoveryScope } from '../../../../../lib/voiceRecovery';
@@ -38,6 +39,7 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
 
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const secretGuardOn = useModEnabled('modSecretGuard');
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -159,7 +161,7 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
         if (otherActive.get(idx) && text.trim()) ownTexts.set(idx, text);
       });
       const guarded = await guardOwnAnswers(ownTexts, (text) =>
-        runSecretGuard(text, { isAdmin, ask: askSecretGuard, stash: stashSecretRequest }),
+        runSecretGuard(text, { enabled: secretGuardOn, isAdmin, ask: askSecretGuard, stash: stashSecretRequest }),
       );
       if (!guarded.ok) {
         if (guarded.error) setSubmitError(guarded.error);
@@ -170,7 +172,7 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
       isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [voiceBusy, otherTexts, otherActive, isAdmin, onDecision, request.requestId, input, buildAnswers]);
+  }, [voiceBusy, otherTexts, otherActive, isAdmin, secretGuardOn, onDecision, request.requestId, input, buildAnswers]);
 
   // Same lock as Submit: a dictation in progress is not thrown away by «Пропустить» / Escape.
   const handleSkip = useCallback(() => {

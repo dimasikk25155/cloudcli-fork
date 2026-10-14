@@ -3,6 +3,7 @@ import { Bot, BellRing } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import PanelModal from '../../panels/PanelModal';
+import { useModEnabled } from '../../../hooks/useModEnabled';
 import SessionProviderLogo from '../../llm-logo-provider/SessionProviderLogo';
 import { useAttentionHubSections } from '../hubSections';
 import type { AttentionItem } from '../types';
@@ -24,6 +25,7 @@ export default function AttentionHub({ onClose, onOpenSession }: AttentionHubPro
   const { items, byId, markSeen, refresh } = useAttention();
   const [nowMs, setNowMs] = useState(() => Date.now());
   const { t } = useTranslation('sidebar');
+  const cacheTimerOn = useModEnabled('modCacheTimer');
   // Same labels as the sidebar rows (`projects.providers.*`); unknown ids show as-is.
   const getProviderLabel = useCallback(
     (provider: string) => t(`projects.providers.${provider}`, { defaultValue: provider }),
@@ -63,6 +65,7 @@ export default function AttentionHub({ onClose, onOpenSession }: AttentionHubPro
           void markSeen({ all: true });
         }}
         extraSections={extraSections}
+        showCacheNotes={cacheTimerOn}
         getProviderLabel={getProviderLabel}
         renderProviderMark={(provider) => {
           const known = knownProvider(provider);

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Shimmer } from '../../../../shared/view/ui';
+import { useModEnabled } from '../../../../hooks/useModEnabled';
 import type { SessionActivity } from '../../../../hooks/useSessionProtection';
 import { formatDuration, isStepOverdue } from '../../utils/stepTimer';
 
@@ -35,6 +36,8 @@ const EXIT_ANIMATION_MS = 220;
  */
 export default function ActivityIndicator({ activity, onAbort, isInputFocused = false, sessionId = null }: ActivityIndicatorProps) {
   const { t } = useTranslation('chat');
+  // «Пульт фона» off in «Встроенные моды»: no «Фон: N», no per-step timer.
+  const backgroundConsoleOn = useModEnabled('modBackgroundConsole');
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
   const startedAt = renderedActivity?.startedAt ?? null;
@@ -82,7 +85,7 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
       ? t('claudeStatus.actions.thinking', { defaultValue: 'Thinking' })
       : null;
   // The current step (one tool call) has its own clock; the turn's total is secondary.
-  const step = renderedActivity.step ?? null;
+  const step = backgroundConsoleOn ? renderedActivity.step ?? null : null;
   const isOverdue = isStepOverdue(step, now);
   const label = (step?.name || phaseLabel || renderedActivity.statusText || actionWords[Math.floor(elapsedSeconds / 4) % actionWords.length])
     .replace(/\.+$/, '');
@@ -134,7 +137,7 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
               <span className="shrink-0 tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
             )}
           </div>
-          <BackgroundTasksButton sessionId={sessionId} tabClassName={tabNeutralClassName} />
+          {backgroundConsoleOn && <BackgroundTasksButton sessionId={sessionId} tabClassName={tabNeutralClassName} />}
         </div>
 
         {renderedActivity.canInterrupt && onAbort && (

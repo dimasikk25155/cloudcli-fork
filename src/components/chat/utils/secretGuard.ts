@@ -43,6 +43,8 @@ export type SecretGuardOutcome =
   | { action: 'cancel'; error?: string };
 
 export type SecretGuardDeps = {
+  /** «Страж ключей» in «Встроенные моды»; false → every text leaves as typed. Default on. */
+  enabled?: boolean;
   isAdmin: boolean;
   ask: (prompt: SecretGuardPrompt) => Promise<SecretGuardChoice>;
   /** Saves the value, resolves with the name actually used (may get `_2`). */
@@ -84,6 +86,7 @@ function namesPerFinding(groups: Group[], findingCount: number, groupNames: stri
 }
 
 export async function runSecretGuard(text: string, deps: SecretGuardDeps): Promise<SecretGuardOutcome> {
+  if (deps.enabled === false) return { action: 'send', text };
   const findings = detectSecrets(text);
   if (findings.length === 0) return { action: 'send', text };
 

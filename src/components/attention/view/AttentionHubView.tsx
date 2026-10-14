@@ -47,6 +47,8 @@ export type AttentionHubViewProps = {
   getProviderLabel?: (provider: string) => string;
   /** Prompt-cache lifetime, minutes (default: the server's value). */
   promptCacheTtlMin?: number;
+  /** «Таймер кэша» in «Встроенные моды»; false → no cache note on any row. */
+  showCacheNotes?: boolean;
 };
 
 const CACHE_NOTE_TONE: Partial<Record<PromptCacheState, string>> = {
@@ -92,6 +94,7 @@ function AttentionRow({
   item,
   nowMs,
   ttlMin,
+  showCacheNote,
   onOpen,
   renderProviderMark,
   getProviderLabel,
@@ -99,6 +102,7 @@ function AttentionRow({
   item: AttentionItem;
   nowMs: number;
   ttlMin: number;
+  showCacheNote: boolean;
   onOpen: (item: AttentionItem) => void;
   renderProviderMark?: (provider: string) => ReactNode;
   getProviderLabel: (provider: string) => string;
@@ -106,7 +110,7 @@ function AttentionRow({
   const { statusLabel, ageLabel, summary } = describeAttention(item, nowMs);
   const title = item.title?.trim() || 'Без названия';
   const meta = [item.projectName, getProviderLabel(item.provider), statusLabel].filter(Boolean).join(' · ');
-  const cacheNote = cacheNoteOf(item, nowMs, ttlMin);
+  const cacheNote = showCacheNote ? cacheNoteOf(item, nowMs, ttlMin) : null;
 
   return (
     <button
@@ -146,6 +150,7 @@ export default function AttentionHubView({
   renderProviderMark,
   getProviderLabel = rawProviderLabel,
   promptCacheTtlMin = getPromptCacheTtlMin(),
+  showCacheNotes = true,
 }: AttentionHubViewProps) {
   const groups = groupAttention(items);
   const { total, counts } = countAttention(items);
@@ -186,6 +191,7 @@ export default function AttentionHubView({
                   item={entry}
                   nowMs={nowMs}
                   ttlMin={promptCacheTtlMin}
+                  showCacheNote={showCacheNotes}
                   onOpen={onOpenSession}
                   renderProviderMark={renderProviderMark}
                   getProviderLabel={getProviderLabel}

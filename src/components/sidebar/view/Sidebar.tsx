@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useDeviceSettings } from '../../../hooks/useDeviceSettings';
 import { useVersionCheck } from '../../../hooks/useVersionCheck';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
+import { useModEnabled } from '../../../hooks/useModEnabled';
 import { useSidebarController } from '../hooks/useSidebarController';
 import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
 import type { LLMProvider } from '../../../types/app';
@@ -133,6 +134,8 @@ function Sidebar({
 
   const [isAttentionHubOpen, setAttentionHubOpen] = useState(false);
   const openAttentionHub = useCallback(() => setAttentionHubOpen(true), []);
+  // «Ждут тебя» off in «Встроенные моды»: no hub, no hub button.
+  const attentionOn = useModEnabled('modAttention');
 
   // Hub row → the session inside its own project, the same way the archive
   // opens a session: select the project, then the session.
@@ -237,7 +240,7 @@ function Sidebar({
         t={t}
       />
 
-      {isAttentionHubOpen && (
+      {attentionOn && isAttentionHubOpen && (
         <AttentionHub onClose={() => setAttentionHubOpen(false)} onOpenSession={openAttentionSession} />
       )}
 
@@ -246,7 +249,7 @@ function Sidebar({
           onExpand={handleExpandSidebar}
           onShowSettings={onShowSettings}
           onGoHome={onGoHome}
-          onOpenAttention={openAttentionHub}
+          onOpenAttention={attentionOn ? openAttentionHub : undefined}
           restartRequired={restartRequired}
           t={t}
         />
@@ -290,7 +293,7 @@ function Sidebar({
             currentVersion={currentVersion}
             onShowSettings={onShowSettings}
             onGoHome={onGoHome}
-            onOpenAttention={openAttentionHub}
+            onOpenAttention={attentionOn ? openAttentionHub : undefined}
             projectListProps={projectListProps}
             t={t}
           />

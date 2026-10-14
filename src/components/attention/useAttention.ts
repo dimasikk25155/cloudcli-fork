@@ -9,7 +9,10 @@ import { setPromptCacheTtlMin } from '../../utils/promptCache';
 
 import { createAttentionStore, type AttentionSnapshot } from './attentionStore';
 import type { AttentionItem, AttentionSeenTarget } from './types';
+import { useModEnabled } from '../../hooks/useModEnabled';
+
 import { applyAppBadge } from './utils/appBadge';
+import { attentionCountShown, attentionStatusesNeeded } from './utils/attentionMods';
 
 /** Safety-net poll in case an `attention_changed` frame was missed (Решение 5). */
 export const ATTENTION_POLL_MS = 20_000;
@@ -72,8 +75,16 @@ export function useAttentionItem(sessionId: string | null | undefined): Attentio
  */
 export function useAttentionSync(viewedSessionId: string | null): void {
   const { subscribe } = useWebSocket();
+  const attentionOn = useModEnabled('modAttention');
+  const threadsOn = useModEnabled('modThreads');
+  const cacheTimerOn = useModEnabled('modCacheTimer');
+  // «Ждут тебя» off: statuses still load while threads or the cache timer read them.
+  const loadStatuses = attentionStatusesNeeded({ attention: attentionOn, threads: threadsOn, cacheTimer: cacheTimerOn });
 
   useEffect(() => {
+    if (!loadStatuses) {
+      return undefined;
+    }
     void attentionStore.refresh();
     const unsubscribe = subscribe((event: ServerEvent) => {
       if (event.kind === ATTENTION_CHANGED || event.kind === 'websocket_reconnected') {
@@ -94,24 +105,25 @@ export function useAttentionSync(viewedSessionId: string | null): void {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [subscribe]);
+  }, [subscribe, loadStatuses]);
 
   useEffect(() => {
     void attentionStore.setViewedSession(viewedSessionId);
   }, [viewedSessionId]);
 
   useEffect(() => {
-    let lastTotal: number | null = null;
+    let lastShown: number | null = null;
     const publish = () => {
-      const { total } = attentionStore.getSnapshot();
-      if (total === lastTotal) {
+      // Off → «(N)» and the badge are cleared, not frozen at the last number.
+      const shown = attentionCountShown(attentionStore.getSnapshot().total, attentionOn);
+      if (shown === lastShown) {
         return;
       }
-      lastTotal = total;
-      setPageAttentionCount(total);
-      applyAppBadge(total);
+      lastShown = shown;
+      setPageAttentionCount(shown);
+      applyAppBadge(shown);
     };
     publish();
     return attentionStore.subscribe(publish);
-  }, []);
+  }, [attentionOn]);
 }

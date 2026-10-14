@@ -14,11 +14,11 @@ import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
 import { useAuth } from '../../auth';
+import { useModEnabled } from '../../../hooks/useModEnabled';
 import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
 import { wrapCatalogBrief } from '../utils/catalogBrief';
 import {
-  buildScreenshotCaption,
-  isPictureFile,
+  pictureCaptions,
   withScreenshotContext,
   type ScreenshotMeta,
   type ScreenshotSource,
@@ -334,6 +334,8 @@ export function useChatComposerState({
   const secretGuardPassedRef = useRef<string | null>(null);
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const secretGuardOn = useModEnabled('modSecretGuard');
+  const screenshotsOn = useModEnabled('modScreenshots');
   // What the last paste carried, for the duplicate-paste guard in handlePaste.
   const lastPasteRef = useRef<PasteRecord | null>(null);
   const inputValueRef = useRef(input);
@@ -720,16 +722,11 @@ export function useChatComposerState({
   }, []);
 
   /** Agent-only captions for the pictures among `files`. */
-  const screenshotCaptionsFor = useCallback((files: File[]): string[] => {
-    const captions: string[] = [];
-    for (const file of files) {
-      const meta = file instanceof File ? attachmentMetaRef.current.get(file) : undefined;
-      if (meta && isPictureFile(file)) {
-        captions.push(buildScreenshotCaption(meta));
-      }
-    }
-    return captions;
-  }, []);
+  const screenshotCaptionsFor = useCallback((files: File[]): string[] => pictureCaptions(
+    files,
+    (file) => (file instanceof File ? attachmentMetaRef.current.get(file) : undefined),
+    screenshotsOn,
+  ), [screenshotsOn]);
 
   const handlePaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -939,6 +936,7 @@ export function useChatComposerState({
         return text;
       }
       const outcome = await runSecretGuard(text, {
+        enabled: secretGuardOn,
         isAdmin,
         ask: askSecretGuard,
         stash: stashSecretRequest,
@@ -951,7 +949,7 @@ export function useChatComposerState({
       }
       return null;
     },
-    [addMessage, isAdmin],
+    [addMessage, isAdmin, secretGuardOn],
   );
 
   const handleSubmit = useCallback(

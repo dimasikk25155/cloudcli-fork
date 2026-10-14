@@ -15,6 +15,7 @@ import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import { useConnectionWatchdog } from '../hooks/useConnectionWatchdog';
 import { useReplySuggestions } from '../hooks/useReplySuggestions';
+import { useModEnabled } from '../../../hooks/useModEnabled';
 import { replyForChips } from '../utils/replySuggestions';
 import { useSessionStore } from '../../../stores/useSessionStore';
 import { decisionExitsPlanMode, permissionModeAfterPlanApproval } from '../utils/planMode';
@@ -331,13 +332,20 @@ function ChatInterface({
   // reply fingerprint matches; chatMessages is only the change signal.
   // Same order as the session store's active id (useChatSessionState).
   const chipsSessionId = selectedSession?.id || currentSessionId || null;
+  // Built-in mods («Настройки → Плагины → Встроенные моды»): a mod switched
+  // off shows nothing and asks the server for nothing.
+  const replyChipsOn = useModEnabled('modReplyChips');
+  const cacheTimerOn = useModEnabled('modCacheTimer');
+  const relayOn = useModEnabled('modRelay');
+  const threadsOn = useModEnabled('modThreads');
+  const screenshotsOn = useModEnabled('modScreenshots');
   const lastReply = useMemo(
     () => (chipsSessionId ? replyForChips(sessionStore.getMessages(chipsSessionId)) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [chipsSessionId, chatMessages, sessionStore],
   );
   const { suggestions: replySuggestions, dismiss: dismissReplySuggestions } = useReplySuggestions({
-    sessionId: chipsSessionId,
+    sessionId: replyChipsOn ? chipsSessionId : null,
     reply: lastReply,
     isLoading: isProcessing,
     input,
@@ -354,10 +362,10 @@ function ChatInterface({
   );
   const composerModel = providerModels[provider];
   const promptCache = useMemo(
-    () => (chipsSessionId && promptCacheApplies(provider, composerModel)
+    () => (cacheTimerOn && chipsSessionId && promptCacheApplies(provider, composerModel)
       ? { lastModelAt: latestTimestamp(transcriptModelAt, attentionEntry?.lastModelAt), isRunning: isProcessing }
       : null),
-    [chipsSessionId, provider, composerModel, transcriptModelAt, attentionEntry?.lastModelAt, isProcessing],
+    [cacheTimerOn, chipsSessionId, provider, composerModel, transcriptModelAt, attentionEntry?.lastModelAt, isProcessing],
   );
 
   // A chip tap is "dictated and sent": the same handleSubmit path as Enter,
@@ -580,7 +588,8 @@ function ChatInterface({
   const followMovedChat = useCallback((childId: string) => {
     onNavigateToSession?.(childId);
   }, [onNavigateToSession]);
-  const autoRelay = useAutoRelay(chipsSessionId, followMovedChat);
+  const relaySessionId = relayOn ? chipsSessionId : null;
+  const autoRelay = useAutoRelay(relaySessionId, followMovedChat);
   // Relay (src/components/relay): the band offers «Перенести в новый чат» once
   // the chat has grown or aged; the continuation keeps this chat's project,
   // engine and model and is linked to it as `relay` (all on the server).
@@ -588,7 +597,7 @@ function ChatInterface({
   const relayContextWindow = composerModelOptions
     .find((option) => option.value === providerModels[provider])?.contextWindow ?? null;
   const relay = useRelaySuggestion({
-    id: chipsSessionId,
+    id: relaySessionId,
     createdAt: selectedSession?.createdAt ?? selectedSession?.created_at ?? null,
     links: selectedSession?.links ?? null,
     usedTokens: relayUsedTokens,
@@ -637,11 +646,13 @@ function ChatInterface({
   return (
     <PermissionContext.Provider value={permissionContextValue}>
       <div className="flex h-full min-h-0 flex-col">
-        <ThreadsBar
-          links={currentSessionLinks(selectedSession?.id, selectedProject?.sessions, selectedSession?.links)}
-          onOpenThread={(threadId) => onNavigateToSession?.(threadId)}
-          unnamedLabel={t('projects.newSession', { ns: 'sidebar', defaultValue: 'Новый сеанс' })}
-        />
+        {threadsOn && (
+          <ThreadsBar
+            links={currentSessionLinks(selectedSession?.id, selectedProject?.sessions, selectedSession?.links)}
+            onOpenThread={(threadId) => onNavigateToSession?.(threadId)}
+            unnamedLabel={t('projects.newSession', { ns: 'sidebar', defaultValue: 'Новый сеанс' })}
+          />
+        )}
         <div className="relative flex min-h-0 flex-1 flex-col">
         <PinnedUserMessage scrollContainerRef={scrollContainerRef} revision={chatMessages.length} />
         <ChatMessagesPane
@@ -797,7 +808,7 @@ function ChatInterface({
               previous.filter((_, currentIndex) => currentIndex !== index),
             )
           }
-          onReplaceImage={replaceAttachedImage}
+          onReplaceImage={screenshotsOn ? replaceAttachedImage : undefined}
           uploadingImages={uploadingImages}
           imageErrors={imageErrors}
           dropNotice={dropNotice}
@@ -835,7 +846,7 @@ function ChatInterface({
           relayBand={(
             <>
               <CrabSquadBand chatMessages={chatMessages} sessionId={chipsSessionId} isRunActive={isProcessing} />
-              <RelayBand relay={relay} autoRelay={autoRelay} onOpenChat={followMovedChat} />
+              {relayOn && <RelayBand relay={relay} autoRelay={autoRelay} onOpenChat={followMovedChat} />}
             </>
           )}
           placeholder={t('input.placeholder', {
@@ -857,7 +868,7 @@ function ChatInterface({
         </div>
       </div>
 
-      <QuickSettingsPanel autoRelay={chipsSessionId ? autoRelay : null} />
+      <QuickSettingsPanel autoRelay={relaySessionId ? autoRelay : null} showAutoRelay={relayOn} />
 
       <CommandResultModal
         payload={commandModalPayload}

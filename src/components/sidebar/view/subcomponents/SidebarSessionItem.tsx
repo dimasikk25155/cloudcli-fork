@@ -10,6 +10,7 @@ import type { SessionWithProvider } from '../../types/types';
 import type { SessionLinkRef } from '../../../../../shared/session-links';
 import { createSessionViewModel, getSessionLinkLines } from '../../utils/utils';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
+import { useModEnabled } from '../../../../hooks/useModEnabled';
 import { useAttentionItem } from '../../../attention/useAttention';
 import { attentionGroupOf } from '../../../attention/utils/attentionModel';
 import AttentionStatusDot from '../../../attention/view/AttentionStatusDot';
@@ -98,7 +99,10 @@ export default function SidebarSessionItem({
   const mobileEditingContainerRef = useRef<HTMLDivElement>(null);
   // Server-side status: waiting / unread done / unread failed get their own
   // coloured dot with a caption; working is already shown by the spinner.
-  const attention = useAttentionItem(session.id);
+  // «Ждут тебя» off in «Встроенные моды» → no status dot (the recent-activity dot stays).
+  const attentionOn = useModEnabled('modAttention');
+  const attentionItem = useAttentionItem(session.id);
+  const attention = attentionOn ? attentionItem : undefined;
   const attentionGroup = attention ? attentionGroupOf(attention) : null;
   const showAttentionIndicator = Boolean(attention && attentionGroup && attentionGroup !== 'working' && !isSelected);
   const showRecentIndicator = !showAttentionIndicator && !isProcessing && sessionView.isActive;

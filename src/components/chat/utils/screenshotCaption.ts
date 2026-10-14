@@ -134,3 +134,26 @@ export function buildScreenshotCaption(meta: ScreenshotMeta): string {
   }
   return parts.join('; ');
 }
+
+/**
+ * Agent-only captions for the pictures among `files` — one per picture the
+ * composer has a record of. With «Пометки на скриншоте» off there are none,
+ * so the agent gets exactly what was typed.
+ */
+export function pictureCaptions<F extends Pick<File, 'name' | 'type'>>(
+  files: readonly F[],
+  metaOf: (file: F) => ScreenshotMeta | undefined,
+  enabled: boolean,
+): string[] {
+  if (!enabled) {
+    return [];
+  }
+  const captions: string[] = [];
+  for (const file of files) {
+    const meta = metaOf(file);
+    if (meta && isPictureFile(file)) {
+      captions.push(buildScreenshotCaption(meta));
+    }
+  }
+  return captions;
+}

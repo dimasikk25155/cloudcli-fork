@@ -130,3 +130,23 @@ test('hub: Claude rows say how long the prompt cache stays warm; Codex/Grok/loca
     assert.doesNotMatch(rowOf(id), /кэш/, id);
   }
 });
+
+test('hub with «Таймер кэша» off: the same Claude rows, no cache note at all', () => {
+  const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+  const html = render(React.createElement(AttentionHubView, {
+    items: [
+      item({ sessionId: 'warm', state: 'done', unread: true, lastModelAt: minutesAgo(18) }),
+      item({ sessionId: 'cold', state: 'done', unread: true, lastModelAt: minutesAgo(75) }),
+    ],
+    nowMs: NOW,
+    promptCacheTtlMin: 60,
+    showCacheNotes: false,
+    onOpenSession: () => {},
+    onMarkAllSeen: () => {},
+  }));
+
+  assert.match(html, /data-attention-row="warm"/);
+  assert.match(html, /data-attention-row="cold"/);
+  assert.doesNotMatch(html, /кэш/);
+  assert.doesNotMatch(html, /data-cache-note/);
+});

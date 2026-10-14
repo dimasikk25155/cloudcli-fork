@@ -6,6 +6,7 @@ import MobileMenuButton from './MobileMenuButton';
 import PlannerAttentionButton from '../../../consigliere/PlannerAttentionButton';
 import BotHealthButton from '../../../consigliere/BotHealthButton';
 import CodeStatusChip from '../../../code-status/CodeStatusChip';
+import { useModEnabled } from '../../../../hooks/useModEnabled';
 import MainContentTabSwitcher from './MainContentTabSwitcher';
 import MainContentTitle from './MainContentTitle';
 
@@ -21,6 +22,8 @@ export default function MainContentHeader({
   onGoHome,
 }: MainContentHeaderProps) {
   const { t } = useTranslation('sidebar');
+  // «Где мой код» off in «Встроенные моды»: no chip, so no code-status request.
+  const codeStatusOn = useModEnabled('modCodeStatus');
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -87,7 +90,7 @@ export default function MainContentHeader({
 
         {/* RIGHT: bot health + overdue bell + tabs, pinned to the corner */}
         <div className="flex min-w-0 flex-shrink items-center gap-1.5 sm:flex-shrink-0">
-          {activeTab === 'chat' && <CodeStatusChip projectId={selectedProject.projectId} />}
+          {codeStatusOn && activeTab === 'chat' && <CodeStatusChip projectId={selectedProject.projectId} />}
           <BotHealthButton />
           <PlannerAttentionButton />
           <div className="relative min-w-0 overflow-hidden">
