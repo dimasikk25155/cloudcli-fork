@@ -234,7 +234,14 @@ export type GatewayEventKind =
    * childSessionId, childTitle, error}}`. Not a chat row. Mirrored in
    * `src/types/app.ts` `GatewayEventKind`.
    */
-  | 'auto_relay';
+  | 'auto_relay'
+  /**
+   * The user's account settings (incl. built-in mod switches) were saved on
+   * some device. Content-free (`{kind}`), sent only to that user's sockets;
+   * clients re-read `GET /api/settings/ui-preferences`. Not a chat row.
+   * Mirrored in `src/types/app.ts` `GatewayEventKind`.
+   */
+  | 'ui_preferences_changed';
 
 /**
  * Complete set of `kind` values emitted to websocket clients.

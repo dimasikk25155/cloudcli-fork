@@ -17,6 +17,7 @@ import {
 
 import { usePlugins } from '../../../contexts/PluginsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
+import { MODS } from '../../../../shared/mods';
 import PixelCrab from '../../crabs/PixelCrab';
 import type { Plugin } from '../../../contexts/PluginsContext';
 
@@ -71,13 +72,24 @@ function pluginMatchesRecommendation(plugin: Plugin, recommendation: PluginRecom
 }
 
 /* ─── Toggle Switch ─────────────────────────────────────────────────────── */
-function ToggleSwitch({ checked, onChange, ariaLabel }: { checked: boolean; onChange: (v: boolean) => void; ariaLabel: string }) {
+function ToggleSwitch({
+  checked,
+  onChange,
+  ariaLabel,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  ariaLabel: string;
+  disabled?: boolean;
+}) {
   return (
-    <label className="relative inline-flex cursor-pointer select-none items-center">
+    <label className={`relative inline-flex select-none items-center ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
       <input
         type="checkbox"
         className="peer sr-only"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         aria-label={ariaLabel}
       />
@@ -97,44 +109,58 @@ function ToggleSwitch({ checked, onChange, ariaLabel }: { checked: boolean; onCh
 
 /* ─── Built-in mods ─────────────────────────────────────────────────────── */
 /**
- * Mods that ship with Neo3 (no install): each is a switch over an account
- * preference, so the choice follows the user to every device.
+ * Mods that ship with Neo3 (no install), one card per entry of the registry
+ * `shared/mods.ts`: each is a switch over an account preference, so the
+ * choice follows the user to every device. A mod that works only together
+ * with another one (`requires`) is shown off and inactive while that one is off.
  */
 export function BuiltInModsSection() {
   const { preferences, setPreference } = useUiPreferences();
-  const crabsOn = preferences.subagentCrabs;
   return (
     <section className="space-y-2" data-builtin-mods>
       <h4 className="text-sm font-semibold text-foreground">Встроенные моды</h4>
-      <div
-        className="relative flex overflow-hidden rounded-lg border border-border bg-card transition-opacity duration-200"
-        style={{ opacity: crabsOn ? 1 : 0.65 }}
-      >
-        <div className={`w-[3px] flex-shrink-0 ${crabsOn ? 'bg-success' : 'bg-muted-foreground/20'} transition-colors duration-300`} />
-        <div className="flex min-w-0 flex-1 items-start justify-between gap-3 p-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex flex-shrink-0 gap-1 pt-1">
-              <PixelCrab tint="haiku" state={crabsOn ? 'running' : 'done'} scale={2} />
-              <PixelCrab tint="opus" state="done" scale={2} />
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold leading-none text-foreground">Крабики-помощники</div>
-              <p className="mt-1 text-sm leading-snug text-muted-foreground">
-                Помощники агента показываются крабиками: цвет — модель, в лапах — чем занят,
-                галочка — вернулся, и сколько это заняло. Английские задания спрятаны под «Подробности».
-                Выключено — прежняя карточка помощника.
-              </p>
+      {MODS.map((mod) => {
+        const parent = mod.requires ? MODS.find((candidate) => candidate.key === mod.requires) : undefined;
+        const blocked = Boolean(parent && !preferences[parent.key]);
+        const on = preferences[mod.key] && !blocked;
+        return (
+          <div
+            key={mod.key}
+            data-mod={mod.key}
+            className="relative flex overflow-hidden rounded-lg border border-border bg-card transition-opacity duration-200"
+            style={{ opacity: on ? 1 : 0.65 }}
+          >
+            <div className={`w-[3px] flex-shrink-0 ${on ? 'bg-success' : 'bg-muted-foreground/20'} transition-colors duration-300`} />
+            <div className="flex min-w-0 flex-1 items-start justify-between gap-3 p-4">
+              <div className="flex min-w-0 items-start gap-3">
+                {mod.key === 'subagentCrabs' && (
+                  <div className="flex flex-shrink-0 gap-1 pt-1">
+                    <PixelCrab tint="haiku" state={on ? 'running' : 'done'} scale={2} />
+                    <PixelCrab tint="opus" state="done" scale={2} />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold leading-none text-foreground">{mod.title}</div>
+                  <p className="mt-1 text-sm leading-snug text-muted-foreground">{mod.description}</p>
+                  {blocked && parent && (
+                    <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                      работает вместе с «{parent.title}»
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex-shrink-0 pt-0.5">
+                <ToggleSwitch
+                  checked={on}
+                  disabled={blocked}
+                  onChange={(value) => setPreference(mod.key, value)}
+                  ariaLabel={mod.title}
+                />
+              </div>
             </div>
           </div>
-          <div className="flex-shrink-0 pt-0.5">
-            <ToggleSwitch
-              checked={crabsOn}
-              onChange={(value) => setPreference('subagentCrabs', value)}
-              ariaLabel="Крабики-помощники"
-            />
-          </div>
-        </div>
-      </div>
+        );
+      })}
     </section>
   );
 }

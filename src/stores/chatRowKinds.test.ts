@@ -11,6 +11,11 @@ test('background-task frames never become chat rows', () => {
   assert.equal(CHAT_ROW_KINDS.has('background_task_stop'), false);
 });
 
+// Mod switches saved on another device: a "re-read settings" ping, not a message.
+test('the settings-changed frame never becomes a chat row', () => {
+  assert.equal(CHAT_ROW_KINDS.has('ui_preferences_changed'), false);
+});
+
 test('ordinary conversation kinds still do', () => {
   for (const kind of ['text', 'tool_use', 'tool_result', 'task_notification']) {
     assert.equal(CHAT_ROW_KINDS.has(kind), true, kind);

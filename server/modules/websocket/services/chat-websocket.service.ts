@@ -20,7 +20,7 @@ import { beginServiceTurn } from '@/shared/service-turns.js';
 import { isRelayRequestText } from '../../../../shared/relay-rules.js';
 import type { ThreadRunControl } from '@/modules/threads/threads.service.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
-import { clientIdentities } from '@/modules/websocket/services/project-access.service.js';
+import { clientIdentities, readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
   appendAttachedFilesTag,
@@ -143,20 +143,7 @@ export type StopTaskResult = { ok: boolean; reason?: string };
 function readRequestUserId(
   request: AuthenticatedWebSocketRequest | undefined
 ): string | number | null {
-  const user = request?.user;
-  if (!user) {
-    return null;
-  }
-
-  if (typeof user.id === 'string' || typeof user.id === 'number') {
-    return user.id;
-  }
-
-  if (typeof user.userId === 'string' || typeof user.userId === 'number') {
-    return user.userId;
-  }
-
-  return null;
+  return readSocketUserId(request?.user);
 }
 
 /** Reads the authenticated request user's role, if present (added alongside userId/username). */

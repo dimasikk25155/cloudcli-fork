@@ -12,6 +12,7 @@ import {
   pushSubscriptionsDb,
   uiPreferencesDb,
 } from '../modules/database/index.js';
+import { notifyUiPreferencesChanged } from '../modules/websocket/index.js';
 import { WORK_MODES } from '../shared/work-mode.js';
 import { SUPPORTED_PROVIDERS } from '../shared/providers.js';
 import { getPublicKey } from '../services/vapid-keys.js';
@@ -386,6 +387,14 @@ router.put('/ui-preferences', async (req, res) => {
   try {
     const preferences = uiPreferencesDb.updateUiPreferences(req.user.id, req.body || {});
     res.json({ success: true, preferences });
+    // Other open devices of this user re-read their settings (mod switches
+    // take effect there without a reload). Best effort: the save already
+    // succeeded, a broadcast hiccup must not turn it into an error.
+    try {
+      notifyUiPreferencesChanged(Number(req.user.id));
+    } catch (error) {
+      console.warn('Failed to announce UI preferences change:', error);
+    }
   } catch (error) {
     console.error('Error saving UI preferences:', error);
     res.status(500).json({ error: 'Failed to save UI preferences' });

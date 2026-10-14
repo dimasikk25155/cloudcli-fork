@@ -2,20 +2,20 @@ import { useEffect, useReducer, useRef, useSyncExternalStore } from 'react';
 
 import { authenticatedFetch } from '../utils/api';
 
-type UiPreferences = {
-  showRawParameters: boolean;
-  showThinking: boolean;
-  sendByCtrlEnter: boolean;
-  sendByDoubleEnter: boolean;
-  sidebarVisible: boolean;
-  voiceEnabled: boolean;
-  /** «Авто-перенос» is switched on in every new chat (server reads it on create). */
-  autoRelayNewChats: boolean;
-  /** Built-in mod «Крабики-помощники»: subagents drawn as crabs (off = the plain card). */
-  subagentCrabs: boolean;
-};
-
-type UiPreferenceKey = keyof UiPreferences;
+import {
+  DEFAULT_STORAGE_KEY,
+  DEFAULT_UI_PREFERENCES,
+  UI_PREFERENCE_KEYS,
+  UI_PREFERENCES_SYNC_EVENT,
+  parseBoolean,
+  readStoredPreferences,
+  readUiPreference,
+  refreshUiPreferences,
+  subscribeUiPreferences,
+  type UiPreferenceKey,
+  type UiPreferences,
+  type UiPreferencesSyncDetail,
+} from './uiPreferencesStore';
 
 type SetPreferenceAction = {
   type: 'set';
@@ -38,88 +38,11 @@ type UiPreferencesAction =
   | SetManyPreferencesAction
   | ResetPreferencesAction;
 
-const DEFAULTS: UiPreferences = {
-  showRawParameters: false,
-  showThinking: true,
-  sendByCtrlEnter: false,
-  sendByDoubleEnter: false,
-  sidebarVisible: true,
-  // On by default so the mic button appears out of the box wherever a voice
-  // backend is configured. useVoiceAvailable still gates it on a healthy
-  // backend, so a deployment with no backend simply shows nothing.
-  voiceEnabled: true,
-  autoRelayNewChats: false,
-  subagentCrabs: true,
-};
-
 // Exported so other readers of the stored preferences blob (e.g. useVoiceAvailable)
 // fall back to the same defaults instead of hard-coding their own.
-export const UI_PREFERENCE_DEFAULTS: Readonly<UiPreferences> = DEFAULTS;
+export const UI_PREFERENCE_DEFAULTS: Readonly<UiPreferences> = DEFAULT_UI_PREFERENCES;
 
-const PREFERENCE_KEYS = Object.keys(DEFAULTS) as UiPreferenceKey[];
-const VALID_KEYS = new Set<UiPreferenceKey>(PREFERENCE_KEYS); // prevents unknown keys from being written
-const SYNC_EVENT = 'ui-preferences:sync';
-
-type SyncEventDetail = {
-  storageKey: string;
-  sourceId: string;
-  value: Partial<Record<UiPreferenceKey, unknown>>;
-};
-
-const parseBoolean = (value: unknown, fallback: boolean): boolean => {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    if (value === 'true') return true;
-    if (value === 'false') return false;
-  }
-
-  return fallback;
-};
-
-const readLegacyPreference = (key: UiPreferenceKey, fallback: boolean): boolean => {
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw === null) return fallback;
-
-    // Supports values written by both JSON.stringify and plain strings.
-    const parsed = JSON.parse(raw);
-    return parseBoolean(parsed, fallback);
-  } catch {
-    return fallback;
-  }
-};
-
-const readInitialPreferences = (storageKey: string): UiPreferences => {
-  if (typeof window === 'undefined') {
-    return DEFAULTS;
-  }
-
-  try {
-    const raw = localStorage.getItem(storageKey);
-
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const parsedRecord = parsed as Record<string, unknown>;
-
-        return PREFERENCE_KEYS.reduce((acc, key) => {
-          acc[key] = parseBoolean(parsedRecord[key], DEFAULTS[key]);
-          return acc;
-        }, { ...DEFAULTS });
-      }
-    }
-  } catch {
-    // Fall back to legacy keys when unified key is missing or invalid.
-  }
-
-  return PREFERENCE_KEYS.reduce((acc, key) => {
-    acc[key] = readLegacyPreference(key, DEFAULTS[key]);
-    return acc;
-  }, { ...DEFAULTS });
-};
+const VALID_KEYS = new Set<UiPreferenceKey>(UI_PREFERENCE_KEYS); // prevents unknown keys from being written
 
 function reducer(state: UiPreferences, action: UiPreferencesAction): UiPreferences {
   switch (action.type) {
@@ -141,7 +64,7 @@ function reducer(state: UiPreferences, action: UiPreferencesAction): UiPreferenc
       let changed = false;
       const nextState = { ...state };
 
-      for (const key of PREFERENCE_KEYS) {
+      for (const key of UI_PREFERENCE_KEYS) {
         if (!(key in updates)) continue;
 
         const value = updates[key];
@@ -155,18 +78,18 @@ function reducer(state: UiPreferences, action: UiPreferencesAction): UiPreferenc
       return changed ? nextState : state;
     }
     case 'reset':
-      return { ...DEFAULTS, ...(action.value || {}) };
+      return { ...DEFAULT_UI_PREFERENCES, ...(action.value || {}) };
     default:
       return state;
   }
 }
 
-export function useUiPreferences(storageKey = 'uiPreferences') {
+export function useUiPreferences(storageKey = DEFAULT_STORAGE_KEY) {
   const instanceIdRef = useRef(`ui-preferences-${Math.random().toString(36).slice(2)}`);
   const [state, dispatch] = useReducer(
     reducer,
     storageKey,
-    readInitialPreferences
+    readStoredPreferences
   );
 
   useEffect(() => {
@@ -177,7 +100,7 @@ export function useUiPreferences(storageKey = 'uiPreferences') {
     localStorage.setItem(storageKey, JSON.stringify(state));
 
     window.dispatchEvent(
-      new CustomEvent<SyncEventDetail>(SYNC_EVENT, {
+      new CustomEvent<UiPreferencesSyncDetail>(UI_PREFERENCES_SYNC_EVENT, {
         detail: {
           storageKey,
           sourceId: instanceIdRef.current,
@@ -213,7 +136,7 @@ export function useUiPreferences(storageKey = 'uiPreferences') {
     };
 
     const handleSyncEvent = (event: Event) => {
-      const syncEvent = event as CustomEvent<SyncEventDetail>;
+      const syncEvent = event as CustomEvent<UiPreferencesSyncDetail>;
       const detail = syncEvent.detail;
       if (!detail || detail.storageKey !== storageKey || detail.sourceId === instanceIdRef.current) {
         return;
@@ -223,36 +146,22 @@ export function useUiPreferences(storageKey = 'uiPreferences') {
     };
 
     window.addEventListener('storage', handleStorageChange);
-    window.addEventListener(SYNC_EVENT, handleSyncEvent as EventListener);
+    window.addEventListener(UI_PREFERENCES_SYNC_EVENT, handleSyncEvent as EventListener);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener(SYNC_EVENT, handleSyncEvent as EventListener);
+      window.removeEventListener(UI_PREFERENCES_SYNC_EVENT, handleSyncEvent as EventListener);
     };
   }, [storageKey]);
 
-  // Account-wide defaults, loaded once on mount and applied on top of
-  // whatever localStorage had (server is the cross-device source of truth;
-  // localStorage is just this browser's instant-paint cache). Dispatches
-  // directly rather than through setPreference/setPreferences so hydration
-  // doesn't itself trigger a sync-back PUT.
+  // Account-wide values, loaded once on mount and applied on top of whatever
+  // localStorage had (server is the cross-device source of truth; localStorage
+  // is just this browser's instant-paint cache). The one shared re-read writes
+  // the cache and broadcasts it; this instance takes it through the sync
+  // listener above, so hydration doesn't itself trigger a sync-back PUT.
   useEffect(() => {
-    let cancelled = false;
-    authenticatedFetch('/api/settings/ui-preferences')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (cancelled || !data?.preferences) {
-          return;
-        }
-        dispatch({ type: 'set_many', value: data.preferences });
-      })
-      .catch((error) => {
-        console.warn('Failed to load account UI preferences:', error);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void refreshUiPreferences(authenticatedFetch, storageKey);
+  }, [storageKey]);
 
   // Fire-and-forget: push the change to the account so every other device
   // picks it up on its next load. Local state/localStorage already made the
@@ -295,17 +204,10 @@ export function useUiPreferences(storageKey = 'uiPreferences') {
  * subagent): no server fetch of its own — it follows the value the app-level
  * `useUiPreferences` hydrates into localStorage and broadcasts on change.
  */
-export function useUiPreferenceValue(key: UiPreferenceKey, storageKey = 'uiPreferences'): boolean {
+export function useUiPreferenceValue(key: UiPreferenceKey, storageKey = DEFAULT_STORAGE_KEY): boolean {
   return useSyncExternalStore(
-    (onChange) => {
-      window.addEventListener(SYNC_EVENT, onChange);
-      window.addEventListener('storage', onChange);
-      return () => {
-        window.removeEventListener(SYNC_EVENT, onChange);
-        window.removeEventListener('storage', onChange);
-      };
-    },
-    () => readInitialPreferences(storageKey)[key],
-    () => DEFAULTS[key],
+    subscribeUiPreferences,
+    () => readUiPreference(key, storageKey),
+    () => DEFAULT_UI_PREFERENCES[key],
   );
 }

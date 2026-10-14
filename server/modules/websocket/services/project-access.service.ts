@@ -10,6 +10,23 @@ export { canAccessProject, canAccessSession } from '@/shared/project-access.js';
 // Identity belongs to the authenticated socket, never to client message fields.
 export const clientIdentities = new WeakMap<RealtimeClientConnection, AuthenticatedWebSocketUser>();
 
+/**
+ * The user id of an authenticated socket, in the formats produced by the
+ * platform and OSS auth paths: `id`, otherwise `userId` (number or string).
+ */
+export function readSocketUserId(user: AuthenticatedWebSocketUser | undefined): string | number | null {
+  if (!user) {
+    return null;
+  }
+  if (typeof user.id === 'string' || typeof user.id === 'number') {
+    return user.id;
+  }
+  if (typeof user.userId === 'string' || typeof user.userId === 'number') {
+    return user.userId;
+  }
+  return null;
+}
+
 export function broadcastProjectEvent(payload: string, projectId: string | null): void {
   for (const client of connectedClients) {
     if (client.readyState === WS_OPEN_STATE && canAccessProject(clientIdentities.get(client), projectId)) {

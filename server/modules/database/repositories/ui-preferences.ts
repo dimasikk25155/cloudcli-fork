@@ -10,6 +10,8 @@
 
 import { getConnection } from '@/modules/database/connection.js';
 
+import { MOD_KEYS } from '../../../../shared/mods.js';
+
 export type UiPreferenceValue = string | number | boolean;
 export type UiPreferences = Record<string, UiPreferenceValue>;
 
@@ -36,8 +38,9 @@ const ALLOWED_KEYS = new Set([
   'voiceEnabled',
   // «Авто-перенос» включается сам в каждом новом чате (auto-relay module).
   'autoRelayNewChats',
-  // Встроенный мод «Крабики-помощники»: субагенты в чате как крабы.
-  'subagentCrabs',
+  // Выключатели встроенных модов («Настройки → Плагины → Встроенные моды»),
+  // включая прежний `subagentCrabs`. Список — в реестре `shared/mods.ts`.
+  ...MOD_KEYS,
 ]);
 
 function isPreferenceValue(value: unknown): value is UiPreferenceValue {

@@ -11,6 +11,7 @@ import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
 import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
+import { useUiPreferencesSync } from '../../hooks/useUiPreferencesSync';
 import { useAttentionSync } from '../attention/useAttention';
 import { api } from '../../utils/api';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -98,6 +99,9 @@ function AppContentInner() {
   // «Ждут тебя»: server-side session statuses → sidebar dots, tab «(N)»,
   // app-icon badge; the session on screen is marked seen.
   useAttentionSync(selectedSession?.id ?? sessionId ?? null);
+
+  // Settings (incl. mod switches) saved on another device show up here too.
+  useUiPreferencesSync();
 
   // Queued messages for sessions that finish while another session (or none)
   // is being viewed are sent from here; the viewed session's composer handles
