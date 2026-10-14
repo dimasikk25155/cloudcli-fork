@@ -145,7 +145,7 @@ test('unknown event types are ignored, never rendered raw', () => {
   assert.deepEqual(provider.normalizeMessage(null, SESSION), []);
 });
 
-test('subagent frames with parent_tool_use_id stay out of the main transcript', () => {
+test('subagent frames keep only their tools, nested under the spawn call', () => {
   const result = provider.normalizeMessage({
     type: 'assistant',
     parent_tool_use_id: 'call-subagent-1',
@@ -159,7 +159,10 @@ test('subagent frames with parent_tool_use_id stay out of the main transcript', 
     },
   }, SESSION);
 
-  assert.deepEqual(result, []);
+  assert.deepEqual(
+    result.map((row) => [row.kind, row.toolId, row.parentToolUseId]),
+    [['tool_use', 'call-child-0', 'call-subagent-1']],
+  );
 });
 
 test('extractGrokUserTurn drops MCP reconnect banners so they never become a chat bubble', () => {

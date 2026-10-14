@@ -56,10 +56,13 @@ function parseTaskNotification(content: string): ParsedTaskNotification | null {
 }
 
 /**
- * Tools that start a subagent. Claude Code renamed `Task` to `Agent`; both
- * render as the subagent card.
+ * Tools that start a subagent. Claude Code renamed `Task` to `Agent`; Grok
+ * calls it `spawn_subagent`. All render as the subagent card.
  */
-export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Task', 'Agent']);
+export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Task', 'Agent', 'spawn_subagent']);
+
+/** Grok's helper runs in the background unless the call says `background:false`. */
+const GROK_SUBAGENT_TOOL = 'spawn_subagent';
 
 function epochMs(value: unknown): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
@@ -98,17 +101,23 @@ function buildSubagentState(
   const outcome = (toolResult?.toolUseResult && typeof toolResult.toolUseResult === 'object'
     ? toolResult.toolUseResult
     : {}) as Record<string, any>;
-  const isAsync = outcome.status === 'async_launched' || outcome.isAsync === true || input.run_in_background === true;
+  const isGrok = msg.toolName === GROK_SUBAGENT_TOOL;
+  const isAsync = outcome.status === 'async_launched'
+    || outcome.isAsync === true
+    || input.run_in_background === true
+    || (isGrok && input.background !== false);
   const isComplete = isAsync ? Boolean(notification) : Boolean(toolResult);
   const notifiedUsage: SubagentUsage = notification?.usage ?? {};
-  const usage: SubagentUsage = isAsync
+  const usage: SubagentUsage = isAsync || notification
     ? notifiedUsage
     : {
         toolUses: count(outcome.totalToolUseCount),
         durationMs: count(outcome.totalDurationMs),
         totalTokens: count(outcome.totalTokens),
       };
-  const model = [outcome.resolvedModel, outcome.model, input.model].find((value) => typeof value === 'string' && value);
+  // A Grok helper runs on the session's Grok model; the call does not name it.
+  const model = [outcome.resolvedModel, outcome.model, input.model, isGrok ? 'grok' : undefined]
+    .find((value) => typeof value === 'string' && value);
 
   return {
     childTools,

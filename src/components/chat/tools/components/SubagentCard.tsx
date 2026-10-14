@@ -32,6 +32,7 @@ const getCompactToolDisplay = (toolName: string, toolInput: unknown): string => 
       return cmd.length > 40 ? `${cmd.slice(0, 40)}...` : cmd;
     case 'Task':
     case 'Agent':
+    case 'spawn_subagent':
       return input.description || input.subagent_type || '';
     case 'WebFetch':
     case 'WebSearch':

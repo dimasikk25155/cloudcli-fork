@@ -37,6 +37,23 @@ const HISTORY_FILE = 'chat_history.jsonl';
  * (e.g. `%2Ftmp` for /tmp), but summary.json carries the decoded cwd, so the
  * encoding never has to be reversed here.
  */
+/**
+ * Grok stores a helper's session like any other, marked with its parent or
+ * subagent type (field spelling seen in the CLI: parentSessionId,
+ * subagentType; snake case accepted too).
+ */
+export function isGrokChildSession(summary: Record<string, unknown>): boolean {
+  const info = readObjectRecord(summary.info) ?? {};
+  const marks = [
+    summary.parent_session_id, summary.parentSessionId, summary.subagent_type, summary.subagentType,
+    info.parent_session_id, info.parentSessionId, info.subagent_type, info.subagentType,
+  ];
+  if (marks.some((value) => typeof value === 'string' && value.trim())) {
+    return true;
+  }
+  return typeof summary.session_kind === 'string' && /subagent|child/i.test(summary.session_kind);
+}
+
 export class GrokSessionSynchronizer implements IProviderSessionSynchronizer {
   private readonly provider = 'grok' as const;
 
@@ -128,6 +145,11 @@ export class GrokSessionSynchronizer implements IProviderSessionSynchronizer {
     const mapped = sessionsDb.getSessionByProviderSessionId(sessionId)
       ?? sessionsDb.getSessionById(sessionId);
     if (!mapped) {
+      // A helper (subagent) runs as a child session in the same folder; it
+      // must never claim the pending row of the chat that started it.
+      if (isGrokChildSession(summary)) {
+        return null;
+      }
       const pending = sessionsDb.findLatestPendingAppSession(this.provider, projectPath);
       if (!pending) {
         return null;

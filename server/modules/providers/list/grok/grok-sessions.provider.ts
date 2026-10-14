@@ -19,6 +19,8 @@ import {
   sliceTailPage,
 } from '@/shared/utils.js';
 
+import { GrokSubagentTracker } from './grok-subagents.js';
+
 const PROVIDER = 'grok';
 
 /**
@@ -225,6 +227,46 @@ const isSubagentEvent = (raw: AnyRecord): boolean => (
   typeof raw.parent_tool_use_id === 'string' && raw.parent_tool_use_id.trim().length > 0
 );
 
+/**
+ * A helper's own line: only its tool calls and results, tagged with the spawn
+ * call they belong to, so the crab shows what it is doing. Its text and
+ * reasoning never reach the main chat — three agents' tokens in one bubble.
+ */
+function normalizeSubagentEvent(raw: AnyRecord, sessionId: string | null, parentToolUseId: string): NormalizedMessage[] {
+  const content = readObjectRecord(raw.message)?.content;
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  const messages: NormalizedMessage[] = [];
+  for (const part of content) {
+    const block = readObjectRecord(part);
+    if (raw.type === 'assistant' && block?.type === 'tool_use' && block.id && block.name) {
+      messages.push(createNormalizedMessage({
+        id: `${String(block.id)}_call`,
+        sessionId,
+        provider: PROVIDER,
+        kind: 'tool_use',
+        toolName: String(block.name),
+        toolInput: block.input,
+        toolId: String(block.id),
+        parentToolUseId,
+      }));
+    } else if (raw.type === 'user' && block?.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+      messages.push(createNormalizedMessage({
+        id: `${block.tool_use_id}_result`,
+        sessionId,
+        provider: PROVIDER,
+        kind: 'tool_result',
+        toolId: block.tool_use_id,
+        content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? ''),
+        isError: block.is_error === true,
+        parentToolUseId,
+      }));
+    }
+  }
+  return messages;
+}
+
 const readTextParts = (content: unknown): string => {
   if (typeof content === 'string') {
     return content;
@@ -298,6 +340,26 @@ export class GrokSessionsProvider implements IProviderSessions {
   private readonly sessionsWithAssistantText = new Set<string>();
 
   /**
+   * Helpers started in each live session. Kept past the run's `result`: a
+   * background helper may report back after the turn has ended.
+   */
+  private readonly subagentsBySession = new Map<string, GrokSubagentTracker>();
+
+  private subagentTracker(sessionId: string | null): GrokSubagentTracker {
+    const key = sessionId ?? '';
+    let tracker = this.subagentsBySession.get(key);
+    if (!tracker) {
+      if (this.subagentsBySession.size >= 200) {
+        const oldest = this.subagentsBySession.keys().next().value;
+        if (oldest !== undefined) this.subagentsBySession.delete(oldest);
+      }
+      tracker = new GrokSubagentTracker();
+      this.subagentsBySession.set(key, tracker);
+    }
+    return tracker;
+  }
+
+  /**
    * Live streaming-messages-json events from the runner.
    */
   normalizeMessage(rawMessage: unknown, sessionId: string | null): NormalizedMessage[] {
@@ -306,10 +368,11 @@ export class GrokSessionsProvider implements IProviderSessions {
       return [];
     }
 
-    // Subagent chatter shares the same assistant/user stream. Dumping it into
-    // the main transcript interleaves three agents' tokens into one bubble.
+    // Subagent chatter shares the same assistant/user stream: only its tools
+    // go out, nested under the crab of the spawn call.
+    const subagents = this.subagentTracker(sessionId);
     if (isSubagentEvent(raw)) {
-      return [];
+      return normalizeSubagentEvent(raw, sessionId, subagents.resolveParent(String(raw.parent_tool_use_id).trim()));
     }
 
     // Session bootstrap (model, tools, connected MCP servers) — the runner
@@ -370,6 +433,7 @@ export class GrokSessionsProvider implements IProviderSessions {
         }
 
         if (block.type === 'tool_use' && block.id && block.name) {
+          subagents.noteToolUse(String(block.id), String(block.name), block.input);
           messages.push(createNormalizedMessage({
             id: `${String(block.id)}_call`,
             sessionId,
@@ -386,11 +450,14 @@ export class GrokSessionsProvider implements IProviderSessions {
     }
 
     if (raw.type === 'user') {
-      if (isGrokSyntheticUserTurn(raw)) {
-        return [];
-      }
       const message = readObjectRecord(raw.message);
       const content = message?.content;
+      // A helper's return can arrive as a turn of its own; it closes the crab
+      // and is never a human bubble.
+      const returns = subagents.noteText(readTextParts(content), sessionId, PROVIDER);
+      if (isGrokSyntheticUserTurn(raw) || returns.length > 0) {
+        return returns;
+      }
       if (!Array.isArray(content)) {
         return [];
       }
@@ -420,6 +487,7 @@ export class GrokSessionsProvider implements IProviderSessions {
           toolId,
           content: resultText,
         }));
+        messages.push(...subagents.noteToolResult(toolId, resultText, block.is_error === true, sessionId, PROVIDER));
       }
 
       return messages;
@@ -508,8 +576,9 @@ export class GrokSessionsProvider implements IProviderSessions {
     }
 
     const normalized: NormalizedMessage[] = [];
+    const subagents = new GrokSubagentTracker();
     for (const raw of rawEvents) {
-      normalized.push(...this.normalizeHistoryEvent(raw, sessionId));
+      normalized.push(...this.normalizeHistoryEvent(raw, sessionId, subagents));
     }
 
     stampGrokHistoryMessages(
@@ -583,7 +652,11 @@ export class GrokSessionsProvider implements IProviderSessions {
   /**
    * chat_history.jsonl dialect — flatter than the live stream.
    */
-  private normalizeHistoryEvent(raw: AnyRecord, sessionId: string): NormalizedMessage[] {
+  private normalizeHistoryEvent(
+    raw: AnyRecord,
+    sessionId: string,
+    subagents: GrokSubagentTracker,
+  ): NormalizedMessage[] {
     // The system prompt preamble is machinery, not conversation.
     if (raw.type === 'system') {
       if (raw.subtype === 'compact_boundary') {
@@ -593,8 +666,9 @@ export class GrokSessionsProvider implements IProviderSessions {
     }
 
     if (raw.type === 'user') {
-      if (isGrokSyntheticUserTurn(raw)) {
-        return [];
+      const returns = subagents.noteText(readTextParts(raw.content), sessionId, PROVIDER);
+      if (isGrokSyntheticUserTurn(raw) || returns.length > 0) {
+        return returns;
       }
       const turn = extractGrokUserTurn(readTextParts(raw.content));
       if (!turn.text && !turn.images?.length) {
@@ -652,13 +726,15 @@ export class GrokSessionsProvider implements IProviderSessions {
           if (!record?.id || !record?.name) {
             continue;
           }
+          const toolInput = parseToolArguments(record.arguments);
+          subagents.noteToolUse(String(record.id), String(record.name), toolInput);
           messages.push(createNormalizedMessage({
             id: `${String(record.id)}_call`,
             sessionId,
             provider: PROVIDER,
             kind: 'tool_use',
             toolName: String(record.name),
-            toolInput: parseToolArguments(record.arguments),
+            toolInput,
             toolId: String(record.id),
           }));
         }
@@ -672,14 +748,18 @@ export class GrokSessionsProvider implements IProviderSessions {
       if (!toolId) {
         return [];
       }
-      return [createNormalizedMessage({
-        id: `${toolId}_result`,
-        sessionId,
-        provider: PROVIDER,
-        kind: 'tool_result',
-        toolId,
-        content: typeof raw.content === 'string' ? raw.content : JSON.stringify(raw.content ?? ''),
-      })];
+      const content = typeof raw.content === 'string' ? raw.content : JSON.stringify(raw.content ?? '');
+      return [
+        createNormalizedMessage({
+          id: `${toolId}_result`,
+          sessionId,
+          provider: PROVIDER,
+          kind: 'tool_result',
+          toolId,
+          content,
+        }),
+        ...subagents.noteToolResult(toolId, content, false, sessionId, PROVIDER),
+      ];
     }
 
     return [];

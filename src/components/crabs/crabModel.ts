@@ -7,7 +7,7 @@ import type { ChatMessage, SubagentState } from '../chat/types/types';
  * prompt and result stay behind «Подробности».
  */
 
-export type CrabTint = 'haiku' | 'sonnet' | 'opus' | 'fable' | 'other';
+export type CrabTint = 'haiku' | 'sonnet' | 'opus' | 'fable' | 'grok' | 'other';
 
 /**
  * running — out working; done — back with a result; failed — came back
@@ -44,6 +44,7 @@ export const CRAB_TINT_COLOR: Record<CrabTint, string> = {
   sonnet: '#fb923c',
   opus: '#a78bfa',
   fable: '#34d399',
+  grok: '#f87171',
   other: '#94a3b8',
 };
 
@@ -52,6 +53,7 @@ export const CRAB_TINT_LABEL: Record<CrabTint, string> = {
   sonnet: 'Sonnet',
   opus: 'Opus',
   fable: 'Fable',
+  grok: 'Grok',
   other: 'модель сессии',
 };
 
@@ -61,13 +63,32 @@ export function tintForModel(model: string | undefined): CrabTint {
   if (name.includes('sonnet')) return 'sonnet';
   if (name.includes('opus')) return 'opus';
   if (name.includes('fable')) return 'fable';
+  if (name.includes('grok')) return 'grok';
   return 'other';
 }
 
 const THINKING: CrabActivity = { verb: 'думает', icon: '💭' };
 
-export function activityFor(toolName: string | undefined): CrabActivity {
-  if (!toolName) return THINKING;
+/** Grok's own tool names, read as the Claude tool doing the same job. */
+const GROK_TOOL_ALIASES: Record<string, string> = {
+  read_file: 'Read',
+  grep: 'Grep',
+  list_dir: 'LS',
+  search_tool: 'Grep',
+  run_terminal_command: 'Bash',
+  monitor: 'Bash',
+  get_command_or_subagent_output: 'Bash',
+  search_replace: 'Edit',
+  write: 'Write',
+  web_fetch: 'WebFetch',
+  spawn_subagent: 'Agent',
+};
+
+export function activityFor(rawToolName: string | undefined): CrabActivity {
+  if (!rawToolName) return THINKING;
+  const toolName = GROK_TOOL_ALIASES[rawToolName] ?? rawToolName;
+  if (toolName.startsWith('image_') || toolName.endsWith('_to_video')) return { verb: 'рисует', icon: '🎨' };
+  if (toolName === 'use_tool') return { verb: 'в сервисе', icon: '🔌' };
   if (toolName === 'Read' || toolName === 'NotebookRead') return { verb: 'читает', icon: '📖' };
   if (toolName === 'Grep' || toolName === 'Glob' || toolName === 'LS') return { verb: 'ищет', icon: '🔍' };
   if (toolName === 'Bash' || toolName === 'BashOutput' || toolName === 'PowerShell') return { verb: 'запускает', icon: '⚙️' };

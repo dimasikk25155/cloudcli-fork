@@ -182,3 +182,65 @@ test('status lines read as sentences, not clock times', () => {
   assert.equal(crabStatusLine({ ...crab, state: 'failed', durationMs: 5_000 }), 'вернулся с ошибкой за 5 с');
   assert.equal(crabStatusLine({ ...crab, state: 'lost' }), 'не вернулся');
 });
+
+// Grok: rows as the server emits them from `spawn_subagent` (see
+// server/modules/providers/tests/grok-subagents.test.ts).
+const grok = { sessionId: 's', provider: 'grok' as const };
+
+function grokSpawn(id: string, input: Record<string, unknown>, seconds = 0): NormalizedMessage {
+  return { ...grok, id, kind: 'tool_use', toolName: 'spawn_subagent', toolId: id, toolInput: input, timestamp: at(seconds) };
+}
+
+function grokResult(id: string, content: string, seconds = 1, parentToolUseId?: string): NormalizedMessage {
+  return { ...grok, id: `${id}_result`, kind: 'tool_result', toolId: id, content, timestamp: at(seconds), parentToolUseId };
+}
+
+test('grok: a background helper is a red Grok crab until its return, then back with effort', () => {
+  const rows: NormalizedMessage[] = [
+    grokSpawn('g1', { prompt: 'Count .ts files', description: 'Считает файлы TS' }),
+    grokResult('g1', 'subagent_id: 019a1b2c-3d4e-7f00-8a1b-2c3d4e5f6a7b'),
+    grokSpawn('g2', { prompt: 'Count .md files', description: 'Count markdown files' }),
+    grokResult('g2', 'subagent_id: 019a1b2c-3d4e-7f00-9b2c-3d4e5f6a7b8c'),
+    { ...grok, id: 'c1', kind: 'tool_use', toolName: 'read_file', toolId: 'c1', toolInput: { target_file: 'src/a.ts' }, timestamp: at(5), parentToolUseId: 'g1' },
+    { ...grok, id: 'cmd', kind: 'tool_use', toolName: 'run_terminal_command', toolId: 'cmd', toolInput: { command: 'sleep 5' }, timestamp: at(2) },
+  ];
+  const [running, english] = buildCrabSquad(normalizedToChatMessages(rows), { isRunActive: true }, T0 + 30_000);
+  assert.equal(running.title, 'Считает файлы TS');
+  assert.equal(running.tint, 'grok');
+  assert.equal(running.state, 'running');
+  assert.deepEqual(running.activity, { verb: 'читает', icon: '📖' });
+  assert.equal(english.title, 'Помощник');
+  assert.equal(buildCrabSquad(normalizedToChatMessages(rows), { isRunActive: true }).length, 2);
+
+  const back = normalizedToChatMessages([
+    ...rows,
+    { ...grok, id: 'n1', kind: 'task_notification', toolId: 'g1', status: 'completed', summary: '', usage: { toolUses: 7, durationMs: 64_000 }, timestamp: at(70) },
+    { ...grok, id: 'n2', kind: 'task_notification', toolId: 'g2', status: 'cancelled', summary: '', timestamp: at(80) },
+  ]);
+  const [done, stopped] = buildCrabSquad(back, { isRunActive: false }, T0 + 100_000);
+  assert.equal(done.state, 'done');
+  assert.equal(done.toolsUsed, 7);
+  assert.equal(done.durationMs, 64_000);
+  assert.equal(stopped.state, 'failed');
+  assert.equal(stopped.durationMs, 80_000);
+  assert.equal(back.some((message) => message.isTaskNotification), false);
+});
+
+test('grok: a blocking helper (background:false) is back with its result', () => {
+  const chat = normalizedToChatMessages([
+    grokSpawn('g3', { prompt: 'p', description: 'Считает заметки', background: false }),
+    grokResult('g3', 'There are 3 .md files.\nsubagent_id: 019a1b2c-3d4e-7f00-9b2c-3d4e5f6a7b8c', 40),
+  ]);
+  const [crab] = buildCrabSquad(chat, { isRunActive: true }, T0 + 50_000);
+  assert.equal(crab.state, 'done');
+  assert.equal(crab.durationMs, 40_000);
+});
+
+test('grok tool names read as Russian activities', () => {
+  assert.equal(tintForModel('grok-4.7-build-fast'), 'grok');
+  assert.equal(activityFor('grep').verb, 'ищет');
+  assert.equal(activityFor('run_terminal_command').verb, 'запускает');
+  assert.equal(activityFor('search_replace').verb, 'пишет');
+  assert.equal(activityFor('web_fetch').verb, 'в интернете');
+  assert.equal(activityFor('image_gen').verb, 'рисует');
+});

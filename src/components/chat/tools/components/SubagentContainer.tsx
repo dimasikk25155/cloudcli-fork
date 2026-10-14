@@ -38,7 +38,21 @@ const getCompactToolDisplay = (toolName: string, toolInput: unknown): string => 
       return cmd.length > 40 ? `${cmd.slice(0, 40)}...` : cmd;
     case 'Task':
     case 'Agent':
+    case 'spawn_subagent':
       return input.description || input.subagent_type || '';
+    case 'read_file':
+      return input.target_file?.split('/').pop() || '';
+    case 'search_replace':
+    case 'write':
+      return input.file_path?.split('/').pop() || '';
+    case 'grep':
+      return input.pattern || '';
+    case 'run_terminal_command': {
+      const command = input.command || '';
+      return command.length > 40 ? `${command.slice(0, 40)}...` : command;
+    }
+    case 'web_fetch':
+      return input.url || '';
     case 'WebFetch':
     case 'WebSearch':
       return input.url || input.query || '';
