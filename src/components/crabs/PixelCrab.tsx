@@ -1,3 +1,5 @@
+import React from 'react';
+
 import { cn } from '../../lib/utils';
 
 import { CRAB_TINT_COLOR, type CrabState, type CrabTint } from './crabModel';

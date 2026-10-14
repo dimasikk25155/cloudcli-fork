@@ -57,6 +57,7 @@ import {
 import {
     spawnGrok,
     abortGrokSession,
+    getGrokBackgroundTasks,
 } from './grok-cli.js';
 import {
     stripAnsiSequences,
@@ -165,12 +166,14 @@ const chatDependencies = {
         gemini: abortGeminiSession,
         grok: abortGrokSession,
     },
-    // Background tasks exist only in Claude runs (see background-tasks module).
+    // «Стоп» exists only for Claude: a Grok background command is stopped by
+    // Grok itself, Neo3 can only show it (see grok-background-tasks).
     stopTaskFns: {
         claude: stopClaudeTask,
     },
     backgroundTasksFns: {
         claude: getClaudeBackgroundTasks,
+        grok: getGrokBackgroundTasks,
     },
     resolveToolApproval,
     getPendingApprovalsForSession,

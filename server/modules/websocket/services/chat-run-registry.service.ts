@@ -47,6 +47,8 @@ type ChatRun = {
   /** Who started the run and in which project — owner of the session status row. */
   userId: string | number | null;
   projectId: string | null;
+  /** The engine can stop a background task (it has a stop in stopTaskFns). */
+  canStopTasks: boolean;
 };
 
 /**
@@ -169,6 +171,10 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     sessionId: run.appSessionId,
     seq: run.lastSeq,
   };
+  // «Стоп» for a background task exists only when the engine has a stop.
+  if ((message.kind as string) === 'background_tasks') {
+    (outbound as Record<string, unknown>).stoppable = run.canStopTasks;
+  }
 
   if (message.kind === 'complete') {
     // The provider may report its own id here; the frontend only ever knows
@@ -285,6 +291,8 @@ export const chatRunRegistry = {
     connection: RealtimeClientConnection;
     userId: string | number | null;
     projectId?: string | null;
+    /** Decided by the gateway from stopTaskFns; absent = no «Стоп». */
+    canStopTasks?: boolean;
   }): ChatRun | null {
     const existing = runs.get(input.appSessionId);
     if (existing && existing.status === 'running') {
@@ -304,6 +312,7 @@ export const chatRunRegistry = {
       pendingAbort: null,
       userId: input.userId,
       projectId: input.projectId ?? null,
+      canStopTasks: input.canStopTasks === true,
     };
 
     run.writer = new ChatSessionWriter({

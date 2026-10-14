@@ -7,6 +7,7 @@ import path from 'node:path';
 import crossSpawn from 'cross-spawn';
 
 import { readGrokModelsDefinition, resolveGrokModePreset } from './modules/providers/list/grok/grok-models.provider.js';
+import { createGrokBackgroundTaskTracker } from './modules/providers/list/grok/grok-background-tasks.js';
 import { workModeInstruction } from './shared/work-mode.js';
 import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import { withThreadsEnv } from './shared/threads-env.js';
@@ -50,6 +51,15 @@ import {
 const spawnFunction = crossSpawn;
 
 const activeGrokProcesses = new Map();
+
+// «Фон: N» of each live Grok process (background commands and monitors), by
+// Grok session id. Read-only for Neo3: only Grok itself can stop them.
+const grokBackgroundTasks = new Map();
+
+/** Background commands of a live Grok run (empty once its process is gone). */
+function getGrokBackgroundTasks(sessionId) {
+  return grokBackgroundTasks.get(sessionId)?.list() ?? [];
+}
 
 const GROK_INSTALL_HINT = 'Grok Build CLI is not installed. Install it: curl -fsSL https://x.ai/cli/install.sh | bash';
 
@@ -732,9 +742,30 @@ export function embedGrokRulesInPrompt(prompt, rules, hookContext = '') {
 }
 
 /**
+ * «Перенести» (auto-relay handoff turn): the one write it may do without
+ * asking — a Markdown note inside `<project>/docs/handoff/`, the folder the
+ * chat gateway sets for that turn only (`autoRelayNoteDir`). A plain Grok chat
+ * runs in `auto`, where a headless write the safety check does not approve
+ * fails outright, so the folder becomes an explicit allow rule. Claude gets
+ * the same through `isRelayNoteWrite` in its permission callback.
+ * Glob characters in the path would widen or break the rule — then none is
+ * added and the turn keeps the mode's usual handling.
+ */
+export function grokRelayNoteAllowRules(noteDir, wirePermissionMode) {
+  if (typeof noteDir !== 'string' || !path.isAbsolute(noteDir) || wirePermissionMode === 'bypassPermissions') {
+    return [];
+  }
+  const dir = path.normalize(noteDir).replace(/[\\/]+$/, '');
+  if (/[*?[\]{}()!\\]/.test(dir) || dir.split(/[\\/]+/).includes('..')) {
+    return [];
+  }
+  return [`Edit(${dir}/*.md)`, `Edit(${dir}/**/*.md)`];
+}
+
+/**
  * Builds the headless argv for one Grok run. Exported for tests only.
  */
-export function buildGrokArgs({ prompt, promptJson, promptFile, sessionId, resolvedSessionId, model, permissionMode, effort, workMode, hookContext, planBypassPhase }) {
+export function buildGrokArgs({ prompt, promptJson, promptFile, sessionId, resolvedSessionId, model, permissionMode, effort, workMode, hookContext, planBypassPhase, autoRelayNoteDir }) {
   // `--output-format streaming-messages-json` is NDJSON in the Anthropic
   // Messages API wire format — the same {type: system|assistant|user|result}
   // envelope Claude Code emits, which is why the sessions provider can parse
@@ -765,6 +796,10 @@ export function buildGrokArgs({ prompt, promptJson, promptFile, sessionId, resol
   // writes are not, until the user has answered the clarifying questions.
   if (permissionMode === 'plan' || (permissionMode === 'planBypass' && planBypassPhase !== 'run')) {
     args.push('--disallowed-tools', 'search_replace,write');
+  }
+
+  for (const rule of grokRelayNoteAllowRules(autoRelayNoteDir, wirePermissionMode)) {
+    args.push('--allow', rule);
   }
 
   // Like Gemini (and unlike Kimi), Grok takes the session UUID up front, so
@@ -853,6 +888,22 @@ async function spawnGrok(command, options = {}, ws) {
     let liveModel = model || null;
     let promptFileDir = null;
     const planBypassPhase = resolveGrokPlanBypassPhase(permissionMode, appSessionId);
+    let backgroundTracker = null;
+    let backgroundParseFailureLogged = false;
+
+    const publishBackgroundTasks = (tasks) => {
+      try {
+        ws.send(createNormalizedMessage({ kind: 'background_tasks', tasks, sessionId: resolvedSessionId, provider: 'grok' }));
+      } catch {
+        /* socket may be mid-reconnect */
+      }
+    };
+    // The process is gone, and its background commands with it.
+    const releaseBackgroundTasks = (tracker) => {
+      if (!tracker) return;
+      if (grokBackgroundTasks.get(processKey) === tracker) grokBackgroundTasks.delete(processKey);
+      if (tracker.list().length > 0) publishBackgroundTasks([]);
+    };
 
     const emitGrokContextBudget = (existing = null) => {
       const fromDisk = readGrokContextBudget(workingDir, resolvedSessionId, liveModel);
@@ -987,6 +1038,18 @@ async function spawnGrok(command, options = {}, ws) {
       }
 
       try {
+        // «Фон: N»: background commands Grok started or finished in this line.
+        // A parsing slip must never touch the run.
+        try {
+          const tasks = backgroundTracker?.apply(response);
+          if (tasks) publishBackgroundTasks(tasks);
+        } catch (error) {
+          // Once per run and without the line itself (it may hold anything).
+          if (!backgroundParseFailureLogged) {
+            backgroundParseFailureLogged = true;
+            console.warn(`[Grok] «Фон» could not read a stream line (session ${resolvedSessionId}): ${error instanceof Error ? error.name : typeof error}`);
+          }
+        }
         // Usage rides on the raw Anthropic frames (assistant + result). The
         // normalized envelope has already dropped it, so the meter must see
         // the wire message. A metering bug must never kill the run.
@@ -1250,6 +1313,7 @@ async function spawnGrok(command, options = {}, ws) {
           workMode: attemptWorkMode,
           hookContext: attemptHookContext,
           planBypassPhase,
+          autoRelayNoteDir: options.autoRelayNoteDir,
         });
 
         // Abort marks the run complete immediately, then SIGTERM. A queued
@@ -1259,6 +1323,10 @@ async function spawnGrok(command, options = {}, ws) {
         if (resumeId) {
           await ensurePreviousGrokRunDead(resumeId);
         }
+
+        // A new process starts with no background work of its own.
+        backgroundTracker = createGrokBackgroundTaskTracker();
+        grokBackgroundTasks.set(processKey, backgroundTracker);
 
         grokProcess = spawnFunction(resolveGrokCliPath(), args, {
           cwd: workingDir,
@@ -1393,6 +1461,7 @@ async function spawnGrok(command, options = {}, ws) {
           }
         });
 
+        const attemptTracker = backgroundTracker;
         grokProcess.on('close', async (code) => {
           cleanupGrokPromptDir(grokProcess.promptFileDir);
           releaseGrokProcess(processKey, grokProcess);
@@ -1401,6 +1470,7 @@ async function spawnGrok(command, options = {}, ws) {
             processGrokOutputLine(stdoutLineBuffer.trim());
             stdoutLineBuffer = '';
           }
+          releaseBackgroundTasks(attemptTracker);
 
           const wasAborted = grokProcess.aborted === true;
 
@@ -1512,6 +1582,7 @@ async function spawnGrok(command, options = {}, ws) {
         grokProcess.on('error', async (error) => {
           cleanupGrokPromptDir(grokProcess.promptFileDir);
           releaseGrokProcess(processKey, grokProcess);
+          releaseBackgroundTasks(attemptTracker);
 
           if (grokProcess.aborted === true) {
             finishAborted();
@@ -1594,6 +1665,7 @@ function getActiveGrokSessions() {
 export {
   spawnGrok,
   abortGrokSession,
+  getGrokBackgroundTasks,
   isGrokSessionActive,
   getActiveGrokSessions,
 };

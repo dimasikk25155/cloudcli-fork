@@ -326,6 +326,7 @@ function beginChatSend(
     connection: ws,
     userId,
     projectId: session.project_path ? projectsDb.getProjectPath(session.project_path)?.project_id ?? null : null,
+    canStopTasks: Boolean(dependencies.stopTaskFns?.[provider]),
   });
 
   if (!run) {
@@ -735,6 +736,7 @@ function handleChatSubscribe(
           kind: 'background_tasks',
           sessionId,
           provider: run.provider,
+          stoppable: Boolean(dependencies.stopTaskFns?.[run.provider]),
           tasks: listBackgroundTasks(run.providerSessionId),
           timestamp: new Date().toISOString(),
         });

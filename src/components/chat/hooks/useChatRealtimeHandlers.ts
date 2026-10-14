@@ -215,7 +215,7 @@ export function useChatRealtimeHandlers({
 
         // «Фон: N» — status frames, never chat rows.
         case 'background_tasks':
-          if (sid) backgroundTasksStore.setTasks(sid, msg.tasks);
+          if (sid) backgroundTasksStore.setTasks(sid, msg.tasks, { stoppable: msg.stoppable, provider: msg.provider });
           return;
         case 'background_task_stop':
           if (sid && typeof msg.taskId === 'string') {

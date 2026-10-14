@@ -796,3 +796,30 @@ test('«Ждут тебя» switched off does not stop the auto move: it reads t
     assert.equal(world.service.getStatus(world.chatId).state, 'collecting');
   }, { modsOff: ['modAttention', 'modAnswerButtons'] });
 });
+
+test('«Перенести» in a Grok chat in plan or plan+auto-run: the handoff turn runs as an ordinary one, so the note can be written', async () => {
+  await withWorld(async (world) => {
+    // Grok gets `planBypass` verbatim; its first phase strips the file-writing
+    // tools, and plain `plan` does the same — the note could never be written.
+    for (const [index, permissionMode] of ['planBypass', 'plan'].entries()) {
+      const chatId = `grok-chat-${index}`;
+      sessionsDb.createAppSession(chatId, 'grok', world.projectPath);
+      world.messages.set(chatId, [{ kind: 'text', role: 'user', content: 'Сделай меню' }, { kind: 'text', role: 'assistant', content: 'Готово.' }]);
+      rememberRunOptions(chatId, { model: 'grok-4.7', permissionMode });
+      await world.service.startNow(chatId, world.member);
+      const start = world.starts.at(-1)!;
+      assert.equal(start.sessionId, chatId);
+      assert.deepEqual(start.options, { model: 'grok-4.7' }, permissionMode);
+    }
+  });
+});
+
+test('«Перенести» in a Codex chat keeps its plan+auto-run mode (full access there — the note can be written)', async () => {
+  await withWorld(async (world) => {
+    sessionsDb.createAppSession('codex-chat', 'codex', world.projectPath);
+    world.messages.set('codex-chat', [{ kind: 'text', role: 'user', content: 'Сделай меню' }, { kind: 'text', role: 'assistant', content: 'Готово.' }]);
+    rememberRunOptions('codex-chat', { model: 'gpt-5.5', permissionMode: 'planBypass' });
+    await world.service.startNow('codex-chat', world.member);
+    assert.deepEqual(world.starts.at(-1)?.options, { model: 'gpt-5.5', permissionMode: 'planBypass' });
+  });
+});

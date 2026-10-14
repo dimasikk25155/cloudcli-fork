@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react';
 
 /**
- * «Фон: N» — background tasks of each Claude session, as the server's
+ * «Фон: N» — background tasks of each session, as the server's
  * `background_tasks` frames report them (full list, replace semantics), plus
- * the state of a «Стоп» pressed on one of them.
+ * the state of a «Стоп» pressed on one of them. Whether a task can be
+ * stopped from Neo3 is the server's call (`stoppable` in the frame).
  */
 
 export type BackgroundTaskKind = 'bash' | 'agent' | 'monitor' | 'workflow' | 'other';
@@ -39,9 +40,15 @@ export function stopStateLabel(state: BackgroundTaskStopState): string {
 export type SessionBackgroundTasks = {
   tasks: BackgroundTaskView[];
   stops: Readonly<Record<string, BackgroundTaskStopState>>;
+  /** The server can stop these tasks (frame flag `stoppable`). */
+  stoppable: boolean;
+  /** The engine running them (frame `provider`), named in «остановить может только сам <движок>». */
+  provider: string | null;
 };
 
-const EMPTY: SessionBackgroundTasks = { tasks: [], stops: {} };
+const EMPTY: SessionBackgroundTasks = { tasks: [], stops: {}, stoppable: false, provider: null };
+
+export type BackgroundTasksFrameMeta = { stoppable?: unknown; provider?: unknown };
 const sessions = new Map<string, SessionBackgroundTasks>();
 const listeners = new Set<() => void>();
 
@@ -75,12 +82,13 @@ function readTasks(raw: unknown): BackgroundTaskView[] {
 
 export const backgroundTasksStore = {
   /** `background_tasks` frame: the full list replaces the old one. */
-  setTasks(sessionId: string, rawTasks: unknown): void {
+  setTasks(sessionId: string, rawTasks: unknown, meta: BackgroundTasksFrameMeta = {}): void {
     const tasks = readTasks(rawTasks);
     const previous = sessions.get(sessionId) ?? EMPTY;
     const live = new Set(tasks.map((task) => task.taskId));
     const stops = Object.fromEntries(Object.entries(previous.stops).filter(([taskId]) => live.has(taskId)));
-    update(sessionId, { tasks, stops });
+    const provider = typeof meta.provider === 'string' && meta.provider ? meta.provider : null;
+    update(sessionId, { tasks, stops, stoppable: meta.stoppable === true, provider });
   },
   markStopping(sessionId: string, taskId: string): void {
     const previous = sessions.get(sessionId) ?? EMPTY;

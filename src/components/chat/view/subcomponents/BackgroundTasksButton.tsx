@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useWebSocket } from '../../../../contexts/WebSocketContext';
 import { formatDuration } from '../../utils/stepTimer';
 
+import BackgroundTaskStopControl from './BackgroundTaskStopControl';
 import { backgroundTasksStore, stopStateLabel, useBackgroundTasks } from './BackgroundTasksStore';
 import type { BackgroundTaskKind } from './BackgroundTasksStore';
 
@@ -21,12 +23,15 @@ type BackgroundTasksButtonProps = {
 
 /**
  * «Фон: N» next to the activity indicator: the agent's background commands,
- * monitors and subagents (Claude only — other engines have none, so the
- * button never shows for them), each with its age and its own «Стоп».
+ * monitors and subagents, each with its age. «Стоп» only where the server
+ * can stop the task (frame flag); otherwise the row says who can.
  */
 export default function BackgroundTasksButton({ sessionId, tabClassName }: BackgroundTasksButtonProps) {
   const { sendMessage } = useWebSocket();
-  const { tasks, stops } = useBackgroundTasks(sessionId);
+  const { tasks, stops, stoppable, provider } = useBackgroundTasks(sessionId);
+  const { t } = useTranslation('sidebar');
+  // Shared engine names (projects.providers.*); an unknown engine is named as is.
+  const engine = provider ? t(`projects.providers.${provider}`, { defaultValue: provider }) : 'агент';
   const [isOpen, setIsOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const rootRef = useRef<HTMLDivElement>(null);
@@ -99,14 +104,12 @@ export default function BackgroundTasksButton({ sessionId, tabClassName }: Backg
                       ) : null}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => stopTask(task.taskId)}
-                    disabled={stopState === 'stopping' || stopState === 'gone' || stopState === 'turn_ended'}
-                    className="shrink-0 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:border-destructive/50 hover:text-destructive disabled:opacity-50"
-                  >
-                    {stopState === 'stopping' ? stopStateLabel('stopping') : 'Стоп'}
-                  </button>
+                  <BackgroundTaskStopControl
+                    stoppable={stoppable}
+                    engine={engine}
+                    stopState={stopState}
+                    onStop={() => stopTask(task.taskId)}
+                  />
                 </li>
               );
             })}

@@ -8,7 +8,7 @@ import {
   crabStatusLine,
 } from '../../../crabs/crabModel';
 import { useNow } from '../../../crabs/useNow';
-import { useUiPreferenceValue } from '../../../../hooks/useUiPreferences';
+import { useModEnabled } from '../../../../hooks/useModEnabled';
 import { SubagentCard } from './SubagentCard';
 
 interface SubagentContainerProps {
@@ -176,8 +176,13 @@ const CrabRow: React.FC<SubagentContainerProps> = ({
   );
 };
 
+/** One subagent (Claude or Grok): a crab, or the plain card when crabs are off. */
+export const SubagentView: React.FC<SubagentContainerProps & { crabs: boolean }> = ({ crabs, ...props }) => (
+  crabs ? <CrabRow {...props} /> : <SubagentCard {...props} />
+);
+
 /** A subagent in the transcript: a crab while the mod is on, else the plain card. */
 export const SubagentContainer: React.FC<SubagentContainerProps> = (props) => {
-  const crabs = useUiPreferenceValue('subagentCrabs');
-  return crabs ? <CrabRow {...props} /> : <SubagentCard {...props} />;
+  const crabs = useModEnabled('subagentCrabs');
+  return <SubagentView crabs={crabs} {...props} />;
 };
