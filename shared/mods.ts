@@ -121,3 +121,19 @@ export function isModKey(value: unknown): value is ModKey {
 export function modDefault(_key: ModKey): true {
   return true;
 }
+
+/**
+ * The one identifier of "refused: the mod is switched off" — HTTP `code`,
+ * pending-answers reason, stop-task reason, threads tool error all use it.
+ */
+export const MOD_OFF = 'MOD_OFF';
+export type ModOff = typeof MOD_OFF;
+
+/**
+ * «Мод «Треды» выключен в настройках Neo3 (…)» — the one text for a person
+ * or an agent. No database here: the stdio threads MCP imports it too.
+ */
+export function modOffMessage(key: ModKey): string {
+  const title = MODS.find((mod) => mod.key === key)?.title ?? key;
+  return `Мод «${title}» выключен в настройках Neo3 (Настройки → Плагины → Встроенные моды)`;
+}

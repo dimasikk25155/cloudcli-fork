@@ -40,6 +40,8 @@ type World = {
   projectAId: string;
   parentId: string;
   parentToken: string;
+  /** Mods switched off for everyone in this world (flip mid-test to switch). */
+  modsOff: Set<string>;
 };
 
 async function withWorld(
@@ -68,6 +70,7 @@ async function withWorld(
     const limit = { blocked: false };
     const limitChecks: number[] = [];
     const tokens = createThreadTokens({ now });
+    const modsOff = new Set<string>();
 
     const service = createThreadsService({
       tokens,
@@ -88,6 +91,7 @@ async function withWorld(
       sleep: async (ms) => { clockMs.value += ms; },
       broadcastUpsert: () => {},
       pollMs: 2000,
+      isModOn: (_userId, key) => !modsOff.has(key),
     });
     service.setRunControl({
       start: (input) => {
@@ -110,7 +114,7 @@ async function withWorld(
 
     await runTest({
       service, tokens, starts, aborts, running, attention, replies, limit, limitChecks, clockMs,
-      admin, member, projectA: projectA.project_path, projectAId: projectA.project_id, parentId, parentToken,
+      admin, member, projectA: projectA.project_path, projectAId: projectA.project_id, parentId, parentToken, modsOff,
     });
   } finally {
     closeConnection();
@@ -501,5 +505,56 @@ test('callTool dispatches the four tools by name and refuses unknown ones', asyn
     const status = await world.service.callTool(world.parentToken, 'thread_status', {}) as { threads: Array<{ threadId: string }> };
     assert.deepEqual(status.threads.map((thread) => thread.threadId), [spawned.threadId]);
     await refused(world.service.callTool(world.parentToken, 'drop_database', {}), 'UNKNOWN_TOOL');
+  });
+});
+
+// --- Mod switches -------------------------------------------------------------
+
+test('threads switched off mid-run: no new thread or message, in plain words; a running thread still reports back', async () => {
+  await withWorld(async (world) => {
+    const a = await world.service.spawnThread(world.parentToken, { prompt: 'a', title: 'Поиск' });
+
+    world.modsOff.add('modThreads');
+    const error = await refused(world.service.spawnThread(world.parentToken, { prompt: 'b' }), 'MOD_OFF');
+    assert.match(error.message, /Треды.*выключен в настройках Neo3/);
+    assert.equal(error.status, 409);
+    await refused(world.service.messageThread(world.parentToken, { threadId: a.threadId, text: 'ещё' }), 'MOD_OFF');
+    assert.equal(world.starts.length, 1, 'nothing new started');
+
+    finish(world, a.threadId, { state: 'done' }, 'Нашёл три места');
+    const status = await world.service.threadStatus(world.parentToken, {});
+    assert.equal(status.threads[0].state, 'done', 'thread_status still answers');
+  });
+});
+
+test('threads switched off: a running thread of the chat can still be stopped', async () => {
+  await withWorld(async (world) => {
+    const a = await world.service.spawnThread(world.parentToken, { prompt: 'a', title: 'Поиск' });
+    world.modsOff.add('modThreads');
+    await world.service.stopThread(world.parentToken, { threadId: a.threadId });
+    assert.deepEqual(world.aborts, [a.threadId]);
+  });
+});
+
+test('«Ждут тебя» switched off: threads still open and the parent still gets «Треды готовы»', async () => {
+  await withWorld(async (world) => {
+    world.modsOff.add('modAttention');
+    const a = await world.service.spawnThread(world.parentToken, { prompt: 'a', title: 'Поиск' });
+    finish(world, a.threadId, { state: 'done' }, 'Нашёл три места');
+    await world.service.handleAttentionChange(a.threadId);
+    assert.equal(world.starts.length, 2);
+    assert.match(world.starts[1].content, /^Треды готовы/);
+  });
+});
+
+test('a thread already running when threads are switched off finishes and the parent gets its result', async () => {
+  await withWorld(async (world) => {
+    const a = await world.service.spawnThread(world.parentToken, { prompt: 'a', title: 'Поиск' });
+    world.modsOff.add('modThreads');
+    finish(world, a.threadId, { state: 'done' }, 'Нашёл три места');
+    await world.service.handleAttentionChange(a.threadId);
+    assert.equal(world.starts.length, 2);
+    assert.equal(world.starts[1].sessionId, world.parentId);
+    assert.match(world.starts[1].content, /Нашёл три места/);
   });
 });

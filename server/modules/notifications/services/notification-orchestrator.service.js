@@ -2,6 +2,7 @@ import webPush from 'web-push';
 
 import { notificationPreferencesDb, pushSubscriptionsDb, sessionAttentionDb, sessionsDb } from '@/modules/database/index.js';
 import { isServiceTurn } from '@/shared/service-turns.js';
+import { isModOn } from '@/shared/mods.js';
 import { ATTENTION_PUSH_CODE, attentionPushTag } from '@/modules/notifications/services/attention-push.constants.js';
 import { sendDesktopNotification as sendDesktopNotificationToClients } from '@/modules/notifications/services/desktop-notification-clients.service.js';
 
@@ -445,7 +446,9 @@ function isAutoRelayTurn(provider, sessionId) {
  * }} params
  */
 function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null }) {
-  if (stopReason === 'completed' && sessionId && isSessionWaitingForUser(provider, sessionId)) {
+  // The «нужен ответ» push replaces this one only while «Ждут тебя» is on;
+  // switched off, this plain push is the only news of the turn (Решение §5).
+  if (stopReason === 'completed' && sessionId && isModOn(userId, 'modAttention') && isSessionWaitingForUser(provider, sessionId)) {
     return;
   }
   if (sessionId && isAutoRelayTurn(provider, sessionId)) {

@@ -12,11 +12,13 @@ import {
   closeConnection,
   initializeDatabase,
   projectsDb,
+  uiPreferencesDb,
   userDb,
   userProjectAccessDb,
 } from '@/modules/database/index.js';
 import { createCodeStatusRouter, createCodeStatusService } from '@/modules/code-status/index.js';
 import { isAdminUser } from '@/shared/project-access.js';
+import { AppError } from '@/shared/utils.js';
 
 // No machine git config for the fixtures or for the service's own git calls.
 Object.assign(process.env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
@@ -109,6 +111,14 @@ async function withServer(runTest: (fixture: Fixture) => Promise<void>): Promise
     },
     createCodeStatusRouter(service),
   );
+  // The global AppError handler of server/index.js (status + {success, error:{code, message}}).
+  app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({ success: false, error: { code: error.code, message: error.message, details: error.details } });
+      return;
+    }
+    next(error);
+  });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -211,5 +221,22 @@ test('the site part follows the database admin role, not the null-project rule o
     assert.equal(demoted.status, 200);
     assert.equal(((await demoted.json()) as { site: unknown }).site, null);
     assert.equal(vercelCalls(), 0);
+  });
+});
+
+test('«Где мой код» switched off: 409 MOD_OFF, no git and no Vercel; others of the project still get it', async () => {
+  await withServer(async ({ adminId, memberId, projectId, get, vercelCalls }) => {
+    uiPreferencesDb.updateUiPreferences(adminId, { modCodeStatus: false });
+
+    const response = await get(adminId, 'admin', projectId, '?refresh=1');
+    assert.equal(response.status, 409);
+    const body = (await response.json()) as { error?: { code?: string; message?: string }; git?: unknown };
+    assert.equal(body.error?.code, 'MOD_OFF');
+    assert.match(body.error?.message ?? '', /«Где мой код» выключен в настройках Neo3/);
+    assert.equal(body.git, undefined);
+    assert.equal(vercelCalls(), 0);
+
+    userProjectAccessDb.grantAccess(memberId, projectId, adminId);
+    assert.equal((await get(memberId, 'user', projectId)).status, 200);
   });
 });

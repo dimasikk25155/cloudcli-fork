@@ -7,8 +7,13 @@
  * thread token of that run (`NEO3_THREADS_TOKEN`). Both variables come from
  * the engine process environment — Neo3 puts them there per run; the global
  * registration (~/.claude.json, ~/.codex/config.toml) carries no secret.
- * No token → every tool answers «тред недоступен в этом движке».
+ * No token → every tool answers «тред недоступен в этом движке»;
+ * `NEO3_THREADS_OFF=1` (the user switched threads off) → spawn/message refused
+ * with the registry's «мод выключен» text; status/stop still go through when
+ * the run has a token (the chat already has threads).
  */
+
+import { modOffMessage } from '../shared/mods.js';
 
 type JsonRpcRequest = {
   jsonrpc: '2.0';
@@ -34,6 +39,8 @@ const textResult = (text: string, isError = false) => ({
 const apiUrl = (process.env.NEO3_THREADS_API_URL
   || `http://127.0.0.1:${process.env.SERVER_PORT || '3001'}/api/threads`).replace(/\/$/, '');
 const apiToken = (process.env.NEO3_THREADS_TOKEN || '').trim();
+/** The user switched «Треды» off in Neo3: the run has no token on purpose. */
+const threadsOff = (process.env.NEO3_THREADS_OFF || '').trim() === '1';
 
 const tools: ToolDefinition[] = [
   {
@@ -99,6 +106,8 @@ const tools: ToolDefinition[] = [
 ];
 
 const TOOL_NAMES = new Set(tools.map((tool) => tool.name));
+/** Tools that start new thread work — refused while «Треды» is switched off. */
+const NEW_WORK_TOOLS = new Set(['spawn_thread', 'message_thread']);
 
 function pickArguments(name: string, args: Record<string, unknown>): Record<string, unknown> {
   const keys = Object.keys(((tools.find((tool) => tool.name === name)?.inputSchema.properties) ?? {}) as Record<string, unknown>);
@@ -112,6 +121,17 @@ function pickArguments(name: string, args: Record<string, unknown>): Record<stri
 async function callTool(name: string, args: Record<string, unknown>) {
   if (!TOOL_NAMES.has(name)) {
     return textResult(`Unknown tool: ${name}`, true);
+  }
+  // «Треды» switched off: nothing new — no new thread, no message to one.
+  // Following and stopping threads the chat already has stays possible (the
+  // run then still has a token).
+  if (threadsOff && (NEW_WORK_TOOLS.has(name) || !apiToken)) {
+    return textResult(
+      NEW_WORK_TOOLS.has(name)
+        ? `${modOffMessage('modThreads')}. Новый тред открыть или написать в тред нельзя — сделай работу сам в этом чате.`
+        : `${modOffMessage('modThreads')}. У этого чата нет запущенных тредов.`,
+      true,
+    );
   }
   if (!apiToken) {
     return textResult(

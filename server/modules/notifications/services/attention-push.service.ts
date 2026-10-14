@@ -20,6 +20,7 @@ import {
   type IssuedToken,
 } from '@/modules/pending-answers/pending-answers.service.js';
 import type { AttentionChange, AttentionQuestion } from '@/modules/session-attention/session-attention.service.js';
+import { isModActive, isModOn as defaultIsModOn, type IsModOn } from '@/shared/mods.js';
 
 /** Android shows at most two notification buttons. */
 const MAX_PUSH_ANSWER_BUTTONS = 2;
@@ -110,6 +111,8 @@ export type AttentionPushDependencies = {
   notify?: NotifyFn;
   issueTokens?: IssueTokensFn;
   now?: () => number;
+  /** Mod switches of the push's owner («Ждут тебя», answer buttons). */
+  isModOn?: IsModOn;
 };
 
 export function createAttentionPushListener(dependencies: AttentionPushDependencies = {}) {
@@ -117,6 +120,7 @@ export function createAttentionPushListener(dependencies: AttentionPushDependenc
   const issueTokens: IssueTokensFn = dependencies.issueTokens
     ?? ((requestId, userId, choices) => pendingAnswers.issueTokens(requestId, userId, choices));
   const now = dependencies.now ?? (() => Date.now());
+  const isModOn = dependencies.isModOn ?? defaultIsModOn;
 
   /** Requests already pushed (dedupe): session + request id, or session + turn time for text endings. */
   const pushedKeys = new Map<string, number>();
@@ -167,6 +171,11 @@ export function createAttentionPushListener(dependencies: AttentionPushDependenc
     if (!isNewRequest || change.userId === null) {
       return;
     }
+    // «Ждут тебя» switched off: no push for this user. Closing a push shown
+    // before the switch (above) still works.
+    if (!isModActive(change.userId, 'modAttention', isModOn)) {
+      return;
+    }
 
     prune();
     const key = `${change.sessionId}:${requestId ?? `turn:${change.updatedAt}`}`;
@@ -177,7 +186,7 @@ export function createAttentionPushListener(dependencies: AttentionPushDependenc
 
     const plan = planAttentionPush(change);
     let tokens: IssuedToken[] = [];
-    if (requestId && plan.choices.length > 0) {
+    if (requestId && plan.choices.length > 0 && isModActive(change.userId, 'modAnswerButtons', isModOn)) {
       try {
         tokens = issueTokens(requestId, change.userId, plan.choices);
       } catch (error) {

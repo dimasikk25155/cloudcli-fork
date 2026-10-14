@@ -28,6 +28,7 @@ import { workModeInstruction } from './shared/work-mode.js';
 import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import { withThreadsEnv } from './shared/threads-env.js';
 import { neo3GuardsPlugins } from './shared/neo3-guards-plugin.js';
+import { isModOn } from './shared/mods.js';
 import { createBackgroundTaskTracker } from './modules/background-tasks/index.js';
 import {
   createNotificationEvent,
@@ -523,8 +524,9 @@ function mapCliOptionsToSDK(options = {}) {
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
 
-  // neo3-guards mod: no foreground wait loops past the limit (Neo3 sessions only).
-  const plugins = neo3GuardsPlugins();
+  // neo3-guards mod: no foreground wait loops past the limit (Neo3 sessions
+  // only). Part of «Пульт фона»: a user who switched it off runs without it.
+  const plugins = isModOn(options.userId ?? null, 'modBackgroundConsole') ? neo3GuardsPlugins() : [];
   if (plugins.length > 0) {
     sdkOptions.plugins = plugins;
   }
@@ -534,6 +536,24 @@ function mapCliOptionsToSDK(options = {}) {
   }
 
   return sdkOptions;
+}
+
+/**
+ * SDK options of one run of `queryClaudeSDK`: the client options with the
+ * resolved model/effort and the run's user (the writer's `userId`) — the
+ * user's mod switches decide what the CLI loads (neo3-guards = «Пульт фона»).
+ * @param {object} options - Runtime options of the run
+ * @param {{userId?: string|number|null}|null|undefined} ws - The run's writer
+ * @param {{model?: string|null, effort?: string|null, effortModels?: object}} resolved
+ */
+function sdkOptionsForRun(options, ws, resolved = {}) {
+  return mapCliOptionsToSDK({
+    ...options,
+    userId: ws?.userId ?? null,
+    model: resolved.model || options.model,
+    effort: resolved.effort || options.effort,
+    effortModels: resolved.effortModels,
+  });
 }
 
 /**
@@ -836,12 +856,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       console.warn('[Claude SDK] Unable to load provider models for effort validation:', error);
     }
 
-    const sdkOptions = mapCliOptionsToSDK({
-      ...options,
-      model: resolvedModel || options.model,
-      effort: resolvedEffort || options.effort,
-      effortModels,
-    });
+    const sdkOptions = sdkOptionsForRun(options, ws, { model: resolvedModel, effort: resolvedEffort, effortModels });
 
     // The SDK's own cancellation handle: aborting it closes stdin, gives the
     // CLI a short grace window, then kills the process. Only used as the last
@@ -1610,6 +1625,7 @@ function reconnectSessionWriter(sessionId, newRawWs) {
 export {
   matchesToolPermission,
   mapCliOptionsToSDK,
+  sdkOptionsForRun,
   queryClaudeSDK,
   abortClaudeSDKSession,
   stopClaudeTask,

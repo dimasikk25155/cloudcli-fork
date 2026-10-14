@@ -48,7 +48,8 @@ test('registers neo3-threads for Claude/Grok and Codex without any token', async
     const codexEntry = codex.mcp_servers[THREADS_MCP_SERVER_NAME];
     assert.equal(codexEntry.command, command.command);
     assert.deepEqual(codexEntry.args, command.args);
-    assert.deepEqual([...codexEntry.env_vars].sort(), ['NEO3_THREADS_API_URL', 'NEO3_THREADS_TOKEN']);
+    // Codex passes MCP servers only listed variables: the token, the address and the «threads off» marker.
+    assert.deepEqual([...codexEntry.env_vars].sort(), ['NEO3_THREADS_API_URL', 'NEO3_THREADS_OFF', 'NEO3_THREADS_TOKEN']);
     assert.ok(codexEntry.tool_timeout_sec > 600, 'thread_status may wait 600 s');
     assert.deepEqual(codexEntry.env ?? {}, {});
   });

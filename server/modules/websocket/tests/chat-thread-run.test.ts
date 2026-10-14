@@ -10,6 +10,7 @@ import {
   projectsDb,
   sessionLinksDb,
   sessionsDb,
+  sessionThreadsDb,
   userDb,
   userProjectAccessDb,
 } from '@/modules/database/index.js';
@@ -51,7 +52,7 @@ async function withWorld(runTest: (fixture: Fixture) => void | Promise<void>): P
   }
 }
 
-function fakeDependencies() {
+function fakeDependencies(modsOff: Set<string> = new Set()) {
   const spawns: Array<{ command: string; options: Record<string, unknown> }> = [];
   const aborted: string[] = [];
   const dependencies = {
@@ -70,6 +71,7 @@ function fakeDependencies() {
     },
     resolveToolApproval: () => {},
     getPendingApprovalsForSession: () => [],
+    isModOn: (_userId: unknown, key: string) => !modsOff.has(key),
   } as unknown as Parameters<typeof createThreadRunControl>[0];
   return { dependencies, spawns, aborted };
 }
@@ -119,5 +121,39 @@ test('abort stops a running thread like the Stop button and reports an idle one'
     assert.equal(await control.abort('thread', owner), true);
     assert.equal(chatRunRegistry.isProcessing('thread'), false);
     assert.equal(await control.abort('thread', owner), false);
+  });
+});
+
+test('threads switched off, chat without threads: the run gets no thread token, only the «threads are off» marker', async () => {
+  await withWorld(({ owner }) => {
+    const { dependencies, spawns } = fakeDependencies(new Set(['modThreads']));
+    const control = createThreadRunControl(dependencies);
+
+    assert.equal(control.start({ sessionId: 'parent', userId: owner, parentSessionId: 'parent', content: 'Продолжай', options: {} }), true);
+    assert.deepEqual(spawns[0].options.threadsEnv, { NEO3_THREADS_OFF: '1' });
+  });
+});
+
+test('threads switched off, chat that already has threads: a token to follow and stop them, plus the marker', async () => {
+  await withWorld(({ owner }) => {
+    sessionThreadsDb.insert({
+      thread_session_id: 'thread',
+      parent_session_id: 'parent',
+      user_id: owner,
+      provider: 'grok',
+      model: 'grok-4.7-build-fast',
+      permission_mode: null,
+      created_at: '2026-10-14T10:00:00.000Z',
+      started_at: '2026-10-14T10:00:00.000Z',
+      seen_at: null,
+      notified_at: null,
+    } as Parameters<typeof sessionThreadsDb.insert>[0]);
+    const { dependencies, spawns } = fakeDependencies(new Set(['modThreads']));
+    const control = createThreadRunControl(dependencies);
+
+    assert.equal(control.start({ sessionId: 'parent', userId: owner, parentSessionId: 'parent', content: 'Что с тредами?', options: {} }), true);
+    const env = spawns[0].options.threadsEnv as Record<string, string>;
+    assert.equal(env.NEO3_THREADS_OFF, '1');
+    assert.deepEqual(threadTokens.resolve(env.NEO3_THREADS_TOKEN), { sessionId: 'parent', userId: owner, permissionMode: null });
   });
 });

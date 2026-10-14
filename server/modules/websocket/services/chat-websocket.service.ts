@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
-import { projectsDb, sessionLinksDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionLinksDb, sessionsDb, sessionThreadsDb } from '@/modules/database/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '@/modules/governance/index.js';
 import {
   pendingAnswers,
@@ -19,7 +19,7 @@ import { beginServiceTurn } from '@/shared/service-turns.js';
 
 import { isRelayRequestText } from '../../../../shared/relay-rules.js';
 import type { ThreadRunControl } from '@/modules/threads/threads.service.js';
-import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
+import { backgroundConsoleOn, chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities, readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
@@ -41,8 +41,9 @@ import {
   takeGrokQuestion,
   takeGrokQuestionsForAppSession,
 } from '@/shared/grok-question.js';
+import { isModOn, MOD_OFF, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession } from '@/shared/project-access.js';
-import { threadsApiUrl } from '@/shared/threads-env.js';
+import { threadsApiUrl, type ThreadsRunEnv } from '@/shared/threads-env.js';
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
@@ -128,6 +129,8 @@ export type ChatWebSocketDependencies = {
   getPendingApprovalsForSession: (providerSessionId: string) => unknown[];
   /** Claude: one pending approval by request id (`sessionId` = provider-native id). */
   getPendingApprovalById?: (requestId: string) => { sessionId: string | null; input?: unknown } | null;
+  /** Mod switches of the run's user (default: their account settings). */
+  isModOn?: IsModOn;
 };
 
 /**
@@ -416,17 +419,28 @@ function beginChatSend(
   // engine env by the runtime (server/shared/threads-env.ts). Valid until the
   // run ends + 24 h. A failure here never blocks the run — it only goes
   // without threads.
+  // «Треды» switched off: the run carries the «off» marker, so opening or
+  // writing to a thread is refused in plain words. A token is still issued
+  // when this chat already has threads — thread_status / stop_thread keep
+  // working on them; a chat without threads gets no token at all.
   let threadsToken: string | null = null;
-  try {
-    threadsToken = threadTokens.issue({ sessionId, userId, permissionMode: clientOptions.permissionMode });
-  } catch (error) {
-    console.error('[Chat] Thread token was not issued', {
-      sessionId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  const threadsOn = (dependencies.isModOn ?? isModOn)(userId, 'modThreads');
+  if (threadsOn || sessionThreadsDb.listByParent(sessionId).length > 0) {
+    try {
+      threadsToken = threadTokens.issue({ sessionId, userId, permissionMode: clientOptions.permissionMode });
+    } catch (error) {
+      console.error('[Chat] Thread token was not issued', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
-  if (threadsToken) {
-    runtimeOptions.threadsEnv = { NEO3_THREADS_TOKEN: threadsToken, NEO3_THREADS_API_URL: threadsApiUrl() };
+  const threadsEnv: ThreadsRunEnv = {
+    ...(threadsToken ? { NEO3_THREADS_TOKEN: threadsToken, NEO3_THREADS_API_URL: threadsApiUrl() } : {}),
+    ...(threadsOn ? {} : { NEO3_THREADS_OFF: '1' as const }),
+  };
+  if (Object.keys(threadsEnv).length > 0) {
+    runtimeOptions.threadsEnv = threadsEnv;
   }
 
   recordAuditEvent({
@@ -576,6 +590,7 @@ async function handleChatStopTask(
   ws: RealtimeClientConnection,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies,
+  userId: string | number | null = null,
 ): Promise<void> {
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
@@ -596,6 +611,11 @@ async function handleChatStopTask(
     ...(result.reason ? { reason: result.reason } : {}),
     timestamp: new Date().toISOString(),
   });
+
+  if (!backgroundConsoleOn(userId, dependencies.isModOn)) {
+    reply({ ok: false, reason: MOD_OFF });
+    return;
+  }
 
   const run = chatRunRegistry.getRun(sessionId);
   const stopTaskFn = run ? dependencies.stopTaskFns?.[run.provider] : undefined;
@@ -631,7 +651,8 @@ async function handleChatStopTask(
 function handleChatSubscribe(
   ws: WebSocket,
   data: AnyRecord,
-  dependencies: ChatWebSocketDependencies
+  dependencies: ChatWebSocketDependencies,
+  userId: string | number | null = null,
 ): void {
   const targets = Array.isArray(data.sessions) ? data.sessions : [];
 
@@ -709,7 +730,7 @@ function handleChatSubscribe(
       // «Фон: N» after a reload or a session switch: the live list now, not
       // only whatever changes after this moment.
       const listBackgroundTasks = run?.providerSessionId ? dependencies.backgroundTasksFns?.[run.provider] : undefined;
-      if (run?.providerSessionId && listBackgroundTasks) {
+      if (run?.providerSessionId && listBackgroundTasks && backgroundConsoleOn(userId, dependencies.isModOn)) {
         sendJson(ws, {
           kind: 'background_tasks',
           sessionId,
@@ -1084,10 +1105,10 @@ export function handleChatConnection(
             sendProtocolError(ws, 'PROJECT_ACCESS_DENIED', 'You do not have access to this project.');
             return;
           }
-          await handleChatStopTask(ws, data, dependencies);
+          await handleChatStopTask(ws, data, dependencies, userId);
           return;
         case 'chat.subscribe':
-          handleChatSubscribe(ws, data, dependencies);
+          handleChatSubscribe(ws, data, dependencies, userId);
           return;
         case 'chat.permission-response':
           await handlePermissionResponse(ws, userId, userRole, data, dependencies);

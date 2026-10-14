@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { pendingAnswers, type RedeemReason } from '@/modules/pending-answers/pending-answers.service.js';
+import { MOD_OFF, modOffMessage } from '@/shared/mods.js';
 import { asyncHandler } from '@/shared/utils.js';
 
 /**
@@ -24,6 +25,8 @@ const FAILURES: Record<RedeemReason, { status: number; message: string }> = {
   unavailable: { status: 503, message: 'Не получилось ответить — открой сессию' },
   // Another tap of this question is being delivered: not answered yet.
   in_progress: { status: 429, message: 'Ответ уже отправляется — подожди секунду' },
+  // The owner switched answer buttons off after this push went out.
+  [MOD_OFF]: { status: 409, message: `${modOffMessage('modAnswerButtons')} — открой сессию` },
 };
 
 router.post(

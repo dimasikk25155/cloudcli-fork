@@ -28,6 +28,7 @@ const { userDb } = await import('@/modules/database/repositories/users.js');
 const { userProjectAccessDb } = await import('@/modules/database/repositories/user-project-access.js');
 const { notificationPreferencesDb } = await import('@/modules/database/repositories/notification-preferences.js');
 const { telegramDb } = await import('@/modules/database/repositories/telegram.db.js');
+const { uiPreferencesDb } = await import('@/modules/database/index.js');
 const { createTelegramAttention, telegramAttention } = await import('@/modules/telegram/telegram-attention.service.js');
 const { handleTelegramUpdate, issueLinkCode } = await import('@/modules/telegram/telegram.service.js');
 const { pendingAnswers } = await import('@/modules/pending-answers/pending-answers.service.js');
@@ -610,4 +611,43 @@ test('text made of & and < stays within 4096 after escaping, also with «✓ О�
   assert.ok(edited.length <= LIMIT, `edited ${edited.length} ≤ ${LIMIT}`);
   assert.match(edited, /✓ Ответ: <b>&amp;/);
   assertWellFormedEntities(edited);
+});
+
+// --- Mod switches: «Ждут тебя» and answer buttons ------------------------------
+
+test('«Ждут тебя» off → no Telegram message; answer buttons off → the message comes with the link only', async () => {
+  const off = new Set<string>();
+  const service = createTelegramAttention({ isModOn: (_userId, key) => !off.has(key) });
+
+  off.add('modAttention');
+  await service.onAttentionChange(waitingAsk(nextRequestId()));
+  assert.equal(sent().length, 0, '«Ждут тебя» switched off');
+
+  off.clear();
+  off.add('modAnswerButtons');
+  await service.onAttentionChange(waitingAsk(nextRequestId()));
+  assert.equal(sent().length, 1, 'the question itself still arrives');
+  assert.deepEqual(callbackButtons(sent()[0]), []);
+  assert.deepEqual(urlButtons(sent()[0]), [{ text: 'Открыть в Neo3', url: `https://neo3.example/session/${SESSION}` }]);
+  assert.match(String(sent()[0].payload.text), /Красный/, 'every option stays readable in the text');
+});
+
+test('a button sent before answer buttons were switched off is refused with a clear popup and answers nothing', async () => {
+  const userId = userWithAccess('switched-off');
+  const chatId = '700090';
+  telegramDb.upsertBinding({ userId, chatId, telegramUsername: null });
+  const { requestId, message, messageId } = await announceOpenQuestion(userId, chatId);
+  assert.equal(callbackButtons(message).length, 3, 'buttons were there while the mod was on');
+
+  uiPreferencesDb.updateUiPreferences(userId, { modAnswerButtons: false });
+  const before = delivered.length;
+  await press(chatId, messageId, message, callbackButtons(message)[0], { id: Number(chatId) });
+
+  assert.equal(delivered.length, before, 'nothing reached the engine');
+  assert.equal(openRequests.has(requestId), true, 'the question stays open for Neo3 itself');
+  assert.equal(popups().length, 1);
+  assert.match(popups()[0], /^Мод «Ответ из пуша и Telegram» выключен в настройках Neo3.*ответь в Neo3$/);
+  const cleanup = botCalls.find((call) => call.method === 'editMessageReplyMarkup');
+  assert.ok(cleanup, 'the dead answer buttons are taken off');
+  assert.equal((cleanup.payload.reply_markup?.inline_keyboard ?? []).flat().some((button: any) => 'callback_data' in button), false);
 });

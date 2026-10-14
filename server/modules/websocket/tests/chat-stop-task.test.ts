@@ -64,7 +64,7 @@ class FakeSocket extends EventEmitter {
 
 type StopCall = { providerSessionId: string; taskId: string };
 
-function fakeDependencies(answer: { ok: boolean; reason?: string } = { ok: true }) {
+function fakeDependencies(answer: { ok: boolean; reason?: string } = { ok: true }, modsOff: Set<string> = new Set()) {
   const stops: StopCall[] = [];
   const dependencies = {
     spawnFns: {},
@@ -82,6 +82,7 @@ function fakeDependencies(answer: { ok: boolean; reason?: string } = { ok: true 
     },
     resolveToolApproval: () => {},
     getPendingApprovalsForSession: () => [],
+    isModOn: (_userId: unknown, key: string) => !modsOff.has(key),
   } as unknown as Parameters<typeof handleChatConnection>[2];
   return { dependencies, stops };
 }
@@ -207,5 +208,25 @@ test('subscribing to a session with no live run sends no background list', async
     await viewer.deliver({ type: 'chat.subscribe', sessions: [{ sessionId: fixture.sessionId, lastSeq: 0 }] });
 
     assert.equal(viewer.frames.some((candidate) => candidate.kind === 'background_tasks'), false);
+  });
+});
+
+test('«Пульт фона» switched off: no background list on subscribe, and a stop request does not reach the runtime', async () => {
+  await withIsolatedDatabase(async (fixture) => {
+    const { dependencies, stops } = fakeDependencies({ ok: true }, new Set(['modBackgroundConsole']));
+    const runSocket = new FakeSocket();
+    startClaudeRun(fixture, runSocket);
+    const viewer = new FakeSocket();
+    handleChatConnection(viewer as never, { user: { userId: fixture.adminId, role: 'admin' } } as never, dependencies);
+
+    await viewer.deliver({ type: 'chat.subscribe', sessions: [{ sessionId: fixture.sessionId, lastSeq: 0 }] });
+    assert.equal(viewer.frames.some((frame) => frame.kind === 'background_tasks'), false);
+    assert.equal(viewer.frames.find((frame) => frame.kind === 'chat_subscribed')?.isProcessing, true);
+
+    await viewer.deliver({ type: 'chat.stop-task', sessionId: fixture.sessionId, taskId: 'b1' });
+    assert.equal(stops.length, 0);
+    const reply = stopReply(viewer);
+    assert.equal(reply?.ok, false);
+    assert.equal(reply?.reason, 'MOD_OFF');
   });
 });

@@ -165,6 +165,40 @@ test('without a token in the engine environment the tools refuse honestly and ca
   });
 });
 
+test('threads switched off, no threads yet: every tool says so plainly and calls nothing', async () => {
+  await withFakeNeo3(() => ({ status: 200, body: { success: true, data: {} } }), async (apiUrl, recorded) => {
+    await withClient({ NEO3_THREADS_TOKEN: undefined, NEO3_THREADS_OFF: '1', NEO3_THREADS_API_URL: apiUrl }, async (client) => {
+      for (const name of ['spawn_thread', 'thread_status']) {
+        const answer = await client.request('tools/call', { name, arguments: { prompt: 'x' } });
+        const result = answer.result as Record<string, unknown>;
+        assert.equal(result.isError, true);
+        assert.match(textOf(result), /^Мод «Треды» выключен в настройках Neo3/);
+        assert.doesNotMatch(textOf(result), /NEO3_THREADS_TOKEN/);
+      }
+      assert.equal(recorded.length, 0);
+    });
+  });
+});
+
+test('threads switched off, the chat already has threads: status and stop reach Neo3, spawn and message do not', async () => {
+  await withFakeNeo3(() => ({ status: 200, body: { success: true, data: { threads: [] } } }), async (apiUrl, recorded) => {
+    await withClient({ NEO3_THREADS_TOKEN: 'e'.repeat(64), NEO3_THREADS_OFF: '1', NEO3_THREADS_API_URL: apiUrl }, async (client) => {
+      for (const name of ['spawn_thread', 'message_thread']) {
+        const answer = await client.request('tools/call', { name, arguments: { prompt: 'x', threadId: 't', text: 'y' } });
+        const result = answer.result as Record<string, unknown>;
+        assert.equal(result.isError, true);
+        assert.match(textOf(result), /^Мод «Треды» выключен в настройках Neo3/);
+      }
+      assert.equal(recorded.length, 0);
+
+      const status = await client.request('tools/call', { name: 'thread_status', arguments: {} });
+      assert.notEqual((status.result as Record<string, unknown>).isError, true);
+      await client.request('tools/call', { name: 'stop_thread', arguments: { threadId: 't' } });
+      assert.deepEqual(recorded.map((entry) => entry.url), ['/api/threads/tools/thread_status', '/api/threads/tools/stop_thread']);
+    });
+  });
+});
+
 test('an unknown tool is a tool error', async () => {
   await withClient({ NEO3_THREADS_TOKEN: 'd'.repeat(64), NEO3_THREADS_API_URL: 'http://127.0.0.1:9/api/threads' }, async (client) => {
     const answer = await client.request('tools/call', { name: 'rm_rf', arguments: {} });

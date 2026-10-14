@@ -10,22 +10,34 @@
  */
 
 import { uiPreferencesDb } from '@/modules/database/index.js';
+import { AppError } from '@/shared/utils.js';
 
-import { modDefault, type ModKey } from '../../shared/mods.js';
+import { MOD_OFF, MODS, modDefault, modOffMessage, type ModKey } from '../../shared/mods.js';
 
-export type { ModKey } from '../../shared/mods.js';
+export type { ModKey, ModOff } from '../../shared/mods.js';
+export { MOD_OFF, modOffMessage } from '../../shared/mods.js';
 
-export type IsModOn = (userId: number | null | undefined, key: ModKey) => boolean;
+/** Any user id as callers hold it (socket ids may be strings); not a number → default. */
+export type ModUserId = string | number | null | undefined;
+
+export type IsModOn = (userId: ModUserId, key: ModKey) => boolean;
 
 type ReadPreferences = (userId: number) => Record<string, unknown>;
 
+function toUserId(userId: ModUserId): number | null {
+  if (userId === null || userId === undefined || userId === '') return null;
+  const numeric = Number(userId);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 export function createIsModOn(readPreferences: ReadPreferences): IsModOn {
   return (userId, key) => {
-    if (userId === null || userId === undefined || !Number.isFinite(Number(userId))) {
+    const id = toUserId(userId);
+    if (id === null) {
       return modDefault(key);
     }
     try {
-      const value = readPreferences(Number(userId))[key];
+      const value = readPreferences(id)[key];
       return typeof value === 'boolean' ? value : modDefault(key);
     } catch {
       // Settings unreadable → keep the mod on (never strip a feature by accident).
@@ -35,3 +47,25 @@ export function createIsModOn(readPreferences: ReadPreferences): IsModOn {
 }
 
 export const isModOn: IsModOn = createIsModOn((userId) => uiPreferencesDb.getUiPreferences(userId));
+
+/**
+ * Whether a mod actually works for a user: its own switch and, following
+ * `requires` of the registry, the switch of every mod it depends on
+ * (answer buttons work only together with «Ждут тебя»). The one place the
+ * dependency is evaluated; `using` is the switch reader (injected in tests).
+ */
+export function isModActive(userId: ModUserId, key: ModKey, using: IsModOn = isModOn): boolean {
+  const seen = new Set<ModKey>();
+  let current: ModKey | undefined = key;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (!using(userId, current)) return false;
+    current = MODS.find((mod) => mod.key === current)?.requires;
+  }
+  return true;
+}
+
+/** `409 {code:'MOD_OFF'}` for routes and services that refuse work of a switched-off mod. */
+export function modOffError(key: ModKey): AppError {
+  return new AppError(modOffMessage(key), { code: MOD_OFF, statusCode: 409, details: { mod: key } });
+}

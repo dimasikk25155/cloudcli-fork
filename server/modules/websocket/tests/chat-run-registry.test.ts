@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb, userDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, sessionsDb, uiPreferencesDb, userDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
 
@@ -345,5 +345,28 @@ test('startRun rejects a second concurrent run for the same session', async () =
       userId: null,
     });
     assert.ok(third);
+  });
+});
+
+test('«Пульт фона» switched off: background_tasks frames never reach that user (nor the replay); the rest of the stream does', async () => {
+  await withIsolatedDatabase(() => {
+    const offUser = Number(userDb.createUserWithRole('dima', 'x', 'admin').id);
+    const onUser = Number(userDb.createUserWithRole('slava', 'x', 'user').id);
+    uiPreferencesDb.updateUiPreferences(offUser, { modBackgroundConsole: false });
+    const frame = { kind: 'background_tasks', provider: 'claude', sessionId: 'provider-id', tasks: [{ id: 't1', description: 'npm run dev' }] };
+
+    sessionsDb.createAppSession('app-bg-off', 'claude', '/workspace/demo');
+    const offConnection = new FakeConnection();
+    const offRun = chatRunRegistry.startRun({ appSessionId: 'app-bg-off', provider: 'claude', providerSessionId: null, connection: offConnection, userId: offUser })!;
+    offRun.writer.send(frame);
+    offRun.writer.send({ kind: 'text', provider: 'claude', sessionId: 'provider-id', content: 'дальше' });
+    assert.deepEqual(offConnection.frames.map((sent) => sent.kind), ['text']);
+    assert.deepEqual(chatRunRegistry.replayEvents('app-bg-off', 0).map((event) => event.kind), ['text']);
+
+    sessionsDb.createAppSession('app-bg-on', 'claude', '/workspace/demo');
+    const onConnection = new FakeConnection();
+    const onRun = chatRunRegistry.startRun({ appSessionId: 'app-bg-on', provider: 'claude', providerSessionId: null, connection: onConnection, userId: onUser })!;
+    onRun.writer.send(frame);
+    assert.deepEqual(onConnection.frames.map((sent) => sent.kind), ['background_tasks']);
   });
 });

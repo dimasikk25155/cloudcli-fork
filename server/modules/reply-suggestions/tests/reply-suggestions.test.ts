@@ -329,3 +329,38 @@ test('a reply split into several text blocks with tool calls between them is mat
     },
   );
 });
+
+/** The user whose «Подсказки ответов» are switched off in the test below. */
+let offUser = -1;
+
+test('reply chips switched off: an empty list and the local model is not asked', async () => {
+  let modelCalls = 0;
+  let historyReads = 0;
+  await withServer(
+    {
+      fetchHistory: async () => {
+        historyReads += 1;
+        return { messages: QUESTION_TURN };
+      },
+      complete: async () => {
+        modelCalls += 1;
+        return { suggestions: ['Выкатывай сейчас', 'Давай вечером'] };
+      },
+      isModOn: (userId, key) => !(key === 'modReplyChips' && userId === offUser),
+    },
+    async ({ adminId, memberId, projectId, sessionId, post }) => {
+      offUser = adminId;
+      const response = await post(adminId, 'admin', askFor(sessionId));
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { suggestions: [] });
+      assert.equal(modelCalls, 0);
+      assert.equal(historyReads, 0, 'the transcript is not even read');
+
+      // Another user of the same project keeps the chips.
+      userProjectAccessDb.grantAccess(memberId, projectId, adminId);
+      const other = await post(memberId, 'user', askFor(sessionId));
+      assert.deepEqual(await other.json(), { suggestions: ['Выкатывай сейчас', 'Давай вечером'] });
+      assert.equal(modelCalls, 1);
+    },
+  );
+});

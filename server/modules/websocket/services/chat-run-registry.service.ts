@@ -6,6 +6,7 @@ import { linksOfRow } from '@/modules/session-links/index.js';
 import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
+import { isModOn, type IsModOn, type ModUserId } from '@/shared/mods.js';
 import type {
   LLMProvider,
   NormalizedMessage,
@@ -134,6 +135,14 @@ function evictRunLater(appSessionId: string): void {
  * 3. Buffer the event for `chat.subscribe` replay.
  * 4. Flip the run to `completed` when the terminal `complete` event passes by.
  */
+/**
+ * «Пульт фона» of a user — the one check of the websocket module: the
+ * background task frames of a run, the list on subscribe and «Стоп» all ask it.
+ */
+export function backgroundConsoleOn(userId: ModUserId, using: IsModOn = isModOn): boolean {
+  return using(userId, 'modBackgroundConsole');
+}
+
 function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): NormalizedMessage | null {
   // Nothing escapes a finished run — this is what makes Stop mean stop.
   // Cancelling a run is not instantaneous: `interrupt()` is advisory (the CLI
@@ -144,6 +153,12 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   // late event also subsumes the old exactly-one-complete rule (a killed
   // runtime emitting its own `complete` from its exit handler).
   if (run.status === 'completed') {
+    return null;
+  }
+
+  // «Пульт фона» switched off: background task lists are neither sent nor
+  // kept for replay — for every engine, since all of them write through here.
+  if ((message.kind as string) === 'background_tasks' && !backgroundConsoleOn(run.userId)) {
     return null;
   }
 

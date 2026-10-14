@@ -274,3 +274,38 @@ test('two taps at the same time reach the engine exactly once', async () => {
     assert.equal(loser && !loser.ok ? loser.reason : null, 'in_progress', 'not answered yet: the loser keeps its buttons');
   });
 });
+
+test('a push token issued before answer buttons were switched off is refused as MOD_OFF; the chat in Neo3 still answers', async () => {
+  await withIsolatedDatabase(async (fixture) => {
+    const off = new Set<string>();
+    const { service, deliveries } = serviceWithOpenRequest(fixture, { isModOn: (_userId, key) => !off.has(key) });
+    const [token] = service.issueTokens('req-1', fixture.adminId, QUESTION_CHOICES);
+
+    off.add('modAnswerButtons');
+    const fromPush = await service.redeemToken(token.token);
+    assert.deepEqual(fromPush, { ok: false, reason: 'MOD_OFF' });
+    assert.equal(deliveries.length, 0, 'nothing reached the engine');
+
+    const fromChat = await service.answer({
+      requestId: 'req-1',
+      decision: { allow: true, answers: { 'Какую базу берём?': 'Postgres' } },
+      actorUserId: fixture.adminId,
+      actorRole: 'admin',
+      via: 'ui',
+    });
+    assert.deepEqual(fromChat, { ok: true });
+    assert.equal(deliveries.length, 1);
+    assert.equal(deliveries[0].via, 'ui');
+  });
+});
+
+test('«Ждут тебя» switched off kills the answer buttons too (they only work together)', async () => {
+  await withIsolatedDatabase(async (fixture) => {
+    const { service, deliveries } = serviceWithOpenRequest(fixture, { isModOn: (_userId, key) => key !== 'modAttention' });
+    const [token] = service.issueTokens('req-1', fixture.adminId, QUESTION_CHOICES);
+    const result = await service.redeemToken(token.token, { actorUserId: fixture.adminId, via: 'telegram' });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'MOD_OFF');
+    assert.equal(deliveries.length, 0);
+  });
+});

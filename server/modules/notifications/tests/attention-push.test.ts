@@ -10,6 +10,7 @@ import {
   notificationPreferencesDb,
   sessionAttentionDb,
   sessionsDb,
+  uiPreferencesDb,
   userDb,
 } from '@/modules/database/index.js';
 import {
@@ -20,6 +21,7 @@ import { createAttentionPushListener } from '@/modules/notifications/services/at
 import { buildNotificationPayload, notifyRunStopped } from '@/modules/notifications/services/notification-orchestrator.service.js';
 import type { AnswerChoice } from '@/modules/pending-answers/pending-answers.service.js';
 import type { AttentionChange } from '@/modules/session-attention/session-attention.service.js';
+import type { ModKey } from '@/shared/mods.js';
 
 async function withIsolatedDatabase(runTest: (sessionId: string) => void | Promise<void>): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;
@@ -46,10 +48,11 @@ async function withIsolatedDatabase(runTest: (sessionId: string) => void | Promi
 type Sent = { userId: number; payload: Record<string, any> };
 
 /** Listener over fake channels: payloads are built exactly as the service worker receives them. */
-function harness() {
+function harness(modsOff: Set<ModKey> = new Set()) {
   const sent: Sent[] = [];
   const issued: Array<{ requestId: string; userId: number; choices: AnswerChoice[] }> = [];
   const listener = createAttentionPushListener({
+    isModOn: (_userId, key) => !modsOff.has(key),
     notify: ({ userId, event }) => {
       sent.push({ userId, payload: buildNotificationPayload(event) as Record<string, any> });
     },
@@ -270,5 +273,85 @@ test('Grok asks a question: «нужен ответ» push to whoever started th
     assert.deepEqual(sent[0].payload.actions.map((action: { title: string }) => action.title), ['Postgres', 'SQLite']);
     assert.equal(issued[0].requestId, 'req-grok');
     assert.equal(issued[0].userId, 12);
+  });
+});
+
+test('«Ждут тебя» off: no «нужен ответ» push for that user; a push shown before switching off still closes', async () => {
+  await withIsolatedDatabase((sessionId) => {
+    const modsOff = new Set<ModKey>();
+    const { sent, issued, listener } = harness(modsOff);
+    const waiting = (requestId: string, at: string) => change(sessionId, {
+      state: 'waiting',
+      reason: 'ask',
+      detail: { ...ASK_DETAIL, requestId },
+      updatedAt: at,
+      previous: { state: 'working', reason: null, requestId: null },
+    });
+
+    listener(waiting('req-before', '2026-10-12T10:00:00.000Z'));
+    assert.equal(sent.length, 1, 'switched on: the push goes out as before');
+
+    modsOff.add('modAttention');
+    listener(change(sessionId, {
+      state: 'working',
+      updatedAt: '2026-10-12T10:01:00.000Z',
+      previous: { state: 'waiting', reason: 'ask', requestId: 'req-before' },
+    }));
+    assert.equal(sent.length, 2);
+    assert.equal(sent[1].payload.close, true, 'the shown push is closed even with the mod off');
+
+    listener(waiting('req-after', '2026-10-12T10:02:00.000Z'));
+    assert.equal(sent.length, 2, 'no new push while the mod is off');
+    assert.equal(issued.length, 1, 'no answer tokens either');
+  });
+});
+
+test('answer buttons off: the push still comes, with «Открыть» only and no tokens issued', async () => {
+  await withIsolatedDatabase((sessionId) => {
+    const { sent, issued, listener } = harness(new Set<ModKey>(['modAnswerButtons']));
+    listener(change(sessionId, {
+      state: 'waiting',
+      reason: 'permission',
+      detail: { requestId: 'req-perm', toolName: 'Bash', question: 'Bash: rm -rf dist' },
+      previous: { state: 'working', reason: null, requestId: null },
+    }));
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].payload.actions, [{ action: 'open', title: 'Открыть' }]);
+    assert.deepEqual(sent[0].payload.data.answers, {});
+    assert.equal(issued.length, 0);
+  });
+});
+
+test('«Ждут тебя» off: the plain «агент закончил» push comes back — exactly one, the «нужен ответ» listener stays silent', async () => {
+  await withIsolatedDatabase(() => {
+    // Own session: the stop push of the test above is still in the dedupe window.
+    const sessionId = sessionsDb.createSession('sess-push-off', 'claude', '/workspace/alpha', 'Без «Ждут тебя»');
+    const user = userDb.createUserWithRole('dima', 'x', 'admin');
+    const userId = Number(user.id);
+    notificationPreferencesDb.updatePreferences(userId, { channels: { desktop: true }, events: { actionRequired: true, stop: true, error: true } });
+    uiPreferencesDb.updateUiPreferences(userId, { modAttention: false });
+    const received: Array<Record<string, any>> = [];
+    const device = { readyState: 1, OPEN: 1, send: (raw: string) => received.push(JSON.parse(raw)), close: () => {} };
+    registerDesktopNotificationClient({ userId, deviceId: 'phone-1', ws: device as never });
+
+    try {
+      // The real listener (default switches = this user's settings) and the real stop push.
+      const listener = createAttentionPushListener();
+      const row = { session_id: sessionId, user_id: userId, project_id: null, provider: 'claude', detail_json: null, updated_at: '2026-10-12T10:00:00.000Z' };
+      sessionAttentionDb.upsert({ ...row, state: 'waiting', reason: 'text_question' });
+      listener(change(sessionId, {
+        userId,
+        state: 'waiting',
+        reason: 'text_question',
+        detail: { question: 'Выкатить сейчас?' },
+        previous: { state: 'working', reason: null, requestId: null },
+      }));
+      notifyRunStopped({ userId, provider: 'claude', sessionId: 'sess-push-off', stopReason: 'completed' });
+
+      assert.equal(received.length, 1);
+      assert.equal(received[0].payload.data.code, 'run.stopped');
+    } finally {
+      unregisterDesktopNotificationClient(device as never);
+    }
   });
 });

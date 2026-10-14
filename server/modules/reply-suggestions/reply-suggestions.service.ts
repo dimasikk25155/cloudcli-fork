@@ -4,6 +4,7 @@ import { replyFingerprint } from '../../../shared/reply-fingerprint.js';
 import { lastReplyTurn, type ReplyTurnMessage } from '../../../shared/reply-turn.js';
 import { sessionsDb } from '@/modules/database/index.js';
 import { canUserAccessSession } from '@/shared/project-access.js';
+import { isModOn as defaultIsModOn, type IsModOn } from '@/shared/mods.js';
 import { completeJson, localLlmModel, type CompleteJsonOptions } from '@/shared/local-llm.js';
 import { classifyTurnEnding, finalParagraph } from '@/shared/turn-ending.js';
 import {
@@ -40,6 +41,8 @@ export type ReplySuggestionsUser = { id: number | string; role?: string | null }
 export type ReplySuggestionsDependencies = {
   fetchHistory?: (sessionId: string) => Promise<{ messages: HistoryMessage[] }>;
   complete?: (options: CompleteJsonOptions) => Promise<unknown | null>;
+  /** «Подсказки ответов» switched off → no chips, no model call. */
+  isModOn?: IsModOn;
 };
 
 export type ReplySuggestionsResult =
@@ -57,6 +60,7 @@ async function defaultFetchHistory(sessionId: string): Promise<{ messages: Histo
 export function createReplySuggestionsService(dependencies: ReplySuggestionsDependencies = {}) {
   const fetchHistory = dependencies.fetchHistory ?? defaultFetchHistory;
   const complete = dependencies.complete ?? completeJson;
+  const isModOn = dependencies.isModOn ?? defaultIsModOn;
   // key = sessionId + hash of the assistant reply; a Map keeps insertion order for eviction.
   const cache = new Map<string, string[]>();
   const inFlight = new Map<string, Promise<string[] | null>>();
@@ -105,6 +109,9 @@ export function createReplySuggestionsService(dependencies: ReplySuggestionsDepe
     }
     if (!canUserAccessSession(user, sessionId)) {
       return { status: 'forbidden' };
+    }
+    if (!isModOn(user.id, 'modReplyChips')) {
+      return { status: 'ok', suggestions: [] };
     }
 
     let messages: HistoryMessage[];

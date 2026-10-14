@@ -3,6 +3,7 @@ import express from 'express';
 import { codeStatus } from '@/modules/code-status/code-status.service.js';
 import type { CodeStatusService } from '@/modules/code-status/code-status.types.js';
 import { projectsDb } from '@/modules/database/index.js';
+import { isModOn as defaultIsModOn, modOffError, type IsModOn } from '@/shared/mods.js';
 import { canAccessProject, isAdminUser, type ProjectAccessUser } from '@/shared/project-access.js';
 import { asyncHandler } from '@/shared/utils.js';
 
@@ -12,9 +13,14 @@ type AuthedRequest = express.Request & { user?: ProjectAccessUser };
  * GET /api/projects/:projectId/code-status[?refresh=1] → CodeStatus.
  * Mounted behind authenticateToken. Access is the shared project rule; the
  * site part (Dima's Vercel token) is for admins only, and the role is read
- * from the database, never from the token.
+ * from the database, never from the token. «Где мой код» switched off for
+ * the user → `409 MOD_OFF`, before any git or Vercel work.
  */
-export function createCodeStatusRouter(service: CodeStatusService = codeStatus) {
+export function createCodeStatusRouter(
+  service: CodeStatusService = codeStatus,
+  options: { isModOn?: IsModOn } = {},
+) {
+  const isModOn = options.isModOn ?? defaultIsModOn;
   const router = express.Router({ mergeParams: true });
 
   router.get(
@@ -24,6 +30,10 @@ export function createCodeStatusRouter(service: CodeStatusService = codeStatus) 
       if (!user) {
         res.status(401).json({ error: 'Нужна авторизация' });
         return;
+      }
+
+      if (!isModOn(user.id ?? user.userId, 'modCodeStatus')) {
+        throw modOffError('modCodeStatus');
       }
 
       const projectId = String((req.params as { projectId?: string }).projectId ?? '');

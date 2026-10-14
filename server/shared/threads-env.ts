@@ -7,15 +7,28 @@
  * it as `NEO3_THREADS_API_URL`. The engine passes both to its stdio MCP
  * servers; the `neo3-threads` server reads them (server/threads-mcp.ts).
  * Codex passes only whitelisted variables to MCP servers — its registration
- * lists these two names in `env_vars`.
+ * lists these names (and the «threads off» marker) in `env_vars`.
  */
 
 export const NEO3_THREADS_TOKEN_ENV = 'NEO3_THREADS_TOKEN';
 export const NEO3_THREADS_API_URL_ENV = 'NEO3_THREADS_API_URL';
-export const NEO3_THREADS_ENV_NAMES = [NEO3_THREADS_TOKEN_ENV, NEO3_THREADS_API_URL_ENV] as const;
+/**
+ * `1` = the user switched «Треды» off: the run has no token, and the tools
+ * say so plainly instead of the generic «нет токена» (server/threads-mcp.ts).
+ */
+export const NEO3_THREADS_OFF_ENV = 'NEO3_THREADS_OFF';
+export const NEO3_THREADS_ENV_NAMES = [NEO3_THREADS_TOKEN_ENV, NEO3_THREADS_API_URL_ENV, NEO3_THREADS_OFF_ENV] as const;
 
-/** Runtime options key the chat gateway fills for one run. */
-export type ThreadsRunEnv = { NEO3_THREADS_TOKEN: string; NEO3_THREADS_API_URL: string };
+/**
+ * Runtime options key the chat gateway fills for one run: its identity
+ * (token + address) and/or «threads are off». Off with a token = the chat
+ * already has threads: they can be followed and stopped, not added to.
+ */
+export type ThreadsRunEnv = {
+  NEO3_THREADS_TOKEN?: string;
+  NEO3_THREADS_API_URL?: string;
+  NEO3_THREADS_OFF?: '1';
+};
 
 /**
  * `/api/threads` of this server as engines on this machine reach it — the same
@@ -35,9 +48,12 @@ export function threadsApiUrl(
 /** The run's thread variables from runtime options, or null when the run has none. */
 export function threadsEnvOf(options: unknown): ThreadsRunEnv | null {
   const env = (options && typeof options === 'object' ? (options as Record<string, unknown>).threadsEnv : null) as Record<string, unknown> | null;
+  const off = env?.NEO3_THREADS_OFF === '1';
   const token = typeof env?.NEO3_THREADS_TOKEN === 'string' ? env.NEO3_THREADS_TOKEN : '';
   const url = typeof env?.NEO3_THREADS_API_URL === 'string' ? env.NEO3_THREADS_API_URL : '';
-  return token && url ? { NEO3_THREADS_TOKEN: token, NEO3_THREADS_API_URL: url } : null;
+  const identity = token && url ? { NEO3_THREADS_TOKEN: token, NEO3_THREADS_API_URL: url } : null;
+  if (!identity && !off) return null;
+  return { ...(identity ?? {}), ...(off ? { NEO3_THREADS_OFF: '1' as const } : {}) };
 }
 
 /**

@@ -19,6 +19,7 @@
 
 import { sessionAttentionDb, sessionLinksDb, sessionsDb, sessionThreadsDb } from '@/modules/database/index.js';
 import { assertCanLinkNewChild, linkSession } from '@/modules/session-links/index.js';
+import { isModOn as defaultIsModOn, MOD_OFF, modOffMessage, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession } from '@/shared/project-access.js';
 import type { LLMProvider } from '@/shared/types.js';
 
@@ -117,6 +118,8 @@ export type ThreadsDependencies = {
   broadcastUpsert?: (sessionId: string) => void;
   sleep?: (ms: number) => Promise<void>;
   pollMs?: number;
+  /** «Треды» switched off for the user → no new thread or message; running ones finish. */
+  isModOn?: IsModOn;
 };
 
 export class ThreadsError extends Error {
@@ -217,6 +220,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   const tokens = dependencies.tokens ?? defaultThreadTokens;
   const now = dependencies.now ?? (() => new Date());
   const attentionOf = dependencies.attentionOf ?? defaultAttentionOf;
+  const isModOn = dependencies.isModOn ?? defaultIsModOn;
   const fetchMessages = dependencies.fetchMessages ?? defaultFetchMessages;
   const checkClaudeLimit = dependencies.checkClaudeLimit ?? defaultCheckClaudeLimit;
   const listModels = dependencies.listModels ?? defaultListModels;
@@ -258,6 +262,16 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
     if (!sessionsDb.getSessionById(owner.sessionId)) refuse('SESSION_NOT_FOUND', 'Чат, которому выдан токен, не найден', 404);
     if (!canAccessSession({ id: owner.userId }, owner.sessionId)) refuse('ACCESS_DENIED', 'Нет доступа к этому чату', 403);
     return owner;
+  }
+
+  /**
+   * New work for threads (open one, write to one) only while the user keeps
+   * «Треды» on. Status and stop stay available: running threads finish.
+   */
+  function requireThreadsOn(owner: ThreadTokenOwner): void {
+    if (!isModOn(owner.userId, 'modThreads')) {
+      refuse(MOD_OFF, `${modOffMessage('modThreads')}. Сделай работу сам в этом чате.`, 409);
+    }
   }
 
   /** A thread of the token's chat, or THREAD_NOT_FOUND. */
@@ -363,6 +377,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
     // Everything from here to the reservation is synchronous: parallel calls
     // cannot all pass the limit before any of them has started its thread.
     const owner = authorize(token);
+    requireThreadsOn(owner);
     const prompt = readString(input.prompt);
     if (!prompt) refuse('PROMPT_REQUIRED', 'Нужна задача для треда (prompt)', 400);
 
@@ -481,6 +496,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
 
   async function messageThread(token: unknown, input: Record<string, unknown>): Promise<{ threadId: string; state: 'working' }> {
     const owner = authorize(token);
+    requireThreadsOn(owner);
     await ensureRegistry();
     const row = ownThread(owner, input.threadId);
     const text = readString(input.text);

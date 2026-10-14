@@ -33,6 +33,7 @@ import {
   type InlineKeyboardMarkup,
 } from '@/modules/telegram/telegram-api.client.js';
 import { escapeHtml } from '@/modules/telegram/telegram-format.js';
+import { isModActive, isModOn as defaultIsModOn, MOD_OFF, modOffMessage, type IsModOn } from '@/shared/mods.js';
 
 /** Telegram: all options of a single-choice question, at most this many. */
 export const MAX_TELEGRAM_ANSWER_BUTTONS = 8;
@@ -60,6 +61,7 @@ const REFUSAL_TEXT: Record<RedeemReason, string> = {
   forbidden: 'Это не твой вопрос',
   in_progress: 'Ответ уже отправляется',
   unavailable: 'Не получилось ответить — открой Neo3',
+  [MOD_OFF]: `${modOffMessage('modAnswerButtons')} — ответь в Neo3`,
 };
 const NOT_YOURS_TEXT = REFUSAL_TEXT.forbidden;
 
@@ -255,6 +257,8 @@ export type TelegramAttentionDependencies = {
   redeemToken?: typeof pendingAnswers.redeemToken;
   sessionLabels?: (sessionId: string) => SessionLabels;
   now?: () => number;
+  /** Mod switches of the session owner («Ждут тебя», answer buttons). */
+  isModOn?: IsModOn;
 };
 
 export type WebhookCheckResult =
@@ -271,6 +275,7 @@ export function createTelegramAttention(dependencies: TelegramAttentionDependenc
     ?? ((token, options) => pendingAnswers.redeemToken(token, options));
   const sessionLabels = dependencies.sessionLabels ?? defaultSessionLabels;
   const now = dependencies.now ?? (() => Date.now());
+  const isModOn = dependencies.isModOn ?? defaultIsModOn;
 
   /** Requests already announced: session + request id, or session + turn time. */
   const announced = new Map<string, number>();
@@ -347,7 +352,9 @@ export function createTelegramAttention(dependencies: TelegramAttentionDependenc
     if (chats.length === 0) return;
 
     const requestId = change.detail?.requestId ?? null;
-    const choices = requestId ? pickAnswerChoices(change, MAX_TELEGRAM_ANSWER_BUTTONS) : [];
+    const choices = requestId && isModActive(userId, 'modAnswerButtons', isModOn)
+      ? pickAnswerChoices(change, MAX_TELEGRAM_ANSWER_BUTTONS)
+      : [];
     let tokens: IssuedToken[] = [];
     if (requestId && choices.length > 0) {
       try {
@@ -389,6 +396,9 @@ export function createTelegramAttention(dependencies: TelegramAttentionDependenc
         const requestId = change.detail?.requestId ?? null;
         const isNewRequest = !wasWaiting || (requestId !== null && requestId !== change.previous?.requestId);
         if (!isNewRequest || change.userId === null) return;
+        // «Ждут тебя» switched off: no message. Buttons already sent still
+        // lose their answer row when the session stops waiting (above).
+        if (!isModActive(change.userId, 'modAttention', isModOn)) return;
 
         prune();
         const key = `${change.sessionId}:${requestId ?? `turn:${change.updatedAt}`}`;
@@ -464,7 +474,7 @@ export function createTelegramAttention(dependencies: TelegramAttentionDependenc
         }
 
         await reply(REFUSAL_TEXT[result.reason] ?? REFUSAL_TEXT.unavailable);
-        if (result.reason === 'already_answered' || result.reason === 'invalid' || result.reason === 'expired') {
+        if (result.reason === 'already_answered' || result.reason === 'invalid' || result.reason === 'expired' || result.reason === MOD_OFF) {
           takeSent(chatId, messageId);
           try {
             await api.editMessageReplyMarkup(chatId, messageId, linksOnly(message.reply_markup));

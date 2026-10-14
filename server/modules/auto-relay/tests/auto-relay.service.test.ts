@@ -52,13 +52,18 @@ type World = {
   outsider: number;
   projectPath: string;
   chatId: string;
+  /** Mods switched off for everyone in this world (flip mid-test to switch). */
+  modsOff: Set<string>;
 };
 
 const WINDOW = 200_000;
 const NONCE = 'k7q2';
 const REQUEST_TAG = 'эстафета k7q2';
 
-async function withWorld(runTest: (world: World) => Promise<void>, options: { newChatsDefault?: boolean } = {}): Promise<void> {
+async function withWorld(
+  runTest: (world: World) => Promise<void>,
+  options: { newChatsDefault?: boolean; modsOff?: string[] } = {},
+): Promise<void> {
   const previous = process.env.DATABASE_PATH;
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'auto-relay-service-')));
   closeConnection();
@@ -86,6 +91,7 @@ async function withWorld(runTest: (world: World) => Promise<void>, options: { ne
     const afterFetch: World['afterFetch'] = { hook: null };
     const fetchCounts = new Map<string, number>();
     const timers: World['timers'] = [];
+    const modsOff = new Set<string>(options.modsOff ?? []);
 
     const service = createAutoRelayService({
       now: () => new Date('2026-10-12T10:00:00.000Z'),
@@ -110,6 +116,7 @@ async function withWorld(runTest: (world: World) => Promise<void>, options: { ne
         return limit.blocked ? { blocked: true, notice: 'лимит' } : { blocked: false };
       },
       newChatsDefault: () => options.newChatsDefault === true,
+      isModOn: (_userId, key) => !modsOff.has(key),
       notify: (notice) => { notices.push(notice); },
       broadcast: (payload) => { frames.push(payload); },
       broadcastUpsert: () => {},
@@ -137,7 +144,7 @@ async function withWorld(runTest: (world: World) => Promise<void>, options: { ne
 
     await runTest({
       service, starts, notices, frames, seen, running, attention, messages, usage, background, limit, afterFetch, timers,
-      member, outsider, projectPath: project.project_path, chatId,
+      member, outsider, projectPath: project.project_path, chatId, modsOff,
     });
   } finally {
     clearRunOptions();
@@ -740,4 +747,52 @@ test('the live-check hook lowers only the token threshold, and only with a posit
   assert.deepEqual(thresholdsFromEnv({}), { contextPercent: 50, contextTokens: 400_000, ageHours: 12 });
   assert.deepEqual(thresholdsFromEnv({ NEO3_AUTO_RELAY_TOKENS: '3000' }), { contextPercent: 50, contextTokens: 3000, ageHours: 12 });
   assert.deepEqual(thresholdsFromEnv({ NEO3_AUTO_RELAY_TOKENS: 'abc' }), { contextPercent: 50, contextTokens: 400_000, ageHours: 12 });
+});
+
+test('«Перенести» switched off: no auto move, «Перенести» refused with MOD_OFF, new chats do not get the switch', async () => {
+  await withWorld(async (world) => {
+    arm(world);
+    world.usage.set(world.chatId, 150_000);
+    await world.service.handleAttentionChange(turnEnded(world, world.chatId));
+    assert.equal(world.starts.length, 0, 'a grown, armed chat does not move');
+
+    await assert.rejects(
+      world.service.startNow(world.chatId, world.member),
+      (error: { code?: string; statusCode?: number; message?: string }) => error.code === 'MOD_OFF'
+        && error.statusCode === 409
+        && /выключен в настройках Neo3/.test(error.message ?? ''),
+    );
+    assert.equal(world.starts.length, 0);
+
+    sessionsDb.createAppSession('fresh-off', 'claude', world.projectPath);
+    world.service.applyNewChatDefaults({ sessionId: 'fresh-off', userId: world.member });
+    assert.equal(world.service.getStatus('fresh-off').enabled, false);
+  }, { newChatsDefault: true, modsOff: ['modRelay'] });
+});
+
+test('a move already under way when «Перенести» is switched off is finished, not left half-way', async () => {
+  await withWorld(async (world) => {
+    await world.service.startNow(world.chatId, world.member);
+    assert.equal(world.starts.length, 1);
+
+    world.modsOff.add('modRelay');
+    const note = await writeNote(world, 'mid-way.md');
+    agentWroteNote(world, world.chatId, `HANDOFF_FILE: ${note}`);
+    await world.service.handleAttentionChange(turnEnded(world, world.chatId));
+
+    const status = world.service.getStatus(world.chatId);
+    assert.equal(status.state, 'done');
+    assert.ok(status.childSessionId, 'the continuation was created');
+    assert.equal(world.starts.length, 2, 'and started with the note');
+  });
+});
+
+test('«Ждут тебя» switched off does not stop the auto move: it reads the statuses that are still written', async () => {
+  await withWorld(async (world) => {
+    arm(world);
+    world.usage.set(world.chatId, 150_000);
+    await world.service.handleAttentionChange(turnEnded(world, world.chatId));
+    assert.equal(world.starts.length, 1);
+    assert.equal(world.service.getStatus(world.chatId).state, 'collecting');
+  }, { modsOff: ['modAttention', 'modAnswerButtons'] });
 });

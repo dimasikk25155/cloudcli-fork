@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto';
 
 import { answerTokensDb, userDb } from '@/modules/database/index.js';
 import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
+import { isModActive, isModOn as defaultIsModOn, MOD_OFF, type IsModOn, type ModOff } from '@/shared/mods.js';
 import { canUserAccessSession } from '@/shared/project-access.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
 
@@ -57,7 +58,8 @@ export type PendingRequestInfo = {
 
 export type AnswerReason = 'not_pending' | 'forbidden' | 'unavailable' | 'in_progress';
 
-export type RedeemReason = 'invalid' | 'expired' | 'already_answered' | 'forbidden' | 'unavailable' | 'in_progress';
+/** `MOD_OFF`: the owner switched answer buttons (or «Ждут тебя») off after the token was issued. */
+export type RedeemReason = 'invalid' | 'expired' | 'already_answered' | 'forbidden' | 'unavailable' | 'in_progress' | ModOff;
 
 /**
  * Hands one decision to the engine that asked. Returns false when it was not
@@ -93,6 +95,8 @@ export type PendingAnswersDependencies = {
   canAccessSession?: (actor: { id: number | null; role: string | null }, sessionId: string) => boolean;
   now?: () => Date;
   ttlMs?: number;
+  /** Mod switches of a token's owner: buttons answer only while theirs are on. */
+  isModOn?: IsModOn;
 };
 
 // ---------------------------------------------------------------------------
@@ -135,6 +139,7 @@ export function createPendingAnswersService(dependencies: PendingAnswersDependen
   const canAccessSession = dependencies.canAccessSession ?? canUserAccessSession;
   const now = dependencies.now ?? (() => new Date());
   const ttlMs = dependencies.ttlMs ?? TOKEN_TTL_MS;
+  const isModOn = dependencies.isModOn ?? defaultIsModOn;
   let engine: AnswerEngine | null = dependencies.engine ?? null;
   /** Requests being delivered right now: a second tap must not reach the engine twice. */
   const inFlight = new Set<string>();
@@ -292,6 +297,11 @@ export function createPendingAnswersService(dependencies: PendingAnswersDependen
       }
       if (options.actorUserId !== undefined && toUserId(options.actorUserId) !== row.user_id) {
         return { ok: false, reason: 'forbidden' };
+      }
+      // Buttons issued before the owner switched them off do not answer any
+      // more; the request stays open for the chat in Neo3 itself.
+      if (!isModActive(row.user_id, 'modAnswerButtons', isModOn)) {
+        return { ok: false, reason: MOD_OFF };
       }
       const decision = parseDecision(row.decision_json);
       if (!decision) {

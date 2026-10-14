@@ -170,7 +170,7 @@ function transformCodexEvent(event) {
  * run's thread identity (NEO3_THREADS_TOKEN / NEO3_THREADS_API_URL); the SDK
  * uses it INSTEAD of process.env, so everything else is copied. Codex hands
  * MCP servers only whitelisted variables — the neo3-threads registration
- * lists these two in `env_vars` (see modules/threads/threads-mcp-registration.ts).
+ * lists them in `env_vars` (see modules/threads/threads-mcp-registration.ts).
  */
 export function buildCodexClientOptions(options = {}, policy = {}) {
   const env = {};

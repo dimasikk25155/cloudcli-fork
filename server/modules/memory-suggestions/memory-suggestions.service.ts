@@ -32,6 +32,7 @@ import {
 } from '@/modules/database/index.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { completeJson, localLlmModel, type CompleteJsonOptions } from '@/shared/local-llm.js';
+import { isModOn as defaultIsModOn, type IsModOn } from '@/shared/mods.js';
 import { canUserAccessSession } from '@/shared/project-access.js';
 
 import { hasWorkWorthNoting, isQuietStatus, type TranscriptMessage } from './quiet-session.js';
@@ -76,6 +77,8 @@ export type MemorySuggestionsDependencies = {
   broadcast?: (payload: Record<string, unknown>) => void;
   /** Write a good note without asking; default on, `NEO3_MEMORY_AUTOWRITE=off` disables. */
   autoWrite?: () => boolean;
+  /** «Заметки в Obsidian» switched off for a user → their chats are not reviewed, no cards. */
+  isModOn?: IsModOn;
 };
 
 export type WriteResult =
@@ -117,6 +120,7 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
   const now = dependencies.now ?? (() => new Date());
   const getVaultDir = dependencies.vaultDir ?? defaultVaultDir;
   const broadcast = dependencies.broadcast ?? defaultBroadcast;
+  const isModOn = dependencies.isModOn ?? defaultIsModOn;
   const autoWrite = dependencies.autoWrite ?? (() => process.env.NEO3_MEMORY_AUTOWRITE?.trim().toLowerCase() !== 'off');
   let running: Promise<{ reviewed: number }> | null = null;
 
@@ -158,6 +162,7 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
       // Not worth a look last time and nothing happened since: skip the transcript read.
       if (previous?.status === 'ineligible' && previous.source_updated_at >= status.updated_at) continue;
       if (!isAdminUserId(status.user_id)) continue;
+      if (!isModOn(status.user_id, 'modMemoryNotes')) continue;
       candidates.push({ status, previous });
     }
     return candidates.sort((a, b) => b.status.updated_at.localeCompare(a.status.updated_at));
@@ -289,7 +294,7 @@ export function createMemorySuggestionsService(dependencies: MemorySuggestionsDe
 
     /** Proposed notes the user may act on. Admin-only feature: others get none. */
     list(user: MemorySuggestionsUser, filter: { sessionId?: string } = {}): MemorySuggestionItem[] {
-      if (!isAdmin(user)) {
+      if (!isAdmin(user) || !isModOn(user.id, 'modMemoryNotes')) {
         return [];
       }
       return memorySuggestionsDb

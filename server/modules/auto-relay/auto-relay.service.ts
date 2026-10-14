@@ -34,6 +34,7 @@ import {
 } from '@/modules/database/index.js';
 import { resolveRelayFile } from '@/modules/relay/relay-file.service.js';
 import { assertCanLinkNewChild, linkSession } from '@/modules/session-links/index.js';
+import { isModOn as defaultIsModOn, modOffError, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession, projectIdOfSession } from '@/shared/project-access.js';
 import type { LLMProvider } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
@@ -114,6 +115,8 @@ export type AutoRelayDependencies = {
   checkClaudeLimit?: () => Promise<{ blocked: boolean; notice?: string }>;
   /** «Авто-перенос в новых чатах» of a user. */
   newChatsDefault?: (userId: number) => boolean;
+  /** «Перенести» switched off for a user → nothing new starts; a move under way is finished. */
+  isModOn?: IsModOn;
   /** Push «Перенёс в новый чат» / «Авто-перенос не получился». */
   notify?: (notice: AutoRelayNotice) => void;
   /** WS frame to every socket that may see the chat's project. */
@@ -268,6 +271,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
   const checkClaudeLimit = dependencies.checkClaudeLimit ?? defaultCheckClaudeLimit;
   const contextWindowOf = dependencies.contextWindowOf ?? defaultContextWindowOf;
   const newChatsDefault = dependencies.newChatsDefault ?? defaultNewChatsDefault;
+  const isModOn = dependencies.isModOn ?? defaultIsModOn;
   const sleep = dependencies.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
   const thresholds = dependencies.thresholds ?? thresholdsFromEnv();
   const collectingTimeoutMs = dependencies.collectingTimeoutMs ?? COLLECTING_TIMEOUT_MS;
@@ -457,6 +461,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
     const row = sessionAutoRelayDb.get(sessionId);
     const userId = change.userId ?? row?.user_id ?? null;
     if (userId === null || !canAccessSession({ id: userId }, sessionId)) return;
+    if (!isModOn(userId, 'modRelay')) return;
 
     const options = runOptionsFor(sessionId);
     const usage = usageOf(sessionId);
@@ -510,6 +515,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
     const session = sessionsDb.getSessionById(sessionId);
     if (!session) refuse('Чат не найден', 'SESSION_NOT_FOUND', 404);
     if (userId === null || !canAccessSession({ id: userId }, sessionId)) refuse('Нет доступа к чату', 'SESSION_ACCESS_DENIED', 403);
+    if (!isModOn(userId, 'modRelay')) throw modOffError('modRelay');
     if (!session!.project_path) refuse('У чата нет папки проекта', 'RELAY_NO_PROJECT', 400);
     const row = sessionAutoRelayDb.get(sessionId);
     if (row?.state === 'collecting' || row?.state === 'creating') return getStatus(sessionId);
@@ -718,7 +724,7 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
         ? Boolean(sessionAutoRelayDb.get(input.parentSessionId)?.enabled)
         : false;
       const byDefault = input.userId !== null && newChatsDefault(input.userId);
-      if (inherited || byDefault) {
+      if ((inherited || byDefault) && isModOn(input.userId, 'modRelay')) {
         sessionAutoRelayDb.upsert(input.sessionId, { enabled: 1, user_id: input.userId }, stamp());
       }
     } catch (error) {

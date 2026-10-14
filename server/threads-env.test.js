@@ -103,3 +103,17 @@ test('the API address follows the server bind: a concrete HOST as is, wildcard/l
   assert.equal(threadsApiUrl({ host: 'localhost', port: '3005' }), 'http://127.0.0.1:3005/api/threads');
   assert.equal(threadsApiUrl({ host: 'fd7a::1', port: '3005' }), 'http://[fd7a::1]:3005/api/threads');
 });
+
+test('threads switched off: every engine gets the «off» marker and no token, not even an inherited one', () => {
+  const off = { NEO3_THREADS_OFF: '1' };
+  withInheritedToken(() => {
+    const claude = mapCliOptionsToSDK({ model: 'opus[1m]', effortModels, threadsEnv: off }).env;
+    const grok = buildGrokSpawnEnv({ threadsEnv: off });
+    const codex = buildCodexClientOptions({ threadsEnv: off }, { instructions: 'rules' }).env;
+    for (const env of [claude, grok, codex]) {
+      assert.equal(env.NEO3_THREADS_OFF, '1');
+      assert.equal(env.NEO3_THREADS_TOKEN, undefined);
+      assert.equal(env.NEO3_THREADS_API_URL, undefined);
+    }
+  });
+});

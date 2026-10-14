@@ -5,8 +5,8 @@
  *
  * The entry carries no secret: the token and the API address come from the
  * engine process env per run (server/shared/threads-env.ts). Codex does not
- * hand its env to MCP servers, so its entry whitelists both names
- * (`env_vars`) and raises the tool timeout above thread_status' 600 s wait.
+ * hand its env to MCP servers, so its entry whitelists the run variables
+ * (`env_vars`: token, address, «threads off» marker) and raises the tool timeout above thread_status' 600 s wait.
  *
  * Idempotent: an entry that already matches is not rewritten (the CLIs keep
  * rewriting ~/.claude.json themselves; fewer writes, fewer races). Before the

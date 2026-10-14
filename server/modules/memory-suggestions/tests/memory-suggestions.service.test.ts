@@ -361,3 +361,33 @@ test('first and repeated «Записать» answer the same real absolute path
     assert.equal(again.status === 'ok' && again.path, expected);
   });
 });
+
+test('notes switched off: the quiet chat is not read, the model is not asked, the list is empty', async () => {
+  await withIsolatedWorld(async (fixture) => {
+    finishRun(fixture, fixture.adminId, HOUR_AGO);
+    const calls: CompleteJsonOptions[] = [];
+    let reads = 0;
+    const off = new Set<string>(['modMemoryNotes']);
+    const memory = service(fixture, {
+      calls,
+      fetchHistory: async () => {
+        reads += 1;
+        return { messages: WORKED_TRANSCRIPT };
+      },
+      isModOn: (_userId, key) => !off.has(key),
+    });
+
+    assert.deepEqual(await memory.runCheck(), { reviewed: 0 });
+    assert.equal(reads, 0);
+    assert.equal(calls.length, 0);
+
+    // Switched back on: the same chat is reviewed as usual — and while off,
+    // a ready card is not shown.
+    off.clear();
+    await memory.runCheck();
+    assert.equal(calls.length, 1);
+    assert.equal(memory.list({ id: fixture.adminId, role: 'admin' }).length, 1);
+    off.add('modMemoryNotes');
+    assert.deepEqual(memory.list({ id: fixture.adminId, role: 'admin' }), []);
+  });
+});
