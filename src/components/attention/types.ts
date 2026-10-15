@@ -47,7 +47,7 @@ export interface AttentionItem {
   detail: AttentionDetail | null;
   /** ISO timestamp of the last state change. */
   updatedAt: string;
-  /** done/failed only: changed after this user last looked at the session. */
+  /** done/failed/soft question (manual_ask, text_question): changed after this user last looked at the session. */
   unread: boolean;
   /** Session's model override; null/absent = account default. */
   model?: string | null;

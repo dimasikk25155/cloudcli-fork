@@ -17,6 +17,7 @@ import {
   countAttention,
   describeAttention,
   groupAttention,
+  isSeenable,
   type AttentionGroupKey,
 } from '../utils/attentionModel';
 
@@ -153,8 +154,8 @@ export default function AttentionHubView({
   showCacheNotes = true,
 }: AttentionHubViewProps) {
   const groups = groupAttention(items);
-  const { total, counts } = countAttention(items);
-  const canMarkAllSeen = counts.failed + counts.unreadDone > 0;
+  const { total } = countAttention(items);
+  const canMarkAllSeen = items.some((entry) => entry.unread && isSeenable(entry));
 
   return (
     <div className="space-y-4 px-3 py-3">

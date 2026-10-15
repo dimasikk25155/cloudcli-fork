@@ -24,7 +24,8 @@ function item(overrides: Partial<AttentionItem>): AttentionItem {
 test('N = waiting + unread failed + unread done; working and seen sessions do not count (R11)', () => {
   const items = [
     item({ sessionId: 'w1', state: 'waiting', reason: 'ask' }),
-    item({ sessionId: 'w2', state: 'waiting', reason: 'manual_ask' }),
+    item({ sessionId: 'w2', state: 'waiting', reason: 'manual_ask', unread: true }),
+    item({ sessionId: 'w-seen', state: 'waiting', reason: 'text_question', unread: false }),
     item({ sessionId: 'f-new', state: 'failed', reason: 'error', unread: true }),
     item({ sessionId: 'f-seen', state: 'failed', reason: 'error', unread: false }),
     item({ sessionId: 'd-new', state: 'done', unread: true }),
@@ -140,6 +141,22 @@ test('«всё просмотрено» гасит unread done/failed, waiting s
   assert.deepEqual(groupAttention(after).map((group) => group.key), ['waiting', 'working']);
   // The input list is not mutated (React state).
   assert.equal(items[1].unread, true);
+});
+
+test('soft questions (asked only in the reply text) leave the hub once seen; open requests stay', () => {
+  const items = [
+    item({ sessionId: 'ask', state: 'waiting', reason: 'ask' }),
+    item({ sessionId: 'manual', state: 'waiting', reason: 'manual_ask', unread: true }),
+    item({ sessionId: 'text', state: 'waiting', reason: 'text_question', unread: true }),
+  ];
+  assert.equal(countAttention(items).total, 3);
+
+  const all = applySeen(items, { all: true });
+  assert.equal(countAttention(all).total, 1);
+  assert.deepEqual(groupAttention(all).flatMap((group) => group.items.map((entry) => entry.sessionId)), ['ask']);
+
+  const one = applySeen(items, { sessionIds: ['text'] });
+  assert.deepEqual(groupAttention(one)[0].items.map((entry) => entry.sessionId).sort(), ['ask', 'manual']);
 });
 
 test('opening one session clears only that session', () => {

@@ -105,7 +105,7 @@ test('hub: Claude rows say how long the prompt cache stays warm; Codex/Grok/loca
   const html = render(React.createElement(AttentionHubView, {
     items: [
       item({ sessionId: 'warm', state: 'done', unread: true, lastModelAt: minutesAgo(18) }),
-      item({ sessionId: 'cool', state: 'waiting', reason: 'text_question', lastModelAt: minutesAgo(55), detail: { question: 'Дальше?' } }),
+      item({ sessionId: 'cool', state: 'waiting', reason: 'text_question', unread: true, lastModelAt: minutesAgo(55), detail: { question: 'Дальше?' } }),
       item({ sessionId: 'cold', state: 'done', unread: true, lastModelAt: minutesAgo(75) }),
       item({ sessionId: 'run', state: 'working', lastModelAt: minutesAgo(1) }),
       item({ sessionId: 'grok', provider: 'grok', state: 'done', unread: true, lastModelAt: minutesAgo(5) }),

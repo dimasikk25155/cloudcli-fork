@@ -1,5 +1,5 @@
 import type { AttentionCounts, AttentionItem, AttentionSeenTarget } from './types';
-import { applySeen, countAttention } from './utils/attentionModel';
+import { applySeen, countAttention, isSeenable } from './utils/attentionModel';
 
 /**
  * Client state of "Ждут тебя": the list from `GET /api/attention`, the derived
@@ -79,7 +79,7 @@ export function createAttentionStore(deps: AttentionStoreDeps) {
   const needsSeen = (sessionId: string | null): sessionId is string => {
     if (!sessionId) return false;
     const entry = snapshot.byId.get(sessionId);
-    return Boolean(entry && entry.unread && (entry.state === 'done' || entry.state === 'failed'));
+    return Boolean(entry && entry.unread && isSeenable(entry));
   };
 
   async function markSeen(target: AttentionSeenTarget): Promise<void> {

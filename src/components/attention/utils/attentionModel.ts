@@ -5,11 +5,26 @@ import type { AttentionCounts, AttentionItem, AttentionSeenTarget } from '../typ
  * grouped, how a status is labelled. No React, no fetch — unit-tested.
  */
 
-/** N for the tab title / app badge = waiting + unread failed + unread done. */
+/**
+ * A question the agent only asked in its reply text (no open request behind
+ * it). Nothing blocks on it, so like done/failed it leaves the hub once seen.
+ */
+export function isSoftWaiting(entry: AttentionItem): boolean {
+  return entry.state === 'waiting' && (entry.reason === 'manual_ask' || entry.reason === 'text_question');
+}
+
+/** done/failed or a soft question: opening the chat or «Всё просмотрено» clears it. */
+export function isSeenable(entry: AttentionItem): boolean {
+  return entry.state === 'done' || entry.state === 'failed' || isSoftWaiting(entry);
+}
+
+/** N for the tab title / app badge = waiting (soft: unread) + unread failed + unread done. */
 export function countAttention(items: readonly AttentionItem[]): { total: number; counts: AttentionCounts } {
   const counts: AttentionCounts = { waiting: 0, failed: 0, unreadDone: 0, working: 0 };
   for (const entry of items) {
-    if (entry.state === 'waiting') counts.waiting += 1;
+    if (entry.state === 'waiting') {
+      if (!isSoftWaiting(entry) || entry.unread) counts.waiting += 1;
+    }
     else if (entry.state === 'working') counts.working += 1;
     else if (entry.state === 'failed' && entry.unread) counts.failed += 1;
     else if (entry.state === 'done' && entry.unread) counts.unreadDone += 1;
@@ -41,10 +56,11 @@ function timeOf(entry: AttentionItem): number {
 
 /**
  * Which hub group a session belongs to, or null when it has left the hub
- * (done/failed the user has already looked at — "всё просмотрено" clears them).
+ * (done/failed/soft question the user has already looked at — "всё просмотрено" clears them).
  */
 export function attentionGroupOf(entry: AttentionItem): AttentionGroupKey | null {
-  if (entry.state === 'waiting' || entry.state === 'working') return entry.state;
+  if (entry.state === 'working') return entry.state;
+  if (entry.state === 'waiting') return isSoftWaiting(entry) && !entry.unread ? null : entry.state;
   if ((entry.state === 'failed' || entry.state === 'done') && entry.unread) return entry.state;
   return null;
 }
@@ -142,14 +158,13 @@ export function describeAttention(entry: AttentionItem, nowMs: number = Date.now
 }
 
 /**
- * Optimistic local copy of `POST /api/attention/seen`: marks done/failed as
- * read. Waiting sessions are untouched — only an answer closes them.
+ * Optimistic local copy of `POST /api/attention/seen`: marks done/failed and
+ * soft questions as read. Open requests are untouched — only an answer closes them.
  */
 export function applySeen(items: readonly AttentionItem[], target: AttentionSeenTarget): AttentionItem[] {
   const ids = 'all' in target ? null : new Set(target.sessionIds);
   return items.map((entry) => {
-    const finished = entry.state === 'done' || entry.state === 'failed';
-    if (!finished || !entry.unread) return entry;
+    if (!isSeenable(entry) || !entry.unread) return entry;
     if (ids && !ids.has(entry.sessionId)) return entry;
     return { ...entry, unread: false };
   });

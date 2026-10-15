@@ -86,7 +86,7 @@ export interface AttentionItem {
   reason: AttentionReason;
   detail: AttentionDetail | null;
   updatedAt: string;
-  /** done/failed only: updated after this user last looked at the session. */
+  /** done/failed/soft question (manual_ask, text_question): updated after this user last looked at the session. */
   unread: boolean;
   /** Session's model override, null = account default (prompt-cache timer skips non-Anthropic models). */
   model: string | null;
@@ -368,6 +368,14 @@ function defaultBroadcast(payload: Record<string, unknown>): void {
 // Service
 // ---------------------------------------------------------------------------
 
+/**
+ * A question the agent only asked in its reply text — no open request behind
+ * it. Like done/failed it is "unread" until seen and leaves the hub once seen.
+ */
+function isSoftWaitingRow(state: string, reason: string | null | undefined): boolean {
+  return state === 'waiting' && (reason === 'manual_ask' || reason === 'text_question');
+}
+
 export function createSessionAttentionService(dependencies: SessionAttentionDependencies = {}) {
   const fetchLastAssistantText = dependencies.fetchLastAssistantText ?? defaultFetchLastAssistantText;
   const isRequestPending = dependencies.isRequestPending ?? defaultIsRequestPending;
@@ -647,7 +655,7 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
 
   function toItem(row: SessionAttentionListRow): AttentionItem {
     const state = row.state as AttentionState;
-    const isFinal = state === 'done' || state === 'failed';
+    const isFinal = state === 'done' || state === 'failed' || isSoftWaitingRow(state, row.reason);
     // Seen at or after the update's stamp = seen (see nextStamp for why ties are unambiguous).
     const unread = isFinal && (!row.seen_at || Date.parse(row.updated_at) > Date.parse(row.seen_at));
     const projectPath = row.project_path ?? '';
@@ -804,8 +812,9 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
     countsFor(items: AttentionItem[]): AttentionCounts {
       const counts: AttentionCounts = { waiting: 0, failed: 0, unreadDone: 0, working: 0 };
       for (const item of items) {
-        if (item.state === 'waiting') counts.waiting += 1;
-        else if (item.state === 'working') counts.working += 1;
+        if (item.state === 'waiting') {
+          if (!isSoftWaitingRow(item.state, item.reason) || item.unread) counts.waiting += 1;
+        } else if (item.state === 'working') counts.working += 1;
         else if (item.state === 'failed' && item.unread) counts.failed += 1;
         else if (item.state === 'done' && item.unread) counts.unreadDone += 1;
       }
@@ -814,8 +823,8 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
 
     /**
      * Marks sessions as seen by this user only. `{all:true}` clears every
-     * unread done/failed session the user can see; waiting sessions are not
-     * affected (only an answer closes them). Ids the user cannot see are ignored.
+     * unread done/failed session and soft question (manual_ask/text_question)
+     * the user can see; open requests are not affected (only an answer closes them). Ids the user cannot see are ignored.
      */
     markSeen(user: AttentionUser, target: { sessionIds: string[] } | { all: true }): { marked: number } {
       const userId = toUserId(user.id);
@@ -825,7 +834,9 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
       const items = visibleRows(user).map(toItem);
       let ids: string[];
       if ('all' in target && target.all === true) {
-        ids = items.filter((item) => item.state === 'done' || item.state === 'failed').map((item) => item.sessionId);
+        ids = items
+          .filter((item) => item.state === 'done' || item.state === 'failed' || isSoftWaitingRow(item.state, item.reason))
+          .map((item) => item.sessionId);
       } else {
         const wanted = new Set(Array.isArray((target as { sessionIds?: unknown }).sessionIds)
           ? (target as { sessionIds: unknown[] }).sessionIds.filter((id): id is string => typeof id === 'string')

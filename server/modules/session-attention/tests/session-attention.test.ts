@@ -346,8 +346,10 @@ test('listForUser shows an employee only granted projects; seen marks are per us
     service.markSeen(employee, { all: true });
     const employeeView = new Map(service.listForUser(employee).map((item) => [item.sessionId, item]));
     assert.equal(employeeView.get(betaSessionId)?.unread, false);
+    // A question asked only in the reply text is cleared by «всё просмотрено» too.
     assert.equal(employeeView.get(gammaSessionId)?.state, 'waiting');
-    assert.deepEqual(service.countsFor([...employeeView.values()]), { waiting: 1, failed: 0, unreadDone: 0, working: 0 });
+    assert.equal(employeeView.get(gammaSessionId)?.unread, false);
+    assert.deepEqual(service.countsFor([...employeeView.values()]), { waiting: 0, failed: 0, unreadDone: 0, working: 0 });
 
     // The admin's own view is untouched by the employee's "всё просмотрено".
     const adminView = new Map(service.listForUser(admin).map((item) => [item.sessionId, item]));
