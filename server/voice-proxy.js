@@ -12,8 +12,8 @@ import fs from 'node:fs';
 import { Readable } from 'node:stream';
 
 import express from 'express';
-import { HALLUCINATION_RE, dropHallucinatedEdges, cleanTranscript, glossaryPrompt, correctionPreservesContent, joinTranscripts, buildCorrectionSystemPrompt } from '../shared/voiceTranscript.js';
-import { splitWav } from '../shared/voiceAudio.js';
+import { HALLUCINATION_RE, dropHallucinatedEdges, cleanTranscript, countWords, glossaryPrompt, correctionPreservesContent, joinTranscripts, buildCorrectionSystemPrompt, transcriptLooksLossy } from '../shared/voiceTranscript.js';
+import { splitWav, voicedSeconds } from '../shared/voiceAudio.js';
 
 const ENV = {
   baseUrl: (process.env.VOICE_API_BASE_URL || '').replace(/\/$/, ''),
@@ -186,7 +186,7 @@ async function correctText(cfg, rawText, opts, keys) {
  * falling back to server env defaults. The dictionary is a { canon: [wrong,…] }
  * map parsed on the client from the user's glossary.
  * @param {import('express').Request} req
- * @returns {{correction: boolean, fillerCleanup: boolean, correctionModel: string, language: string, dictionary: Record<string,string[]>, keepWords: string[], hintTerms: string[]}}
+ * @returns {{correction: boolean, fillerCleanup: boolean, correctionModel: string, language: string, dictionary: Record<string,string[]>, keepWords: string[], hintTerms: string[], thorough: boolean}}
  */
 function resolveCleanupOptions(req) {
   let o = {};
@@ -207,6 +207,8 @@ function resolveCleanupOptions(req) {
     dictionary: { ...fallback.dictionary, ...dict },
     keepWords: fallback.keep,
     hintTerms: [...new Set([...Object.keys(dict), ...fallback.terms])],
+    // Retry of a recording that already came back short: skip the quick recipes.
+    thorough: o.thorough === true,
   };
 }
 
@@ -387,6 +389,75 @@ async function postWithRetry(url, keys, makeBody) {
   return last;
 }
 
+// Whisper sometimes swaps real speech for a YouTube outro («Субтитры делал
+// DimaTorzok») or silently skips a stretch. A chunk whose text is far too
+// short for the speech it holds is re-recognised in other ways — without the
+// glossary hint, in 20-second pieces, with the sibling Groq model — and the
+// fullest result wins. Each recipe is one entry; the first failure stays fatal.
+const SHORT_PIECE_SECONDS = 20;
+const SIBLING_MODEL = { 'whisper-large-v3': 'whisper-large-v3-turbo', 'whisper-large-v3-turbo': 'whisper-large-v3' };
+
+async function recogniseOnce(cfg, keys, audio, { type, filename, prompt, model, temperature }) {
+  const r = await postWithRetry(`${cfg.baseUrl}/audio/transcriptions`, keys, () => {
+    const fd = new FormData();
+    fd.append('file', new Blob([audio], { type }), filename);
+    fd.append('model', model);
+    fd.append('response_format', 'verbose_json');
+    fd.append('temperature', String(temperature));
+    if (cfg.language) fd.append('language', cfg.language);
+    if (prompt) fd.append('prompt', prompt);
+    return { body: fd };
+  });
+  const body = await r.text();
+  if (!r.ok) return { failed: { status: r.status, body } };
+  let data;
+  try { data = JSON.parse(body); } catch { data = { text: body }; }
+  // Full text is authoritative; segment-level confidence must never
+  // silently remove genuine speech. Clean known artifacts textually.
+  const heard = typeof data.text === 'string' ? data.text
+    : (data.segments || []).map((segment) => String(segment.text || '').trim()).join(' ');
+  const text = cleanTranscript(heard);
+  return { text, hadJunk: countWords(text) < countWords(heard) };
+}
+
+async function recogniseInPieces(cfg, keys, audio, options) {
+  const pieces = splitWav(audio, SHORT_PIECE_SECONDS)?.chunks || [];
+  const texts = [];
+  let hadJunk = false;
+  for (const [index, piece] of pieces.entries()) {
+    if (piece.silent) continue;
+    const result = await recogniseOnce(cfg, keys, piece.audio, { ...options, filename: `piece-${index}.wav` });
+    if (result.failed) return result;
+    hadJunk ||= result.hadJunk;
+    if (result.text) texts.push(result.text);
+  }
+  return { text: joinTranscripts(texts), hadJunk };
+}
+
+async function recogniseChunk(cfg, keys, chunk, { isWav, type, filename, gloss, thorough }) {
+  const base = { type, filename, model: cfg.sttModel, temperature: 0 };
+  const sibling = /groq\.com/.test(cfg.baseUrl) ? SIBLING_MODEL[cfg.sttModel] : null;
+  const recipes = [
+    !thorough && (() => recogniseOnce(cfg, keys, chunk.audio, { ...base, prompt: gloss })),
+    !thorough && (() => recogniseOnce(cfg, keys, chunk.audio, base)),
+    isWav && (() => recogniseInPieces(cfg, keys, chunk.audio, base)),
+    isWav && thorough && (() => recogniseInPieces(cfg, keys, chunk.audio, { ...base, temperature: 0.2 })),
+    sibling && (() => recogniseOnce(cfg, keys, chunk.audio, { ...base, model: sibling })),
+  ].filter(Boolean);
+  const voiced = isWav ? voicedSeconds(chunk.audio) : 0;
+  let best = null;
+  for (const [index, recipe] of recipes.entries()) {
+    const result = await recipe();
+    if (result.failed) {
+      if (index === 0) return result;
+      continue; // a fallback recipe failing must not lose what we already have
+    }
+    if (!best || countWords(result.text) > countWords(best.text)) best = result;
+    if (result.text && !transcriptLooksLossy(result.text, voiced, result.hadJunk)) return { text: result.text, suspect: false };
+  }
+  return { text: best?.text || '', suspect: Boolean(best?.text) };
+}
+
 /**
  * GET /api/voice/health -> { configured } (true when a backend base URL is set).
  */
@@ -412,38 +483,23 @@ router.post('/transcribe', async (req, res) => {
       const chunks = split?.chunks || [{ audio: req.file.buffer, silent: false }];
       const keys = keysFor(cfg, req);
       const parts = [];
+      let suspect = false;
+      const gloss = glossaryPrompt(opts.dictionary, opts.hintTerms);
       for (let index = 0; index < chunks.length; index++) {
         const chunk = chunks[index];
         if (chunk.silent) continue;
-        let text = '';
-        // A suspiciously empty chunk is retried without the glossary. Never
-        // return the other chunks as if a missing chunk had succeeded.
-        for (let attempt = 0; attempt < 2; attempt++) {
-          const makeBody = () => {
-            const fd = new FormData();
-            fd.append('file', new Blob([chunk.audio], { type: split ? 'audio/wav' : req.file.mimetype || 'audio/webm' }),
-              split ? `chunk-${index}.wav` : req.file.originalname || 'recording.webm');
-            fd.append('model', cfg.sttModel);
-            fd.append('response_format', 'verbose_json');
-            fd.append('temperature', '0');
-            if (opts.language) fd.append('language', opts.language);
-            const gloss = glossaryPrompt(opts.dictionary, opts.hintTerms);
-            if (gloss && !attempt) fd.append('prompt', gloss);
-            return { body: fd };
-          };
-          const r = await postWithRetry(`${cfg.baseUrl}/audio/transcriptions`, keys, makeBody);
-          const body = await r.text();
-          if (!r.ok) return upstreamError(res, r.status, body);
-          let data;
-          try { data = JSON.parse(body); } catch { data = { text: body }; }
-          // Full text is authoritative; segment-level confidence must never
-          // silently remove genuine speech. Clean known artifacts textually.
-          text = cleanTranscript(typeof data.text === 'string' ? data.text
-            : (data.segments || []).map((segment) => String(segment.text || '').trim()).join(' '));
-          if (text) break;
-        }
-        if (!text) return res.status(422).json({ error: `Не удалось распознать часть ${index + 1} из ${chunks.length}. Запись сохранена — повтори распознавание.` });
-        parts.push(text);
+        const result = await recogniseChunk({ ...cfg, language: opts.language }, keys, chunk, {
+          isWav: Boolean(split),
+          type: split ? 'audio/wav' : req.file.mimetype || 'audio/webm',
+          filename: split ? `chunk-${index}.wav` : req.file.originalname || 'recording.webm',
+          gloss,
+          thorough: opts.thorough,
+        });
+        if (result.failed) return upstreamError(res, result.failed.status, result.failed.body);
+        // Never return the other chunks as if a missing chunk had succeeded.
+        if (!result.text) return res.status(422).json({ error: `Не удалось распознать часть ${index + 1} из ${chunks.length}. Запись сохранена — повтори распознавание.` });
+        suspect ||= result.suspect;
+        parts.push(result.text);
       }
       const raw = joinTranscripts(parts);
 
@@ -458,7 +514,9 @@ router.post('/transcribe', async (req, res) => {
           final = raw;
         }
       }
-      res.json({ text: final, raw, audioSeconds: split?.duration ?? null, chunks: chunks.length });
+      final = cleanTranscript(final); // the corrector may re-spell the credit
+      // suspect: some speech may still be missing; the client keeps the recording.
+      res.json({ text: final, raw, audioSeconds: split?.duration ?? null, chunks: chunks.length, suspect });
     } catch (e) {
       backendError(res, e);
     }

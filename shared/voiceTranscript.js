@@ -1,8 +1,19 @@
 // Shared by the proxy and direct browser STT path. Keep cleanup conservative:
 // silence scores are diagnostic evidence, not permission to delete speech.
-export const HALLUCINATION_RE = /^(?:продолжение следует|спасибо за просмотр|спасибо за внимание|подписывайтесь(?: на(?: мой)? канал)?|ставьте лайки?|до новых встреч|(?:субтитры (?:сделал|создал|подготовил)\s+)?dima\s*torzok)[.!?…\s]*$/iu;
-const CREDIT = /(?:субтитры\s+(?:сделал|создал|подготовил)\s+|редактор субтитров\s*)?dima\s*torzok/iu;
-const CREDIT_PREFIX = new RegExp(`^${CREDIT.source}(?=$|[\\s.!?…])(?:[.!?…]+\\s*|\\s+)?`, 'iu');
+// The subtitle credit Whisper learned from YouTube leaks anywhere in a
+// transcript, unpunctuated and misspelled: «Субтитры делал DimaTorzok»,
+// «dimatozok», «Дима Торзок». The name is never real speech, so it is cut
+// wherever it stands — unless the user quotes it («удали фразу «…»»).
+const CREDIT_NAME = '(?:dima|дима)[\\s_-]*[tт][oо][rр]?[zз][oо][kк]';
+export const HALLUCINATION_RE = new RegExp('^(?:продолжение следует|спасибо за просмотр|спасибо за внимание|подписывайтесь(?: на(?: мой)? канал)?|ставьте лайки?|до новых встреч|'
+  + `(?:субтитры\\s+(?:с?делал|создавал|создал|подготовил)а?\\s+)?${CREDIT_NAME})[.!?…\\s]*$`, 'iu');
+const CREDIT_ANYWHERE = new RegExp(
+  `(?<![«"„\\p{L}\\p{N}])(?:(?:субтитры\\s+(?:с?делал|создавал|создал|подготовил)а?|редактор\\s+субтитров)\\s+)?${CREDIT_NAME}(?![\\p{L}\\p{N}»"“])[\\s.!?…,]*`
+  + '|(?<![\\p{L}\\p{N}«"„])ваши\\s+субтитры\\s+(?:были\\s+)?(?:сделаны|созданы)\\s+по-[\\p{L}]+[\\s.!?…,]*', 'giu');
+
+export function stripCredits(text) {
+  return String(text || '').replace(CREDIT_ANYWHERE, ' ').replace(/\s{2,}/g, ' ').trim();
+}
 
 export function dropHallucinatedEdges(segments) {
   const kept = Array.isArray(segments) ? [...segments] : [];
@@ -14,14 +25,26 @@ export function dropHallucinatedEdges(segments) {
 }
 
 export function cleanTranscript(text) {
-  // Remove the exact credit at a sentence boundary, never a wildcard suffix.
-  // Leave mentions inside a meaningful sentence (e.g. "удали фразу ...") alone.
-  const parts = String(text || '').trim().split(/(?<=[.!?…])\s+/)
-    .map((part) => part.replace(CREDIT_PREFIX, '').trim()).filter(Boolean);
+  const parts = stripCredits(text).split(/(?<=[.!?…])\s+/)
+    .map((part) => part.trim()).filter(Boolean);
   while (parts.length && HALLUCINATION_RE.test(parts[parts.length - 1])) parts.pop();
   while (parts.length && HALLUCINATION_RE.test(parts[0])) parts.shift();
   // Repetition can be intentional. Deduplicate only overlapping audio boundaries.
   return parts.join(' ').trim();
+}
+
+export function countWords(text) {
+  return (String(text || '').match(/[\p{L}\p{N}]+/gu) || []).length;
+}
+
+// Russian dictation runs ~3-4 words per second of voiced audio (pauses are not
+// counted). Far fewer words means Whisper skipped speech or replaced it with a
+// YouTube outro; the threshold leaves room for slow, drawn-out talking.
+export function transcriptLooksLossy(text, voicedSeconds, hadJunk = false) {
+  if (!(voicedSeconds >= 3)) return false;
+  const words = countWords(text);
+  if (hadJunk) return words < voicedSeconds * 2.0; // junk was there: be stricter
+  return voicedSeconds >= 5 && words < voicedSeconds * 1.0;
 }
 
 export function glossaryPrompt(dictionary, preferred) {

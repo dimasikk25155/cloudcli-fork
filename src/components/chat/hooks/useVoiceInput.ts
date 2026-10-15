@@ -236,6 +236,7 @@ export function useVoiceInput(
         if (cancelledRef.current) return;
         try {
           let text = pending.transcript || '';
+          let suspect = false;
           if (!text) {
             const wav = await toWav16kMono(pending.blob);
             if (!wav) throw new Error('Не удалось прочитать запись целиком. Аудио сохранено — скачай его или повтори распознавание.');
@@ -244,7 +245,7 @@ export function useVoiceInput(
             if (!audio || (recordedSeconds > 10 && audio.duration < recordedSeconds - Math.max(2, recordedSeconds * 0.1))) {
               throw new Error('Длительность аудио меньше времени записи. Аудио сохранено — проверь файл перед отправкой.');
             }
-            const res = await transcribeVoice(wav, 'recording.wav');
+            const res = await transcribeVoice(wav, 'recording.wav', { thorough: Boolean(pending.thorough) });
             if (!res.ok) {
               lastError = await readErrorMessage(res);
               if (isPermanent(res.status)) break;
@@ -252,11 +253,25 @@ export function useVoiceInput(
             }
             const data = await res.json();
             text = String(data?.text || '').trim();
+            suspect = data?.suspect === true;
           }
           if (cancelledRef.current) return;
           if (!text) {
             lastError = 'Речь не распознана. Запись сохранена — повтори распознавание.';
             break;
+          }
+          if (suspect) {
+            // The server found far fewer words than speech: insert what was
+            // heard, but keep the original so nothing has to be re-dictated.
+            onTranscript(text, false);
+            pending = { ...pending, transcript: undefined, status: 'pending', send: false, thorough: true };
+            pendingRef.current = pending;
+            await persist(pending);
+            if (cancelledRef.current) return;
+            busyRef.current = false;
+            setState('error');
+            setRecoveryMessage('Похоже, часть речи не расслышана — вставил то, что разобрал. Запись сохранена: повтор распознает её тщательнее (текст добавится ещё раз), её можно скачать или убрать.');
+            return;
           }
           pending = { ...pending, transcript: text, status: 'ready' };
           pendingRef.current = pending;

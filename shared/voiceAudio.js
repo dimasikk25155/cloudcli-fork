@@ -52,3 +52,25 @@ export function splitWav(input, maxSeconds = 60) {
   }
   return { chunks, duration: frames / rate };
 }
+
+// Seconds of a canonical PCM16 mono WAV (as produced by splitWav) that carry
+// sound above the room's own noise floor. Used only to judge whether a
+// transcript is suspiciously short; it never decides what audio is sent.
+export function voicedSeconds(wav) {
+  const bytes = wav instanceof Uint8Array ? wav : new Uint8Array(wav);
+  if (bytes.length <= 44) return 0;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const rate = view.getUint32(24, true) || 16000;
+  const frames = Math.floor((bytes.length - 44) / 2);
+  const window = Math.max(1, Math.floor(rate * 0.1));
+  const levels = [];
+  for (let start = 0; start + window <= frames; start += window) {
+    let energy = 0;
+    for (let frame = start; frame < start + window; frame++) energy += view.getInt16(44 + frame * 2, true) ** 2;
+    levels.push(Math.sqrt(energy / window));
+  }
+  if (!levels.length) return 0;
+  const floor = [...levels].sort((a, b) => a - b)[Math.floor(levels.length * 0.2)];
+  const threshold = Math.max(300, floor * 2.5);
+  return levels.filter((level) => level > threshold).length * 0.1;
+}

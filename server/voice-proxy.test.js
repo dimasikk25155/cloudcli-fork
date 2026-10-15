@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { transcriptLooksLossy } from '../shared/voiceTranscript.js';
 import {
   HALLUCINATION_RE,
   dropHallucinatedEdges,
@@ -120,6 +121,20 @@ test('DimaTorzok credit attached to real text removes only the credit', () => {
   assert.equal(cleanTranscript('Субтитры сделал DimaTorzok Привет, проверь API.'), 'Привет, проверь API.');
   assert.equal(cleanTranscript('Первая часть. Субтитры сделал DimaTorzok. Вторая часть.'), 'Первая часть. Вторая часть.');
   assert.equal(cleanTranscript('Удали фразу «Субтитры сделал DimaTorzok» из результата.'), 'Удали фразу «Субтитры сделал DimaTorzok» из результата.');
+});
+
+test('the credit is cut anywhere, in any spelling, without touching real talk about subtitles', () => {
+  assert.equal(cleanTranscript('dimatozok Субтитры делал DimaTorzok Вот ты, почини Виспер.'), 'Вот ты, почини Виспер.');
+  assert.equal(cleanTranscript('Заморосим жёстко. Субтитры делал DimaTorzok Снимать как есть.'), 'Заморосим жёстко. Снимать как есть.');
+  assert.equal(cleanTranscript('Субтитры создавал Дима Торзок. Ваши субтитры созданы по-русски. Привет.'), 'Привет.');
+  assert.equal(cleanTranscript('Как сделать субтитры на видео?'), 'Как сделать субтитры на видео?');
+});
+
+test('a transcript far too short for the speech it came from is flagged', () => {
+  assert.equal(transcriptLooksLossy('Привет.', 30), true);
+  assert.equal(transcriptLooksLossy('Вот ты, почини Виспер.', 8, true), true);
+  assert.equal(transcriptLooksLossy(Array(40).fill('слово').join(' '), 30), false);
+  assert.equal(transcriptLooksLossy('Ага.', 2), false); // short takes are never second-guessed
 });
 
 test('glossary retains terms with no aliases and terms with inline comments', () => {

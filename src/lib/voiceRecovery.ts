@@ -7,6 +7,8 @@ export type SavedVoiceRecording = {
   recordedMs: number;
   status: 'recording' | 'pending' | 'ready';
   transcript?: string;
+  /** The last recognition looked short: the next retry takes the slow, thorough path. */
+  thorough?: boolean;
 };
 
 const DATABASE = 'neo3-voice-recovery';

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
 import express from 'express';
-import { splitWav } from '../shared/voiceAudio.js';
+import { splitWav, voicedSeconds } from '../shared/voiceAudio.js';
 import { correctionPreservesContent, joinTranscripts } from '../shared/voiceTranscript.js';
 
 function wav(seconds, rate = 16000) {
@@ -92,7 +92,10 @@ test('HTTP proxy returns all chunks, rejects failed/empty chunks and protects ra
   };
   const submit = () => {
     const form = new FormData();
-    form.append('audio', new Blob([wav(120)], { type: 'audio/wav' }), 'recording.wav');
+    // A steady hum: no speech to judge, so each chunk is recognised exactly once.
+    const hum = wav(120);
+    for (let at = 44; at < hum.length; at += 2) hum.writeInt16LE(1000, at);
+    form.append('audio', new Blob([hum], { type: 'audio/wav' }), 'recording.wav');
     return realFetch(`http://127.0.0.1:${server.address().port}/voice/transcribe`, { method: 'POST', body: form });
   };
   const response = await submit();
@@ -108,4 +111,58 @@ test('HTTP proxy returns all chunks, rejects failed/empty chunks and protects ra
   const empty = await submit();
   assert.equal(empty.status, 422);
   assert.match((await empty.json()).error, /часть 2/);
+});
+
+// Speech-like take: 0.5 s loud, 0.5 s near-silent, repeated.
+function speechWav(seconds, rate = 16000) {
+  const audio = wav(seconds, rate);
+  for (let n = 0; n < seconds * rate; n++) {
+    const loud = Math.floor(n / (rate / 2)) % 2 === 0;
+    audio.writeInt16LE(loud ? Math.round(4000 * Math.sin(n / 7)) : (n % 3) - 1, 44 + n * 2);
+  }
+  return audio;
+}
+
+test('voiced seconds count speech, not the whole take or a constant hum', () => {
+  const voiced = voicedSeconds(new Uint8Array(speechWav(20)));
+  assert.ok(voiced > 8 && voiced < 12, `voiced=${voiced}`);
+});
+
+test('speech swapped for the YouTube credit is re-recognised; a still-short result is marked suspect', async (t) => {
+  process.env.VOICE_DICTIONARY_PATH = '';
+  process.env.VOICE_API_BASE_URL = 'https://voice-fixture.invalid/v1';
+  process.env.VOICE_API_KEY = 'test-only';
+  process.env.VOICE_CORRECTION_MODEL = '';
+  const { default: router } = await import('./voice-proxy.js?ladder');
+  const app = express();
+  app.use('/voice', router);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; });
+  let healed = true;
+  const sent = [];
+  globalThis.fetch = async (url, options) => {
+    if (!String(url).startsWith('https://voice-fixture.invalid')) return realFetch(url, options);
+    sent.push({ prompt: options.body.get('prompt') });
+    if (sent.length === 1 || !healed) return Response.json({ text: 'Субтитры делал DimaTorzok' + (healed ? '' : ' Привет.') });
+    return Response.json({ text: Array(30).fill('слово').join(' ') });
+  };
+  const submit = (options = {}) => {
+    const form = new FormData();
+    form.append('audio', new Blob([speechWav(30)], { type: 'audio/wav' }), 'recording.wav');
+    form.append('options', JSON.stringify(options));
+    return realFetch(`http://127.0.0.1:${server.address().port}/voice/transcribe`, { method: 'POST', body: form });
+  };
+  const ok = await (await submit()).json();
+  assert.equal(ok.suspect, false);
+  assert.equal(ok.text.split(' ').length, 30);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].prompt, null); // the second recipe drops the glossary hint
+  healed = false; sent.length = 0;
+  const short = await (await submit()).json();
+  assert.equal(short.suspect, true);
+  assert.match(short.text, /^Привет\./);
+  assert.ok(sent.length >= 3, `tried ${sent.length} recipes`);
 });

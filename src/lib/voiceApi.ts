@@ -11,10 +11,11 @@ export function voiceConfigSignature(): string {
   return JSON.stringify(readVoiceConfig());
 }
 
-export async function transcribeVoice(blob: Blob, filename: string): Promise<Response> {
+export async function transcribeVoice(blob: Blob, filename: string, { thorough = false } = {}): Promise<Response> {
   const config = readVoiceConfig();
   const body = new FormData();
-  const signal = AbortSignal.timeout(90000);
+  // A chunk that comes back short is re-recognised several ways on the server.
+  const signal = AbortSignal.timeout(240000);
 
   if (config.baseUrl.trim()) {
     const options = voiceCleanupOptions();
@@ -73,7 +74,7 @@ export async function transcribeVoice(blob: Blob, filename: string): Promise<Res
   // Cleanup config (glossary + toggles) travels as a form field, not a header —
   // a user's glossary can exceed header size limits. Server-side text cleanup
   // runs in the proxy; the direct-backend path uses the same preservation rules.
-  body.append('options', JSON.stringify(voiceCleanupOptions()));
+  body.append('options', JSON.stringify({ ...voiceCleanupOptions(), thorough }));
   return authenticatedFetch('/api/voice/transcribe', {
     method: 'POST',
     headers: voiceConfigHeaders(),
