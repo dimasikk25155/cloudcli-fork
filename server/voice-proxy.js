@@ -142,13 +142,24 @@ function resolveConfig(req) {
  * @param {{correctionModel: string, dictionary: Record<string,string[]>, fillerCleanup: boolean}} opts
  * @returns {Promise<string>}
  */
+// Groq retires models; saved settings keep the old name, so map it here.
+const RETIRED_CORRECTION_MODELS = { 'llama-3.3-70b-versatile': 'qwen/qwen3.8-27b' };
+
+// Reasoning models spend the token budget thinking unless told not to.
+function reasoningOptions(model) {
+  if (model.startsWith('qwen/')) return { reasoning_effort: 'none' };
+  if (model.startsWith('openai/gpt-oss')) return { reasoning_effort: 'low', include_reasoning: false };
+  return {};
+}
+
 async function correctText(cfg, rawText, opts, keys) {
-  const model = opts.correctionModel;
+  const model = RETIRED_CORRECTION_MODELS[opts.correctionModel] || opts.correctionModel;
   if (!model || !rawText) return rawText;
   const makeBody = () => ({
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
+      ...reasoningOptions(model),
       temperature: 0.2,
       // Headroom for long dictations; without it Groq silently truncates.
       max_completion_tokens: Math.min(8000, Math.max(1024, rawText.length)),

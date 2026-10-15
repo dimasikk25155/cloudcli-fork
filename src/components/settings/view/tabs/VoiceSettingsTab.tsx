@@ -134,7 +134,7 @@ export default function VoiceSettingsTab() {
                 />
                 <Field
                   label={t('voiceSettings.correctionModel')}
-                  placeholder="llama-3.3-70b-versatile"
+                  placeholder="qwen/qwen3.8-27b"
                   value={config.correctionModel}
                   onChange={(e) => update({ correctionModel: e.target.value })}
                 />

@@ -166,3 +166,10 @@ test('speech swapped for the YouTube credit is re-recognised; a still-short resu
   assert.match(short.text, /^Привет\./);
   assert.ok(sent.length >= 3, `tried ${sent.length} recipes`);
 });
+
+test('corrector may swap a spoken word for its Latin name, never drop speech', () => {
+  assert.equal(correctionPreservesContent('напиши код на питоне который парсит авито', 'Напиши код на Python, который парсит Авито.'), true);
+  assert.equal(correctionPreservesContent('ну короче рекламу запускать в телеге', 'Рекламу запускать в Telegram.', {}, true), true);
+  assert.equal(correctionPreservesContent('раз два три четыре пять шесть', 'Раз, два, три.'), false);
+  assert.equal(correctionPreservesContent('рекламу запускать в телеге типа так', 'Рекламу запускать в Telegram.', {}, true), false);
+});

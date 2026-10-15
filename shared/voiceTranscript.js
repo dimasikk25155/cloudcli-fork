@@ -62,6 +62,9 @@ export function glossaryPrompt(dictionary, preferred) {
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Words the corrector is told to drop as fillers; removing them is not lost content.
+const FILLERS = ['э', 'эм', 'ну', 'короче', 'типа'];
+
 function normalizedWords(text, dictionary, fillerCleanup) {
   let normalized = text.toLowerCase().replace(/ё/g, 'е');
   const pairs = Object.entries(dictionary || {}).flatMap(([canon, wrongs]) =>
@@ -71,20 +74,23 @@ function normalizedWords(text, dictionary, fillerCleanup) {
     normalized = normalized.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(wrong.toLowerCase().replace(/ё/g, 'е'))}(?![\\p{L}\\p{N}])`, 'gu'), () => canon.toLowerCase().replace(/ё/g, 'е'));
   }
   const words = normalized.match(/[\p{L}\p{N}]+/gu) || [];
-  return fillerCleanup ? words.filter((w) => !['э', 'эм', 'ну'].includes(w)) : words;
+  return fillerCleanup ? words.filter((w) => !FILLERS.includes(w)) : words;
 }
 
-function retainedFraction(source, target) {
-  const available = new Map();
-  for (const word of target) available.set(word, (available.get(word) || 0) + 1);
-  let retained = 0;
+// Spoken words missing from the corrected text, minus the Latin names that
+// took their place («телеге» → Telegram, «питоне» → Python). Dropping real
+// speech leaves no Latin word behind, so it still fails.
+function lostWords(source, target) {
+  const left = new Map();
+  for (const word of target) left.set(word, (left.get(word) || 0) + 1);
+  let missing = 0;
   for (const word of source) {
-    if (available.get(word)) {
-      retained++;
-      available.set(word, available.get(word) - 1);
-    }
+    if (left.get(word)) left.set(word, left.get(word) - 1);
+    else missing++;
   }
-  return source.length ? retained / source.length : 1;
+  let latin = 0;
+  for (const [word, count] of left) if (/[a-z]/.test(word)) latin += count;
+  return missing - latin;
 }
 
 export function correctionPreservesContent(raw, corrected, dictionary = {}, fillerCleanup = false) {
@@ -92,8 +98,7 @@ export function correctionPreservesContent(raw, corrected, dictionary = {}, fill
   const before = normalizedWords(raw, dictionary, fillerCleanup);
   const after = normalizedWords(corrected, dictionary, fillerCleanup);
   // Fail closed on omissions, including a missing ending hidden by length checks.
-  return retainedFraction(before, after) === 1
-    && retainedFraction(before.slice(-12), after.slice(-18)) === 1;
+  return lostWords(before, after) <= 0 && lostWords(before.slice(-12), after.slice(-18)) <= 0;
 }
 
 export function joinTranscripts(parts) {
