@@ -1,0 +1,582 @@
+import fsSync from 'node:fs';
+import readline from 'node:readline';
+import { sessionsDb } from '../../../../modules/database/index.js';
+import { stripAttachmentReferenceTags, toImageAttachments } from '../../../../shared/image-attachments.js';
+import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '../../../../shared/utils.js';
+import { readCodexContextBudget } from '../../../../shared/context-budget.js';
+const PROVIDER = 'codex';
+function isVisibleCodexUserMessage(payload) {
+    if (!payload || payload.type !== 'user_message') {
+        return false;
+    }
+    if (payload.kind && payload.kind !== 'plain') {
+        return false;
+    }
+    return typeof payload.message === 'string' && payload.message.trim().length > 0;
+}
+/**
+ * Reads the image attachments Codex records on `user_message` events.
+ * Turns sent with `local_image` input items land in `local_images` as file
+ * paths (verified against real rollout JSONL); the `images` array can carry
+ * base64 data URLs, which are passed through as inline `data` attachments so
+ * the UI can preview them without a file lookup.
+ *
+ * Exported for tests.
+ */
+export function extractCodexUserImages(payload) {
+    if (!payload) {
+        return undefined;
+    }
+    const candidates = [
+        ...(Array.isArray(payload.local_images) ? payload.local_images : []),
+        ...(Array.isArray(payload.images) ? payload.images : []),
+    ];
+    const attachments = [];
+    for (const entry of candidates) {
+        if (typeof entry !== 'string' || !entry.trim()) {
+            continue;
+        }
+        if (entry.startsWith('data:')) {
+            attachments.push({ data: entry });
+        }
+        else {
+            attachments.push(...toImageAttachments([entry]));
+        }
+    }
+    return attachments.length > 0 ? attachments : undefined;
+}
+function extractCodexTextContent(content) {
+    if (!Array.isArray(content)) {
+        return typeof content === 'string' ? content : '';
+    }
+    return content
+        .map((item) => {
+        if (!item || typeof item !== 'object') {
+            return '';
+        }
+        const record = item;
+        if ((record.type === 'input_text' || record.type === 'output_text' || record.type === 'text')
+            && typeof record.text === 'string') {
+            return record.text;
+        }
+        return '';
+    })
+        .filter(Boolean)
+        .join('\n');
+}
+/** Codex 0.153 records real input as response_item, alongside user-role context. */
+export function extractCodexResponseUserMessage(payload) {
+    if (payload.type !== 'message' || payload.role !== 'user' || !Array.isArray(payload.content)) {
+        return null;
+    }
+    const kinds = payload.internal_chat_message_metadata_passthrough?.content_item_kinds;
+    // Role alone is not evidence of user input: AGENTS.md, environment, plugins,
+    // and compaction context also have role=user in the same transcript.
+    if (!Array.isArray(kinds) || !kinds.some((kind) => kind === 'user.text' || kind === 'user.image')) {
+        return null;
+    }
+    const parts = payload.content.filter((_, index) => (kinds[index] === 'user.text' || kinds[index] === 'user.image'));
+    const images = [];
+    const text = [];
+    for (const part of parts) {
+        if (part.type === 'input_text' && typeof part.text === 'string') {
+            // Codex surrounds an image item with two text-only transport markers.
+            const imageOpen = /^<image\s+name=[^\n]*?\s+path="([^"]+)">\s*$/.exec(part.text);
+            if (imageOpen) {
+                images.push({ path: imageOpen[1] });
+            }
+            else if (part.text.trim() !== '</image>') {
+                text.push(part.text);
+            }
+        }
+        else if (part.type === 'input_image' && typeof part.image_url === 'string') {
+            // Prefer the preceding path marker over duplicating its base64 payload.
+            if (images.length === 0 || !images.at(-1)?.path)
+                images.push({ data: part.image_url });
+        }
+        else if (part.type === 'local_image' && typeof part.path === 'string') {
+            images.push({ path: part.path });
+        }
+    }
+    const content = stripAttachmentReferenceTags(text.join('\n')).trim();
+    if (!content && images.length === 0)
+        return null;
+    return {
+        type: 'user', uuid: payload.id,
+        message: { role: 'user', content },
+        images: images.length ? images : undefined,
+    };
+}
+async function getCodexSessionMessages(sessionId, limit = null, offset = 0) {
+    try {
+        const sessionFilePath = sessionsDb.getSessionById(sessionId)?.jsonl_path;
+        if (!sessionFilePath) {
+            console.warn(`Codex session file not found for session ${sessionId}`);
+            return { messages: [], total: 0, hasMore: false };
+        }
+        const messages = [];
+        let tokenUsage = null;
+        const fileStream = fsSync.createReadStream(sessionFilePath);
+        const rl = readline.createInterface({
+            input: fileStream,
+            crlfDelay: Infinity,
+        });
+        for await (const line of rl) {
+            if (!line.trim()) {
+                continue;
+            }
+            try {
+                const entry = JSON.parse(line);
+                const budget = readCodexContextBudget(entry);
+                if (budget)
+                    tokenUsage = budget;
+                if (entry.type === 'event_msg' && isVisibleCodexUserMessage(entry.payload)) {
+                    messages.push({
+                        type: 'user',
+                        timestamp: entry.timestamp,
+                        message: {
+                            role: 'user',
+                            content: stripAttachmentReferenceTags(String(entry.payload.message ?? '')),
+                        },
+                        images: extractCodexUserImages(entry.payload),
+                    });
+                }
+                if (entry.type === 'response_item') {
+                    const userMessage = extractCodexResponseUserMessage(entry.payload);
+                    if (userMessage) {
+                        messages.push({ ...userMessage, timestamp: entry.timestamp });
+                    }
+                }
+                if (entry.type === 'response_item' &&
+                    entry.payload?.type === 'message' &&
+                    entry.payload.role === 'assistant') {
+                    const textContent = extractCodexTextContent(entry.payload.content);
+                    if (textContent.trim()) {
+                        messages.push({
+                            type: 'assistant',
+                            timestamp: entry.timestamp,
+                            message: {
+                                role: 'assistant',
+                                content: textContent,
+                            },
+                        });
+                    }
+                }
+                if (entry.type === 'response_item' && entry.payload?.type === 'reasoning') {
+                    const summaryText = Array.isArray(entry.payload.summary)
+                        ? entry.payload.summary
+                            .map((item) => item?.text)
+                            .filter(Boolean)
+                            .join('\n')
+                        : '';
+                    if (summaryText.trim()) {
+                        messages.push({
+                            type: 'thinking',
+                            timestamp: entry.timestamp,
+                            message: {
+                                role: 'assistant',
+                                content: summaryText,
+                            },
+                        });
+                    }
+                }
+                if (entry.type === 'response_item' && entry.payload?.type === 'function_call') {
+                    let toolName = entry.payload.name;
+                    let toolInput = entry.payload.arguments;
+                    if (toolName === 'shell_command') {
+                        toolName = 'Bash';
+                        try {
+                            const args = JSON.parse(entry.payload.arguments);
+                            toolInput = JSON.stringify({ command: args.command });
+                        }
+                        catch {
+                            // Keep original arguments when parsing fails.
+                        }
+                    }
+                    messages.push({
+                        type: 'tool_use',
+                        timestamp: entry.timestamp,
+                        toolName,
+                        toolInput,
+                        toolCallId: entry.payload.call_id,
+                    });
+                }
+                if (entry.type === 'response_item' && entry.payload?.type === 'function_call_output') {
+                    messages.push({
+                        type: 'tool_result',
+                        timestamp: entry.timestamp,
+                        toolCallId: entry.payload.call_id,
+                        output: entry.payload.output,
+                    });
+                }
+                if (entry.type === 'response_item' && entry.payload?.type === 'custom_tool_call') {
+                    const toolName = entry.payload.name || 'custom_tool';
+                    const input = entry.payload.input || '';
+                    if (toolName === 'apply_patch') {
+                        const fileMatch = String(input).match(/\*\*\* Update File: (.+)/);
+                        const filePath = fileMatch ? fileMatch[1].trim() : 'unknown';
+                        const lines = String(input).split('\n');
+                        const oldLines = [];
+                        const newLines = [];
+                        for (const lineContent of lines) {
+                            if (lineContent.startsWith('-') && !lineContent.startsWith('---')) {
+                                oldLines.push(lineContent.slice(1));
+                            }
+                            else if (lineContent.startsWith('+') && !lineContent.startsWith('+++')) {
+                                newLines.push(lineContent.slice(1));
+                            }
+                        }
+                        messages.push({
+                            type: 'tool_use',
+                            timestamp: entry.timestamp,
+                            toolName: 'Edit',
+                            toolInput: JSON.stringify({
+                                file_path: filePath,
+                                old_string: oldLines.join('\n'),
+                                new_string: newLines.join('\n'),
+                            }),
+                            toolCallId: entry.payload.call_id,
+                        });
+                    }
+                    else {
+                        messages.push({
+                            type: 'tool_use',
+                            timestamp: entry.timestamp,
+                            toolName,
+                            toolInput: input,
+                            toolCallId: entry.payload.call_id,
+                        });
+                    }
+                }
+                if (entry.type === 'response_item' && entry.payload?.type === 'custom_tool_call_output') {
+                    messages.push({
+                        type: 'tool_result',
+                        timestamp: entry.timestamp,
+                        toolCallId: entry.payload.call_id,
+                        output: entry.payload.output || '',
+                    });
+                }
+            }
+            catch {
+                // Skip malformed lines.
+            }
+        }
+        messages.sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
+        const total = messages.length;
+        if (limit !== null) {
+            const startIndex = Math.max(0, total - offset - limit);
+            const endIndex = total - offset;
+            const paginatedMessages = messages.slice(startIndex, endIndex);
+            const hasMore = startIndex > 0;
+            return {
+                messages: paginatedMessages,
+                total,
+                hasMore,
+                offset,
+                limit,
+                tokenUsage,
+            };
+        }
+        return { messages, tokenUsage };
+    }
+    catch (error) {
+        console.error(`Error reading Codex session messages for ${sessionId}:`, error);
+        return { messages: [], total: 0, hasMore: false };
+    }
+}
+export class CodexSessionsProvider {
+    /**
+     * Normalizes a persisted Codex JSONL entry.
+     *
+     * Live Codex SDK events are transformed before they reach normalizeMessage(),
+     * while history entries already use a compact message/tool shape from projects.js.
+     */
+    normalizeHistoryEntry(raw, sessionId) {
+        const ts = raw.timestamp || new Date().toISOString();
+        const baseId = raw.uuid || generateMessageId('codex');
+        if (raw.type === 'thinking' || raw.isReasoning) {
+            const thinkingContent = typeof raw.message?.content === 'string'
+                ? raw.message.content
+                : '';
+            if (!thinkingContent.trim()) {
+                return [];
+            }
+            return [createNormalizedMessage({
+                    id: baseId,
+                    sessionId,
+                    timestamp: ts,
+                    provider: PROVIDER,
+                    kind: 'thinking',
+                    content: thinkingContent,
+                })];
+        }
+        if (raw.message?.role === 'user') {
+            const content = typeof raw.message.content === 'string'
+                ? raw.message.content
+                : Array.isArray(raw.message.content)
+                    ? raw.message.content
+                        .map((part) => typeof part === 'string' ? part : part?.text || '')
+                        .filter(Boolean)
+                        .join('\n')
+                    : String(raw.message.content || '');
+            const cleanContent = stripAttachmentReferenceTags(content);
+            const rawImages = Array.isArray(raw.images) && raw.images.length > 0 ? raw.images : undefined;
+            if (!cleanContent.trim() && !rawImages) {
+                return [];
+            }
+            return [createNormalizedMessage({
+                    id: baseId,
+                    sessionId,
+                    timestamp: ts,
+                    provider: PROVIDER,
+                    kind: 'text',
+                    role: 'user',
+                    content: cleanContent,
+                    images: rawImages,
+                })];
+        }
+        if (raw.message?.role === 'assistant') {
+            const content = typeof raw.message.content === 'string'
+                ? raw.message.content
+                : Array.isArray(raw.message.content)
+                    ? raw.message.content
+                        .map((part) => typeof part === 'string' ? part : part?.text || '')
+                        .filter(Boolean)
+                        .join('\n')
+                    : '';
+            if (!content.trim()) {
+                return [];
+            }
+            return [createNormalizedMessage({
+                    id: baseId,
+                    sessionId,
+                    timestamp: ts,
+                    provider: PROVIDER,
+                    kind: 'text',
+                    role: 'assistant',
+                    content,
+                })];
+        }
+        if (raw.type === 'tool_use' || raw.toolName) {
+            return [createNormalizedMessage({
+                    id: baseId,
+                    sessionId,
+                    timestamp: ts,
+                    provider: PROVIDER,
+                    kind: 'tool_use',
+                    toolName: raw.toolName || 'Unknown',
+                    toolInput: raw.toolInput,
+                    toolId: raw.toolCallId || baseId,
+                })];
+        }
+        if (raw.type === 'tool_result') {
+            return [createNormalizedMessage({
+                    id: baseId,
+                    sessionId,
+                    timestamp: ts,
+                    provider: PROVIDER,
+                    kind: 'tool_result',
+                    toolId: raw.toolCallId || '',
+                    content: raw.output || '',
+                    isError: Boolean(raw.isError),
+                })];
+        }
+        return [];
+    }
+    /**
+     * Normalizes either a Codex history entry or a transformed live SDK event.
+     */
+    normalizeMessage(rawMessage, sessionId) {
+        const raw = readObjectRecord(rawMessage);
+        if (!raw) {
+            return [];
+        }
+        if (raw.message?.role) {
+            return this.normalizeHistoryEntry(raw, sessionId);
+        }
+        const ts = raw.timestamp || new Date().toISOString();
+        const baseId = raw.uuid || generateMessageId('codex');
+        if (raw.type === 'item') {
+            switch (raw.itemType) {
+                case 'agent_message':
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'text',
+                            role: 'assistant',
+                            content: raw.message?.content || '',
+                        })];
+                case 'reasoning':
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'thinking',
+                            content: raw.message?.content || '',
+                        })];
+                case 'command_execution':
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'tool_use',
+                            toolName: 'Bash',
+                            toolInput: { command: raw.command },
+                            toolId: baseId,
+                            output: raw.output,
+                            exitCode: raw.exitCode,
+                            status: raw.status,
+                        })];
+                case 'file_change':
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'tool_use',
+                            toolName: 'FileChanges',
+                            toolInput: raw.changes,
+                            toolId: baseId,
+                            status: raw.status,
+                        })];
+                case 'mcp_tool_call':
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'tool_use',
+                            toolName: raw.tool || 'MCP',
+                            toolInput: raw.arguments,
+                            toolId: baseId,
+                            server: raw.server,
+                            result: raw.result,
+                            error: raw.error,
+                            status: raw.status,
+                        })];
+                case 'web_search':
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'tool_use',
+                            toolName: 'WebSearch',
+                            toolInput: { query: raw.query },
+                            toolId: baseId,
+                        })];
+                case 'todo_list':
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'tool_use',
+                            toolName: 'TodoList',
+                            toolInput: { items: raw.items },
+                            toolId: baseId,
+                        })];
+                case 'error':
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'error',
+                            content: raw.message?.content || 'Unknown error',
+                        })];
+                default:
+                    return [createNormalizedMessage({
+                            id: baseId,
+                            sessionId,
+                            timestamp: ts,
+                            provider: PROVIDER,
+                            kind: 'tool_use',
+                            toolName: raw.itemType || 'Unknown',
+                            toolInput: raw.item || raw,
+                            toolId: baseId,
+                        })];
+            }
+        }
+        if (raw.type === 'turn_complete') {
+            return [createNormalizedMessage({
+                    id: baseId,
+                    sessionId,
+                    timestamp: ts,
+                    provider: PROVIDER,
+                    kind: 'complete',
+                })];
+        }
+        if (raw.type === 'turn_failed') {
+            return [createNormalizedMessage({
+                    id: baseId,
+                    sessionId,
+                    timestamp: ts,
+                    provider: PROVIDER,
+                    kind: 'error',
+                    content: raw.error?.message || 'Turn failed',
+                })];
+        }
+        return [];
+    }
+    /**
+     * Loads Codex JSONL history and keeps token usage metadata when projects.js
+     * provides it.
+     */
+    async fetchHistory(sessionId, options = {}) {
+        const { limit = null, offset = 0 } = options;
+        let result;
+        try {
+            // Load full history first so `total` reflects frontend-normalized messages,
+            // not raw JSONL records.
+            result = await getCodexSessionMessages(sessionId, null, 0);
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`[CodexProvider] Failed to load session ${sessionId}:`, message);
+            return { messages: [], total: 0, hasMore: false, offset: 0, limit: null };
+        }
+        const rawMessages = Array.isArray(result) ? result : (result.messages || []);
+        const tokenUsage = Array.isArray(result) ? undefined : result.tokenUsage;
+        const normalized = [];
+        for (const raw of rawMessages) {
+            normalized.push(...this.normalizeHistoryEntry(raw, sessionId));
+        }
+        const toolResultMap = new Map();
+        for (const msg of normalized) {
+            if (msg.kind === 'tool_result' && msg.toolId) {
+                toolResultMap.set(msg.toolId, msg);
+            }
+        }
+        for (const msg of normalized) {
+            if (msg.kind === 'tool_use' && msg.toolId && toolResultMap.has(msg.toolId)) {
+                const toolResult = toolResultMap.get(msg.toolId);
+                if (toolResult) {
+                    msg.toolResult = { content: toolResult.content, isError: toolResult.isError };
+                }
+            }
+        }
+        let total = 0;
+        for (const msg of normalized) {
+            if (msg.kind !== 'tool_result') {
+                total += 1;
+            }
+        }
+        const normalizedOffset = Math.max(0, offset);
+        const normalizedLimit = limit === null ? null : Math.max(0, limit);
+        const { page, hasMore } = sliceTailPage(normalized, normalizedLimit, normalizedOffset);
+        return {
+            messages: page,
+            total,
+            hasMore,
+            offset: normalizedOffset,
+            limit: normalizedLimit,
+            tokenUsage,
+        };
+    }
+}
+//# sourceMappingURL=codex-sessions.provider.js.map

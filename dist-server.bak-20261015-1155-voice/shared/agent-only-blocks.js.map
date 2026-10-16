@@ -1,0 +1,1 @@
+{"version":3,"file":"agent-only-blocks.js","sourceRoot":"","sources":["../../shared/agent-only-blocks.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AAEH,MAAM,gBAAgB,GAAG,2DAA2D,CAAC;AAErF,0CAA0C;AAC1C,MAAM,UAAU,oBAAoB,CAAC,IAAY;IAC/C,OAAO,MAAM,CAAC,IAAI,IAAI,EAAE,CAAC,CAAC,OAAO,CAAC,gBAAgB,EAAE,MAAM,CAAC,CAAC,IAAI,EAAE,CAAC;AACrE,CAAC"}
