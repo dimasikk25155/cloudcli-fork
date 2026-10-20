@@ -43,6 +43,7 @@ import {
 } from '@/shared/grok-question.js';
 import { isModOn, MOD_OFF, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession } from '@/shared/project-access.js';
+import { teamTelegram, teamTelegramUrl } from '@/modules/team-telegram/index.js';
 import { JAIL_DENIED_MESSAGE, JAIL_PROVIDER_MESSAGE, JAILED_PROVIDERS, userJailFor } from '@/shared/user-jail.js';
 import { threadsApiUrl, type ThreadsRunEnv } from '@/shared/threads-env.js';
 import type {
@@ -414,11 +415,17 @@ function beginChatSend(
   };
   // Set by the server only: a client cannot send its own `jail` (or `null`).
   delete runtimeOptions.jail;
+  delete runtimeOptions.teamTelegram;
   if (jail) {
     const assetsRoot = getGlobalImageAssetsDir();
     runtimeOptions.jail = {
       ...jail,
       readFiles: [...imageAttachments, ...fileAttachments].map((attachment) => path.resolve(assetsRoot, String(attachment.path))),
+    };
+    // Dima's Telegram, read-only, downloads into this project (team-telegram).
+    runtimeOptions.teamTelegram = {
+      url: teamTelegramUrl(),
+      token: teamTelegram.issue({ root: jail.root, userId: Number(userId) || 0 }),
     };
   }
 

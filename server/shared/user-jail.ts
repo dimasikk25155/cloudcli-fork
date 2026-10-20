@@ -182,6 +182,9 @@ export function buildJailProfile(jail: UserJail, home = os.homedir(), appRoot = 
     // '-'; Grok: url-encoded cwd), subfolders included.
     `${rw} (regex #"^${sbRegexLiteral(path.join(home, '.claude/projects', claudeProjectsKey(jail.root)))}")`,
     `  (regex #"^${sbRegexLiteral(path.join(home, '.grok/sessions', encodeURIComponent(jail.root)))}"))`,
+    // Dima's Telegram MCP answers anyone on loopback without a password:
+    // teammates reach it only through the gatekeeper (team-telegram).
+    '(deny network-outbound (remote tcp "localhost:8765"))',
     // The project itself.
     jail.readOnly
       ? `(allow file-read* (subpath ${sbString(jail.root)}))`
@@ -209,7 +212,7 @@ export function jailCodexHome(jail: UserJail, home = os.homedir()): string {
  * and a config with Dima's model settings, the threads MCP server and trust
  * for this project only — none of his other MCP servers, hooks or projects.
  */
-export function prepareCodexHome(jail: UserJail, home = os.homedir()): string {
+export function prepareCodexHome(jail: UserJail, home = os.homedir(), telegramUrl?: string): string {
   const dir = jailCodexHome(jail, home);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const authLink = path.join(dir, 'auth.json');
@@ -226,7 +229,11 @@ export function prepareCodexHome(jail: UserJail, home = os.homedir()): string {
     if (source[key] !== undefined) config[key] = source[key];
   }
   const threads = (source.mcp_servers as Record<string, unknown> | undefined)?.['neo3-threads'];
-  if (threads) config.mcp_servers = { 'neo3-threads': threads };
+  const mcpServers: Record<string, unknown> = {};
+  if (threads) mcpServers['neo3-threads'] = threads;
+  // Dima's Telegram through the gatekeeper; the run's key travels in env.
+  if (telegramUrl) mcpServers.telegram = { url: telegramUrl, bearer_token_env_var: 'NEO3_TEAM_TELEGRAM_TOKEN' };
+  if (Object.keys(mcpServers).length > 0) config.mcp_servers = mcpServers;
   config.projects = { [jail.root]: { trust_level: 'trusted' } };
   const file = path.join(dir, 'config.toml');
   const tmp = `${file}.${process.pid}.tmp`;

@@ -172,6 +172,7 @@ export default tseslint.config(
             "server/shared/project-access.ts", // the one "may this user touch this project/session" rule; session routes, links and relay checks share it
             "server/shared/sqlite-time.ts", // pure SQLite timestamp → ISO conversion used by session links
             "server/shared/mods.ts", // isModOn: the one server read of the built-in mod switches; every mod checks it where its work starts
+            "server/shared/threads-env.ts", // threadsApiUrl / thread env: Neo3's own address for engines (threads, team Telegram)
             "server/shared/user-jail.ts", // project jail for non-admin users: the Seatbelt fence every engine and terminal of a teammate runs in
           ], // classify shared utility files so modules can depend on them explicitly
           mode: "file",

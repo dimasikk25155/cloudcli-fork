@@ -529,8 +529,20 @@ function mapCliOptionsToSDK(options = {}) {
     sdkOptions.env = { ...sdkOptions.env, ...JAIL_CLAUDE_ENV };
     // ~/.claude.json is closed in the jail, so the threads server it registers
     // is handed over directly (only when this run has a thread token).
+    const jailedMcp = {};
     if (sdkOptions.env.NEO3_THREADS_TOKEN) {
-      sdkOptions.mcpServers = { [THREADS_MCP_SERVER_NAME]: { type: 'stdio', ...threadsMcpCommand() } };
+      jailedMcp[THREADS_MCP_SERVER_NAME] = { type: 'stdio', ...threadsMcpCommand() };
+    }
+    // Dima's Telegram through the gatekeeper (read + download into the project).
+    if (options.teamTelegram?.url && options.teamTelegram?.token) {
+      jailedMcp.telegram = {
+        type: 'http',
+        url: options.teamTelegram.url,
+        headers: { Authorization: `Bearer ${options.teamTelegram.token}` },
+      };
+    }
+    if (Object.keys(jailedMcp).length > 0) {
+      sdkOptions.mcpServers = jailedMcp;
     }
     sdkOptions.spawnClaudeCodeProcess = ({ command, args, cwd: spawnCwd, env, signal }) => {
       const jailed = jailCommand(jail, command, args);

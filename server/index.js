@@ -95,6 +95,7 @@ import { autoRelayRoutes, autoRelayService } from './modules/auto-relay/index.js
 import { memorySuggestionsRoutes, startMemorySuggestionsLoop } from './modules/memory-suggestions/index.js';
 import { pendingAnswers, pendingAnswersRoutes } from './modules/pending-answers/index.js';
 import { registerThreadsMcp, shouldRegisterThreadsMcp, threadsRoutes, threadsService, threadTokens } from './modules/threads/index.js';
+import { teamTelegramRoutes } from './modules/team-telegram/index.js';
 import { createAttentionPushListener } from './modules/notifications/index.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
@@ -250,6 +251,10 @@ app.use('/api', noStoreApi);
 // processes. The thread token of the run is the credential (Bearer); mounted
 // before the optional API key and every JWT check — the MCP has neither.
 app.use('/api/threads', threadsRoutes);
+
+// Telegram for teammates' jailed runs: read chats and fetch files into the
+// project only (server/modules/team-telegram). Bearer = the run's token.
+app.use('/api/team-mcp/telegram', teamTelegramRoutes);
 
 // Optional API key validation (if configured)
 app.use('/api', validateApiKey);
