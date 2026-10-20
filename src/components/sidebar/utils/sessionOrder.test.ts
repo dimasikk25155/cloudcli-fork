@@ -197,3 +197,33 @@ test('a hidden session is omitted from the Recent journal', () => {
   assert.equal(journal.length, 1);
   assert.deepEqual(idsOf(getAllSessions(journal[0])), ['t2']);
 });
+
+test('the Recent journal shows up to nine project folders even when one project is busy', () => {
+  const minute = (n: number) => new Date(Date.UTC(2026, 9, 20, 12, n)).toISOString();
+  // One busy project with 25 fresh sessions, then 10 quieter projects.
+  const busy = {
+    projectId: 'busy',
+    displayName: 'busy',
+    fullPath: '/busy',
+    sessions: Array.from({ length: 25 }, (_, index) => ({
+      id: `b${index}`,
+      createdAt: minute(30 + index),
+      lastActivity: minute(30 + index),
+    })),
+  } as unknown as Project;
+  const quiet = Array.from({ length: 10 }, (_, index) => ({
+    projectId: `p${index}`,
+    displayName: `p${index}`,
+    fullPath: `/p${index}`,
+    sessions: [{ id: `q${index}`, createdAt: minute(20 - index), lastActivity: minute(20 - index) }],
+  } as unknown as Project));
+
+  const journal = buildRecentProjects([busy, ...quiet], {}, {});
+  const ids = journal.map((project) => project.projectId).sort();
+
+  assert.equal(journal.length, 9);
+  assert.deepEqual(ids, ['busy', 'p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']);
+  const busyGroup = journal.find((project) => project.projectId === 'busy');
+  // The busy folder keeps the usual 20-session window; the others get their latest.
+  assert.equal(busyGroup?.sessions?.length, 20);
+});

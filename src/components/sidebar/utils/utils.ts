@@ -425,17 +425,25 @@ export const sortProjects = (
 };
 
 export const RECENT_JOURNAL_LIMIT = 20;
+/** Сколько папок проектов показывают «Недавние»: Дима ведёт 8–9 проектов сразу. */
+export const RECENT_JOURNAL_PROJECT_LIMIT = 9;
 
 /**
  * Builds the Recent journal: which sessions appear is decided by activity,
  * how folders and cards are stacked is decided by creation time (or a pinned
  * drag order). Two parallel runs therefore cannot swap places mid-reply.
+ *
+ * The journal holds the `limit` most active sessions, but never more than
+ * `projectLimit` folders — and those folders are always the `projectLimit`
+ * most recently active projects, each with at least its latest session, so
+ * one busy project cannot push the other parallel ones out of the list.
  */
 export const buildRecentProjects = (
   sortedProjects: Project[],
   hiddenSessions: Record<string, string>,
   sessionOrderByProject: Record<string, string[]>,
   limit: number = RECENT_JOURNAL_LIMIT,
+  projectLimit: number = RECENT_JOURNAL_PROJECT_LIMIT,
 ): Project[] => {
   const flattened = sortedProjects.flatMap((project) =>
     getAllSessions(project).map((session) => ({ project, session })),
@@ -449,7 +457,23 @@ export const buildRecentProjects = (
     isSessionVisibleInRecentJournal(session, hiddenSessions),
   );
 
-  const top = visible.slice(0, limit);
+  const top: typeof visible = [];
+  const takenProjects = new Set<string>();
+  for (const entry of visible) {
+    const projectId = entry.project.projectId;
+    const isNewProject = !takenProjects.has(projectId);
+    if (isNewProject && takenProjects.size >= projectLimit) {
+      continue;
+    }
+    if (!isNewProject && top.length >= limit) {
+      continue;
+    }
+    takenProjects.add(projectId);
+    top.push(entry);
+    if (top.length >= limit && takenProjects.size >= projectLimit) {
+      break;
+    }
+  }
 
   const byProjectId = new Map<string, Project>();
   for (const { project, session } of top) {
@@ -496,8 +520,10 @@ export const buildRecentProjects = (
  * его же реальный путь /private/tmp).
  */
 const SCRATCH_PATH_PATTERNS = [
-  /^\/tmp\//,
-  /^\/private\/tmp\//,
+  // Сам корень /tmp тоже: автоматические `claude -p` из /tmp (скрипт вердиктов)
+  // складывались в проект «tmp» и забивали «Недавние».
+  /^\/tmp(\/|$)/,
+  /^\/private\/tmp(\/|$)/,
   /^\/private\/var\/folders\//,
   /^\/var\/folders\//,
   /\/\.repro-tmp\d*\//,

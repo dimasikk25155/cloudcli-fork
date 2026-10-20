@@ -40,6 +40,14 @@ test('Codex desktop folders are inbox projects, real workspaces are not', () => 
 test('scratch still hides tmp/repro/probe folders', () => {
   assert.equal(isScratchProject(projectAt('/tmp/speedtest')), true);
   assert.equal(isScratchProject(projectAt('/private/tmp/agtest')), true);
+  // The bare temp roots — automated `claude -p` runs land in project «tmp».
+  assert.equal(isScratchProject(projectAt('/private/tmp')), true);
+  assert.equal(isScratchProject(projectAt('/tmp')), true);
+  assert.equal(
+    isScratchProject(projectAt('/private/var/folders/k5/abc/T/tmp.aBWSFGTBbY')),
+    true,
+  );
+  assert.equal(isScratchProject(projectAt('/Users/dimasik/Antigravity Project/tmpfiles')), false);
   assert.equal(
     isScratchProject(projectAt('/Users/dimasik/Antigravity Project/claude agent/cloudcli-fork/.repro-tmp/project')),
     true,
