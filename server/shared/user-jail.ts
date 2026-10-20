@@ -23,6 +23,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import TOML from '@iarna/toml';
+
 import { userDb } from '@/modules/database/index.js';
 
 export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
@@ -37,6 +39,8 @@ export type UserJail = {
   readOnly?: boolean;
   /** Extra files the run may read (attached images in the upload store). */
   readFiles?: string[];
+  /** Whose jail: keys the teammate's own Codex folder (`jailCodexHome`). */
+  userId?: number;
 };
 
 /** Is this user id an active admin? Role comes from the database only. */
@@ -101,7 +105,7 @@ export function userJailFor(userId: unknown, projectPath: string | null | undefi
   }
   const root = projectPath ? realDir(projectPath) : null;
   if (!root || root === '/' || root === realDir(os.homedir())) return 'deny';
-  return { root };
+  return { root, userId: Number(userId) || 0 };
 }
 
 /** Text shown to a non-admin whose run cannot be fenced. */
@@ -155,8 +159,10 @@ export function buildJailProfile(jail: UserJail, home = os.homedir(), appRoot = 
     // stat() along the path is fine (realpath, cwd); listing or reading is not.
     '(allow file-read-metadata)',
     // Engines and their toolchains.
-    `${rw} (subpath ${h('.claude')}) (regex #"^${sbRegexLiteral(path.join(home, '.claude.json'))}")`,
-    `  (subpath ${h('.codex')}) (subpath ${h('.grok')})`,
+    // Not ~/.claude.json (MCP keys) and not ~/.codex (Dima's Codex chats):
+    // Claude runs without it, Codex gets the teammate's own folder below.
+    `${rw} (subpath ${h('.claude')}) (subpath ${h('.grok')})`,
+    `  (literal ${h('.codex/auth.json')}) (subpath ${sbString(jailCodexHome(jail, home))})`,
     `  (subpath ${h('.local')}) (subpath ${h('.npm')}) (subpath ${h('.cache')})`,
     `  (subpath ${h('Library/Caches')}) (subpath ${h('Library/Keychains')}))`,
     `(allow file-read* (literal ${h('.gitconfig')}) (literal ${h('.npmrc')})`,
@@ -170,7 +176,12 @@ export function buildJailProfile(jail: UserJail, home = os.homedir(), appRoot = 
     `  (subpath ${h('.claude/paste-cache')}) (subpath ${h('.claude/plans')}) (subpath ${h('.claude/night-shift')})`,
     `  (literal ${h('.claude/token-usage-log.md')}))`,
     `(deny file-read* (literal ${h('.claude/history.jsonl')}) (subpath ${h('.claude/file-history')}))`,
-    `${rw} (regex #"^${sbRegexLiteral(path.join(home, '.claude/projects', claudeProjectsKey(jail.root)))}"))`,
+    `(deny file-read* file-write* (subpath ${h('.grok/sessions')}) (subpath ${h('.grok/memory-v2')})`,
+    `  (subpath ${h('.grok/logs')}) (subpath ${h('.grok/memtrace')}))`,
+    // …except this project's own chats (Claude: cwd with non-alphanumerics →
+    // '-'; Grok: url-encoded cwd), subfolders included.
+    `${rw} (regex #"^${sbRegexLiteral(path.join(home, '.claude/projects', claudeProjectsKey(jail.root)))}")`,
+    `  (regex #"^${sbRegexLiteral(path.join(home, '.grok/sessions', encodeURIComponent(jail.root)))}"))`,
     // The project itself.
     jail.readOnly
       ? `(allow file-read* (subpath ${sbString(jail.root)}))`
@@ -182,6 +193,62 @@ export function buildJailProfile(jail: UserJail, home = os.homedir(), appRoot = 
   }
   return lines.join('\n');
 }
+
+/**
+ * The teammate's own Codex folder (CODEX_HOME): their chats, memories and
+ * logs stay apart from Dima's ~/.codex. Sign-in is shared through a link to
+ * ~/.codex/auth.json (Codex rewrites that file in place, so a token refresh
+ * reaches both).
+ */
+export function jailCodexHome(jail: UserJail, home = os.homedir()): string {
+  return path.join(home, '.cloudcli', 'jail', 'users', String(jail.userId ?? 0), 'codex');
+}
+
+/**
+ * Creates the teammate's Codex folder for this run: the shared sign-in link
+ * and a config with Dima's model settings, the threads MCP server and trust
+ * for this project only — none of his other MCP servers, hooks or projects.
+ */
+export function prepareCodexHome(jail: UserJail, home = os.homedir()): string {
+  const dir = jailCodexHome(jail, home);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const authLink = path.join(dir, 'auth.json');
+  if (!fs.existsSync(authLink)) {
+    try { fs.unlinkSync(authLink); } catch { /* no dangling link */ }
+    fs.symlinkSync(path.join(home, '.codex', 'auth.json'), authLink);
+  }
+  let source: Record<string, unknown> = {};
+  try {
+    source = TOML.parse(fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8')) as Record<string, unknown>;
+  } catch { /* no config of Dima's: defaults */ }
+  const config: Record<string, unknown> = {};
+  for (const key of CODEX_CONFIG_KEYS) {
+    if (source[key] !== undefined) config[key] = source[key];
+  }
+  const threads = (source.mcp_servers as Record<string, unknown> | undefined)?.['neo3-threads'];
+  if (threads) config.mcp_servers = { 'neo3-threads': threads };
+  config.projects = { [jail.root]: { trust_level: 'trusted' } };
+  const file = path.join(dir, 'config.toml');
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, TOML.stringify(config as TOML.JsonMap), { mode: 0o600 });
+  fs.renameSync(tmp, file);
+  return dir;
+}
+
+/** Plain model settings copied from Dima's Codex config; nothing that runs programs. */
+const CODEX_CONFIG_KEYS = [
+  'model',
+  'model_reasoning_effort',
+  'service_tier',
+  'project_doc_fallback_filenames',
+  'project_doc_max_bytes',
+];
+
+/**
+ * Env of a jailed Claude run: no claude.ai connectors (Dima's Gmail,
+ * Calendar, Drive ride on the shared subscription).
+ */
+export const JAIL_CLAUDE_ENV = { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } as const;
 
 /** argv that starts `command args…` inside the jail. */
 export function jailCommand(jail: UserJail, command: string, args: string[]): { command: string; args: string[] } {

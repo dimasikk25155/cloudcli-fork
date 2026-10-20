@@ -30,7 +30,8 @@ import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import { withThreadsEnv } from './shared/threads-env.js';
 import { neo3GuardsPlugins } from './shared/neo3-guards-plugin.js';
 import { isModOn } from './shared/mods.js';
-import { jailCommand, jailInstruction } from './shared/user-jail.js';
+import { JAIL_CLAUDE_ENV, jailCommand, jailInstruction } from './shared/user-jail.js';
+import { THREADS_MCP_SERVER_NAME, threadsMcpCommand } from './modules/threads/index.js';
 import { createBackgroundTaskTracker } from './modules/background-tasks/index.js';
 import {
   createNotificationEvent,
@@ -525,6 +526,12 @@ function mapCliOptionsToSDK(options = {}) {
   // working around it.
   if (options.jail?.root) {
     const jail = options.jail;
+    sdkOptions.env = { ...sdkOptions.env, ...JAIL_CLAUDE_ENV };
+    // ~/.claude.json is closed in the jail, so the threads server it registers
+    // is handed over directly (only when this run has a thread token).
+    if (sdkOptions.env.NEO3_THREADS_TOKEN) {
+      sdkOptions.mcpServers = { [THREADS_MCP_SERVER_NAME]: { type: 'stdio', ...threadsMcpCommand() } };
+    }
     sdkOptions.spawnClaudeCodeProcess = ({ command, args, cwd: spawnCwd, env, signal }) => {
       const jailed = jailCommand(jail, command, args);
       return spawn(jailed.command, jailed.args, { cwd: spawnCwd, env, signal, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -877,7 +884,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // stage of the abort path (see abortClaudeSDKSession).
     sdkOptions.abortController = runAbortController;
 
-    const mcpServers = await loadMcpConfig(options.cwd);
+    // Read here, in the server, so it would bypass the jail: a teammate's run
+    // gets none of Dima's MCP servers (keys inside), only threads (above).
+    const mcpServers = options.jail?.root ? null : await loadMcpConfig(options.cwd);
     if (mcpServers) {
       // Pin the memory server so its tools stay in the prompt instead of being
       // deferred behind ToolSearch with the rest. Applied for every provider:

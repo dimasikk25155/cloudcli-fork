@@ -78,7 +78,7 @@ test('chat.send: a teammate runs fenced to the project, Dima runs free', { skip:
   // A client cannot switch the fence off by sending its own `jail`.
   await teammate.deliver({ type: 'chat.send', sessionId: claudeChat, content: 'привет', options: { jail: null, cwd: '/' } });
   assert.equal(spawns.length, 1);
-  assert.deepEqual(spawns[0].options.jail, { root: project, readFiles: [] });
+  assert.deepEqual(spawns[0].options.jail, { root: project, userId: slavik, readFiles: [] });
   assert.equal(spawns[0].options.cwd, project);
 
   await teammate.deliver({ type: 'chat.send', sessionId: cursorChat, content: 'курсор' });

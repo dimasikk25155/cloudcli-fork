@@ -417,7 +417,7 @@ function beginChatSend(
   if (jail) {
     const assetsRoot = getGlobalImageAssetsDir();
     runtimeOptions.jail = {
-      root: jail.root,
+      ...jail,
       readFiles: [...imageAttachments, ...fileAttachments].map((attachment) => path.resolve(assetsRoot, String(attachment.path))),
     };
   }

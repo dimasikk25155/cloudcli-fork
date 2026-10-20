@@ -29,7 +29,7 @@ import { providerAuthService } from './modules/providers/services/provider-auth.
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { withThreadsEnv } from './shared/threads-env.js';
-import { buildJailProfile, codexJailWrapperPath, jailInstruction } from './shared/user-jail.js';
+import { buildJailProfile, codexJailWrapperPath, jailInstruction, prepareCodexHome } from './shared/user-jail.js';
 
 const activeCodexSessions = new Map();
 
@@ -195,6 +195,8 @@ export function buildCodexClientOptions(options = {}, policy = {}) {
   env.NEO3_JAIL_PROFILE = buildJailProfile(options.jail);
   env.NEO3_JAIL_REAL = bundled.executablePath;
   env.NEO3_JAIL_ROOT = options.jail.root;
+  // The teammate's own Codex folder: Dima's chats and MCP servers stay out.
+  env.CODEX_HOME = prepareCodexHome(options.jail);
   if (bundled.pathDirs.length > 0) {
     env.PATH = [...bundled.pathDirs, env.PATH ?? ''].filter(Boolean).join(path.delimiter);
   }
