@@ -12,6 +12,7 @@
  * - WebSocket message streaming
  */
 
+import { spawn } from 'child_process';
 import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import os from 'os';
@@ -29,6 +30,7 @@ import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import { withThreadsEnv } from './shared/threads-env.js';
 import { neo3GuardsPlugins } from './shared/neo3-guards-plugin.js';
 import { isModOn } from './shared/mods.js';
+import { jailCommand, jailInstruction } from './shared/user-jail.js';
 import { createBackgroundTaskTracker } from './modules/background-tasks/index.js';
 import {
   createNotificationEvent,
@@ -516,6 +518,18 @@ function mapCliOptionsToSDK(options = {}) {
   const workModeText = workModeInstruction(options.workMode, permissionMode);
   if (workModeText) {
     appendedSystemPrompt.push(workModeText);
+  }
+
+  // Non-admin run: the CLI and everything it spawns live in the project jail
+  // (server/shared/user-jail.ts); the agent is told to ask Dima instead of
+  // working around it.
+  if (options.jail?.root) {
+    const jail = options.jail;
+    sdkOptions.spawnClaudeCodeProcess = ({ command, args, cwd: spawnCwd, env, signal }) => {
+      const jailed = jailCommand(jail, command, args);
+      return spawn(jailed.command, jailed.args, { cwd: spawnCwd, env, signal, stdio: ['pipe', 'pipe', 'pipe'] });
+    };
+    appendedSystemPrompt.push(jailInstruction(jail));
   }
 
   if (appendedSystemPrompt.length > 0) {

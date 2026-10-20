@@ -56,6 +56,8 @@ function fakeDependencies(modsOff: Set<string> = new Set()) {
   const spawns: Array<{ command: string; options: Record<string, unknown> }> = [];
   const aborted: string[] = [];
   const dependencies = {
+    // Fake project folders: the jail has its own tests (chat-user-jail.test.ts).
+    userJailFor: () => null,
     spawnFns: {
       grok: async (command: string, options: Record<string, unknown>) => {
         spawns.push({ command, options });

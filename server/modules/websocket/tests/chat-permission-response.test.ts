@@ -74,6 +74,8 @@ function fakeDependencies() {
   const approvals: Array<{ requestId: string; payload: Record<string, unknown> }> = [];
   const spawns: SpawnCall[] = [];
   const dependencies = {
+    // Fake project folders: the jail has its own tests (chat-user-jail.test.ts).
+    userJailFor: () => null,
     spawnFns: {
       grok: async (command: string, options: Record<string, unknown>, writer: unknown) => {
         spawns.push({ command, options, writer: writer as SpawnCall['writer'] });
@@ -313,6 +315,8 @@ test('a Grok question whose resumed turn cannot start goes back to its store and
 function chatSendDependencies() {
   const started: string[] = [];
   const dependencies = {
+    // Fake project folders: the jail has its own tests (chat-user-jail.test.ts).
+    userJailFor: () => null,
     spawnFns: {
       claude: async (command: string) => {
         started.push(command);

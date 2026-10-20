@@ -13,6 +13,11 @@
  * - getActiveCodexSessions() - List all active sessions
  */
 
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { Codex } from '@openai/codex-sdk';
 
 import { readCodexContextBudget } from './shared/context-budget.js';
@@ -24,6 +29,7 @@ import { providerAuthService } from './modules/providers/services/provider-auth.
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { withThreadsEnv } from './shared/threads-env.js';
+import { buildJailProfile, codexJailWrapperPath, jailInstruction } from './shared/user-jail.js';
 
 const activeCodexSessions = new Map();
 
@@ -179,7 +185,42 @@ export function buildCodexClientOptions(options = {}, policy = {}) {
       env[name] = value;
     }
   }
-  return { config: { developer_instructions: policy.instructions }, env };
+  if (!options.jail?.root) {
+    return { config: { developer_instructions: policy.instructions }, env };
+  }
+  // Non-admin run: the SDK starts a wrapper that execs the bundled binary
+  // inside the project jail (server/shared/user-jail.ts). The SDK drops its
+  // own PATH additions for an override, so they are put back here.
+  const bundled = resolveBundledCodex();
+  env.NEO3_JAIL_PROFILE = buildJailProfile(options.jail);
+  env.NEO3_JAIL_REAL = bundled.executablePath;
+  env.NEO3_JAIL_ROOT = options.jail.root;
+  if (bundled.pathDirs.length > 0) {
+    env.PATH = [...bundled.pathDirs, env.PATH ?? ''].filter(Boolean).join(path.delimiter);
+  }
+  return {
+    codexPathOverride: codexJailWrapperPath(),
+    config: { developer_instructions: [policy.instructions, jailInstruction(options.jail)].filter(Boolean).join('\n\n') },
+    env,
+  };
+}
+
+/** The Codex binary the SDK itself would start (same lookup as its findCodexPath). */
+function resolveBundledCodex() {
+  const triple = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`;
+  const sdkRequire = createRequire(fileURLToPath(import.meta.resolve('@openai/codex-sdk')));
+  const codexRequire = createRequire(sdkRequire.resolve('@openai/codex/package.json'));
+  const platformPackage = `@openai/codex-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
+  const packageRoot = path.join(path.dirname(codexRequire.resolve(`${platformPackage}/package.json`)), 'vendor', triple);
+  const layouts = [
+    { bin: path.join(packageRoot, 'bin', 'codex'), pathDir: path.join(packageRoot, 'codex-path') },
+    { bin: path.join(packageRoot, 'codex', 'codex'), pathDir: path.join(packageRoot, 'path') },
+  ];
+  const found = layouts.find((layout) => fs.existsSync(layout.bin));
+  if (!found) {
+    throw new Error('Codex CLI binary not found for the jailed run.');
+  }
+  return { executablePath: found.bin, pathDirs: fs.existsSync(found.pathDir) ? [found.pathDir] : [] };
 }
 
 /**
@@ -215,7 +256,14 @@ export async function queryCodex(command, options = {}, ws) {
   );
 
   const workingDirectory = cwd || projectPath || process.cwd();
-  const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(workMode === 'interrogate' ? 'plan' : permissionMode);
+  const codexModes = mapPermissionModeToCodexOptions(workMode === 'interrogate' ? 'plan' : permissionMode);
+  const { approvalPolicy } = codexModes;
+  // Seatbelt cannot nest: inside the project jail Codex's own sandbox would
+  // fail every command. The jail takes over; read-only stays read-only.
+  const jail = options.jail?.root
+    ? { ...options.jail, readOnly: codexModes.sandboxMode === 'read-only' }
+    : null;
+  const sandboxMode = jail ? 'danger-full-access' : codexModes.sandboxMode;
   const selectedModel = catalog.OPTIONS.find((option) => option.value === resolvedModel) || null;
   const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value) || [];
   const resolvedEffort = typeof resolvedRequestedEffort === 'string'
@@ -233,7 +281,7 @@ export async function queryCodex(command, options = {}, ws) {
 
   try {
     const policy = codexRunPolicy(workMode, permissionMode);
-    codex = new Codex(buildCodexClientOptions(options, policy));
+    codex = new Codex(buildCodexClientOptions({ ...options, jail }, policy));
 
     const threadOptions = {
       workingDirectory,

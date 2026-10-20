@@ -58,6 +58,8 @@ async function withWorld(runTest: (fixture: Fixture) => void | Promise<void>): P
 function fakeDependencies(backgroundTasks: unknown[] = []) {
   const spawns: Array<{ command: string; options: Record<string, unknown> }> = [];
   const dependencies = {
+    // Fake project folders: the jail has its own tests (chat-user-jail.test.ts).
+    userJailFor: () => null,
     spawnFns: {
       claude: async (command: string, options: Record<string, unknown>) => {
         spawns.push({ command, options });

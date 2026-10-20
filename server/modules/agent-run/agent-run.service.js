@@ -18,6 +18,7 @@ import { providerModelsService } from '../providers/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '../governance/index.js';
 import { normalizeProjectPath } from '../../shared/utils.js';
 import { SUPPORTED_PROVIDERS } from '../../shared/providers.js';
+import { JAIL_DENIED_MESSAGE, JAIL_PROVIDER_MESSAGE, JAILED_PROVIDERS, userJailFor } from '../../shared/user-jail.js';
 
 export { SUPPORTED_PROVIDERS };
 
@@ -255,8 +256,16 @@ export async function runHeadlessPrompt(options) {
   }
 
   const cwd = access.projectPath;
+  // Non-admins: the engine runs fenced to the project folder (server/shared/user-jail.ts).
+  const jail = userJailFor(userId, cwd);
+  if (jail === 'deny') {
+    throw new Error(JAIL_DENIED_MESSAGE);
+  }
+  if (jail && !JAILED_PROVIDERS.has(provider)) {
+    throw new Error(JAIL_PROVIDER_MESSAGE);
+  }
   const collector = new RunCollector(onEvent);
-  const base = { projectPath: cwd, cwd, sessionId: sessionId || null };
+  const base = { projectPath: cwd, cwd, sessionId: sessionId || null, ...(jail ? { jail } : {}) };
 
   const runId = newRunId();
   const meter = new RunMeter();

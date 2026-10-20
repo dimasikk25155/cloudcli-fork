@@ -5,6 +5,11 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
+import { projectsDb } from '@/modules/database/index.js';
+import { readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
+import { canAccessProject } from '@/shared/project-access.js';
+import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
+import { jailCommand, userJailFor } from '@/shared/user-jail.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 
 type ShellIncomingMessage = {
@@ -234,9 +239,11 @@ function prioritizeUserNpmGlobalBin(env: NodeJS.ProcessEnv): { key: string; valu
  */
 export function handleShellConnection(
   ws: WebSocket,
-  dependencies: ShellWebSocketDependencies
+  dependencies: ShellWebSocketDependencies,
+  request?: AuthenticatedWebSocketRequest
 ): void {
   console.log('[INFO] Shell websocket connected');
+  const userId = readSocketUserId(request?.user);
 
   let shellProcess: IPty | null = null;
   let ptySessionKey: string | null = null;
@@ -279,7 +286,8 @@ export function handleShellConnection(
           : isPlainShell && initialCommand
             ? `_cmd_${Buffer.from(initialCommand).toString('base64').slice(0, 16)}`
             : '';
-        ptySessionKey = `${projectPath}_${sessionId ?? 'default'}${commandSuffix}`;
+        // Per user: a teammate must never re-attach to Dima's terminal in a shared project.
+        ptySessionKey = `${userId ?? 'anon'}:${projectPath}_${sessionId ?? 'default'}${commandSuffix}`;
 
         if (isLoginCommand || forceRestart) {
           const oldSession = ptySessionsMap.get(ptySessionKey);
@@ -333,6 +341,17 @@ export function handleShellConnection(
           return;
         }
 
+        // Non-admins: only a granted project, and the shell lives in its jail
+        // (server/shared/user-jail.ts) — nothing above the project folder.
+        const jail = userJailFor(userId, resolvedProjectPath);
+        if (jail) {
+          const projectId = projectsDb.getProjectPath(resolvedProjectPath)?.project_id ?? null;
+          if (jail === 'deny' || isLoginCommand || !canAccessProject({ id: userId }, projectId)) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Терминал доступен только в папке твоего проекта.' }));
+            return;
+          }
+        }
+
         const safeSessionIdPattern = /^[a-zA-Z0-9_.\-:]+$/;
         if (sessionId && !safeSessionIdPattern.test(sessionId)) {
           ws.send(JSON.stringify({ type: 'error', message: 'Invalid session ID' }));
@@ -356,7 +375,10 @@ export function handleShellConnection(
         const termRows = readNumber(data.rows, 24);
         const prioritizedPath = prioritizeUserNpmGlobalBin(process.env);
 
-        shellProcess = pty.spawn(shell, shellArgs, {
+        const launch = jail
+          ? jailCommand(jail, shell, shellArgs)
+          : { command: shell, args: shellArgs };
+        shellProcess = pty.spawn(launch.command, launch.args, {
           name: 'xterm-256color',
           cols: termCols,
           rows: termRows,

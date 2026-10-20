@@ -11,6 +11,7 @@ import { createGrokBackgroundTaskTracker } from './modules/providers/list/grok/g
 import { workModeInstruction } from './shared/work-mode.js';
 import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import { withThreadsEnv } from './shared/threads-env.js';
+import { jailCommand, jailInstruction } from './shared/user-jail.js';
 import {
   appendImagesInputTag,
   appendVisibleImagePathsTag,
@@ -472,8 +473,11 @@ export function resetGrokPlanBypassStateForTests() {
  * the Claude runtime appends (server/shared/work-mode.ts), so a mode behaves
  * the same on both engines. Exported for tests only.
  */
-export function buildGrokRules({ workMode, permissionMode, model, planBypassPhase }) {
+export function buildGrokRules({ workMode, permissionMode, model, planBypassPhase, jail }) {
   const rules = [];
+  if (jail?.root) {
+    rules.push(jailInstruction(jail));
+  }
   if (permissionMode === 'planBypass' || planBypassPhase === 'run') {
     rules.push(planBypassPhase === 'run' ? AUTO_PLAN_RUN_RULE : AUTO_PLAN_ASK_RULE);
   }
@@ -765,13 +769,13 @@ export function grokRelayNoteAllowRules(noteDir, wirePermissionMode) {
 /**
  * Builds the headless argv for one Grok run. Exported for tests only.
  */
-export function buildGrokArgs({ prompt, promptJson, promptFile, sessionId, resolvedSessionId, model, permissionMode, effort, workMode, hookContext, planBypassPhase, autoRelayNoteDir }) {
+export function buildGrokArgs({ prompt, promptJson, promptFile, sessionId, resolvedSessionId, model, permissionMode, effort, workMode, hookContext, planBypassPhase, autoRelayNoteDir, jail }) {
   // `--output-format streaming-messages-json` is NDJSON in the Anthropic
   // Messages API wire format — the same {type: system|assistant|user|result}
   // envelope Claude Code emits, which is why the sessions provider can parse
   // it without a shim.
   const wirePermissionMode = resolveGrokPermissionMode(permissionMode);
-  const rules = buildGrokRules({ workMode, permissionMode, model, planBypassPhase });
+  const rules = buildGrokRules({ workMode, permissionMode, model, planBypassPhase, jail });
   // `--prompt-json`, `--prompt-file` and `-p` are mutually exclusive
   // (grok 1.0.5 argv). Image turns use ACP content blocks when they fit in
   // one argv; oversized prompts go through a temp file instead of E2BIG.
@@ -863,6 +867,7 @@ async function spawnGrok(command, options = {}, ws) {
       appSessionId,
     } = options;
     const workingDir = cwd || projectPath || process.cwd();
+    const jail = options.jail?.root ? options.jail : null;
     const resolvedSessionId = sessionId || randomUUID();
     // New chats only: name the sidebar row from the first words of the prompt
     // so Dima sees Russian before Grok CLI writes its English auto-title.
@@ -1162,7 +1167,9 @@ async function spawnGrok(command, options = {}, ws) {
       liveModel = resolvedModel || liveModel;
       // Claude-side hooks (vault digest, real clock) — executed here because
       // Grok never runs them itself; best-effort, collected once per run.
-      const hookContext = await collectGrokHookContext({ isNewSession: !sessionId }).catch(() => '');
+      // Not for a jailed (non-admin) run: these hooks are Dima's and run in
+      // the server process, outside the project jail.
+      const hookContext = jail ? '' : await collectGrokHookContext({ isNewSession: !sessionId }).catch(() => '');
 
       if (planBypassPhase === 'run' && appSessionId) {
         for (const pending of takeGrokQuestionsForAppSession(String(appSessionId))) {
@@ -1277,6 +1284,7 @@ async function spawnGrok(command, options = {}, ws) {
           permissionMode,
           model: resolvedModel,
           planBypassPhase,
+          jail,
         });
         cleanupGrokPromptDir(promptFileDir);
         promptFileDir = null;
@@ -1314,6 +1322,7 @@ async function spawnGrok(command, options = {}, ws) {
           hookContext: attemptHookContext,
           planBypassPhase,
           autoRelayNoteDir: options.autoRelayNoteDir,
+          jail,
         });
 
         // Abort marks the run complete immediately, then SIGTERM. A queued
@@ -1328,7 +1337,11 @@ async function spawnGrok(command, options = {}, ws) {
         backgroundTracker = createGrokBackgroundTaskTracker();
         grokBackgroundTasks.set(processKey, backgroundTracker);
 
-        grokProcess = spawnFunction(resolveGrokCliPath(), args, {
+        // Non-admin run: the CLI lives in the project jail (server/shared/user-jail.ts).
+        const launch = jail
+          ? jailCommand(jail, resolveGrokCliPath(), args)
+          : { command: resolveGrokCliPath(), args };
+        grokProcess = spawnFunction(launch.command, launch.args, {
           cwd: workingDir,
           stdio: ['pipe', 'pipe', 'pipe'],
           // grok >= 1.0.40 scans ~/.claude/settings.json hooks itself
@@ -1504,7 +1517,7 @@ async function spawnGrok(command, options = {}, ws) {
               // does not land on top of the buttons.
               const offeredPlan = !skipStopHooks && maybeEmitGrokPlanExit();
               const askedQuestion = !offeredPlan && !skipStopHooks && maybeEmitGrokQuestion();
-              if (!offeredPlan && !askedQuestion && !skipStopHooks && !stopFollowupDone) {
+              if (!offeredPlan && !askedQuestion && !skipStopHooks && !jail && !stopFollowupDone) {
                 const reason = await collectGrokStopReason(resolvedSessionId).catch(() => '');
                 if (reason) {
                   stopFollowupDone = true;

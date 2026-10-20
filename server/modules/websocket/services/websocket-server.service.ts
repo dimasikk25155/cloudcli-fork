@@ -75,7 +75,7 @@ export function createWebSocketServer(
         try { ws.close(1008, 'Terminal disabled'); } catch { /* already closing */ }
         return;
       }
-      handleShellConnection(ws, dependencies.shell);
+      handleShellConnection(ws, dependencies.shell, incomingRequest);
       return;
     }
 

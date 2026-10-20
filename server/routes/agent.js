@@ -19,6 +19,7 @@ import { newRunId, recordAuditEvent, RunMeter } from '../modules/governance/inde
 import { IS_PLATFORM } from '../constants/config.js';
 import { normalizeProjectPath } from '../shared/utils.js';
 import { SUPPORTED_PROVIDERS, isSupportedProvider } from '../shared/providers.js';
+import { isAdminUser } from '../shared/project-access.js';
 
 const router = express.Router();
 
@@ -885,6 +886,11 @@ export class ResponseCollector {
  *   }
  */
 export async function handleAgentRun(req, res) {
+  // Any path, cloning, registering projects: admins only. Teammates work in
+  // the chat, fenced to their projects (server/shared/user-jail.ts).
+  if (!isAdminUser(req.user)) {
+    return res.status(403).json({ error: 'Agent API is available to the administrator only.' });
+  }
   const { githubUrl, projectPath, message, provider = 'grok', model, githubToken, branchName, sessionId } = req.body;
   const effort = typeof req.body.effort === 'string' && req.body.effort.trim()
     ? req.body.effort.trim()

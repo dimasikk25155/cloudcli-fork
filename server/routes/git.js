@@ -8,6 +8,7 @@ import { newRunId, recordAuditEvent, RunMeter } from '../modules/governance/inde
 import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
 import { spawnGrok } from '../grok-cli.js';
+import { JAIL_DENIED_MESSAGE, JAIL_PROVIDER_MESSAGE, JAILED_PROVIDERS, userJailFor } from '../shared/user-jail.js';
 
 const router = express.Router();
 const COMMIT_DIFF_CHARACTER_LIMIT = 500_000;
@@ -1158,10 +1159,21 @@ Generate the commit message:`;
     const auditMeter = new RunMeter();
     const auditStartedAt = Date.now();
 
+    // Non-admins: the engine runs fenced to the project (server/shared/user-jail.ts).
+    const jail = userJailFor(userId, projectPath);
+    if (jail === 'deny') {
+      throw new Error(JAIL_DENIED_MESSAGE);
+    }
+    if (jail && !JAILED_PROVIDERS.has(provider)) {
+      throw new Error(JAIL_PROVIDER_MESSAGE);
+    }
+    const jailOption = jail ? { jail } : {};
+
     try {
       // Call the appropriate agent
       if (provider === 'claude') {
         await queryClaudeSDK(prompt, {
+          ...jailOption,
           cwd: projectPath,
           permissionMode: 'bypassPermissions',
           model: 'sonnet',
@@ -1174,6 +1186,7 @@ Generate the commit message:`;
         }, writer);
       } else if (provider === 'grok') {
         await spawnGrok(prompt, {
+          ...jailOption,
           cwd: projectPath,
           permissionMode: 'bypassPermissions',
           meter: auditMeter,

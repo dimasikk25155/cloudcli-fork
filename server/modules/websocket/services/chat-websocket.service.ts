@@ -43,6 +43,7 @@ import {
 } from '@/shared/grok-question.js';
 import { isModOn, MOD_OFF, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession } from '@/shared/project-access.js';
+import { JAIL_DENIED_MESSAGE, JAIL_PROVIDER_MESSAGE, JAILED_PROVIDERS, userJailFor } from '@/shared/user-jail.js';
 import { threadsApiUrl, type ThreadsRunEnv } from '@/shared/threads-env.js';
 import type {
   AnyRecord,
@@ -131,6 +132,8 @@ export type ChatWebSocketDependencies = {
   getPendingApprovalById?: (requestId: string) => { sessionId: string | null; input?: unknown } | null;
   /** Mod switches of the run's user (default: their account settings). */
   isModOn?: IsModOn;
+  /** Project jail of the run's user (default: server/shared/user-jail.ts). */
+  userJailFor?: typeof userJailFor;
 };
 
 /**
@@ -319,6 +322,19 @@ function beginChatSend(
     return { started: false };
   }
 
+  // Non-admins work inside their project folder only: their engine runs in a
+  // macOS sandbox fenced to it (server/shared/user-jail.ts). Engines that
+  // cannot be fenced are closed to them.
+  const jail = (dependencies.userJailFor ?? userJailFor)(userId, session.project_path);
+  if (jail === 'deny') {
+    sendProtocolError(ws, 'PROJECT_JAIL_DENIED', JAIL_DENIED_MESSAGE, sessionId);
+    return { started: false };
+  }
+  if (jail && !JAILED_PROVIDERS.has(provider)) {
+    sendProtocolError(ws, 'PROJECT_JAIL_PROVIDER', JAIL_PROVIDER_MESSAGE, sessionId);
+    return { started: false };
+  }
+
   const run = chatRunRegistry.startRun({
     appSessionId: sessionId,
     provider,
@@ -396,6 +412,15 @@ function beginChatSend(
     cwd: userRole === 'admin' ? (clientOptions.cwd ?? session.project_path ?? undefined) : session.project_path ?? undefined,
     projectPath: session.project_path ?? clientOptions.projectPath,
   };
+  // Set by the server only: a client cannot send its own `jail` (or `null`).
+  delete runtimeOptions.jail;
+  if (jail) {
+    const assetsRoot = getGlobalImageAssetsDir();
+    runtimeOptions.jail = {
+      root: jail.root,
+      readFiles: [...imageAttachments, ...fileAttachments].map((attachment) => path.resolve(assetsRoot, String(attachment.path))),
+    };
+  }
 
   // Auto-relay handoff request: a service turn (no «run stopped» push of its
   // own) that may write its note into docs/handoff/ without asking. Decided

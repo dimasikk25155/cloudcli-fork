@@ -4,10 +4,35 @@
 // the route answered 400 "provider must be ..." while every other layer already
 // knew the engine. Types cannot catch it (plain string), so a test does.
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { handleAgentRun } from '../agent.js';
+import { closeConnection, initializeDatabase, userDb } from '../../modules/database/index.js';
 import { SUPPORTED_PROVIDERS, isSupportedProvider } from '../../shared/providers.js';
+
+// The agent API is admin-only, and the role is read from the database.
+let tempDirectory = null;
+let previousDatabasePath;
+let adminId = null;
+let teammateId = null;
+test.before(async () => {
+  tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-route-'));
+  previousDatabasePath = process.env.DATABASE_PATH;
+  closeConnection();
+  process.env.DATABASE_PATH = path.join(tempDirectory, 'auth.db');
+  await initializeDatabase();
+  adminId = Number(userDb.createUserWithRole('dima', 'hash', 'admin').id);
+  teammateId = Number(userDb.createUserWithRole('slavik', 'hash', 'user').id);
+});
+test.after(async () => {
+  closeConnection();
+  if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+  else process.env.DATABASE_PATH = previousDatabasePath;
+  await rm(tempDirectory, { recursive: true, force: true });
+});
 
 const createResponse = () => {
   const res = {
@@ -32,11 +57,16 @@ const createResponse = () => {
   return res;
 };
 
-const runRoute = async (body) => {
+const runRoute = async (body, userId = adminId) => {
   const res = createResponse();
-  await handleAgentRun({ body, user: { id: 1 } }, res);
+  await handleAgentRun({ body, user: { id: userId } }, res);
   return res;
 };
+
+test('agent route is closed to teammates: they work in the chat, fenced to their project', async () => {
+  const res = await runRoute({ projectPath: '/tmp', message: 'hi', provider: 'claude', stream: false }, teammateId);
+  assert.equal(res.statusCode, 403);
+});
 
 test('every shipped engine is accepted by the agent API', () => {
   for (const provider of ['claude', 'cursor', 'codex', 'opencode', 'kimi', 'gemini', 'grok']) {
