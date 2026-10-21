@@ -148,9 +148,9 @@ export function markOutdated(rows: Array<{ item: BotHealthItem; group?: string; 
   }
 }
 
-// All nine WhatsApp bots on the Mac (launchd ru.tarariev.*-wa-bot*).
+// All eight WhatsApp bots on the Mac (launchd ru.tarariev.*-wa-bot*).
 // Tyres KZ: four managers, each its own folder (TYRES_MANAGER_ID in bot/.env).
-// 7su: four lines from one repo, each with its own logs dir (bot/.env.<line>).
+// 7su: three lines from one repo, each with its own logs dir (bot/.env.<line>).
 // Квадробаня writes state/health.json in its own format — see interpretHeartbeat.
 const BOT_WATCHLIST: BotWatch[] = [
   tyresLine('tyres-wa-ruslan', 'Tyres KZ · Руслан', 'tyres-ruslan'),
@@ -160,7 +160,6 @@ const BOT_WATCHLIST: BotWatch[] = [
   waLine('tyres-wa-7su', '7su · Михаил', 'Tyres-7su', 'bot', 'logs', 'heartbeat.json'),
   waLine('tyres-wa-7su-kira', '7su · Кира', 'Tyres-7su', 'bot', 'logs-kira', 'heartbeat.json'),
   waLine('tyres-wa-7su-andrey', '7su · Андрей', 'Tyres-7su', 'bot', 'logs-andrey', 'heartbeat.json'),
-  waLine('tyres-wa-7su-line3', '7su · Мария', 'Tyres-7su', 'bot', 'logs-line3', 'heartbeat.json'),
   waLine('kvadrobanya-wa', 'Квадробаня', 'kvadrobanya-new', 'bot', 'state', 'health.json'),
 ];
 
