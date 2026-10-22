@@ -1,11 +1,13 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "ru.neo3.claudecli",
       "sha256_cert_fingerprints": [
-        "5A:4C:67:51:11:3F:55:BB:61:5C:33:95:96:CF:1D:86:19:D8:C5:5F:74:B3:22:72:5A:D3:C5:4D:24:8D:9B:19"
+        "EA:B0:D4:4C:18:E7:E6:4E:1D:AD:2B:7F:B6:39:C3:8D:D9:F1:02:4F:56:85:34:B4:85:6A:29:80:1F:1D:3B:10"
       ]
     }
   }
