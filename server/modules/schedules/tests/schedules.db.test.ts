@@ -110,11 +110,11 @@ test('schedulesDb tracks enabled, os_label and the last run', async () => {
     assert.equal(schedulesDb.setEnabled(created.id, false)?.enabled, 0);
     assert.equal(schedulesDb.setEnabled(created.id, true)?.enabled, 1);
 
-    schedulesDb.setOsLabel(created.id, 'ru.tarariev.neo3-schedule-1');
+    schedulesDb.setOsLabel(created.id, 'ru.neo3.neo3-schedule-1');
     schedulesDb.markRun(created.id, 'ok');
 
     const row = schedulesDb.getById(created.id);
-    assert.equal(row?.os_label, 'ru.tarariev.neo3-schedule-1');
+    assert.equal(row?.os_label, 'ru.neo3.neo3-schedule-1');
     assert.equal(row?.last_status, 'ok');
     assert.ok(row?.last_run_at, 'last_run_at must be stamped');
   });

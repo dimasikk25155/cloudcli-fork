@@ -21,8 +21,8 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 // Deliberately different from the night-shift orchestrator's
-// `ru.tarariev.claude-run-` prefix so the two never read each other's units.
-export const SCHEDULE_LABEL_PREFIX = 'ru.tarariev.neo3-schedule-';
+// `ru.neo3.claude-run-` prefix so the two never read each other's units.
+export const SCHEDULE_LABEL_PREFIX = 'ru.neo3.neo3-schedule-';
 
 export function scheduleLabel(scheduleId: number): string {
   return `${SCHEDULE_LABEL_PREFIX}${scheduleId}`;

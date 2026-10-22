@@ -8,11 +8,11 @@ import path from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
-const RUN_PREFIX = 'ru.tarariev.claude-run-';
+const RUN_PREFIX = 'ru.neo3.claude-run-';
 // Predates the `claude-run-` convention but is the same kind of machine
-// watchdog, so it belongs in this list. `ru.tarariev.neo3-schedule-*` does NOT:
+// watchdog, so it belongs in this list. `ru.neo3.neo3-schedule-*` does NOT:
 // those are user-created schedules with their own panel and their own store.
-const EXTRA_LABELS = ['ru.tarariev.mac-lifecycle'];
+const EXTRA_LABELS = ['ru.neo3.mac-lifecycle'];
 
 // Files schedule-run.sh rewrites in place. The run directory's own mtime does
 // NOT move when they change, which is why it must never be used as "last run".
@@ -56,7 +56,7 @@ function isTrackedPlist(file: string): boolean {
 
 function displayLabel(file: string): string {
   const label = file.slice(0, -'.plist'.length);
-  return label.startsWith(RUN_PREFIX) ? label.slice(RUN_PREFIX.length) : label.replace('ru.tarariev.', '');
+  return label.startsWith(RUN_PREFIX) ? label.slice(RUN_PREFIX.length) : label.replace('ru.neo3.', '');
 }
 
 export function parseSchedule(json: Record<string, unknown>): Schedule {

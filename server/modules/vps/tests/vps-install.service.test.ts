@@ -136,7 +136,7 @@ describe('мастер установки: понятные сообщения',
 describe('авто-DNS: выбор зоны', () => {
   it('берёт самую точную зону, а не первую подходящую', () => {
     assert.equal(pickZone('a.client.neo3.ru', ['neo3.ru', 'client.neo3.ru']), 'client.neo3.ru');
-    assert.equal(pickZone('client.neo3.ru', ['neo3.ru', 'tarariev.ru']), 'neo3.ru');
+    assert.equal(pickZone('client.neo3.ru', ['neo3.ru', 'personal-site.invalid']), 'neo3.ru');
   });
 
   it('не считает своим чужой домен с похожим хвостом', () => {

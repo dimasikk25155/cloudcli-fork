@@ -55,21 +55,21 @@ test('parseSchedule reports unknown when the plist has neither key', () => {
 test('readScheduled lists watchdog plists and ignores user schedules', darwinOnly, async () => {
   await withTempDir(async (dir) => {
     await writeFile(
-      path.join(dir, 'ru.tarariev.claude-run-kill-idle-agents.plist'),
+      path.join(dir, 'ru.neo3.claude-run-kill-idle-agents.plist'),
       plist('<key>StartInterval</key><integer>900</integer>')
     );
     // Predates the claude-run- convention but is the same kind of job.
     await writeFile(
-      path.join(dir, 'ru.tarariev.mac-lifecycle.plist'),
+      path.join(dir, 'ru.neo3.mac-lifecycle.plist'),
       plist('<key>StartInterval</key><integer>300</integer>')
     );
     // Belongs to the Schedules panel — must never leak in here.
     await writeFile(
-      path.join(dir, 'ru.tarariev.neo3-schedule-12.plist'),
+      path.join(dir, 'ru.neo3.neo3-schedule-12.plist'),
       plist('<key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer></dict>')
     );
     // Unrelated bot of the user's.
-    await writeFile(path.join(dir, 'ru.tarariev.wisper.plist'), plist('<key>RunAtLoad</key><true/>'));
+    await writeFile(path.join(dir, 'ru.neo3.wisper.plist'), plist('<key>RunAtLoad</key><true/>'));
 
     const scheduled = await readScheduled(dir);
 

@@ -4,7 +4,7 @@
 - Neo3 Agent: `/home/agents/Antigravity Project/claude agent/cloudcli-fork` (прод VPS, systemd `neo3`, https://claude.neo3.ru). Дима сказал «cloud.neo3.ru» — это claude.neo3.ru.
 - Канцелярия (Consigliere): `/home/agents/Antigravity Project/consigliere` — дашборд https://ai.neo3.ru (Vercel `consigliere-dashboard`).
 - Мазда: `/home/agents/Antigravity Project/mazda` — https://mazda.neo3.ru (Vercel `mazda-323-restomod`, rootDirectory `dashboard`). Не путать с проектом `mazda` / mazda-virid.vercel.app.
-- Телефон: TWA-APK `ru.tarariev.claudecli` (bubblewrap, host claude.neo3.ru). Голый WebView пуши не умеет.
+- Телефон: TWA-APK `ru.neo3.claudecli` (bubblewrap, host claude.neo3.ru). Голый WebView пуши не умеет.
 - Мак: Electron .dmg грузит тот же claude.neo3.ru. Чужие origin (ai/mazda) в iframe ломают Basic Auth («Требуется авторизация») и уходят в системный браузер через shell.openExternal.
 
 ЧТО УЖЕ СДЕЛАНО — НЕ ПЕРЕДЕЛЫВАТЬ:

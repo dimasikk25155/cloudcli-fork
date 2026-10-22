@@ -55,7 +55,7 @@ test('scheduleLabel/scheduleIdFromLabel round-trip and reject foreign labels', (
   assert.equal(scheduleLabel(12), `${SCHEDULE_LABEL_PREFIX}12`);
   assert.equal(scheduleIdFromLabel(scheduleLabel(12)), 12);
   // The night-shift orchestrator owns this other prefix — it must never match.
-  assert.equal(scheduleIdFromLabel('ru.tarariev.claude-run-nightly'), null);
+  assert.equal(scheduleIdFromLabel('ru.neo3.claude-run-nightly'), null);
 });
 
 test('launchd plist encodes a daily job without RunAtLoad', async () => {
@@ -66,7 +66,7 @@ test('launchd plist encodes a daily job without RunAtLoad', async () => {
     await host.create(job());
 
     const plist = await readFile(path.join(dir, `${scheduleLabel(7)}.plist`), 'utf8');
-    assert.match(plist, /<key>Label<\/key>\s*<string>ru\.tarariev\.neo3-schedule-7<\/string>/);
+    assert.match(plist, /<key>Label<\/key>\s*<string>ru\.neo3\.neo3-schedule-7<\/string>/);
     assert.match(plist, /<key>RunAtLoad<\/key>\s*<false\/>/);
     assert.match(plist, /<key>Hour<\/key><integer>9<\/integer><key>Minute<\/key><integer>5<\/integer>/);
     assert.ok(!plist.includes('<key>Weekday</key>'), 'a daily job must not pin a weekday');
@@ -117,7 +117,7 @@ test('launchd list() ignores night-shift plists and remove() boots the job out',
     await host.create(job());
     await host.create(job({ label: scheduleLabel(8) }));
     // The night-shift module reads plists with its own prefix from the same folder.
-    await writeFile(path.join(dir, 'ru.tarariev.claude-run-nightly.plist'), '<plist/>', 'utf8');
+    await writeFile(path.join(dir, 'ru.neo3.claude-run-nightly.plist'), '<plist/>', 'utf8');
 
     assert.deepEqual(await host.list(), [scheduleLabel(7), scheduleLabel(8)]);
 

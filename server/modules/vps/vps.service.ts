@@ -148,7 +148,7 @@ export function markOutdated(rows: Array<{ item: BotHealthItem; group?: string; 
   }
 }
 
-// All eight WhatsApp bots on the Mac (launchd ru.tarariev.*-wa-bot*).
+// All eight WhatsApp bots on the Mac (launchd ru.neo3.*-wa-bot*).
 // Tyres KZ: four managers, each its own folder (TYRES_MANAGER_ID in bot/.env).
 // 7su: three lines from one repo, each with its own logs dir (bot/.env.<line>).
 // Квадробаня writes state/health.json in its own format — see interpretHeartbeat.
