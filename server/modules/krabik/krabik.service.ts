@@ -58,6 +58,8 @@ export type KrabikReport = {
   /** Первая строка `СТАТУС: …` без префикса, если есть. */
   status: 'ok' | 'problem' | 'none';
   summary: string;
+  /** Первый заголовок `# …` отчёта — человеческое название. */
+  title: string;
 };
 
 export type Exec = (file: string, args: string[]) => Promise<string>;
@@ -237,14 +239,15 @@ export function parseReportStatus(firstLine: string): { status: KrabikReport['st
   return { status: 'none', summary: rest };
 }
 
-/** Строки `имя\tmtime\tпервая строка` → отчёты, свежие сверху. */
+/** Строки `имя\tmtime\tпервая строка\tзаголовок` → отчёты, свежие сверху. */
 export function parseReportList(stdout: string): KrabikReport[] {
   const reports: KrabikReport[] = [];
   for (const line of stdout.split('\n')) {
-    const [name, mtime, ...rest] = line.split('\t');
+    const [name, mtime, first = '', heading = ''] = line.split('\t');
     if (!name || !REPORT_NAME_RE.test(name)) continue;
-    const { status, summary } = parseReportStatus(rest.join('\t'));
-    reports.push({ name, mtime: Number(mtime) || 0, status, summary });
+    const { status, summary } = parseReportStatus(first);
+    const title = heading.replace(/^#+\s*/, '').replace(/\s+[—–-]\s+(\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})$/, '').trim();
+    reports.push({ name, mtime: Number(mtime) || 0, status, summary, title });
   }
   return reports.sort((a, b) => b.mtime - a.mtime);
 }
@@ -255,7 +258,7 @@ export function parseReportList(stdout: string): KrabikReport[] {
 const REMOTE_TRANSCRIPT =
   'f=$(ls -t ~/.claude/projects/-home-agents-krabik/*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -c 3000000 "$f"; true';
 const REMOTE_REPORTS =
-  'cd ~/krabik/reports 2>/dev/null || exit 0; ls -t *.md 2>/dev/null | head -60 | while read -r f; do printf "%s\\t%s\\t%s\\n" "$f" "$(stat -c %Y "$f")" "$(head -n 1 "$f")"; done';
+  'cd ~/krabik/reports 2>/dev/null || exit 0; ls -t *.md 2>/dev/null | head -60 | while read -r f; do printf "%s\\t%s\\t%s\\t%s\\n" "$f" "$(stat -c %Y "$f")" "$(head -n 1 "$f" | tr "\\t" " ")" "$(grep -m1 "^# " "$f" | tr "\\t" " ")"; done';
 const REMOTE_ENSURE = '/usr/local/bin/krabik-ensure';
 
 export function createKrabikService(deps: KrabikDeps = {}) {

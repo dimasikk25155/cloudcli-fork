@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { krabikView, pollDelayMs, QUICK_TASKS, reportDay, reportTitle, shortWhen } from './krabikModel';
+import { krabikSubtitle, krabikView, pollDelayMs, QUICK_TASKS, reportDay, reportTitle, shortWhen } from './krabikModel';
 
 describe('окно Крабика', () => {
   it('статус → краб и подпись', () => {
@@ -36,6 +36,17 @@ describe('окно Крабика', () => {
     assert.equal(reportTitle('2026-10-22-health-check.md'), 'health check');
     assert.equal(reportDay('2026-10-22-health-check.md'), '22.10');
     assert.equal(reportDay('notes.md'), '');
+    assert.equal(reportTitle('2026-10-22-proverka-botov.md', 'Проверка ботов и служб'), 'Проверка ботов и служб');
+  });
+
+  it('подпись: работает — что сейчас, свободен — последняя задача', () => {
+    const messages = [
+      { id: '1', role: 'user' as const, text: 'Проверь\nботов', at: null },
+      { id: '2', role: 'assistant' as const, text: 'Готово', at: null },
+    ];
+    assert.equal(krabikSubtitle({ reachable: true, status: 'working', title: 'Смотрю логи', messages }), 'Сейчас: Смотрю логи');
+    assert.equal(krabikSubtitle({ reachable: true, status: 'idle', title: 'старый заголовок', messages }), 'Последняя задача: Проверь ботов');
+    assert.match(krabikSubtitle({ reachable: false, status: 'unknown', title: '', messages: [] }), /VPS NL/);
   });
 
   it('время: сегодня — только часы', () => {

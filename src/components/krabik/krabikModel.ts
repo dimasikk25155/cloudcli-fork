@@ -26,6 +26,7 @@ export type KrabikReport = {
   mtime: number;
   status: 'ok' | 'problem' | 'none';
   summary: string;
+  title?: string;
 };
 
 export type KrabikView = {
@@ -97,8 +98,21 @@ export function shortWhen(at: string | number | null | undefined, now: Date = ne
   return `${day} ${time}`;
 }
 
-/** Человеческое имя отчёта: без даты в начале, расширения и дефисов. */
-export function reportTitle(name: string): string {
+/** Подпись под статусом: пока работает — что сейчас, иначе — последняя задача. */
+export function krabikSubtitle(state: Pick<KrabikStateResponse, 'reachable' | 'status' | 'title' | 'messages'> | null): string {
+  const fallback = 'Сервер VPS NL · работает, даже когда мак спит';
+  if (!state?.reachable) return fallback;
+  if (state.status === 'working' || state.status === 'blocked') return state.title ? `Сейчас: ${state.title}` : fallback;
+  for (let i = state.messages.length - 1; i >= 0; i -= 1) {
+    const message = state.messages[i];
+    if (message.role === 'user') return `Последняя задача: ${message.text.replace(/\s+/g, ' ').trim()}`;
+  }
+  return fallback;
+}
+
+/** Человеческое имя отчёта: заголовок из файла, иначе имя без даты и дефисов. */
+export function reportTitle(name: string, heading?: string): string {
+  if (heading && heading.trim()) return heading.trim();
   const base = name.replace(/\.md$/i, '');
   if (/^duty-\d{4}-\d{2}-\d{2}$/.test(base)) return 'Утреннее дежурство';
   return base.replace(/^\d{4}-\d{2}-\d{2}-?/, '').replace(/[-_]+/g, ' ').trim() || base;

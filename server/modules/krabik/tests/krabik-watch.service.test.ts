@@ -64,14 +64,14 @@ describe('сторож Крабика', () => {
     const ok = setup({}, { seq: 1, waiting: false });
     ok.world.state = { ...ok.world.state, completionSeq: 2 };
     ok.world.messages = [msg('user', 'ДЕЖУРСТВО 2026-10-23. Быстрый обход'), msg('assistant', 'Всё в порядке')];
-    ok.world.reports = [{ name: 'duty-2026-10-23.md', mtime: 2, status: 'ok', summary: '' }];
+    ok.world.reports = [{ name: 'duty-2026-10-23.md', mtime: 2, status: 'ok', summary: '', title: '' }];
     await ok.watch.tick();
     assert.equal(ok.sent.length, 0);
 
     const bad = setup({}, { seq: 1, waiting: false });
     bad.world.state = { ...bad.world.state, completionSeq: 2 };
     bad.world.messages = ok.world.messages;
-    bad.world.reports = [{ name: 'duty-2026-10-23.md', mtime: 2, status: 'problem', summary: 'диск 95%' }];
+    bad.world.reports = [{ name: 'duty-2026-10-23.md', mtime: 2, status: 'problem', summary: 'диск 95%', title: '' }];
     await bad.watch.tick();
     assert.deepEqual(bad.sent, [{ kind: 'duty-problem', title: 'Крабик: на сервере проблема', body: 'диск 95%' }]);
   });

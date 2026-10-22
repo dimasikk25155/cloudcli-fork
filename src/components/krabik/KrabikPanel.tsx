@@ -8,6 +8,7 @@ import PixelCrab from '../crabs/PixelCrab';
 import { readJson } from '../server/shared';
 
 import {
+  krabikSubtitle,
   krabikView,
   pollDelayMs,
   QUICK_TASKS,
@@ -162,7 +163,7 @@ function ReportsTab() {
             />
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline justify-between gap-2">
-                <span className="truncate text-sm font-medium text-foreground">{reportTitle(report.name)}</span>
+                <span className="truncate text-sm font-medium text-foreground">{reportTitle(report.name, report.title)}</span>
                 <span className="flex-shrink-0 text-xs text-muted-foreground">{reportDay(report.name) || shortWhen(report.mtime)}</span>
               </span>
               {report.summary && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{report.summary}</span>}
@@ -313,9 +314,7 @@ export default function KrabikPanel() {
         <div className="min-w-0 flex-1">
           <div className={cn('text-sm font-semibold', TONE_CLASS[view.tone])}>{view.label}</div>
           <div className="truncate text-xs text-muted-foreground">
-            {state?.reachable && state.title
-              ? `${state.status === 'working' || state.status === 'blocked' ? 'Сейчас' : 'Последнее'}: ${state.title}`
-              : 'Сервер VPS NL · работает, даже когда мак спит'}
+            {krabikSubtitle(state)}
           </div>
         </div>
         {view.canStop && (

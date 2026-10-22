@@ -105,10 +105,12 @@ describe('krabik: отчёты', () => {
 
   it('список: свежие сверху, мусорные имена отброшены', () => {
     const list = parseReportList(
-      'old.md\t100\tСТАТУС: ОК\n../etc.md\t300\tx\nduty-2026-10-23.md\t200\tСТАТУС: ПРОБЛЕМА — диск 95%\n',
+      'old.md\t100\tСТАТУС: ОК\t# Проверка здоровья VPS NL — 22.10.2026\n../etc.md\t300\tx\t\nduty-2026-10-23.md\t200\tСТАТУС: ПРОБЛЕМА — диск 95%\t# Дежурство — 2026-10-23\n',
     );
     assert.deepEqual(list.map((r) => r.name), ['duty-2026-10-23.md', 'old.md']);
     assert.equal(list[0].status, 'problem');
+    assert.equal(list[0].title, 'Дежурство');
+    assert.equal(list[1].title, 'Проверка здоровья VPS NL');
   });
 
   it('readReport не пускает в ssh ничего кроме имени файла', async () => {
