@@ -7,6 +7,7 @@ export type HubPanelKey =
   | 'pipelines'
   | 'governance'
   | 'server'
+  | 'krabik'
   | 'nightshift'
   | 'settings';
 

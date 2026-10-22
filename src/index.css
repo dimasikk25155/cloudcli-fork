@@ -1220,6 +1220,17 @@
   .crab--lost .crab-sprite {
     opacity: 0.45;
   }
+  /* «Агент крабик» ждёт ответа: не бледнеет, а машет */
+  .krabik-waiting .crab--lost .crab-sprite {
+    opacity: 1;
+    transform-origin: 50% 100%;
+    animation: krabik-wave 1.1s ease-in-out infinite;
+  }
+  @keyframes krabik-wave {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-8deg); }
+    75% { transform: rotate(8deg); }
+  }
 
   @keyframes crab-scuttle {
     0% { transform: translateY(0); }

@@ -22,6 +22,7 @@ export const MOD_KEYS = [
   'subagentCrabs',
   'modScreenshots',
   'modCacheTimer',
+  'modKrabikAgent',
 ] as const;
 
 export type ModKey = (typeof MOD_KEYS)[number];
@@ -108,6 +109,13 @@ export const MODS: readonly ModDef[] = [
     key: 'modCacheTimer',
     title: 'Таймер кэша',
     description: 'Показывает у поля ввода, сколько минут ответ агента будет дешевле и быстрее, если написать сейчас.',
+  },
+  {
+    key: 'modKrabikAgent',
+    title: 'Агент крабик',
+    description:
+      'Агент на сервере: доводит задачи до конца, даже когда мак спит или пропал VPN. '
+      + 'Окно «Крабик» в меню слева, каждое утро сам проверяет сервер.',
   },
 ];
 

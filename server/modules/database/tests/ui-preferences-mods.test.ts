@@ -58,6 +58,7 @@ test('every mod switch from the registry is stored on the account', async (t) =>
     subagentCrabs: false,
     modScreenshots: false,
     modCacheTimer: false,
+    modKrabikAgent: false,
   };
   uiPreferencesDb.updateUiPreferences(userId, { ...allOff, modSomethingElse: false });
   assert.deepEqual(uiPreferencesDb.getUiPreferences(userId), allOff);

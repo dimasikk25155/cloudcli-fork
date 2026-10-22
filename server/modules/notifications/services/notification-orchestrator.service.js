@@ -294,6 +294,22 @@ function buildNotificationPayload(event) {
     };
   }
 
+  // «Агент крабик» (server/modules/krabik): закончил, ждёт ответа или дежурство нашло проблему.
+  if (normalizedEvent.code === 'krabik.notice') {
+    const kind = String(normalizedEvent.meta?.kind || 'done');
+    return {
+      title: String(normalizedEvent.meta?.title || 'Крабик'),
+      body: clipBody(String(normalizedEvent.meta?.body || '')),
+      data: {
+        code: 'krabik.notice',
+        tag: `krabik:${kind}`,
+        panel: 'krabik',
+        urlPath: '/?panel=krabik',
+        provider: 'system'
+      }
+    };
+  }
+
   // Auto-relay (server/modules/auto-relay): the chat moved itself, or could not.
   if (normalizedEvent.code === 'auto_relay.done' || normalizedEvent.code === 'auto_relay.failed') {
     const done = normalizedEvent.code === 'auto_relay.done';

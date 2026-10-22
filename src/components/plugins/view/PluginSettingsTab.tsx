@@ -139,6 +139,11 @@ export function BuiltInModsSection() {
                     <PixelCrab tint="opus" state="done" scale={2} />
                   </div>
                 )}
+                {mod.key === 'modKrabikAgent' && (
+                  <div className="flex flex-shrink-0 pt-1">
+                    <PixelCrab tint="sonnet" state={on ? 'running' : 'done'} holding={on ? '🔧' : undefined} scale={2} />
+                  </div>
+                )}
                 <div className="min-w-0">
                   <div className="text-sm font-semibold leading-none text-foreground">{mod.title}</div>
                   <p className="mt-1 text-sm leading-snug text-muted-foreground">{mod.description}</p>

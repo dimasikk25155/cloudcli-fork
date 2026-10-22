@@ -83,6 +83,7 @@ import telegramWebhookRoutes from './modules/telegram/telegram-webhook.routes.js
 import { telegramAttention } from './modules/telegram/index.js';
 import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
+import { krabikRoutes, startKrabikWatch } from './modules/krabik/index.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
@@ -322,6 +323,7 @@ app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 // swallowed by the admin-only JWT check: a reporting machine has no login.
 app.use('/api/vps/ingest', vpsIngestRouter);
 app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
+app.use('/api/krabik', authenticateToken, requireAdmin, krabikRoutes);
 // Sticky phone pushes (Consigliere tasks + dead bots). Public by design:
 // the service worker has no JWT, and the Mac/VPS reminder job has only a shared token.
 app.use('/api/sticky-push', stickyPushRoutes);
@@ -1677,6 +1679,13 @@ async function startServer() {
                 startAlertLoop();
             } catch (err) {
                 console.error('[ServerPanel] alert loop failed to start:', err.message);
+            }
+
+            // «Агент крабик»: пуш и Telegram, когда агент на VPS закончил или ждёт ответа.
+            try {
+                startKrabikWatch();
+            } catch (err) {
+                console.error('[krabik] watch failed to start:', err.message);
             }
         });
 

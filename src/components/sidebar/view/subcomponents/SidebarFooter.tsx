@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Wallet,
   Car,
+  Shell,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM } from '../../../../constants/config';
@@ -28,6 +29,9 @@ import { OPEN_HUB_PANEL_EVENT, type HubPanelKey } from '../../../hub/hubPanels';
 import AppIcon from '../../../app-icon/AppIcon';
 import type { ProjectGlyph } from '../../../app-icon/projectIconSpec';
 import { useAuth } from '../../../auth';
+import PixelCrab from '../../../crabs/PixelCrab';
+import KrabikPanel from '../../../krabik/KrabikPanel';
+import { useModEnabled } from '../../../../hooks/useModEnabled';
 
 // Entry points for the unattended-work features. Labels are Russian in place:
 // these panels ship ahead of their translation namespaces. The Telegram bot
@@ -52,6 +56,18 @@ const FEATURE_PANELS = [
 // tenants of a shared instance must not even see the entry point.
 const SERVER_PANEL = { key: 'server', label: 'Сервер', shortLabel: 'Сервер', icon: Server } as const;
 
+// «Агент крабик» — агент владельца на VPS (мод modKrabikAgent), тоже только админу.
+const KRABIK_PANEL = { key: 'krabik', label: 'Агент крабик', shortLabel: 'Крабик', icon: Shell } as const;
+
+/** Значок Крабика в меню: пиксельный краб на тёмной плитке того же размера, что AppIcon sm. */
+function KrabikMenuIcon() {
+  return (
+    <span className="neo3-squircle inline-flex h-7 w-7 items-center justify-center overflow-hidden" style={{ background: '#3B1F12' }} aria-hidden>
+      <PixelCrab tint="sonnet" state="done" scale={1.25} className="[&>span:last-child]:hidden" />
+    </span>
+  );
+}
+
 const APP_ICON: Record<string, { background: string; foreground: string; glyph: ProjectGlyph }> = {
   nightshift: { background: '#1F4E5A', foreground: '#E7F4F2', glyph: 'tasks' },
   consigliere: { background: '#5C3A21', foreground: '#F3D2A8', glyph: 'wallet' },
@@ -66,7 +82,8 @@ const APP_ICON: Record<string, { background: string; foreground: string; glyph: 
 type FeaturePanelKey =
   | (typeof HUB_PANELS)[number]['key']
   | (typeof FEATURE_PANELS)[number]['key']
-  | typeof SERVER_PANEL.key;
+  | typeof SERVER_PANEL.key
+  | typeof KRABIK_PANEL.key;
 
 type SidebarFooterProps = {
   restartRequired: boolean;
@@ -87,15 +104,18 @@ export default function SidebarFooter({
   const { items: attention } = usePlannerAttention();
   const overdueCount = attention.length;
   const { user } = useAuth();
-  const panels = !IS_PLATFORM && user?.role === 'admin'
-    ? [...HUB_PANELS, ...FEATURE_PANELS, SERVER_PANEL]
+  const isOwner = !IS_PLATFORM && user?.role === 'admin';
+  const krabikOn = useModEnabled('modKrabikAgent');
+  const panels = isOwner
+    ? [...HUB_PANELS, ...FEATURE_PANELS, SERVER_PANEL, ...(krabikOn ? [KRABIK_PANEL] : [])]
     : [...HUB_PANELS, ...FEATURE_PANELS];
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const fromQuery = params.get('panel');
     if (fromQuery === 'consigliere' || fromQuery === 'mazda' || fromQuery === 'schedules'
-      || fromQuery === 'pipelines' || fromQuery === 'governance' || fromQuery === 'server') {
+      || fromQuery === 'pipelines' || fromQuery === 'governance' || fromQuery === 'server'
+      || fromQuery === 'krabik') {
       setOpenPanel(fromQuery);
     }
   }, []);
@@ -107,7 +127,7 @@ export default function SidebarFooter({
     const onMessage = (event: MessageEvent) => {
       const panel = event.data?.panel;
       if (event.data?.type === 'notification:navigate' && (
-        panel === 'server' || panel === 'consigliere'
+        panel === 'server' || panel === 'consigliere' || panel === 'krabik'
       )) {
         setOpenPanel(panel);
       }
@@ -212,7 +232,9 @@ export default function SidebarFooter({
                 onClick={onClick}
               >
                 <span className="relative">
-                  {app ? (
+                  {key === 'krabik' ? (
+                    <KrabikMenuIcon />
+                  ) : app ? (
                     <AppIcon
                       background={app.background}
                       foreground={app.foreground}
@@ -257,7 +279,9 @@ export default function SidebarFooter({
             aria-label={label}
           >
             <span className="relative">
-              {app ? (
+              {key === 'krabik' ? (
+                <KrabikMenuIcon />
+              ) : app ? (
                 <AppIcon
                   background={app.background}
                   foreground={app.foreground}
@@ -309,6 +333,11 @@ export default function SidebarFooter({
         <PanelModal title="Сервер" icon={Server} onClose={() => setOpenPanel(null)}>
           {/* Кнопка «Починить» уводит в чат — панель при этом должна уйти с экрана. */}
           <ServerPanel onRequestClose={() => setOpenPanel(null)} />
+        </PanelModal>
+      )}
+      {openPanel === 'krabik' && isOwner && krabikOn && (
+        <PanelModal title="Агент крабик" icon={Shell} onClose={() => setOpenPanel(null)} contentClassName="md:max-w-3xl">
+          <KrabikPanel />
         </PanelModal>
       )}
     </div>

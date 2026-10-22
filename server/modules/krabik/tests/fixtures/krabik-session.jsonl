@@ -1,0 +1,12 @@
+{"type": "mode", "mode": "normal"}
+{"type": "user", "uuid": "u1", "timestamp": "2026-10-22T09:00:00Z", "isSidechain": false, "message": {"role": "user", "content": "Проверь всех ботов"}}
+{"type": "user", "uuid": "m1", "isMeta": true, "message": {"role": "user", "content": "<system-reminder>напоминание</system-reminder>"}}
+{"type": "attachment", "uuid": "a1"}
+{"type": "assistant", "uuid": "t0", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "думаю"}]}}
+{"type": "assistant", "uuid": "t1", "timestamp": "2026-10-22T09:00:05Z", "message": {"role": "assistant", "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "systemctl --failed", "description": "Список упавших служб"}}]}}
+{"type": "user", "uuid": "r1", "message": {"role": "user", "content": [{"type": "tool_result", "content": "SECRET_OUTPUT tool_result"}]}}
+{"type": "assistant", "uuid": "t2", "message": {"role": "assistant", "content": [{"type": "tool_use", "name": "Read", "input": {"file_path": "/opt/tyres-bot/logs/bot.log"}}]}}
+{"type": "user", "uuid": "r2", "message": {"role": "user", "content": [{"type": "tool_result", "content": "SECRET_OUTPUT"}]}}
+{"type": "assistant", "uuid": "s1", "isSidechain": true, "message": {"role": "assistant", "content": [{"type": "text", "text": "помощник внутри"}]}}
+{"type": "assistant", "uuid": "x1", "timestamp": "2026-10-22T09:01:00Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Все боты живы, упавших служб нет.<system-reminder>напоминание</system-reminder>"}]}}
+{"type": "system", "subtype": "turn_duration", "durationMs": 60000}
