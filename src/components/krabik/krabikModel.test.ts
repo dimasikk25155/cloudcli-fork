@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { krabikSubtitle, krabikView, pollDelayMs, QUICK_TASKS, reportDay, reportTitle, shortWhen } from './krabikModel';
+import { krabikSubtitle, krabikView, mergePoll, pollDelayMs, QUICK_TASKS, reportDay, reportTitle, shortWhen } from './krabikModel';
 
 describe('окно Крабика', () => {
   it('статус → краб и подпись', () => {
@@ -47,6 +47,18 @@ describe('окно Крабика', () => {
     assert.equal(krabikSubtitle({ reachable: true, status: 'working', title: 'Смотрю логи', messages }), 'Сейчас: Смотрю логи');
     assert.equal(krabikSubtitle({ reachable: true, status: 'idle', title: 'старый заголовок', messages }), 'Последняя задача: Проверь ботов');
     assert.match(krabikSubtitle({ reachable: false, status: 'unknown', title: '', messages: [] }), /VPS NL/);
+    const stepping = [...messages, { id: '3', role: 'tool' as const, text: 'читает a.log\nвыполняет: Сравниваю поля', at: null }];
+    assert.equal(krabikSubtitle({ reachable: true, status: 'working', title: 'старый', messages: stepping }), 'Сейчас: выполняет: Сравниваю поля');
+    assert.match(krabikSubtitle({ reachable: true, status: 'blocked', title: '', messages }), /ответь/);
+  });
+
+  it('единичный сбой опроса не превращается в «нет связи»', () => {
+    const good = { reachable: true, status: 'idle' as const, title: '', completionSeq: 1, messages: [] };
+    const bad = { reachable: false, status: 'unknown' as const, title: '', completionSeq: 0, messages: [] };
+    assert.equal(mergePoll(good, bad, 1), good);
+    assert.equal(mergePoll(good, bad, 2), good);
+    assert.equal(mergePoll(good, bad, 3), bad);
+    assert.equal(mergePoll(null, bad, 1), bad);
   });
 
   it('время: сегодня — только часы', () => {

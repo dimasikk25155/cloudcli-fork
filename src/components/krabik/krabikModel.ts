@@ -57,6 +57,22 @@ export function krabikView(state: Pick<KrabikStateResponse, 'reachable' | 'statu
   }
 }
 
+/** Сколько неудачных опросов подряд терпим, прежде чем сказать «нет связи». */
+export const UNREACHABLE_AFTER = 3;
+
+/**
+ * Новый ответ опроса с учётом прошлого: единичный сбой ssh не превращает
+ * окно в «нет связи» — пока неудач меньше порога, остаётся прежнее состояние.
+ */
+export function mergePoll(
+  previous: KrabikStateResponse | null,
+  next: KrabikStateResponse,
+  failures: number,
+): KrabikStateResponse {
+  if (next.reachable || !previous?.reachable || failures >= UNREACHABLE_AFTER) return next;
+  return previous;
+}
+
 /** Пока работает или ждёт — опрос чаще. */
 export function pollDelayMs(status: KrabikStatus | undefined): number {
   return status === 'working' || status === 'blocked' ? 3000 : 15000;
@@ -102,7 +118,16 @@ export function shortWhen(at: string | number | null | undefined, now: Date = ne
 export function krabikSubtitle(state: Pick<KrabikStateResponse, 'reachable' | 'status' | 'title' | 'messages'> | null): string {
   const fallback = 'Сервер VPS NL · работает, даже когда мак спит';
   if (!state?.reachable) return fallback;
-  if (state.status === 'working' || state.status === 'blocked') return state.title ? `Сейчас: ${state.title}` : fallback;
+  if (state.status === 'blocked') return 'Задал вопрос — ответь в поле ниже';
+  if (state.status === 'working') {
+    // Заголовок терминала Claude обновляет редко — свежее последний шаг из переписки.
+    const last = state.messages[state.messages.length - 1];
+    if (last?.role === 'tool') {
+      const lines = last.text.split('\n');
+      return `Сейчас: ${lines[lines.length - 1]}`;
+    }
+    return state.title ? `Сейчас: ${state.title}` : 'Думает…';
+  }
   for (let i = state.messages.length - 1; i >= 0; i -= 1) {
     const message = state.messages[i];
     if (message.role === 'user') return `Последняя задача: ${message.text.replace(/\s+/g, ' ').trim()}`;

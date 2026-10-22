@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   createKrabikService,
   describeTool,
+  formatQuestion,
   parseAgentGet,
   parseReportList,
   parseReportStatus,
@@ -90,6 +91,38 @@ describe('krabik: переписка', () => {
     assert.equal(describeTool('Edit', { file_path: '/opt/bot/config.py' }), 'правит config.py');
     assert.equal(describeTool('Bash', { command: 'systemctl --failed' }), 'выполняет: systemctl --failed');
     assert.equal(describeTool('mcp__x__y', {}), 'инструмент mcp__x__y');
+  });
+});
+
+describe('krabik: вопрос с вариантами', () => {
+  it('AskUserQuestion — пузырь с вопросом и вариантами, а не «шаг»', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      uuid: 'q1',
+      message: {
+        content: [{
+          type: 'tool_use',
+          name: 'AskUserQuestion',
+          input: { questions: [{ question: 'Расширить поле city?', options: [{ label: 'Да', description: 'в 5 базах' }, { label: 'Нет' }] }] },
+        }],
+      },
+    });
+    const [message] = parseTranscript(line);
+    assert.equal(message.role, 'assistant');
+    assert.equal(message.text, '**❓ Расширить поле city?**\n1. Да — в 5 базах\n2. Нет');
+    assert.equal(formatQuestion(undefined), '');
+  });
+
+  it('один сбой herdr — повтор, а не «нет связи»', async () => {
+    let calls = 0;
+    const exec = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('ssh hiccup');
+      return AGENT_GET;
+    };
+    const state = await createKrabikService({ exec }).getState();
+    assert.equal(state.reachable, true);
+    assert.equal(calls, 2);
   });
 });
 

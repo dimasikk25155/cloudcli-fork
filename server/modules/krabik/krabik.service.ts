@@ -152,6 +152,27 @@ export function describeTool(name: string, input: Record<string, unknown> | unde
   }
 }
 
+type QuestionInput = {
+  questions?: Array<{ question?: string; options?: Array<{ label?: string; description?: string }> }>;
+};
+
+/** Вопрос AskUserQuestion → markdown: вопрос жирным и пронумерованные варианты. */
+export function formatQuestion(input: unknown): string {
+  const questions = (input as QuestionInput | undefined)?.questions ?? [];
+  return questions
+    .map((question) => {
+      const head = `**❓ ${String(question.question || '').trim()}**`;
+      const options = (question.options ?? []).map((option, index) => {
+        const label = String(option.label || '').trim();
+        const description = String(option.description || '').replace(/\s+/g, ' ').trim();
+        return `${index + 1}. ${label}${description ? ` — ${description}` : ''}`;
+      });
+      return [head, ...options].join('\n');
+    })
+    .filter((block) => block.length > 8)
+    .join('\n\n');
+}
+
 type JsonlEntry = {
   type?: string;
   uuid?: string;
@@ -221,6 +242,10 @@ export function parseTranscript(jsonl: string, limit = MESSAGES_LIMIT): KrabikMe
         // Claude пишет один ответ несколькими строками JSONL — склеиваем.
         if (last && last.role === 'assistant' && last.id === id) last.text = `${last.text}\n\n${text}`;
         else out.push({ id, role: 'assistant', text, at });
+      } else if (part?.type === 'tool_use' && part.name === 'AskUserQuestion') {
+        // Вопрос с вариантами — это реплика для Димы, а не «шаг»: показываем пузырём.
+        const text = formatQuestion(part.input);
+        if (text) out.push({ id: `${id}:${index}`, role: 'assistant', text, at });
       } else if (part?.type === 'tool_use') {
         pushTool(`${id}:${index}`, at, describeTool(String(part.name || ''), part.input));
       }
@@ -273,11 +298,16 @@ export function createKrabikService(deps: KrabikDeps = {}) {
     exec(ssh, ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', sshHost, command]);
 
   async function getState(): Promise<KrabikState> {
-    try {
-      return parseAgentGet(await exec(herdr, herdrArgs('get', KRABIK_AGENT)));
-    } catch {
-      return { reachable: false, status: 'unknown', title: '', completionSeq: 0, error: 'Нет связи с сервером' };
+    // Одна неудача ssh — ещё не «нет связи»: повторяем один раз.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const state = parseAgentGet(await exec(herdr, herdrArgs('get', KRABIK_AGENT)));
+        if (state.reachable || attempt === 1) return state;
+      } catch {
+        // повторим
+      }
     }
+    return { reachable: false, status: 'unknown', title: '', completionSeq: 0, error: 'Нет связи с сервером' };
   }
 
   async function getMessages(limit = MESSAGES_LIMIT): Promise<KrabikMessage[]> {

@@ -9,6 +9,7 @@ import { readJson } from '../server/shared';
 
 import {
   krabikSubtitle,
+  mergePoll,
   krabikView,
   pollDelayMs,
   QUICK_TASKS,
@@ -193,25 +194,29 @@ export default function KrabikPanel() {
     };
   }, []);
 
+  const failures = useRef(0);
   const refresh = useCallback(async () => {
+    let next: KrabikStateResponse;
     try {
-      const data = (await readJson('/api/krabik/state')) as KrabikStateResponse;
-      if (!mounted.current) return null;
-      setState(data);
-      return data;
+      next = (await readJson('/api/krabik/state')) as KrabikStateResponse;
     } catch (err) {
-      if (mounted.current) {
-        setState((prev) => ({
-          reachable: false,
-          status: 'unknown',
-          title: '',
-          completionSeq: 0,
-          messages: prev?.messages ?? [],
-          error: err instanceof Error ? err.message : String(err),
-        }));
-      }
-      return null;
+      next = {
+        reachable: false,
+        status: 'unknown',
+        title: '',
+        completionSeq: 0,
+        messages: [],
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
+    failures.current = next.reachable ? 0 : failures.current + 1;
+    if (!mounted.current) return null;
+    setState((prev) => {
+      const merged = mergePoll(prev, next, failures.current);
+      // Без связи переписку не стираем — показываем последнюю известную.
+      return merged.reachable || !prev ? merged : { ...merged, messages: prev.messages };
+    });
+    return next;
   }, []);
 
   // Опрос: чаще, пока Крабик работает; со скрытой вкладки — пауза.
