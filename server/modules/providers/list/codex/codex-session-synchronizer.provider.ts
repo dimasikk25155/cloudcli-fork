@@ -8,7 +8,7 @@ import {
   extractFirstValidJsonlData,
   findFilesRecursivelyCreatedAfter,
   normalizeSessionName,
-  readFileTimestamps,
+  readTranscriptTimestamps,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
 import { stripAgentOnlyBlocks } from '../../../../../shared/agent-only-blocks.js';
@@ -53,7 +53,7 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
         }
       }
 
-      const timestamps = await readFileTimestamps(filePath);
+      const timestamps = await readTranscriptTimestamps(filePath);
       sessionsDb.createSession(
         parsed.sessionId,
         this.provider,
@@ -83,7 +83,7 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
       return null;
     }
 
-    const timestamps = await readFileTimestamps(filePath);
+    const timestamps = await readTranscriptTimestamps(filePath);
     return sessionsDb.createSession(
       parsed.sessionId,
       this.provider,

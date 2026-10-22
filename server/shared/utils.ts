@@ -4,6 +4,7 @@ import {
   access,
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   readlink,
@@ -1239,6 +1240,68 @@ export async function readFileTimestamps(
   } catch {
     return {};
   }
+}
+
+const TRANSCRIPT_TAIL_CHUNKS = [64 * 1024, 1024 * 1024];
+
+/**
+ * Reads the top-level `timestamp` of the last transcript line that has one.
+ *
+ * Only the file tail is read: first 64 KB, then 1 MB when the last lines are
+ * huge (pasted images). Returns undefined when nothing parseable is found.
+ */
+export async function readLastJsonlTimestamp(filePath: string): Promise<string | undefined> {
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(filePath, 'r');
+    const { size } = await handle.stat();
+    for (const chunkSize of TRANSCRIPT_TAIL_CHUNKS) {
+      const length = Math.min(size, chunkSize);
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, size - length);
+      const lines = buffer.toString('utf8').split('\n');
+      // The first line of a partial chunk is cut in the middle.
+      const firstWhole = length < size ? 1 : 0;
+      for (let index = lines.length - 1; index >= firstWhole; index -= 1) {
+        const line = lines[index].trim();
+        if (!line) {
+          continue;
+        }
+        try {
+          const value = (JSON.parse(line) as { timestamp?: unknown }).timestamp;
+          const time = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+          if (Number.isFinite(time)) {
+            return new Date(time).toISOString();
+          }
+        } catch {
+          // Skip a malformed or truncated line.
+        }
+      }
+      if (length >= size) {
+        break;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Timestamps for a JSONL transcript: `updatedAt` is the last message time.
+ *
+ * File mtime is only a fallback. Rewriting old transcripts (secret redaction,
+ * bulk cleanups, copies) bumps mtime without any new conversation, and on
+ * 22.10 that pushed ~800 old chats into the Recent journal at once.
+ */
+export async function readTranscriptTimestamps(
+  filePath: string
+): Promise<{ createdAt?: string; updatedAt?: string }> {
+  const fileTimestamps = await readFileTimestamps(filePath);
+  const lastMessageAt = await readLastJsonlTimestamp(filePath);
+  return lastMessageAt ? { ...fileTimestamps, updatedAt: lastMessageAt } : fileTimestamps;
 }
 
 // ---------------------------
