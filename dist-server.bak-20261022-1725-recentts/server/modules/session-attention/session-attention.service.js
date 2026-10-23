@@ -1,0 +1,702 @@
+/**
+ * Session attention ("Ждут тебя"): the server-side status of every app session.
+ *
+ * Fed from exactly two places — the run start and the run registry's event
+ * hook, which every engine (Claude, Codex, Grok, …) flows through — and
+ * persisted in SQLite so the status survives a page reload and a server
+ * restart.
+ *
+ *   start                              → working
+ *   permission_request                 → waiting / ask | plan | permission
+ *   permission_cancelled, answer       → working (or the next pending request)
+ *   complete aborted                   → done, already seen by the actor
+ *   complete exitCode ≠ 0              → failed / error
+ *   complete ok, request still pending → stays waiting (Grok: question asked, CLI exited)
+ *   complete ok                        → classifier on the last assistant text:
+ *                                        waiting / manual_ask | text_question, or done
+ *   server boot, working left over     → failed / interrupted
+ *
+ * Every transition calls the `onChange` listeners (push, Telegram) and
+ * broadcasts a content-free `attention_changed` frame to all websockets; the
+ * content itself is only served by `GET /api/attention`, which filters by
+ * project access.
+ */
+import path from 'node:path';
+import { sessionAttentionDb, } from '../../modules/database/index.js';
+import { getConnection } from '../../modules/database/connection.js';
+import { connectedClients, WS_OPEN_STATE } from '../../modules/websocket/services/websocket-state.service.js';
+import { listGrokQuestionsForAppSession } from '../../shared/grok-question.js';
+import { projectAccessFor } from '../../shared/project-access.js';
+import { classifyTurnEnding, clipText } from '../../shared/turn-ending.js';
+// ---------------------------------------------------------------------------
+// Internals
+// ---------------------------------------------------------------------------
+const ERROR_MAX = 200;
+const QUESTION_MAX = 200;
+const PLAN_EXCERPT_MAX = 1000;
+function emptyMemory() {
+    return { lastText: '', deltaBuffer: '', deltaOpen: false, lastError: null, pending: [], stopActorId: null, modelAt: null };
+}
+/** Event kinds that are model output — each one means the prompt cache was just used. */
+const MODEL_OUTPUT_KINDS = new Set(['stream_delta', 'thinking', 'tool_use', 'permission_request']);
+function isModelOutput(event) {
+    return MODEL_OUTPUT_KINDS.has(event.kind) || (event.kind === 'text' && event.role === 'assistant');
+}
+function toUserId(value) {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+function asRecord(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+function normalizeQuestions(input) {
+    const raw = asRecord(input)?.questions;
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+    const questions = [];
+    for (const entry of raw) {
+        const record = asRecord(entry);
+        if (!record || typeof record.question !== 'string') {
+            continue;
+        }
+        const options = (Array.isArray(record.options) ? record.options : [])
+            .map((option) => {
+            if (typeof option === 'string') {
+                return { label: option };
+            }
+            const optionRecord = asRecord(option);
+            if (!optionRecord || typeof optionRecord.label !== 'string') {
+                return null;
+            }
+            return typeof optionRecord.description === 'string' && optionRecord.description
+                ? { label: optionRecord.label, description: optionRecord.description }
+                : { label: optionRecord.label };
+        })
+            .filter((option) => option !== null);
+        questions.push({
+            question: record.question,
+            ...(typeof record.header === 'string' && record.header ? { header: record.header } : {}),
+            options,
+            multiSelect: Boolean(record.multiSelect),
+        });
+    }
+    return questions;
+}
+function reasonForTool(toolName) {
+    if (toolName === 'AskUserQuestion') {
+        return 'ask';
+    }
+    if (/^(?:ExitPlanMode|exit_plan_mode)$/i.test(toolName)) {
+        return 'plan';
+    }
+    return 'permission';
+}
+function summarizeToolRequest(toolName, input) {
+    const record = asRecord(input);
+    const target = record
+        ? [record.command, record.file_path, record.path, record.url, record.pattern, record.description]
+            .find((value) => typeof value === 'string' && value.trim().length > 0)
+        : undefined;
+    return clipText(target ? `${toolName}: ${target}` : toolName, QUESTION_MAX);
+}
+function buildPendingRequest(event) {
+    if (typeof event.requestId !== 'string' || !event.requestId) {
+        return null;
+    }
+    const toolName = typeof event.toolName === 'string' && event.toolName ? event.toolName : 'unknown';
+    const reason = reasonForTool(toolName);
+    const base = { requestId: event.requestId, toolName };
+    if (reason === 'ask') {
+        const questions = normalizeQuestions(event.input);
+        const first = questions[0];
+        return {
+            requestId: event.requestId,
+            reason,
+            detail: {
+                ...base,
+                ...(first ? { question: first.question, options: first.options.map((option) => option.label) } : {}),
+                questions,
+            },
+        };
+    }
+    if (reason === 'plan') {
+        const plan = typeof asRecord(event.input)?.plan === 'string' ? asRecord(event.input)?.plan : '';
+        const headline = plan
+            .split('\n')
+            .map((line) => line.replace(/^[#>*\-\s]+/, '').trim())
+            .find((line) => line.length > 0);
+        return {
+            requestId: event.requestId,
+            reason,
+            detail: {
+                ...base,
+                ...(headline ? { question: clipText(headline, QUESTION_MAX) } : {}),
+                ...(plan.trim() ? { excerpt: clipText(plan, PLAN_EXCERPT_MAX) } : {}),
+            },
+        };
+    }
+    return {
+        requestId: event.requestId,
+        reason,
+        detail: { ...base, question: summarizeToolRequest(toolName, event.input) },
+    };
+}
+function parseDetail(json) {
+    if (!json) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(json);
+        return asRecord(parsed) ? parsed : null;
+    }
+    catch {
+        return null;
+    }
+}
+function defaultIsRequestPending(input) {
+    if (input.provider !== 'grok') {
+        return false;
+    }
+    if (input.reason === 'ask') {
+        return listGrokQuestionsForAppSession(input.appSessionId).some((pending) => pending.requestId === input.requestId);
+    }
+    return input.reason === 'plan';
+}
+async function defaultFetchLastAssistantText(appSessionId) {
+    const { sessionsService } = await import('../../modules/providers/services/sessions.service.js');
+    const history = await sessionsService.fetchHistory(appSessionId, { limit: 40, offset: 0 });
+    for (let index = history.messages.length - 1; index >= 0; index -= 1) {
+        const message = history.messages[index];
+        if (message.kind === 'text' && message.role === 'assistant' && typeof message.content === 'string' && message.content.trim()) {
+            return message.content;
+        }
+    }
+    return null;
+}
+function defaultBroadcast(payload) {
+    const frame = JSON.stringify(payload);
+    connectedClients.forEach((client) => {
+        if (client.readyState === WS_OPEN_STATE) {
+            client.send(frame);
+        }
+    });
+}
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+/**
+ * A question the agent only asked in its reply text — no open request behind
+ * it. Like done/failed it is "unread" until seen and leaves the hub once seen.
+ */
+function isSoftWaitingRow(state, reason) {
+    return state === 'waiting' && (reason === 'manual_ask' || reason === 'text_question');
+}
+export function createSessionAttentionService(dependencies = {}) {
+    const fetchLastAssistantText = dependencies.fetchLastAssistantText ?? defaultFetchLastAssistantText;
+    const isRequestPending = dependencies.isRequestPending ?? defaultIsRequestPending;
+    const broadcast = dependencies.broadcast ?? defaultBroadcast;
+    const now = dependencies.now ?? (() => new Date());
+    const listeners = new Set();
+    const memory = new Map();
+    /** History lookups in flight, by session; a new run start invalidates its token. */
+    const fallbackTokens = new Map();
+    let fallbackCounter = 0;
+    /**
+     * Status updates and seen marks are compared by timestamp ("unread" =
+     * updated after seen). Two writes in the same millisecond made that
+     * ambiguous, so every timestamp this service writes is strictly later than
+     * the previous one. Rule: a seen mark equal to an update's stamp is a view of
+     * that very update (used when Stop marks the result seen); any later update
+     * always gets a larger stamp and is unread again.
+     */
+    let lastStampMs = 0;
+    let stampSeeded = false;
+    /**
+     * Lifts the stamp floor to the newest stamp already on disk, so a restarted
+     * process (or a clock that went back) never writes a status that compares
+     * as older than a previous update or seen mark. Lazy: the singleton is
+     * created at import time, before the database is initialized.
+     */
+    function seedStampFloor() {
+        const row = getConnection()
+            .prepare(`
+        SELECT MAX(stamp) AS max_stamp FROM (
+          SELECT MAX(updated_at) AS stamp FROM session_attention
+          UNION ALL
+          SELECT MAX(seen_at) AS stamp FROM session_attention_seen
+        )
+      `)
+            .get();
+        const persisted = row?.max_stamp ? Date.parse(row.max_stamp) : NaN;
+        if (Number.isFinite(persisted)) {
+            lastStampMs = Math.max(lastStampMs, persisted);
+        }
+        stampSeeded = true;
+    }
+    function nextStamp() {
+        if (!stampSeeded) {
+            seedStampFloor();
+        }
+        lastStampMs = Math.max(now().getTime(), lastStampMs + 1);
+        return new Date(lastStampMs).toISOString();
+    }
+    function memoryFor(sessionId) {
+        let entry = memory.get(sessionId);
+        if (!entry) {
+            entry = emptyMemory();
+            memory.set(sessionId, entry);
+        }
+        return entry;
+    }
+    /** Drops the finished run's buffers; keeps the entry only for still-open requests. */
+    function releaseMemory(sessionId, mem) {
+        if (mem.pending.length === 0) {
+            memory.delete(sessionId);
+            return;
+        }
+        mem.lastText = '';
+        mem.deltaBuffer = '';
+        mem.deltaOpen = false;
+        mem.lastError = null;
+        mem.stopActorId = null;
+        mem.modelAt = null;
+    }
+    /**
+     * Stores the run's last model output time on the status row (prompt-cache
+     * timer). Called before the transition that broadcasts, so the re-read list
+     * already carries it. Best effort: a failure never breaks the status.
+     */
+    function persistModelAt(sessionId, mem) {
+        if (mem.modelAt === null) {
+            return;
+        }
+        try {
+            sessionAttentionDb.touchLastModelAt(sessionId, new Date(mem.modelAt).toISOString());
+        }
+        catch (error) {
+            console.error('[SessionAttention] could not store last model time', { sessionId, error: error?.message });
+        }
+    }
+    function broadcastChanged(sessionId) {
+        try {
+            broadcast({ kind: 'attention_changed', sessionId, timestamp: now().toISOString() });
+        }
+        catch (error) {
+            console.error('[SessionAttention] broadcast failed', { sessionId, error: error?.message });
+        }
+    }
+    /**
+     * Writes the next status of a session and notifies listeners. No-op (no
+     * write, no event) when state, reason and detail are all unchanged.
+     */
+    function transition(run, next) {
+        const previous = sessionAttentionDb.get(run.sessionId);
+        const detailJson = next.detail ? JSON.stringify(next.detail) : null;
+        if (previous
+            && previous.state === next.state
+            && (previous.reason ?? null) === next.reason
+            && (previous.detail_json ?? null) === detailJson) {
+            return null;
+        }
+        const row = {
+            session_id: run.sessionId,
+            user_id: run.userId ?? previous?.user_id ?? null,
+            project_id: run.projectId ?? previous?.project_id ?? null,
+            provider: run.provider || previous?.provider || 'unknown',
+            state: next.state,
+            reason: next.reason,
+            detail_json: detailJson,
+            updated_at: nextStamp(),
+        };
+        sessionAttentionDb.upsert(row);
+        const previousDetail = previous ? parseDetail(previous.detail_json) : null;
+        const change = {
+            sessionId: row.session_id,
+            userId: row.user_id,
+            projectId: row.project_id,
+            provider: row.provider,
+            state: next.state,
+            reason: next.reason,
+            detail: next.detail,
+            updatedAt: row.updated_at,
+            previous: previous
+                ? {
+                    state: previous.state,
+                    reason: (previous.reason ?? null),
+                    requestId: previousDetail?.requestId ?? null,
+                }
+                : null,
+        };
+        for (const listener of listeners) {
+            try {
+                listener(change);
+            }
+            catch (error) {
+                console.error('[SessionAttention] onChange listener failed', { sessionId: row.session_id, error: error?.message });
+            }
+        }
+        broadcastChanged(row.session_id);
+        return row;
+    }
+    function runContext(run) {
+        return {
+            sessionId: run.appSessionId,
+            provider: run.provider,
+            userId: toUserId(run.userId),
+            projectId: run.projectId ?? null,
+        };
+    }
+    /** After a request was answered or withdrawn: show the next open one, else back to working. */
+    function settleAfterRequest(run, mem) {
+        const nextPending = mem.pending[mem.pending.length - 1];
+        if (nextPending) {
+            transition(runContext(run), { state: 'waiting', reason: nextPending.reason, detail: nextPending.detail });
+            return;
+        }
+        transition(runContext(run), { state: 'working', reason: null, detail: null });
+    }
+    function applyTurnEnding(run, text) {
+        const ending = classifyTurnEnding(text ?? '');
+        if (ending.kind === 'manual_ask') {
+            transition(runContext(run), { state: 'waiting', reason: 'manual_ask', detail: { excerpt: ending.excerpt } });
+            return;
+        }
+        if (ending.kind === 'question') {
+            transition(runContext(run), {
+                state: 'waiting',
+                reason: 'text_question',
+                detail: { question: ending.excerpt, excerpt: ending.excerpt },
+            });
+            return;
+        }
+        transition(runContext(run), { state: 'done', reason: null, detail: null });
+    }
+    function handleComplete(run, event, mem) {
+        const context = runContext(run);
+        const lastText = mem.lastText;
+        const lastError = mem.lastError;
+        const stopActorId = mem.stopActorId;
+        persistModelAt(context.sessionId, mem);
+        if (event.aborted === true) {
+            mem.pending = [];
+            releaseMemory(context.sessionId, mem);
+            const row = transition(context, { state: 'done', reason: null, detail: null })
+                ?? sessionAttentionDb.get(context.sessionId);
+            // Stop is not news to whoever pressed it: mark it seen for them at once.
+            if (row && stopActorId !== null) {
+                sessionAttentionDb.markSeen(stopActorId, [context.sessionId], row.updated_at);
+            }
+            return;
+        }
+        // Codex emits a bare `complete` (no exitCode) on every turn.completed —
+        // that is a successful turn end, not a failure.
+        const exitCode = typeof event.exitCode === 'number' ? event.exitCode : 0;
+        if (exitCode !== 0) {
+            mem.pending = [];
+            releaseMemory(context.sessionId, mem);
+            const error = clipText(lastError || `Движок завершился с кодом ${exitCode}`, ERROR_MAX);
+            transition(context, { state: 'failed', reason: 'error', detail: { error } });
+            return;
+        }
+        mem.pending = mem.pending.filter((pending) => isRequestPending({
+            provider: run.provider,
+            appSessionId: context.sessionId,
+            requestId: pending.requestId,
+            reason: pending.reason,
+        }));
+        const lastPending = mem.pending[mem.pending.length - 1];
+        releaseMemory(context.sessionId, mem);
+        if (lastPending) {
+            transition(context, { state: 'waiting', reason: lastPending.reason, detail: lastPending.detail });
+            return;
+        }
+        if (lastText.trim()) {
+            applyTurnEnding(run, lastText);
+            return;
+        }
+        // Nothing streamed (or only tool output): read the transcript instead.
+        // A newer run that started meanwhile owns the status — drop the result.
+        fallbackCounter += 1;
+        const token = fallbackCounter;
+        fallbackTokens.set(context.sessionId, token);
+        void fetchLastAssistantText(context.sessionId)
+            .catch((error) => {
+            console.warn('[SessionAttention] history fallback failed', { sessionId: context.sessionId, error: error?.message });
+            return null;
+        })
+            .then((text) => {
+            if (fallbackTokens.get(context.sessionId) !== token) {
+                return;
+            }
+            fallbackTokens.delete(context.sessionId);
+            try {
+                applyTurnEnding(run, text);
+            }
+            catch (error) {
+                console.error('[SessionAttention] could not record turn ending', { sessionId: context.sessionId, error: error?.message });
+            }
+        });
+    }
+    function visibleRows(user) {
+        const rows = sessionAttentionDb.listWithSeen(toUserId(user.id));
+        const mayAccess = projectAccessFor(user);
+        return rows.filter((row) => mayAccess(row.resolved_project_id));
+    }
+    function toItem(row) {
+        const state = row.state;
+        const isFinal = state === 'done' || state === 'failed' || isSoftWaitingRow(state, row.reason);
+        // Seen at or after the update's stamp = seen (see nextStamp for why ties are unambiguous).
+        const unread = isFinal && (!row.seen_at || Date.parse(row.updated_at) > Date.parse(row.seen_at));
+        const projectPath = row.project_path ?? '';
+        const projectName = row.custom_project_name?.trim() || path.basename(projectPath) || projectPath;
+        return {
+            sessionId: row.session_id,
+            projectId: row.resolved_project_id ?? '',
+            projectName,
+            provider: row.provider,
+            title: row.session_name?.trim() ? row.session_name : null,
+            state,
+            reason: (row.reason ?? null),
+            detail: parseDetail(row.detail_json),
+            updatedAt: row.updated_at,
+            unread,
+            model: row.session_model?.trim() ? row.session_model : null,
+            lastModelAt: row.last_model_at ?? null,
+        };
+    }
+    return {
+        /** A run started for the session: status becomes `working`, run memory resets. */
+        recordRunStart(input) {
+            memory.set(input.appSessionId, emptyMemory());
+            fallbackTokens.delete(input.appSessionId);
+            transition({ sessionId: input.appSessionId, provider: input.provider, userId: toUserId(input.userId), projectId: input.projectId }, { state: 'working', reason: null, detail: null });
+        },
+        /** One outbound event of a live run (already remapped to the app session id). */
+        recordRunEvent(run, event) {
+            const mem = memoryFor(run.appSessionId);
+            if (isModelOutput(event)) {
+                mem.modelAt = now().getTime();
+            }
+            if (event.kind === 'stream_delta') {
+                if (typeof event.content === 'string') {
+                    if (!mem.deltaOpen) {
+                        mem.deltaBuffer = '';
+                    }
+                    mem.deltaBuffer += event.content;
+                    mem.deltaOpen = true;
+                    mem.lastText = mem.deltaBuffer;
+                }
+                return;
+            }
+            mem.deltaOpen = false;
+            switch (event.kind) {
+                case 'text':
+                    if (event.role === 'assistant' && typeof event.content === 'string' && event.content.trim()) {
+                        mem.lastText = event.content;
+                    }
+                    return;
+                case 'error':
+                    if (typeof event.content === 'string' && event.content.trim()) {
+                        mem.lastError = event.content;
+                    }
+                    return;
+                case 'permission_request': {
+                    const pending = buildPendingRequest(event);
+                    if (!pending) {
+                        return;
+                    }
+                    mem.pending = mem.pending.filter((entry) => entry.requestId !== pending.requestId);
+                    mem.pending.push(pending);
+                    persistModelAt(run.appSessionId, mem);
+                    transition(runContext(run), { state: 'waiting', reason: pending.reason, detail: pending.detail });
+                    return;
+                }
+                case 'permission_cancelled': {
+                    if (typeof event.requestId !== 'string') {
+                        return;
+                    }
+                    const before = mem.pending.length;
+                    mem.pending = mem.pending.filter((entry) => entry.requestId !== event.requestId);
+                    if (mem.pending.length !== before) {
+                        settleAfterRequest(run, mem);
+                    }
+                    return;
+                }
+                case 'complete':
+                    handleComplete(run, event, mem);
+                    return;
+                default:
+            }
+        },
+        /**
+         * The user pressed Stop for this session. Remembered so the aborted
+         * `complete` marks the session seen for that user (not the run owner).
+         * Unknown actor → nothing is marked.
+         */
+        recordStopActor(appSessionId, actorUserId) {
+            const actor = toUserId(actorUserId);
+            if (actor === null || !memory.has(appSessionId)) {
+                return;
+            }
+            memoryFor(appSessionId).stopActorId = actor;
+        },
+        /**
+         * A pending request was answered (UI, push, Telegram). Claude keeps running
+         * after the answer, so the status goes back to `working` (or to the next
+         * open request). Unknown request ids are ignored.
+         */
+        recordAnswer(requestId) {
+            for (const [sessionId, mem] of memory) {
+                if (!mem.pending.some((entry) => entry.requestId === requestId)) {
+                    continue;
+                }
+                mem.pending = mem.pending.filter((entry) => entry.requestId !== requestId);
+                const row = sessionAttentionDb.get(sessionId);
+                settleAfterRequest({ appSessionId: sessionId, provider: row?.provider ?? 'unknown' }, mem);
+                return;
+            }
+        },
+        /**
+         * Which session an open request belongs to (answer routing and access
+         * checks). Only requests that can still be answered are known: Claude's
+         * live approvals and Grok's questions/plan exits after the CLI exited.
+         */
+        findPendingRequest(requestId) {
+            for (const [sessionId, mem] of memory) {
+                const pending = mem.pending.find((entry) => entry.requestId === requestId);
+                if (pending) {
+                    const row = sessionAttentionDb.get(sessionId);
+                    return { requestId, sessionId, provider: row?.provider ?? 'unknown', reason: pending.reason };
+                }
+            }
+            return null;
+        },
+        /** Sessions the user may see (admin: all; others: granted projects), newest first. */
+        listForUser(user) {
+            return visibleRows(user).map(toItem);
+        },
+        /** Counters for the tab title / badge: N = waiting + failed + unreadDone. */
+        countsFor(items) {
+            const counts = { waiting: 0, failed: 0, unreadDone: 0, working: 0 };
+            for (const item of items) {
+                if (item.state === 'waiting') {
+                    if (!isSoftWaitingRow(item.state, item.reason) || item.unread)
+                        counts.waiting += 1;
+                }
+                else if (item.state === 'working')
+                    counts.working += 1;
+                else if (item.state === 'failed' && item.unread)
+                    counts.failed += 1;
+                else if (item.state === 'done' && item.unread)
+                    counts.unreadDone += 1;
+            }
+            return counts;
+        },
+        /**
+         * Marks sessions as seen by this user only. `{all:true}` clears every
+         * unread done/failed session and soft question (manual_ask/text_question)
+         * the user can see; open requests are not affected (only an answer closes them). Ids the user cannot see are ignored.
+         */
+        markSeen(user, target) {
+            const userId = toUserId(user.id);
+            if (userId === null) {
+                return { marked: 0 };
+            }
+            const items = visibleRows(user).map(toItem);
+            let ids;
+            if ('all' in target && target.all === true) {
+                ids = items
+                    .filter((item) => item.state === 'done' || item.state === 'failed' || isSoftWaitingRow(item.state, item.reason))
+                    .map((item) => item.sessionId);
+            }
+            else {
+                const wanted = new Set(Array.isArray(target.sessionIds)
+                    ? target.sessionIds.filter((id) => typeof id === 'string')
+                    : []);
+                ids = items.filter((item) => wanted.has(item.sessionId)).map((item) => item.sessionId);
+            }
+            sessionAttentionDb.markSeen(userId, ids, nextStamp());
+            for (const sessionId of ids) {
+                broadcastChanged(sessionId);
+            }
+            return { marked: ids.length };
+        },
+        /**
+         * Run once at server start. A `working` row without a live run belonged to
+         * the previous process: it becomes failed/interrupted. A Claude-style
+         * request (the process was waiting inside the run) died the same way.
+         * A Grok question/plan was asked after its CLI had already exited, but the
+         * in-memory pending store is gone — it stays waiting as a text question
+         * (answerable by typing, no buttons).
+         */
+        reconcileOnBoot(options = {}) {
+            const isRunAlive = options.isRunAlive ?? (() => false);
+            seedStampFloor();
+            let changed = 0;
+            for (const row of sessionAttentionDb.listByStates(['working', 'waiting'])) {
+                if (isRunAlive(row.session_id)) {
+                    continue;
+                }
+                const context = { sessionId: row.session_id, provider: row.provider, userId: row.user_id, projectId: row.project_id };
+                const reason = (row.reason ?? null);
+                if (row.state === 'working') {
+                    transition(context, {
+                        state: 'failed',
+                        reason: 'interrupted',
+                        detail: { error: 'Сервер перезапустился во время работы' },
+                    });
+                    changed += 1;
+                    continue;
+                }
+                if (reason !== 'ask' && reason !== 'plan' && reason !== 'permission') {
+                    continue;
+                }
+                const detail = parseDetail(row.detail_json);
+                if (row.provider === 'grok') {
+                    const question = detail?.question ?? 'Агент ждёт ответа';
+                    transition(context, {
+                        state: 'waiting',
+                        reason: 'text_question',
+                        detail: { question, excerpt: question },
+                    });
+                }
+                else {
+                    transition(context, {
+                        state: 'failed',
+                        reason: 'interrupted',
+                        detail: { error: 'Сервер перезапустился, пока агент ждал ответа' },
+                    });
+                }
+                changed += 1;
+            }
+            memory.clear();
+            fallbackTokens.clear();
+            return changed;
+        },
+        /** Subscribes to every transition; returns the unsubscribe function. */
+        onChange(listener) {
+            listeners.add(listener);
+            return () => {
+                listeners.delete(listener);
+            };
+        },
+    };
+}
+/** Claude Code's prompt-cache lifetime in Neo3 sessions, minutes. */
+export const DEFAULT_PROMPT_CACHE_TTL_MIN = 60;
+/**
+ * Prompt-cache TTL for the client timer: `NEO3_PROMPT_CACHE_TTL_MIN` when it is
+ * a positive number of minutes up to a day, otherwise 60.
+ */
+export function promptCacheTtlMin(env = process.env) {
+    const raw = env.NEO3_PROMPT_CACHE_TTL_MIN?.trim();
+    const value = raw ? Number(raw) : NaN;
+    return Number.isFinite(value) && value > 0 && value <= 24 * 60 ? value : DEFAULT_PROMPT_CACHE_TTL_MIN;
+}
+/** Process-wide instance used by the run registry, routes and boot. */
+export const sessionAttention = createSessionAttentionService();
+//# sourceMappingURL=session-attention.service.js.map

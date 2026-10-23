@@ -1,0 +1,265 @@
+import express from 'express';
+import { createProject, updateProjectDisplayName } from '../../modules/projects/services/project-management.service.js';
+import { createPendingCloneRequests } from '../../modules/projects/services/project-clone-request.service.js';
+import { startCloneProject } from '../../modules/projects/services/project-clone.service.js';
+import { AppError, asyncHandler, createApiSuccessResponse } from '../../shared/utils.js';
+import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions } from '../../modules/projects/services/projects-with-sessions-fetch.service.js';
+import { deleteOrArchiveProject, restoreArchivedProject } from '../../modules/projects/services/project-delete.service.js';
+import { applyLegacyStarredProjectIds, toggleProjectStar } from '../../modules/projects/services/project-star.service.js';
+import { userProjectAccessDb } from '../../modules/database/index.js';
+const router = express.Router();
+// Parked clone requests live for one minute: long enough for the EventSource to connect.
+const pendingCloneRequests = createPendingCloneRequests(60_000);
+const MAX_CLONE_FIELD_LENGTH = 4096;
+function readRequestingUser(req) {
+    const authenticatedUser = req.user;
+    if (authenticatedUser?.id === undefined || authenticatedUser?.id === null || !authenticatedUser.role) {
+        return undefined;
+    }
+    return { id: Number(authenticatedUser.id), role: authenticatedUser.role };
+}
+/** Throws 403 if a non-admin requester hasn't been granted this project. Admins/unauthenticated internal callers pass through. */
+function assertProjectAccess(req, projectId) {
+    const requestingUser = readRequestingUser(req);
+    if (!requestingUser || requestingUser.role === 'admin') {
+        return;
+    }
+    const accessibleProjectIds = userProjectAccessDb.getAccessibleProjectIds(requestingUser.id);
+    if (!accessibleProjectIds.includes(projectId)) {
+        throw new AppError('You do not have access to this project', {
+            code: 'PROJECT_ACCESS_DENIED',
+            statusCode: 403,
+        });
+    }
+}
+function readQueryStringValue(value) {
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (Array.isArray(value) && typeof value[0] === 'string') {
+        return value[0];
+    }
+    return '';
+}
+function readOptionalNumericQueryValue(value) {
+    const rawValue = readQueryStringValue(value).trim();
+    if (!rawValue) {
+        return null;
+    }
+    const parsedValue = Number.parseInt(rawValue, 10);
+    return Number.isNaN(parsedValue) ? null : parsedValue;
+}
+function parseNonNegativeIntQuery(value, name, fallback) {
+    const rawValue = readQueryStringValue(value).trim();
+    if (!rawValue) {
+        return fallback;
+    }
+    const parsedValue = Number.parseInt(rawValue, 10);
+    if (Number.isNaN(parsedValue) || parsedValue < 0) {
+        throw new AppError(`${name} must be a non-negative integer`, {
+            code: 'INVALID_QUERY_PARAMETER',
+            statusCode: 400,
+        });
+    }
+    return parsedValue;
+}
+function requireCloneUserId(req) {
+    const userId = req.user?.id;
+    if (userId === undefined || userId === null) {
+        throw new AppError('Authenticated user is required', {
+            code: 'AUTHENTICATION_REQUIRED',
+            statusCode: 401,
+        });
+    }
+    return userId;
+}
+function resolveRouteErrorMessage(error) {
+    if (error instanceof AppError) {
+        return error.message;
+    }
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+    return 'Failed to clone repository';
+}
+router.get('/', asyncHandler(async (req, res) => {
+    const skipSynchronization = readQueryStringValue(req.query.skipSynchronization).trim() === '1' ||
+        readQueryStringValue(req.query.skipSync).trim() === '1';
+    const sessionsLimit = readOptionalNumericQueryValue(req.query.sessionsLimit) ?? undefined;
+    const sessionsOffset = readOptionalNumericQueryValue(req.query.sessionsOffset) ?? undefined;
+    const projects = await getProjectsWithSessions({
+        skipSynchronization,
+        sessionsLimit,
+        sessionsOffset,
+        requestingUser: readRequestingUser(req),
+    });
+    res.json(projects);
+}));
+router.get('/archived', asyncHandler(async (req, res) => {
+    const projects = await getArchivedProjectsWithSessions({ requestingUser: readRequestingUser(req) });
+    res.json(createApiSuccessResponse({ projects }));
+}));
+router.get('/:projectId/sessions', asyncHandler(async (req, res) => {
+    const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    assertProjectAccess(req, projectId);
+    const limit = parseNonNegativeIntQuery(req.query.limit, 'limit', 20);
+    const offset = parseNonNegativeIntQuery(req.query.offset, 'offset', 0);
+    const sessionsPage = await getProjectSessionsPage(projectId, { limit, offset });
+    res.json(sessionsPage);
+}));
+router.post('/create-project', asyncHandler(async (req, res) => {
+    const requestBody = req.body;
+    const projectPath = typeof requestBody.path === 'string' ? requestBody.path : '';
+    const customName = typeof requestBody.customName === 'string' ? requestBody.customName : null;
+    if (requestBody.workspaceType !== undefined) {
+        throw new AppError('workspaceType is no longer supported. Use the single create-project flow.', {
+            code: 'LEGACY_WORKSPACE_TYPE_UNSUPPORTED',
+            statusCode: 400,
+        });
+    }
+    if (requestBody.githubUrl || requestBody.githubTokenId || requestBody.newGithubToken) {
+        throw new AppError('Repository cloning is not supported on create-project', {
+            code: 'CLONE_NOT_SUPPORTED_ON_CREATE_PROJECT',
+            statusCode: 400,
+            details: 'Use POST /api/projects/clone, then /api/projects/clone-progress',
+        });
+    }
+    const projectCreationResult = await createProject({
+        projectPath,
+        customName,
+        // Admins can point a project at any folder on the machine (`/opt/...`,
+        // `/srv/...`); guests stay inside the workspace root.
+        allowAnyPath: readRequestingUser(req)?.role === 'admin',
+    });
+    res.json({
+        success: true,
+        project: projectCreationResult.project,
+        message: projectCreationResult.outcome === 'reactivated_archived'
+            ? 'Archived project path reused successfully'
+            : 'Project created successfully',
+    });
+}));
+/**
+ * One-time (or idempotent) migration: apply legacy `localStorage` starred projectIds to the DB, then clear client storage.
+ */
+router.post('/migrate-legacy-stars', asyncHandler(async (req, res) => {
+    const projectIds = Array.isArray(req.body?.projectIds)
+        ? req.body.projectIds.map((x) => String(x))
+        : [];
+    const { updated } = applyLegacyStarredProjectIds(projectIds);
+    res.json({ success: true, updated });
+}));
+/**
+ * Clone runs in two halves (upstream #1347). EventSource can only issue a bare GET, and a
+ * GET's URL lands in nginx access logs and browser history — so the GitHub token arrives
+ * in this POST body and is parked under an opaque, single-use, user-bound id.
+ */
+router.post('/clone', asyncHandler(async (req, res) => {
+    const userId = requireCloneUserId(req);
+    const requestBody = (req.body ?? {});
+    // Parked bodies sit in memory for a minute: keep each field to a sane size.
+    const oversized = ['path', 'githubUrl', 'newGithubToken'].some((field) => typeof requestBody[field] === 'string' && requestBody[field].length > MAX_CLONE_FIELD_LENGTH);
+    if (oversized) {
+        throw new AppError('Clone request field is too long', {
+            code: 'CLONE_REQUEST_TOO_LARGE',
+            statusCode: 413,
+        });
+    }
+    const cloneId = pendingCloneRequests.add(userId, {
+        workspacePath: typeof requestBody.path === 'string' ? requestBody.path : '',
+        githubUrl: typeof requestBody.githubUrl === 'string' ? requestBody.githubUrl : '',
+        githubTokenId: typeof requestBody.githubTokenId === 'number' ? requestBody.githubTokenId : null,
+        newGithubToken: typeof requestBody.newGithubToken === 'string' ? requestBody.newGithubToken : null,
+    });
+    res.json({ cloneId });
+}));
+/**
+ * Claims the parked request before any stream headers go out, so a stale or foreign id
+ * gets an ordinary 404 instead of an empty stream. Credentials in the query are ignored.
+ */
+router.get('/clone-progress', asyncHandler(async (req, res) => {
+    const userId = requireCloneUserId(req);
+    const cloneId = readQueryStringValue(req.query.cloneId);
+    const cloneRequest = pendingCloneRequests.claim(cloneId, userId);
+    if (!cloneRequest) {
+        throw new AppError('Clone request not found or expired', {
+            code: 'CLONE_REQUEST_NOT_FOUND',
+            statusCode: 404,
+        });
+    }
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    const sendEvent = (type, data) => {
+        if (res.writableEnded) {
+            return;
+        }
+        res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    };
+    // The client can leave while input is still validated — before an operation exists.
+    // Remember it, so git is cancelled the moment it starts instead of cloning for nobody.
+    let cloneOperation = null;
+    let clientGone = false;
+    const closeListener = () => {
+        clientGone = true;
+        cloneOperation?.cancel();
+    };
+    req.on('close', closeListener);
+    try {
+        cloneOperation = await startCloneProject({ ...cloneRequest, userId }, {
+            onProgress: (message) => {
+                sendEvent('progress', { message });
+            },
+            onComplete: ({ project, message }) => {
+                sendEvent('complete', { project, message });
+            },
+        });
+        if (clientGone) {
+            cloneOperation.cancel();
+        }
+        await cloneOperation.waitForCompletion;
+    }
+    catch (error) {
+        sendEvent('error', { message: resolveRouteErrorMessage(error) });
+    }
+    finally {
+        req.off('close', closeListener);
+        if (!res.writableEnded) {
+            res.end();
+        }
+    }
+}));
+router.put('/:projectId/rename', (req, res) => {
+    try {
+        const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+        const { displayName } = req.body;
+        updateProjectDisplayName(projectId, displayName);
+        res.json({ success: true });
+    }
+    catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to rename project' });
+    }
+});
+router.post('/:projectId/toggle-star', asyncHandler(async (req, res) => {
+    const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    const { isStarred } = toggleProjectStar(projectId);
+    res.json({ success: true, isStarred });
+}));
+router.post('/:projectId/restore', asyncHandler(async (req, res) => {
+    const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    restoreArchivedProject(projectId);
+    res.json(createApiSuccessResponse({ projectId, isArchived: false }));
+}));
+/**
+ * - `force` not set / false: archive project in DB only (`isArchived` = 1; hidden from active list).
+ * - `force=true`: remove DB row, delete session rows for that path, remove all `*.jsonl` under the Claude project dir.
+ */
+router.delete('/:projectId', asyncHandler(async (req, res) => {
+    const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    const force = req.query.force === 'true';
+    await deleteOrArchiveProject(projectId, force);
+    res.json({ success: true });
+}));
+export default router;
+//# sourceMappingURL=projects.routes.js.map
