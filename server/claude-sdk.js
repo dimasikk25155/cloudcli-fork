@@ -93,6 +93,18 @@ const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode'])
 
 const isExitPlanModeTool = (toolName) => toolName === 'ExitPlanMode' || toolName === 'exit_plan_mode';
 
+/**
+ * «Планирование + обход»: the run starts as `plan` and the server approves the
+ * plan itself. It used to be the browser tab that answered the ExitPlanMode
+ * prompt, so a run in a background tab (or with the chat closed) stood still
+ * until somebody looked at it. AskUserQuestion is a real question with no sane
+ * automatic answer — it still waits for the user.
+ */
+const AUTO_PLAN_MODE = 'planBypass';
+function autoPlanApproves(permissionMode, toolName) {
+  return permissionMode === AUTO_PLAN_MODE && toolName !== 'AskUserQuestion';
+}
+
 // The Claude Code CLI (>=2.1.x) already defers MCP tools behind a ToolSearch
 // tool by default: telegram/playwright/windows/ollama schemas (~30k tokens,
 // telegram alone is 101 tools) are pulled in on demand instead of bloating the
@@ -369,8 +381,11 @@ function mapCliOptionsToSDK(options = {}) {
     sdkOptions.cwd = cwd;
   }
 
-  if (permissionMode && permissionMode !== 'default') {
-    sdkOptions.permissionMode = permissionMode;
+  // `planBypass` («Планирование + обход») is plain `plan` for the CLI; the
+  // auto-approval half lives in canUseTool (see autoPlanApproves).
+  const cliPermissionMode = permissionMode === AUTO_PLAN_MODE ? 'plan' : permissionMode;
+  if (cliPermissionMode && cliPermissionMode !== 'default') {
+    sdkOptions.permissionMode = cliPermissionMode;
   }
 
   const settings = toolsSettings || {
@@ -388,7 +403,7 @@ function mapCliOptionsToSDK(options = {}) {
 
   let allowedTools = [...(settings.allowedTools || [])];
 
-  if (permissionMode === 'plan') {
+  if (cliPermissionMode === 'plan') {
     const planModeTools = ['Read', 'Task', 'exit_plan_mode', 'TodoRead', 'TodoWrite', 'WebFetch', 'WebSearch'];
     for (const tool of planModeTools) {
       if (!allowedTools.includes(tool)) {
@@ -997,6 +1012,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
         }
       }
 
+      if (autoPlanApproves(options.permissionMode, toolName)) {
+        return allowTool(toolName, input, { allow: true });
+      }
+
       const requestId = createRequestId();
       // The "нужен ответ" push (with answer buttons) is sent by session-attention
       // for every engine when this request turns the session to waiting.
@@ -1028,37 +1047,41 @@ async function queryClaudeSDK(command, options = {}, ws) {
       }
 
       if (decision.allow) {
-        if (decision.rememberEntry && typeof decision.rememberEntry === 'string') {
-          if (!sdkOptions.allowedTools.includes(decision.rememberEntry)) {
-            sdkOptions.allowedTools.push(decision.rememberEntry);
-          }
-          if (Array.isArray(sdkOptions.disallowedTools)) {
-            sdkOptions.disallowedTools = sdkOptions.disallowedTools.filter(entry => entry !== decision.rememberEntry);
-          }
-        }
-        // Approving the plan must also drop the read-only mode for the rest of
-        // this run — otherwise the CLI keeps refusing every edit the plan it
-        // just got approved asks for. It goes to `bypassPermissions`, not
-        // `default`: approving the plan is the consent, and stopping to ask on
-        // every step of an approved plan defeats the point of writing one.
-        // The UI mirrors this on its own mode chip (see ChatInterface).
-        if (isExitPlanModeTool(toolName)) {
-          // Mirror it on our own copy too: `sdkOptions` is per-run, and this is
-          // what the fast path above reads. Without it the callback would keep
-          // asking for the rest of the run if the CLI still routes through it.
-          sdkOptions.permissionMode = 'bypassPermissions';
-          return {
-            behavior: 'allow',
-            updatedInput: decision.updatedInput ?? input,
-            updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions', destination: 'session' }],
-          };
-        }
-
-        return { behavior: 'allow', updatedInput: decision.updatedInput ?? input };
+        return allowTool(toolName, input, decision);
       }
 
       return { behavior: 'deny', message: decision.message ?? 'User denied tool use' };
     };
+
+    function allowTool(toolName, input, decision) {
+      if (decision.rememberEntry && typeof decision.rememberEntry === 'string') {
+        if (!sdkOptions.allowedTools.includes(decision.rememberEntry)) {
+          sdkOptions.allowedTools.push(decision.rememberEntry);
+        }
+        if (Array.isArray(sdkOptions.disallowedTools)) {
+          sdkOptions.disallowedTools = sdkOptions.disallowedTools.filter(entry => entry !== decision.rememberEntry);
+        }
+      }
+      // Approving the plan must also drop the read-only mode for the rest of
+      // this run — otherwise the CLI keeps refusing every edit the plan it
+      // just got approved asks for. It goes to `bypassPermissions`, not
+      // `default`: approving the plan is the consent, and stopping to ask on
+      // every step of an approved plan defeats the point of writing one.
+      // The UI mirrors this on its own mode chip (see ChatInterface).
+      if (isExitPlanModeTool(toolName)) {
+        // Mirror it on our own copy too: `sdkOptions` is per-run, and this is
+        // what the fast path above reads. Without it the callback would keep
+        // asking for the rest of the run if the CLI still routes through it.
+        sdkOptions.permissionMode = 'bypassPermissions';
+        return {
+          behavior: 'allow',
+          updatedInput: decision.updatedInput ?? input,
+          updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions', destination: 'session' }],
+        };
+      }
+
+      return { behavior: 'allow', updatedInput: decision.updatedInput ?? input };
+    }
 
     let queryInstance;
     let anyMessageReceived = false;
@@ -1660,6 +1683,7 @@ function reconnectSessionWriter(sessionId, newRawWs) {
 export {
   matchesToolPermission,
   mapCliOptionsToSDK,
+  autoPlanApproves,
   sdkOptionsForRun,
   queryClaudeSDK,
   abortClaudeSDKSession,

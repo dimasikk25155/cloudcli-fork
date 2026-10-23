@@ -4,9 +4,9 @@ import type { PendingPermissionRequest, PermissionMode } from '../types/types';
  * "Plan + auto-run": the agent writes a plan, approves it on the user's behalf
  * and then carries it out to the end without a single prompt.
  *
- * The backend knows nothing about it — it is `plan` on the wire (so the run
- * really does start read-only and really does produce a plan), and the client
- * answers the ExitPlanMode prompt itself. Approving ExitPlanMode already flips
+ * Claude, Codex and Grok get `planBypass` on the wire and run it server-side
+ * (see AUTO_PLAN_EMULATING_PROVIDERS). Any other provider gets plain `plan`
+ * and the client answers the ExitPlanMode prompt itself. Approving ExitPlanMode already flips
  * the run to `bypassPermissions` server-side (see claude-sdk.js), so the rest
  * of the run never asks again.
  */
@@ -33,13 +33,15 @@ export function withAutoPlanMode(modes: readonly PermissionMode[]): PermissionMo
 
 /**
  * Runtimes that emulate "plan + auto-run" themselves instead of having the
- * client answer an ExitPlanMode prompt. Grok Build has no permission prompts
+ * client answer an ExitPlanMode prompt. Claude runs it as `plan` and the
+ * server approves the plan itself (autoPlanApproves in server/claude-sdk.js),
+ * so a run in a background tab no longer waits for someone to look. Grok Build has no permission prompts
  * to answer and a headless `plan` run dies at the first tool call, so its
  * runtime takes `planBypass` verbatim and runs it in two phases: clarifying
  * questions, then (after the user answers) a real plan plus execution
  * (see resolveGrokPermissionMode / buildGrokRules in server/grok-cli.js).
  */
-const AUTO_PLAN_EMULATING_PROVIDERS = new Set(['grok', 'codex']);
+const AUTO_PLAN_EMULATING_PROVIDERS = new Set(['grok', 'codex', 'claude']);
 
 /**
  * What the backend is told to run. The auto-plan mode is plain `plan` there —

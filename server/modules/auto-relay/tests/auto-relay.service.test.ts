@@ -814,6 +814,16 @@ test('«Перенести» in a Grok chat in plan or plan+auto-run: the handof
   });
 });
 
+test('«Перенести» in a Claude chat in plan+auto-run: the handoff turn runs as an ordinary one (plan is read-only)', async () => {
+  await withWorld(async (world) => {
+    sessionsDb.createAppSession('claude-chat', 'claude', world.projectPath);
+    world.messages.set('claude-chat', [{ kind: 'text', role: 'user', content: 'Сделай меню' }, { kind: 'text', role: 'assistant', content: 'Готово.' }]);
+    rememberRunOptions('claude-chat', { model: 'opus[1m]', permissionMode: 'planBypass' });
+    await world.service.startNow('claude-chat', world.member);
+    assert.deepEqual(world.starts.at(-1)?.options, { model: 'opus[1m]' });
+  });
+});
+
 test('«Перенести» in a Codex chat keeps its plan+auto-run mode (full access there — the note can be written)', async () => {
   await withWorld(async (world) => {
     sessionsDb.createAppSession('codex-chat', 'codex', world.projectPath);

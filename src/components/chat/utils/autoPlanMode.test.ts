@@ -39,6 +39,11 @@ test('the backend is told plain plan, other modes pass through', () => {
   assert.equal(toWirePermissionMode('default'), 'default');
 });
 
+test('Claude gets the real mode: the server approves the plan, not the browser tab', () => {
+  assert.equal(toWirePermissionMode(AUTO_PLAN_MODE, 'claude'), AUTO_PLAN_MODE);
+  assert.equal(toWirePermissionMode(AUTO_PLAN_MODE, 'cursor'), 'plan');
+});
+
 test('the plan prompt is answered by the client', () => {
   assert.deepEqual(autoApprovedRequestIds(AUTO_PLAN_MODE, [exitPlanRequest]), ['req-1']);
 });

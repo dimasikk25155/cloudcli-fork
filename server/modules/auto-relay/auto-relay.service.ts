@@ -348,11 +348,11 @@ export function createAutoRelayService(dependencies: AutoRelayDependencies = {})
     if (!options.effort && row?.effort) options.effort = row.effort;
     // Plan mode cannot write the note; the automatic turns run as typed ones otherwise.
     if (options.permissionMode === 'plan') delete options.permissionMode;
-    // Grok's `planBypass` asks first with the file-writing tools stripped, so
-    // its handoff turn would hang until the timeout — it runs as an ordinary
-    // turn instead (the note is allowed by grok-cli). Codex's planBypass runs
-    // with full access and Claude never gets it: both keep their mode.
-    if (options.permissionMode === 'planBypass' && row?.provider === 'grok') delete options.permissionMode;
+    // Grok's `planBypass` asks first with the file-writing tools stripped, and
+    // Claude's starts as read-only `plan`, so their handoff turn could not write
+    // the note — they run it as an ordinary turn (the note is allowed by
+    // grok-cli / claude-sdk). Codex's planBypass runs with full access: it keeps its mode.
+    if (options.permissionMode === 'planBypass' && row?.provider !== 'codex') delete options.permissionMode;
     if (isLocalModel(options.model)) options.usageGuardOverride = true;
     return options;
   }
