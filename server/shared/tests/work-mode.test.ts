@@ -45,10 +45,14 @@ test('the build mode hands the message to the autopilot skill', () => {
 });
 
 test('bypassing permissions is what buys the silent run', () => {
-  // «Планирование плюс обход» — это заявка на полный автомат.
-  for (const permissionMode of ['bypassPermissions', 'planBypass']) {
-    assert.match(workModeInstruction('build', permissionMode)!, /`full` mode/);
-  }
+  // Обычный «Обход» — полный автомат, без вопросов.
+  assert.match(workModeInstruction('build', 'bypassPermissions')!, /`full` mode/);
+  // «Планирование + обход» (23.10): один раунд бриф-вопросов при настоящей
+  // развилке, очевидное не спрашивает, дальше до конца без «продолжать?».
+  const planBypass = workModeInstruction('build', 'planBypass')!;
+  assert.match(planBypass, /`semi` mode/);
+  assert.match(planBypass, /one briefing round/);
+  assert.match(planBypass, /never stop to ask whether to continue/);
   // Везде остальном вопросы на развилках остаются.
   for (const permissionMode of [undefined, 'default', 'plan', 'acceptEdits']) {
     assert.match(workModeInstruction('build', permissionMode)!, /`semi` mode/);

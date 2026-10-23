@@ -153,16 +153,23 @@ function workModeInstructions(dialect: WorkModeDialect): Record<WorkMode, string
 /**
  * Автопилот спрашивает ровно столько, сколько позволяют права прогона.
  *
- * Дима формулирует это одной фразой: «планирование плюс обход — значит
- * автопилот, но вопросов мне не задаёшь». Обход прав и есть заявка на полный
- * автомат; во всех остальных режимах вопросы на развилках остаются.
+ * «Обход» — полный автомат: развилки решает сам и пишет их допущениями.
+ * «Планирование + обход» (Дима, 23.10): один раунд бриф-вопросов — только если
+ * в промте есть настоящая развилка, со своим рекомендованным ответом; очевидное
+ * не спрашивает. Дальше план и работа до конца без «можно продолжать?».
+ * Во всех остальных режимах вопросы на развилках остаются (`semi`).
  */
-const BYPASS_PERMISSION_MODES = new Set(['bypassPermissions', 'planBypass']);
-
 function autopilotDial(permissionMode: unknown): string {
-  return BYPASS_PERMISSION_MODES.has(String(permissionMode))
-    ? 'Run it in `full` mode: decide the forks yourself and record them as assumptions, ask nothing.'
-    : 'Run it in `semi` mode: ask only where the brief leaves a real fork open.';
+  const mode = String(permissionMode);
+  if (mode === 'bypassPermissions') {
+    return 'Run it in `full` mode: decide the forks yourself and record them as assumptions, ask nothing.';
+  }
+  if (mode === 'planBypass') {
+    return 'Run it in `semi` mode: if the brief leaves a real fork open, ask one briefing round of 3-4 questions,'
+      + ' each with the answer you would pick, so "ok" accepts them all; if everything is evident, ask nothing.'
+      + ' After that, build to the end with subagents and never stop to ask whether to continue.';
+  }
+  return 'Run it in `semi` mode: ask only where the brief leaves a real fork open.';
 }
 
 /** Narrows an untrusted client value to a known mode. */
