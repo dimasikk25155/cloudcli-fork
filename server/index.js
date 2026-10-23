@@ -84,6 +84,7 @@ import { telegramAttention } from './modules/telegram/index.js';
 import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import { krabikRoutes, startKrabikWatch } from './modules/krabik/index.js';
+import { duetRoutes, startDuetWatch } from './modules/duet/index.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
@@ -324,6 +325,7 @@ app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 app.use('/api/vps/ingest', vpsIngestRouter);
 app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
 app.use('/api/krabik', authenticateToken, requireAdmin, krabikRoutes);
+app.use('/api/duet', authenticateToken, requireAdmin, duetRoutes);
 // Sticky phone pushes (Consigliere tasks + dead bots). Public by design:
 // the service worker has no JWT, and the Mac/VPS reminder job has only a shared token.
 app.use('/api/sticky-push', stickyPushRoutes);
@@ -1686,6 +1688,13 @@ async function startServer() {
                 startKrabikWatch();
             } catch (err) {
                 console.error('[krabik] watch failed to start:', err.message);
+            }
+
+            // «Дуэт»: следит за ботами, утренний бриф, решения с кнопками.
+            try {
+                startDuetWatch();
+            } catch (err) {
+                console.error('[duet] watch failed to start:', err.message);
             }
         });
 

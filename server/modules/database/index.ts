@@ -37,6 +37,7 @@ export type {
   SessionAttentionRow,
 } from '@/modules/database/repositories/session-attention.db.js';
 export { telegramDb } from '@/modules/database/repositories/telegram.db.js';
+export type { TelegramBindingRow } from '@/modules/database/repositories/telegram.db.js';
 export { sessionThreadsDb, threadTokensDb } from '@/modules/database/repositories/threads.db.js';
 export type { SessionThreadRow, ThreadTokenRow } from '@/modules/database/repositories/threads.db.js';
 export { uiPreferencesDb } from '@/modules/database/repositories/ui-preferences.js';

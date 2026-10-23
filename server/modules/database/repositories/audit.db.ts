@@ -20,6 +20,7 @@ export type AuditActor =
   | 'telegram'
   | 'api'
   | 'git-helper'
+  | 'duet'
   | 'system';
 
 /**

@@ -522,7 +522,7 @@ export function createTelegramAttention(dependencies: TelegramAttentionDependenc
 }
 
 /** Same rule as the bot's message handling: enabled binding of a user that still exists. */
-function activeBinding(chatId: string): TelegramBindingRow | null {
+export function activeBinding(chatId: string): TelegramBindingRow | null {
   const binding = telegramDb.getBindingByChatId(chatId);
   if (!binding || !binding.enabled) return null;
   if (!userDb.getUserById(Number(binding.user_id))) return null;
@@ -534,7 +534,7 @@ function activeBinding(chatId: string): TelegramBindingRow | null {
  * before the id was stored fall back to the private chat itself, then to the
  * bound username (case-insensitive); no username → nobody else.
  */
-function pressedByBoundPerson(from: any, chatId: string, binding: TelegramBindingRow): boolean {
+export function pressedByBoundPerson(from: any, chatId: string, binding: TelegramBindingRow): boolean {
   const fromId = from?.id === undefined || from?.id === null ? '' : String(from.id);
   if (binding.telegram_user_id) return fromId !== '' && fromId === binding.telegram_user_id;
   if (fromId && fromId === chatId) return true;

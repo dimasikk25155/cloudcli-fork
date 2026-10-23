@@ -70,7 +70,7 @@ export function resolveRunEngine({
  * value collapses to 'system' rather than being written through, so a typo
  * cannot silently create a new actor class nobody ever filters on.
  */
-const KNOWN_ACTORS = new Set(['user', 'schedule', 'pipeline', 'telegram', 'api', 'git-helper', 'system']);
+const KNOWN_ACTORS = new Set(['user', 'schedule', 'pipeline', 'telegram', 'api', 'git-helper', 'duet', 'system']);
 
 /**
  * Collects engine output instead of streaming it to an HTTP response.
@@ -199,7 +199,9 @@ export function checkProjectAccess(userId, projectPath) {
  * @param {string} [options.effort]      Reasoning effort, where the engine supports it.
  * @param {string} [options.sessionId]   Resume an existing session instead of starting fresh.
  * @param {(event: object) => void} [options.onEvent]  Progress callback, best-effort.
- * @param {'schedule'|'pipeline'|'telegram'|'api'|'user'|'system'} [options.actor]
+ * @param {boolean} [options.readOnly]  Look, never act: Claude only, read tools only,
+ *        no user permission settings and no MCP (see readOnly in claude-sdk.js).
+ * @param {'schedule'|'pipeline'|'telegram'|'api'|'user'|'duet'|'system'} [options.actor]
  *        What triggered this run, for the audit log. A schedule runs on behalf
  *        of a user but was not started by them; without this the feed cannot
  *        tell a nightly job from someone typing. Unset degrades to 'system'.
@@ -216,6 +218,7 @@ export async function runHeadlessPrompt(options) {
     sessionId = null,
     onEvent = null,
     actor,
+    readOnly = false,
   } = options || {};
 
   const trimmedPrompt = typeof prompt === 'string' ? prompt.trim() : '';
@@ -240,6 +243,11 @@ export async function runHeadlessPrompt(options) {
     requestedEffort,
     preferences,
   });
+
+  // Only Claude can be held to "read, never act" (its callback refuses the rest).
+  if (readOnly && provider !== 'claude') {
+    throw new Error('read-only runs are Claude only');
+  }
 
   const access = checkProjectAccess(userId, projectPath);
   if (!access.ok) {
@@ -288,7 +296,13 @@ export async function runHeadlessPrompt(options) {
 
   try {
     if (provider === 'claude') {
-      await queryClaudeSDK(trimmedPrompt, { ...base, model, effort, permissionMode: 'bypassPermissions', meter }, collector);
+      await queryClaudeSDK(
+        trimmedPrompt,
+        readOnly
+          ? { ...base, model, effort, permissionMode: 'default', readOnly: true, meter }
+          : { ...base, model, effort, permissionMode: 'bypassPermissions', meter },
+        collector,
+      );
     } else if (provider === 'cursor') {
       await spawnCursor(trimmedPrompt, { ...base, model: model || undefined, skipPermissions: true }, collector);
     } else if (provider === 'codex') {

@@ -8,6 +8,7 @@ export type HubPanelKey =
   | 'governance'
   | 'server'
   | 'krabik'
+  | 'duet'
   | 'nightshift'
   | 'settings';
 

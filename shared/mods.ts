@@ -23,6 +23,7 @@ export const MOD_KEYS = [
   'modScreenshots',
   'modCacheTimer',
   'modKrabikAgent',
+  'modDuet',
 ] as const;
 
 export type ModKey = (typeof MOD_KEYS)[number];
@@ -116,6 +117,13 @@ export const MODS: readonly ModDef[] = [
     description:
       'Агент на сервере: доводит задачи до конца, даже когда мак спит или пропал VPN. '
       + 'Окно «Крабик» в меню слева, каждое утро сам проверяет сервер.',
+  },
+  {
+    key: 'modDuet',
+    title: 'Дуэт',
+    description:
+      'Напарник по ботам и сервисам: сам следит, пишет первым (утренний бриф, тревога при падении) '
+      + 'и чинит только после твоего «Да». Вешает на ботов идеи, как их улучшить.',
   },
 ];
 

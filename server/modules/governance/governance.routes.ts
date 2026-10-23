@@ -26,6 +26,7 @@ const KNOWN_ACTORS: AuditActor[] = [
   'telegram',
   'api',
   'git-helper',
+  'duet',
   'system',
 ];
 

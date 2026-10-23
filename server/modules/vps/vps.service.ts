@@ -76,6 +76,8 @@ export type BotHealthItem = {
   version?: string;
   /** This line runs an older release than its siblings in the same group. */
   outdated?: boolean;
+  /** Project folder of the bot (absolute) — «Дуэт» reads its code there. */
+  folder?: string;
 };
 
 type BotRelease = { sha: string; stagedAt: number };
@@ -87,6 +89,8 @@ type BotWatch = {
   required: boolean;
   /** Lines in one group must run the same release (Tyres KZ). */
   group?: string;
+  /** Project folder under ~/Antigravity Project. */
+  folder?: string;
   paths: () => string[];
 };
 
@@ -96,7 +100,7 @@ function homeHeartbeat(...parts: string[]): string {
 
 /** One row per WhatsApp line; path parts are relative to ~/Antigravity Project. */
 function waLine(id: string, label: string, ...parts: string[]): BotWatch {
-  return { id, label, required: true, paths: () => [homeHeartbeat(...parts)] };
+  return { id, label, required: true, folder: parts[0], paths: () => [homeHeartbeat(...parts)] };
 }
 
 /** Tyres KZ lines start from immutable release dirs (ops/unified/install-runtimes.py). */
@@ -214,6 +218,7 @@ export function getBotsHealth(): { ok: boolean; bots: BotHealthItem[] } {
     const raw = readHeartbeatFile(bot.paths());
     if (raw == null && !bot.required) continue;
     const item = interpretHeartbeat(bot.id, bot.label, raw);
+    if (bot.folder) item.folder = homeHeartbeat(bot.folder);
     rows.push({ item, group: bot.group, release: bot.group ? readRelease(raw) : null });
   }
   markOutdated(rows);

@@ -310,6 +310,22 @@ function buildNotificationPayload(event) {
     };
   }
 
+  // «Дуэт» (server/modules/duet): тревога, бриф, итог починки.
+  if (normalizedEvent.code === 'duet.notice') {
+    const kind = String(normalizedEvent.meta?.kind || 'brief');
+    return {
+      title: String(normalizedEvent.meta?.title || 'Дуэт'),
+      body: clipBody(String(normalizedEvent.meta?.body || '')),
+      data: {
+        code: 'duet.notice',
+        tag: `duet:${kind}`,
+        panel: 'duet',
+        urlPath: '/?panel=duet',
+        provider: 'system'
+      }
+    };
+  }
+
   // Auto-relay (server/modules/auto-relay): the chat moved itself, or could not.
   if (normalizedEvent.code === 'auto_relay.done' || normalizedEvent.code === 'auto_relay.failed') {
     const done = normalizedEvent.code === 'auto_relay.done';

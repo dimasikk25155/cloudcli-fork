@@ -71,6 +71,7 @@ export const ACTOR_LABELS: Record<string, string> = {
   telegram: 'Telegram',
   api: 'внешний вызов',
   'git-helper': 'коммит-сообщение',
+  duet: 'Дуэт',
   system: 'система',
 };
 

@@ -10,9 +10,11 @@ import path from 'node:path';
 import { randomInt } from 'node:crypto';
 
 import { projectsDb, userDb, userProjectAccessDb } from '@/modules/database/index.js';
-import { telegramDb, type TelegramBindingRow } from '@/modules/database/repositories/telegram.db.js';
+import { telegramDb } from '@/modules/database/index.js';
+import type { TelegramBindingRow } from '@/modules/database/index.js';
 import { telegramApi } from '@/modules/telegram/telegram-api.client.js';
 import { telegramAttention } from '@/modules/telegram/telegram-attention.service.js';
+import { dispatchTelegramCallback } from '@/modules/telegram/telegram-callbacks.js';
 import { escapeHtml } from '@/modules/telegram/telegram-format.js';
 
 export const TELEGRAM_MESSAGE_LIMIT = 4096;
@@ -75,7 +77,7 @@ export function setPromptRunnerForTests(runner: PromptRunner | null): void {
  * cost that.
  */
 async function loadAgentRun() {
-  return import('@/modules/agent-run/agent-run.service.js');
+  return import('@/modules/agent-run/index.js');
 }
 
 // --- text helpers -----------------------------------------------------------
@@ -414,8 +416,11 @@ export async function handleTelegramUpdate(update: unknown): Promise<void> {
   const callbackQuery = (update as { callback_query?: Record<string, any> } | null)?.callback_query;
   if (callbackQuery && typeof callbackQuery === 'object') {
     try {
-      // Inline-button presses: answers to «нужен ответ» (the only buttons this bot sends).
-      await telegramAttention.handleCallbackQuery(callbackQuery);
+      // Inline-button presses: other modules' buttons by prefix («Дуэт»),
+      // otherwise answers to «нужен ответ».
+      if (!(await dispatchTelegramCallback(callbackQuery))) {
+        await telegramAttention.handleCallbackQuery(callbackQuery);
+      }
     } catch (error) {
       const description = error instanceof Error ? error.message : String(error);
       console.error('Telegram callback handling failed:', description);

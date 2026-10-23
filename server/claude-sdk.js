@@ -315,6 +315,24 @@ function resolveToolApproval(requestId, decision) {
 // This only supports exact tool names and the Bash(command:*) shorthand
 // used by the UI; it intentionally does not implement full glob semantics,
 // introduced to stay consistent with the UI's "Allow rule" format.
+// Read-only runs (options.readOnly): the only tools they get, and the files
+// they must not open even with those.
+const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'LS'];
+const READ_ONLY_DENIED_RULES = [
+  'Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Agent',
+  'Read(**/.secrets.env)', 'Read(**/.secrets.d/**)', 'Read(**/.env)', 'Read(**/.env.*)',
+];
+const READ_ONLY_DENY_MESSAGE = 'Этот прогон только читает: менять, запускать и спрашивать нельзя.';
+
+/** A read-only run asking for a secrets file (any path field of the tool input). */
+export function touchesSecrets(input) {
+  if (!input || typeof input !== 'object') return false;
+  return ['file_path', 'path', 'pattern', 'glob'].some((key) => {
+    const value = input[key];
+    return typeof value === 'string' && /(^|\/)(\.secrets(\.env|\.d)|\.env(\.[^/]*)?)(\/|$)/.test(value);
+  });
+}
+
 function matchesToolPermission(entry, toolName, input) {
   if (!entry || !toolName) {
     return false;
@@ -571,6 +589,21 @@ function mapCliOptionsToSDK(options = {}) {
   }
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
+
+  // Read-only run (the «Дуэт» brief and idea sweep): it looks, it never acts.
+  // Dima's user settings carry `defaultMode: bypassPermissions` and `Bash(*)`,
+  // so they are not loaded at all; MCP servers and claude.ai connectors are
+  // left out too. Whatever is not on the read list is refused in canUseTool
+  // instead of waiting for an approval nobody is there to give.
+  if (options.readOnly) {
+    sdkOptions.permissionMode = 'default';
+    sdkOptions.settingSources = [];
+    // Nothing pre-approved: every read goes through canUseTool, which checks
+    // it against READ_ONLY_TOOLS and the secrets files.
+    sdkOptions.allowedTools = [];
+    sdkOptions.disallowedTools = [...READ_ONLY_DENIED_RULES];
+    sdkOptions.env = { ...sdkOptions.env, ENABLE_CLAUDEAI_MCP_SERVERS: 'false' };
+  }
 
   // neo3-guards mod: no foreground wait loops past the limit (Neo3 sessions
   // only). Part of «Пульт фона»: a user who switched it off runs without it.
@@ -913,7 +946,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Read here, in the server, so it would bypass the jail: a teammate's run
     // gets none of Dima's MCP servers (keys inside), only threads (above).
-    const mcpServers = options.jail?.root ? null : await loadMcpConfig(options.cwd);
+    const mcpServers = options.jail?.root || options.readOnly ? null : await loadMcpConfig(options.cwd);
     if (mcpServers) {
       // Pin the memory server so its tools stay in the prompt instead of being
       // deferred behind ToolSearch with the rest. Applied for every provider:
@@ -983,6 +1016,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // tools to a PreToolUse hook (runs before the mode check) if we need them
     // to work in those modes.
     sdkOptions.canUseTool = async (toolName, input, context) => {
+      if (options.readOnly) {
+        return READ_ONLY_TOOLS.includes(toolName) && !touchesSecrets(input)
+          ? { behavior: 'allow', updatedInput: input }
+          : { behavior: 'deny', message: READ_ONLY_DENY_MESSAGE };
+      }
       const requiresInteraction = TOOLS_REQUIRING_INTERACTION.has(toolName);
 
       if (!requiresInteraction) {

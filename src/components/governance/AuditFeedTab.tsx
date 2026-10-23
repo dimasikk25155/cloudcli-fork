@@ -28,6 +28,7 @@ const ACTOR_TONE: Record<string, string> = {
   telegram: 'bg-sky-500/15 text-sky-400',
   api: 'bg-amber-500/15 text-amber-500',
   'git-helper': 'bg-muted text-muted-foreground',
+  duet: 'bg-teal-500/15 text-teal-400',
   system: 'bg-muted text-muted-foreground',
 };
 
