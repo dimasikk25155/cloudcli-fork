@@ -148,3 +148,32 @@ export function reportDay(name: string): string {
   const match = /(\d{4})-(\d{2})-(\d{2})/.exec(name);
   return match ? `${match[3]}.${match[2]}` : '';
 }
+
+// ------------------------------------------------------------ Enter в поле ввода
+
+/** Тот же интервал «двойного Enter», что в поле обычного чата. */
+export const DOUBLE_ENTER_WINDOW_MS = 700;
+
+export type EnterInput = {
+  shift: boolean;
+  ctrlOrMeta: boolean;
+  /** Мышь/тачпад (не телефон): на телефоне Enter всегда перенос, шлёт кнопка. */
+  finePointer: boolean;
+  sendByCtrlEnter: boolean;
+  sendByDoubleEnter: boolean;
+  now: number;
+  lastEnterAt: number;
+};
+
+/**
+ * Что делает Enter — по тем же настройкам, что поле обычного чата:
+ * Ctrl/⌘+Enter шлёт всегда; Shift+Enter — перенос; «по Ctrl+Enter» —
+ * простой Enter переносит; «двойной Enter» — первый переносит, второй
+ * в пределах окна отправляет.
+ */
+export function enterAction(input: EnterInput): 'send' | 'newline' {
+  if (input.ctrlOrMeta && !input.shift) return 'send';
+  if (input.shift || input.ctrlOrMeta || !input.finePointer || input.sendByCtrlEnter) return 'newline';
+  if (!input.sendByDoubleEnter) return 'send';
+  return input.now - input.lastEnterAt <= DOUBLE_ENTER_WINDOW_MS ? 'send' : 'newline';
+}

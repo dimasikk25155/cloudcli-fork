@@ -71,7 +71,12 @@ export type KrabikDeps = {
   sshBin?: string;
   machine?: string;
   sshHost?: string;
+  /** Пауза перед проверкой «дошло ли» (тесты подменяют). */
+  sleep?: (ms: number) => Promise<void>;
 };
+
+/** Сколько ждать после вставки в работающего Крабика, прежде чем проверить. */
+export const PROMPT_SETTLE_MS = 2500;
 
 function defaultHerdrBin(): string {
   if (process.env.NEO3_HERDR_BIN) return process.env.NEO3_HERDR_BIN;
@@ -80,6 +85,11 @@ function defaultHerdrBin(): string {
     if (existsSync(candidate)) return candidate;
   }
   return 'herdr';
+}
+
+function errorText(err: unknown): string {
+  const e = err as { message?: string; stdout?: unknown; stderr?: unknown } | null;
+  return [e?.message, e?.stdout, e?.stderr].map((part) => String(part ?? '')).join('\n');
 }
 
 const defaultExec: Exec = async (file, args) => {
@@ -292,6 +302,7 @@ export function createKrabikService(deps: KrabikDeps = {}) {
   const ssh = deps.sshBin ?? '/usr/bin/ssh';
   const machine = deps.machine ?? process.env.NEO3_KRABIK_MACHINE ?? 'vps-nl';
   const sshHost = deps.sshHost ?? process.env.NEO3_KRABIK_SSH ?? 'vps-nl-agents';
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
   const herdrArgs = (...rest: string[]) => ['--machine', machine, 'agent', ...rest];
   const remote = (command: string) =>
@@ -324,10 +335,27 @@ export function createKrabikService(deps: KrabikDeps = {}) {
     if (prompt.length > PROMPT_MAX_CHARS) {
       throw new AppError(`Слишком длинно: до ${PROMPT_MAX_CHARS} знаков`, { code: 'PROMPT_TOO_LONG', statusCode: 400 });
     }
+    const before = await getState();
     try {
       await exec(herdr, herdrArgs('prompt', KRABIK_AGENT, prompt));
-    } catch {
+    } catch (err) {
+      if (/agent_blocked/.test(errorText(err))) {
+        throw new AppError('Крабик ждёт ответа на вопрос в терминале — сначала ответь на него', {
+          code: 'KRABIK_BLOCKED',
+          statusCode: 409,
+        });
+      }
       throw new AppError('Крабик не принял задачу: нет связи с сервером', { code: 'KRABIK_UNREACHABLE', statusCode: 502 });
+    }
+    // Вставка + Enter в работающий Claude только прерывает его команду, а текст
+    // остаётся в поле ввода неотправленным (23.10). Встал в «свободен» — жмём
+    // Enter ещё раз: на пустом поле он ничего не делает. При вопросе не жмём —
+    // Enter выбрал бы ответ за человека.
+    if (before.status !== 'working') return;
+    await sleep(PROMPT_SETTLE_MS);
+    const after = await getState();
+    if (after.reachable && after.status === 'idle') {
+      await exec(herdr, herdrArgs('send-keys', KRABIK_AGENT, 'enter')).catch(() => undefined);
     }
   }
 

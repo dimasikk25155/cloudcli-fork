@@ -13,6 +13,7 @@ import {
   parseReportStatus,
   parseTranscript,
   PROMPT_MAX_CHARS,
+  PROMPT_SETTLE_MS,
 } from '@/modules/krabik/krabik.service.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -163,10 +164,46 @@ describe('krabik: команды', () => {
     const { calls, exec } = fakeExec(() => '{}');
     const service = createKrabikService({ exec, herdrBin: '/opt/homebrew/bin/herdr', machine: 'vps-nl' });
     await service.sendPrompt('  проверь $(whoami); `id` "кавычки"  ');
-    assert.deepEqual(calls[0], {
+    assert.deepEqual(calls.find(({ args }) => args[3] === 'prompt'), {
       file: '/opt/homebrew/bin/herdr',
       args: ['--machine', 'vps-nl', 'agent', 'prompt', 'krabik', 'проверь $(whoami); `id` "кавычки"'],
     });
+  });
+
+  const agentGet = (status: string) => AGENT_GET.replace('"working"', `"${status}"`);
+  const noSleep = async () => undefined;
+
+  it('Крабик работал и после вставки встал — Enter ещё раз, чтобы текст ушёл', async () => {
+    let status = 'working';
+    const { calls, exec } = fakeExec(({ args }) => {
+      if (args[3] === 'get') return agentGet(status);
+      if (args[3] === 'prompt') status = 'idle';
+      return '{}';
+    });
+    const slept: number[] = [];
+    await createKrabikService({ exec, machine: 'vps-nl', sleep: async (ms) => void slept.push(ms) }).sendPrompt('стоп, сделай другое');
+    assert.deepEqual(slept, [PROMPT_SETTLE_MS]);
+    assert.deepEqual(calls.at(-1)?.args, ['--machine', 'vps-nl', 'agent', 'send-keys', 'krabik', 'enter']);
+  });
+
+  it('Крабик свободен или продолжил работу — лишнего Enter нет', async () => {
+    for (const [first, then] of [['idle', 'working'], ['working', 'working'], ['working', 'blocked']]) {
+      let status = first;
+      const { calls, exec } = fakeExec(({ args }) => {
+        if (args[3] === 'get') return agentGet(status);
+        if (args[3] === 'prompt') status = then;
+        return '{}';
+      });
+      await createKrabikService({ exec, sleep: noSleep }).sendPrompt('задача');
+      assert.ok(!calls.some(({ args }) => args[3] === 'send-keys'), `${first}→${then}`);
+    }
+  });
+
+  it('Крабик ждёт ответа на вопрос — понятный отказ, а не «нет связи»', async () => {
+    const { exec } = fakeExec(({ args }) =>
+      args[3] === 'prompt' ? Object.assign(new Error('exit 1'), { stdout: '{"error":{"code":"agent_blocked"}}' }) : agentGet('blocked'),
+    );
+    await assert.rejects(createKrabikService({ exec, sleep: noSleep }).sendPrompt('задача'), { code: 'KRABIK_BLOCKED' });
   });
 
   it('пустая и слишком длинная задача — отказ до вызова', async () => {

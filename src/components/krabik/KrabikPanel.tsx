@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, FileText, Loader2, MessageSquare, Power, Send, Square } from 'lucide-react';
 
+import { useUiPreferenceValue } from '../../hooks/useUiPreferences';
 import { cn } from '../../lib/utils';
 import { authenticatedFetch } from '../../utils/api';
 import MarkdownPreview from '../code-editor/view/subcomponents/markdown/MarkdownPreview';
@@ -8,6 +9,7 @@ import PixelCrab from '../crabs/PixelCrab';
 import { readJson } from '../server/shared';
 
 import {
+  enterAction,
   krabikSubtitle,
   mergePoll,
   krabikView,
@@ -27,6 +29,9 @@ import {
 
 type Tab = 'chat' | 'reports';
 type Feedback = { ok: boolean; text: string } | null;
+
+/** Не появилось в переписке за это время — говорим, что не дошло. */
+const PENDING_TIMEOUT_MS = 90_000;
 
 async function postJson(url: string, body?: unknown) {
   const response = await authenticatedFetch(url, {
@@ -186,6 +191,10 @@ export default function KrabikPanel() {
   const mounted = useRef(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const lastCount = useRef(0);
+  const busyRef = useRef(false);
+  const lastEnterAt = useRef(0);
+  const sendByCtrlEnter = useUiPreferenceValue('sendByCtrlEnter');
+  const sendByDoubleEnter = useUiPreferenceValue('sendByDoubleEnter');
 
   useEffect(() => {
     mounted.current = true;
@@ -255,6 +264,16 @@ export default function KrabikPanel() {
     }
   }, [messages, pending]);
 
+  // Не показалось в переписке — не висим вечно в «отправляется…».
+  useEffect(() => {
+    if (!pending) return undefined;
+    const timer = setTimeout(() => {
+      setPending(null);
+      setFeedback({ ok: false, text: 'Крабик не показал это сообщение в переписке — проверь, дошло ли, и отправь ещё раз.' });
+    }, PENDING_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [pending]);
+
   // Новое сообщение — прокрутка вниз.
   useEffect(() => {
     const count = messages.length + (pending ? 1 : 0);
@@ -267,7 +286,9 @@ export default function KrabikPanel() {
   const send = useCallback(
     async (text: string) => {
       const prompt = text.trim();
-      if (!prompt || busy) return;
+      // ref, а не state: второй Enter может прийти раньше перерисовки.
+      if (!prompt || busyRef.current) return;
+      busyRef.current = true;
       setBusy(true);
       setFeedback(null);
       setPending(prompt);
@@ -280,10 +301,11 @@ export default function KrabikPanel() {
         setPending(null);
         setFeedback({ ok: false, text: err instanceof Error ? err.message : String(err) });
       } finally {
+        busyRef.current = false;
         if (mounted.current) setBusy(false);
       }
     },
-    [busy, refresh],
+    [refresh],
   );
 
   const act = useCallback(
@@ -428,10 +450,32 @@ export default function KrabikPanel() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) {
-                event.preventDefault();
-                void send(draft);
+              if (event.key !== 'Enter') {
+                lastEnterAt.current = 0;
+                return;
               }
+              if (event.nativeEvent.isComposing) return;
+              const now = Date.now();
+              const action = enterAction({
+                shift: event.shiftKey,
+                ctrlOrMeta: event.ctrlKey || event.metaKey,
+                finePointer: window.matchMedia('(pointer: fine)').matches,
+                sendByCtrlEnter,
+                sendByDoubleEnter,
+                now,
+                lastEnterAt: lastEnterAt.current,
+              });
+              if (action === 'newline') {
+                // Первый Enter двойного — обычный перенос строки.
+                lastEnterAt.current = !event.shiftKey && !event.ctrlKey && !event.metaKey ? now : 0;
+                return;
+              }
+              event.preventDefault();
+              lastEnterAt.current = 0;
+              // Перенос от первого Enter в задачу не уходит.
+              const text = event.currentTarget.value.replace(/\s*\n+$/, '');
+              setDraft(text);
+              void send(text);
             }}
             rows={1}
             placeholder={waiting ? 'Ответ Крабику…' : 'Что сделать на сервере?'}

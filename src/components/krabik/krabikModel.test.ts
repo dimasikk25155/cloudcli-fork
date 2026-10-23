@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { krabikSubtitle, krabikView, mergePoll, pollDelayMs, QUICK_TASKS, reportDay, reportTitle, shortWhen } from './krabikModel';
+import { DOUBLE_ENTER_WINDOW_MS, enterAction, krabikSubtitle, krabikView, mergePoll, pollDelayMs, QUICK_TASKS, reportDay, reportTitle, shortWhen } from './krabikModel';
 
 describe('окно Крабика', () => {
   it('статус → краб и подпись', () => {
@@ -67,5 +67,18 @@ describe('окно Крабика', () => {
     assert.match(shortWhen('2026-10-21T09:05:00', now), /^21\.10 09:05$/);
     assert.equal(shortWhen(null, now), '');
     assert.equal(shortWhen('garbage', now), '');
+  });
+
+  it('Enter слушается настроек чата: двойной Enter, Ctrl+Enter, телефон', () => {
+    const base = { shift: false, ctrlOrMeta: false, finePointer: true, sendByCtrlEnter: false, sendByDoubleEnter: false, now: 10_000, lastEnterAt: 0 };
+    assert.equal(enterAction(base), 'send');
+    assert.equal(enterAction({ ...base, shift: true }), 'newline');
+    assert.equal(enterAction({ ...base, finePointer: false }), 'newline');
+    assert.equal(enterAction({ ...base, sendByCtrlEnter: true }), 'newline');
+    assert.equal(enterAction({ ...base, sendByCtrlEnter: true, ctrlOrMeta: true }), 'send');
+    const double = { ...base, sendByDoubleEnter: true };
+    assert.equal(enterAction(double), 'newline');
+    assert.equal(enterAction({ ...double, lastEnterAt: 10_000 - DOUBLE_ENTER_WINDOW_MS }), 'send');
+    assert.equal(enterAction({ ...double, lastEnterAt: 10_000 - DOUBLE_ENTER_WINDOW_MS - 1 }), 'newline');
   });
 });
