@@ -1,0 +1,150 @@
+import { readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import TOML from '@iarna/toml';
+import { buildDefaultProviderCurrentActiveModel, readObjectRecord, readOptionalString, writeProviderSessionActiveModelChange, } from '../../../../shared/utils.js';
+const CODEX_FALLBACK_EFFORT = {
+    default: 'medium',
+    values: [
+        { value: 'low' },
+        { value: 'medium' },
+        { value: 'high' },
+        { value: 'xhigh' },
+        { value: 'max' },
+    ],
+};
+const CODEX_FALLBACK_EFFORT_WITH_ULTRA = {
+    ...CODEX_FALLBACK_EFFORT,
+    values: [...CODEX_FALLBACK_EFFORT.values, { value: 'ultra' }],
+};
+// Conservative CLI metadata verified 28.09.2026. Historical entries remain hidden.
+export const CODEX_FALLBACK_MODELS = {
+    OPTIONS: [
+        {
+            value: 'gpt-6-astra',
+            contextWindow: 872_000,
+            label: 'GPT-6 Astra',
+            description: 'Our most capable model for complex, demanding work.',
+            effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
+        },
+        {
+            value: 'gpt-6-sol',
+            contextWindow: 872_000,
+            label: 'GPT-6 Sol',
+            description: 'Workhorse model for coding and everyday work.',
+            effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
+        },
+        {
+            value: 'gpt-5.6-terra',
+            hidden: true,
+            label: 'GPT-5.6 Terra',
+            description: 'Balanced agentic coding model for everyday work.',
+            effort: CODEX_FALLBACK_EFFORT_WITH_ULTRA,
+        },
+        {
+            value: 'gpt-5.6-luna',
+            hidden: true,
+            label: 'GPT-5.6 Luna',
+            description: 'Fast and affordable agentic coding model.',
+            effort: CODEX_FALLBACK_EFFORT,
+        },
+        {
+            value: 'gpt-5.5',
+            hidden: true,
+            label: 'GPT-5.5',
+            description: 'Proven previous-generation model for coding and general work.',
+            effort: {
+                ...CODEX_FALLBACK_EFFORT,
+                values: CODEX_FALLBACK_EFFORT.values.filter((level) => level.value !== 'max'),
+            },
+        },
+    ],
+    DEFAULT: 'gpt-6-sol',
+};
+const CODEX_MODELS_CACHE_PATH = path.join(os.homedir(), '.codex', 'models_cache.json');
+const CODEX_CONFIG_PATH = path.join(os.homedir(), '.codex', 'config.toml');
+const isCodexCachedModel = (value) => {
+    const record = readObjectRecord(value);
+    return Boolean(record && readOptionalString(record.slug));
+};
+const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+const positive = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0;
+const family = (slug) => /^gpt-\d+(?:\.\d+)*-(astra|sol)$/.exec(slug)?.[1];
+const newest = (a, b) => b.localeCompare(a, undefined, { numeric: true });
+export const buildCodexModelsDefinition = (models, previous = CODEX_FALLBACK_MODELS) => {
+    const options = previous.OPTIONS.map((fallback) => {
+        if (fallback.hidden)
+            return fallback;
+        const selected = models.filter((model) => isCodexCachedModel(model)
+            && model.visibility === 'list' && family(model.slug) === family(fallback.value))
+            .sort((a, b) => newest(a.slug, b.slug))[0];
+        if (!selected)
+            return fallback;
+        const levels = Array.isArray(selected.supported_reasoning_levels)
+            ? [...new Set(selected.supported_reasoning_levels.map((level) => level?.effort)
+                    .filter((value) => typeof value === 'string' && EFFORT_ORDER.includes(value)))]
+                .sort((a, b) => EFFORT_ORDER.indexOf(a) - EFFORT_ORDER.indexOf(b)) : [];
+        if (Array.isArray(selected.supported_reasoning_levels) && (!levels.length || selected.supported_reasoning_levels.some((level) => !EFFORT_ORDER.includes(level?.effort ?? ''))))
+            return fallback;
+        const sameModel = selected.slug === fallback.value;
+        const defaultEffort = selected.default_reasoning_level;
+        const context = positive(selected.max_context_window)
+            && (!positive(selected.context_window) || selected.max_context_window >= selected.context_window)
+            ? selected.max_context_window : selected.context_window;
+        return {
+            value: selected.slug,
+            label: readOptionalString(selected.display_name) ?? (sameModel ? fallback.label : selected.slug),
+            description: readOptionalString(selected.description) ?? (sameModel ? fallback.description : undefined),
+            contextWindow: positive(context) ? context : sameModel ? fallback.contextWindow : undefined,
+            effort: levels.length ? {
+                default: defaultEffort && levels.includes(defaultEffort) ? defaultEffort
+                    : sameModel && fallback.effort?.default && levels.includes(fallback.effort.default) ? fallback.effort.default : undefined,
+                values: levels.map((value) => ({ value })),
+            } : sameModel ? fallback.effort : undefined,
+        };
+    });
+    return { OPTIONS: options, DEFAULT: options.find((option) => family(option.value) === 'sol').value };
+};
+export class CodexProviderModels {
+    cachePath;
+    lastValid = CODEX_FALLBACK_MODELS;
+    constructor(cachePath = CODEX_MODELS_CACHE_PATH) {
+        this.cachePath = cachePath;
+    }
+    async getSupportedModels() {
+        try {
+            const raw = await readFile(this.cachePath, { encoding: 'utf8', signal: AbortSignal.timeout(2000) });
+            const parsed = readObjectRecord(JSON.parse(raw));
+            const models = Array.isArray(parsed?.models)
+                ? parsed.models.filter(isCodexCachedModel)
+                : [];
+            if (models.some((model) => model.slug && family(model.slug) && model.visibility === 'list')) {
+                this.lastValid = buildCodexModelsDefinition(models, this.lastValid);
+            }
+            return this.lastValid;
+        }
+        catch {
+            return this.lastValid;
+        }
+    }
+    async getCurrentActiveModel() {
+        try {
+            const raw = await readFile(CODEX_CONFIG_PATH, 'utf8');
+            const parsed = readObjectRecord(TOML.parse(raw));
+            const model = readOptionalString(parsed?.model);
+            if (!model) {
+                return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
+            }
+            return {
+                model,
+            };
+        }
+        catch {
+            return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
+        }
+    }
+    async changeActiveModel(input) {
+        return writeProviderSessionActiveModelChange('codex', input);
+    }
+}
+//# sourceMappingURL=codex-models.provider.js.map

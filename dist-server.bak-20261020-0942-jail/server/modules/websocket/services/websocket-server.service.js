@@ -1,0 +1,83 @@
+import { WebSocketServer } from 'ws';
+import { handleChatConnection } from '../../../modules/websocket/services/chat-websocket.service.js';
+import { verifyWebSocketClient } from '../../../modules/websocket/services/websocket-auth.service.js';
+import { handlePluginWsProxy } from '../../../modules/websocket/services/plugin-websocket-proxy.service.js';
+import { handleShellConnection } from '../../../modules/websocket/services/shell-websocket.service.js';
+import { handleDesktopNotificationsConnection } from '../../../modules/notifications/index.js';
+/**
+ * Creates and wires the server-wide websocket gateway used for chat, shell, and
+ * plugin proxy routes.
+ */
+export function createWebSocketServer(server, dependencies) {
+    const wss = new WebSocketServer({
+        server,
+        verifyClient: ((info) => verifyWebSocketClient(info, dependencies.verifyClient)),
+    });
+    wss.on('connection', (ws, request) => {
+        // Keep WebSocket alive across reverse-proxy idle timeouts (Cloudflare ~100s,
+        // AWS ALB 60s, nginx 60s, etc.). Without app-level pings these connections
+        // are silently torn down even when the UI is active, causing repeated
+        // reconnect cycles. ws library heartbeat is opt-in.
+        //
+        // Pong tracking reaps half-open sockets (mobile sleep, network drop):
+        // browsers answer pings at the protocol level, so a socket that misses a
+        // whole ping cycle is dead even though readyState still says OPEN.
+        // Without terminate() the writer keeps sending into the void until TCP
+        // gives up, minutes later.
+        const HEARTBEAT_INTERVAL_MS = 30_000;
+        let isAlive = true;
+        ws.on('pong', () => { isAlive = true; });
+        const heartbeat = setInterval(() => {
+            if (ws.readyState !== ws.OPEN)
+                return;
+            if (!isAlive) {
+                console.log('[WS] No pong within heartbeat interval — terminating dead socket');
+                ws.terminate();
+                return;
+            }
+            isAlive = false;
+            try {
+                ws.ping();
+            }
+            catch {
+                // socket may have been closed concurrently — interval will be cleared below
+            }
+        }, HEARTBEAT_INTERVAL_MS);
+        const stopHeartbeat = () => clearInterval(heartbeat);
+        ws.on('close', stopHeartbeat);
+        ws.on('error', stopHeartbeat);
+        const incomingRequest = request;
+        const url = incomingRequest.url ?? '/';
+        const pathname = new URL(url, 'http://localhost').pathname;
+        if (pathname === '/shell') {
+            // DISABLE_TERMINAL locks down the raw shell for restricted instances
+            // (e.g. a shared user's isolated instance). This is the real gate —
+            // hiding the UI tab is only cosmetic.
+            if (process.env.DISABLE_TERMINAL === '1') {
+                try {
+                    ws.close(1008, 'Terminal disabled');
+                }
+                catch { /* already closing */ }
+                return;
+            }
+            handleShellConnection(ws, dependencies.shell);
+            return;
+        }
+        if (pathname === '/ws') {
+            handleChatConnection(ws, incomingRequest, dependencies.chat);
+            return;
+        }
+        if (pathname === '/desktop-notifications') {
+            handleDesktopNotificationsConnection(ws, incomingRequest);
+            return;
+        }
+        if (pathname.startsWith('/plugin-ws/')) {
+            handlePluginWsProxy(ws, pathname, dependencies.getPluginPort);
+            return;
+        }
+        console.log('[WARN] Unknown WebSocket path:', pathname);
+        ws.close();
+    });
+    return wss;
+}
+//# sourceMappingURL=websocket-server.service.js.map
