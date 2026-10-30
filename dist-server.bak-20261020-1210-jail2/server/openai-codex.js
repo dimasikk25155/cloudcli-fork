@@ -1,0 +1,472 @@
+/**
+ * OpenAI Codex SDK Integration
+ * =============================
+ *
+ * This module provides integration with the OpenAI Codex SDK for non-interactive
+ * chat sessions. It mirrors the pattern used in claude-sdk.js for consistency.
+ *
+ * ## Usage
+ *
+ * - queryCodex(command, options, ws) - Execute a prompt with streaming via WebSocket
+ * - abortCodexSession(sessionId) - Cancel an active session
+ * - isCodexSessionActive(sessionId) - Check if a session is running
+ * - getActiveCodexSessions() - List all active sessions
+ */
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Codex } from '@openai/codex-sdk';
+import { readCodexContextBudget } from './shared/context-budget.js';
+import { codexRunPolicy, mapPermissionModeToCodexOptions } from './shared/codex-work-mode.js';
+import { buildCodexInputItems, normalizeImageDescriptors } from './shared/image-attachments.js';
+import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
+import { sessionsService } from './modules/providers/services/sessions.service.js';
+import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
+import { providerModelsService } from './modules/providers/services/provider-models.service.js';
+import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
+import { withThreadsEnv } from './shared/threads-env.js';
+import { buildJailProfile, codexJailWrapperPath, jailInstruction } from './shared/user-jail.js';
+const activeCodexSessions = new Map();
+/**
+ * Transform Codex SDK event to WebSocket message format
+ * @param {object} event - SDK event
+ * @returns {object} - Transformed event for WebSocket
+ */
+function transformCodexEvent(event) {
+    // Map SDK event types to a consistent format
+    switch (event.type) {
+        case 'item.started':
+        case 'item.updated':
+        case 'item.completed':
+            const item = event.item;
+            if (!item) {
+                return { type: event.type, item: null };
+            }
+            // Transform based on item type
+            switch (item.type) {
+                case 'agent_message':
+                    return {
+                        type: 'item',
+                        itemType: 'agent_message',
+                        message: {
+                            role: 'assistant',
+                            content: item.text
+                        }
+                    };
+                case 'reasoning':
+                    return {
+                        type: 'item',
+                        itemType: 'reasoning',
+                        message: {
+                            role: 'assistant',
+                            content: item.text,
+                            isReasoning: true
+                        }
+                    };
+                case 'command_execution':
+                    return {
+                        type: 'item',
+                        itemType: 'command_execution',
+                        command: item.command,
+                        output: item.aggregated_output,
+                        exitCode: item.exit_code,
+                        status: item.status
+                    };
+                case 'file_change':
+                    return {
+                        type: 'item',
+                        itemType: 'file_change',
+                        changes: item.changes,
+                        status: item.status
+                    };
+                case 'mcp_tool_call':
+                    return {
+                        type: 'item',
+                        itemType: 'mcp_tool_call',
+                        server: item.server,
+                        tool: item.tool,
+                        arguments: item.arguments,
+                        result: item.result,
+                        error: item.error,
+                        status: item.status
+                    };
+                case 'web_search':
+                    return {
+                        type: 'item',
+                        itemType: 'web_search',
+                        query: item.query
+                    };
+                case 'todo_list':
+                    return {
+                        type: 'item',
+                        itemType: 'todo_list',
+                        items: item.items
+                    };
+                case 'error':
+                    return {
+                        type: 'item',
+                        itemType: 'error',
+                        message: {
+                            role: 'error',
+                            content: item.message
+                        }
+                    };
+                default:
+                    return {
+                        type: 'item',
+                        itemType: item.type,
+                        item: item
+                    };
+            }
+        case 'turn.started':
+            return {
+                type: 'turn_started'
+            };
+        case 'turn.completed':
+            return {
+                type: 'turn_complete',
+                usage: event.usage
+            };
+        case 'turn.failed':
+            return {
+                type: 'turn_failed',
+                error: event.error
+            };
+        case 'thread.started':
+            return {
+                type: 'thread_started',
+                threadId: event.thread_id || event.id
+            };
+        case 'error':
+            return {
+                type: 'error',
+                message: event.message
+            };
+        default:
+            return {
+                type: event.type,
+                data: event
+            };
+    }
+}
+/**
+ * Codex SDK client options for one run. `env` is the full host env plus this
+ * run's thread identity (NEO3_THREADS_TOKEN / NEO3_THREADS_API_URL); the SDK
+ * uses it INSTEAD of process.env, so everything else is copied. Codex hands
+ * MCP servers only whitelisted variables — the neo3-threads registration
+ * lists them in `env_vars` (see modules/threads/threads-mcp-registration.ts).
+ */
+export function buildCodexClientOptions(options = {}, policy = {}) {
+    const env = {};
+    for (const [name, value] of Object.entries(withThreadsEnv({ ...process.env }, options))) {
+        if (typeof value === 'string') {
+            env[name] = value;
+        }
+    }
+    if (!options.jail?.root) {
+        return { config: { developer_instructions: policy.instructions }, env };
+    }
+    // Non-admin run: the SDK starts a wrapper that execs the bundled binary
+    // inside the project jail (server/shared/user-jail.ts). The SDK drops its
+    // own PATH additions for an override, so they are put back here.
+    const bundled = resolveBundledCodex();
+    env.NEO3_JAIL_PROFILE = buildJailProfile(options.jail);
+    env.NEO3_JAIL_REAL = bundled.executablePath;
+    env.NEO3_JAIL_ROOT = options.jail.root;
+    if (bundled.pathDirs.length > 0) {
+        env.PATH = [...bundled.pathDirs, env.PATH ?? ''].filter(Boolean).join(path.delimiter);
+    }
+    return {
+        codexPathOverride: codexJailWrapperPath(),
+        config: { developer_instructions: [policy.instructions, jailInstruction(options.jail)].filter(Boolean).join('\n\n') },
+        env,
+    };
+}
+/** The Codex binary the SDK itself would start (same lookup as its findCodexPath). */
+function resolveBundledCodex() {
+    const triple = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`;
+    const sdkRequire = createRequire(fileURLToPath(import.meta.resolve('@openai/codex-sdk')));
+    const codexRequire = createRequire(sdkRequire.resolve('@openai/codex/package.json'));
+    const platformPackage = `@openai/codex-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
+    const packageRoot = path.join(path.dirname(codexRequire.resolve(`${platformPackage}/package.json`)), 'vendor', triple);
+    const layouts = [
+        { bin: path.join(packageRoot, 'bin', 'codex'), pathDir: path.join(packageRoot, 'codex-path') },
+        { bin: path.join(packageRoot, 'codex', 'codex'), pathDir: path.join(packageRoot, 'path') },
+    ];
+    const found = layouts.find((layout) => fs.existsSync(layout.bin));
+    if (!found) {
+        throw new Error('Codex CLI binary not found for the jailed run.');
+    }
+    return { executablePath: found.bin, pathDirs: fs.existsSync(found.pathDir) ? [found.pathDir] : [] };
+}
+/**
+ * Execute a Codex query with streaming
+ * @param {string} command - The prompt to send
+ * @param {object} options - Options including cwd, sessionId, model, permissionMode
+ * @param {WebSocket|object} ws - WebSocket connection or response writer
+ */
+export async function queryCodex(command, options = {}, ws) {
+    const { sessionId, sessionSummary, cwd, projectPath, model, effort, images, workMode, permissionMode = 'default' } = options;
+    const catalog = (await providerModelsService.getProviderModels('codex')).models;
+    const resolvedModel = (await providerModelsService.resolveResumeModel('codex', sessionId, model)) || catalog.DEFAULT;
+    const resolvedRequestedEffort = await providerModelsService.resolveResumeEffort('codex', sessionId, effort, resolvedModel);
+    const workingDirectory = cwd || projectPath || process.cwd();
+    const codexModes = mapPermissionModeToCodexOptions(workMode === 'interrogate' ? 'plan' : permissionMode);
+    const { approvalPolicy } = codexModes;
+    // Seatbelt cannot nest: inside the project jail Codex's own sandbox would
+    // fail every command. The jail takes over; read-only stays read-only.
+    const jail = options.jail?.root
+        ? { ...options.jail, readOnly: codexModes.sandboxMode === 'read-only' }
+        : null;
+    const sandboxMode = jail ? 'danger-full-access' : codexModes.sandboxMode;
+    const selectedModel = catalog.OPTIONS.find((option) => option.value === resolvedModel) || null;
+    const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value) || [];
+    const resolvedEffort = typeof resolvedRequestedEffort === 'string'
+        && resolvedRequestedEffort !== 'default'
+        && allowedEfforts.includes(resolvedRequestedEffort)
+        ? resolvedRequestedEffort
+        : selectedModel?.effort?.default;
+    let codex;
+    let thread;
+    let capturedSessionId = sessionId;
+    let sessionCreatedSent = false;
+    let terminalFailure = null;
+    const abortController = new AbortController();
+    try {
+        const policy = codexRunPolicy(workMode, permissionMode);
+        codex = new Codex(buildCodexClientOptions({ ...options, jail }, policy));
+        const threadOptions = {
+            workingDirectory,
+            skipGitRepoCheck: true,
+            sandboxMode,
+            approvalPolicy,
+            model: resolvedModel,
+            modelReasoningEffort: resolvedEffort,
+        };
+        if (sessionId) {
+            thread = codex.resumeThread(sessionId, threadOptions);
+        }
+        else {
+            thread = codex.startThread(threadOptions);
+        }
+        const registerSession = (id) => {
+            if (!id) {
+                return;
+            }
+            activeCodexSessions.set(id, {
+                thread,
+                codex,
+                status: 'running',
+                abortController,
+                startedAt: new Date().toISOString()
+            });
+        };
+        if (capturedSessionId) {
+            registerSession(capturedSessionId);
+        }
+        // Execute with streaming. Turns with image attachments send structured
+        // input items so Codex reads the images from their local asset paths.
+        const turnInput = normalizeImageDescriptors(images).length > 0
+            ? buildCodexInputItems(command, images, workingDirectory)
+            : command;
+        const streamedTurn = await thread.runStreamed(turnInput, {
+            signal: abortController.signal
+        });
+        for await (const event of streamedTurn.events) {
+            // Capture thread/session id lazily from the stream (Codex emits this asynchronously).
+            if (event.type === 'thread.started') {
+                const discoveredSessionId = event.thread_id || event.id || null;
+                if (discoveredSessionId && !capturedSessionId) {
+                    capturedSessionId = discoveredSessionId;
+                    registerSession(capturedSessionId);
+                    if (ws.setSessionId && typeof ws.setSessionId === 'function') {
+                        ws.setSessionId(capturedSessionId);
+                    }
+                    if (!sessionId && !sessionCreatedSent) {
+                        sessionCreatedSent = true;
+                        sendMessage(ws, createNormalizedMessage({ kind: 'session_created', newSessionId: capturedSessionId, sessionId: capturedSessionId, provider: 'codex' }));
+                    }
+                }
+            }
+            // Check if session was aborted
+            if (abortController.signal.aborted) {
+                break;
+            }
+            if (capturedSessionId) {
+                const session = activeCodexSessions.get(capturedSessionId);
+                if (session?.status === 'aborted') {
+                    break;
+                }
+            }
+            if (event.type === 'item.started' || event.type === 'item.updated') {
+                continue;
+            }
+            const transformed = transformCodexEvent(event);
+            // Normalize the transformed event into NormalizedMessage(s) via adapter
+            const normalizedMsgs = sessionsService.normalizeMessage('codex', transformed, capturedSessionId || sessionId || null);
+            for (const msg of normalizedMsgs) {
+                sendMessage(ws, msg);
+            }
+            if (event.type === 'turn.failed' && !terminalFailure) {
+                terminalFailure = event.error || new Error('Turn failed');
+                notifyRunFailed({
+                    userId: ws?.userId || null,
+                    provider: 'codex',
+                    sessionId: capturedSessionId || sessionId || null,
+                    sessionName: sessionSummary,
+                    error: terminalFailure
+                });
+            }
+            // Extract and send token usage if available (normalized to match Claude format)
+            if (event.type === 'turn.completed') {
+                const tokenBudget = readCodexContextBudget(event);
+                if (tokenBudget) {
+                    sendMessage(ws, createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));
+                }
+            }
+        }
+        // Send the terminal completion event — skipped for aborted runs, whose
+        // terminal `complete` (aborted: true) was already sent by abort-session.
+        const runSession = capturedSessionId ? activeCodexSessions.get(capturedSessionId) : null;
+        const runAborted = runSession?.status === 'aborted' || abortController.signal.aborted;
+        if (!runAborted) {
+            sendMessage(ws, createCompleteMessage({
+                provider: 'codex',
+                sessionId: capturedSessionId || sessionId || null,
+                actualSessionId: capturedSessionId || thread.id || sessionId || null,
+                exitCode: terminalFailure ? 1 : 0,
+            }));
+            if (!terminalFailure) {
+                notifyRunStopped({
+                    userId: ws?.userId || null,
+                    provider: 'codex',
+                    sessionId: capturedSessionId || sessionId || null,
+                    sessionName: sessionSummary,
+                    stopReason: 'completed'
+                });
+            }
+        }
+    }
+    catch (error) {
+        const session = capturedSessionId ? activeCodexSessions.get(capturedSessionId) : null;
+        const wasAborted = session?.status === 'aborted' ||
+            error?.name === 'AbortError' ||
+            String(error?.message || '').toLowerCase().includes('aborted');
+        if (!wasAborted) {
+            console.error('[Codex] Error:', error);
+            // Check if Codex SDK is available for a clearer error message
+            const installed = await providerAuthService.isProviderInstalled('codex');
+            const errorContent = !installed
+                ? 'Codex CLI is not configured. Please set up authentication first.'
+                : error.message;
+            sendMessage(ws, createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));
+            sendMessage(ws, createCompleteMessage({
+                provider: 'codex',
+                sessionId: capturedSessionId || sessionId || null,
+                exitCode: 1,
+            }));
+            if (!terminalFailure) {
+                notifyRunFailed({
+                    userId: ws?.userId || null,
+                    provider: 'codex',
+                    sessionId: capturedSessionId || sessionId || null,
+                    sessionName: sessionSummary,
+                    error
+                });
+            }
+        }
+    }
+    finally {
+        // Update session status
+        if (capturedSessionId) {
+            const session = activeCodexSessions.get(capturedSessionId);
+            if (session) {
+                session.status = session.status === 'aborted' ? 'aborted' : 'completed';
+            }
+        }
+    }
+}
+/**
+ * Abort an active Codex session
+ * @param {string} sessionId - Session ID to abort
+ * @returns {boolean} - Whether abort was successful
+ */
+export function abortCodexSession(sessionId) {
+    const session = activeCodexSessions.get(sessionId);
+    if (!session) {
+        return false;
+    }
+    session.status = 'aborted';
+    try {
+        session.abortController?.abort();
+    }
+    catch (error) {
+        console.warn(`[Codex] Failed to abort session ${sessionId}:`, error);
+    }
+    return true;
+}
+/**
+ * Check if a session is active
+ * @param {string} sessionId - Session ID to check
+ * @returns {boolean} - Whether session is active
+ */
+export function isCodexSessionActive(sessionId) {
+    const session = activeCodexSessions.get(sessionId);
+    return session?.status === 'running';
+}
+/**
+ * Get all active sessions
+ * @returns {Array} - Array of active session info
+ */
+export function getActiveCodexSessions() {
+    const sessions = [];
+    for (const [id, session] of activeCodexSessions.entries()) {
+        if (session.status === 'running') {
+            sessions.push({
+                id,
+                status: session.status,
+                startedAt: session.startedAt
+            });
+        }
+    }
+    return sessions;
+}
+/**
+ * Helper to send message via WebSocket or writer
+ * @param {WebSocket|object} ws - WebSocket or response writer
+ * @param {object} data - Data to send
+ */
+function sendMessage(ws, data) {
+    try {
+        if (ws.isSSEStreamWriter || ws.isWebSocketWriter) {
+            // Writer handles stringification (SSEStreamWriter or WebSocketWriter)
+            ws.send(data);
+        }
+        else if (typeof ws.send === 'function') {
+            // Raw WebSocket - stringify here
+            ws.send(JSON.stringify(data));
+        }
+    }
+    catch (error) {
+        console.error('[Codex] Error sending message:', error);
+    }
+}
+// Clean up old completed sessions periodically.
+// unref'd on purpose: this timer must not be the reason the process stays alive.
+// Anything that merely imports this module — a test file, a scheduled run, the
+// pipeline runner — would otherwise never exit on its own.
+const codexSessionCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    const maxAge = 30 * 60 * 1000; // 30 minutes
+    for (const [id, session] of activeCodexSessions.entries()) {
+        if (session.status !== 'running') {
+            const startedAt = new Date(session.startedAt).getTime();
+            if (now - startedAt > maxAge) {
+                activeCodexSessions.delete(id);
+            }
+        }
+    }
+}, 5 * 60 * 1000); // Every 5 minutes
+codexSessionCleanupTimer.unref();
+//# sourceMappingURL=openai-codex.js.map
