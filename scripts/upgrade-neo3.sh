@@ -74,6 +74,16 @@ as_app git clone --depth 1 --single-branch --branch "$REF" "$REPO" "$STAGE/app"
 ACTUAL="$(git -C "$STAGE/app" rev-parse HEAD)"
 [[ "$ACTUAL" == "$REMOTE" ]] || fail 'Во время загрузки вышла новая версия. Повтори обновление.'
 if [[ -f "$APP_DIR/.env" ]]; then cp -p "$APP_DIR/.env" "$STAGE/app/.env"; chown "$APP_USER:$(id -gn "$APP_USER")" "$STAGE/app/.env"; fi
+# Register this installation's thread MCP; retain an explicit owner's opt-out.
+python3 - "$STAGE/app/.env" <<'PY'
+from pathlib import Path
+import re, sys
+p = Path(sys.argv[1])
+text = p.read_text() if p.exists() else ''
+if not re.search(r'^\s*NEO3_THREADS_MCP\s*=', text, re.M):
+    p.write_text(text.rstrip('\n') + '\nNEO3_THREADS_MCP=on\n')
+PY
+chown "$APP_USER:$(id -gn "$APP_USER")" "$STAGE/app/.env"
 # Run npm from the target directory without interpolating shell commands.
 as_app npm --prefix "$STAGE/app" ci --no-audit --no-fund
 as_app npm --prefix "$STAGE/app" run typecheck

@@ -73,7 +73,7 @@ test('updater switches only after checks and retains the exact old application a
   assert.equal(await fs.readFile(path.join(home, 'app/marker'), 'utf8'), 'new');
   const backup = (await fs.readdir(home)).find((name) => name.startsWith('neo3-rollback-'));
   assert.equal(await fs.readFile(path.join(home, backup, 'app/marker'), 'utf8'), 'original');
-  assert.equal(await fs.readFile(path.join(home, 'app/.env'), 'utf8'), 'SERVER_PORT=3001\n');
+  assert.equal(await fs.readFile(path.join(home, 'app/.env'), 'utf8'), 'SERVER_PORT=3001\nNEO3_THREADS_MCP=on\n');
 });
 
 test('failed health automatically restores the original application', async (t) => {
