@@ -8,6 +8,7 @@ import {
   applyProviderModel,
   modelForProvider,
   resolveModelEffort,
+  resolveChatEffort,
   resolveChatSelection,
   persistNewChatModelDefault,
   type ProviderModelSetters,
@@ -74,6 +75,20 @@ test('modelForProvider reads grok from grok, not from the catch-all', () => {
 
 const astra = { value: 'gpt-6-astra', label: 'GPT-6 Astra', effort: { default: 'medium', values: ['low', 'medium', 'high', 'ultra'].map(value => ({ value })) } };
 const sol = { value: 'gpt-6-sol', label: 'GPT-6 Sol', effort: { default: 'medium', values: ['low', 'medium', 'high', 'ultra'].map(value => ({ value })) } };
+
+test('new chat inherits account High even when the model default is Low', () => {
+  const model = { ...sol, effort: { ...sol.effort, default: 'low' } };
+  assert.equal(resolveChatEffort(model, null, undefined, { model: model.value, effort: 'high' }), 'high');
+  assert.equal(resolveChatEffort(model, null, undefined, { model: model.value, effort: 'ultra' }), 'ultra');
+});
+
+test('account refresh cannot overwrite an explicit draft pick or an existing chat', () => {
+  const account = { model: sol.value, effort: 'high' };
+  assert.equal(resolveChatEffort(sol, null, { model: sol.value, effort: 'default' }, account), 'default');
+  assert.equal(resolveChatEffort(sol, 'existing', { model: sol.value, effort: 'low' }, account), 'low');
+  assert.equal(resolveChatEffort(sol, 'existing', undefined, account), 'default');
+  assert.equal(resolveChatEffort(astra, null, undefined, account), 'default');
+});
 
 test('model defaults remain symbolic and an explicit override cannot cross model boundaries', () => {
   assert.equal(resolveModelEffort(astra), 'default');

@@ -29,7 +29,7 @@ import {
   readSessionWorkMode,
   workModeStorageKey,
 } from '../utils/workModeStorage';
-import { applyProviderModel, resolveModelEffort, resolveChatSelection, type ProviderModelSetters } from '../utils/providerModelState';
+import { applyProviderModel, resolveModelEffort, resolveChatSelection, resolveChatEffort, NEW_CHAT_DEFAULTS_CHANGED, type ModelEffortChoice, type ProviderModelSetters } from '../utils/providerModelState';
 import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
@@ -191,9 +191,14 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [codexModelState, setCodexModel] = useState<string>(() => {
     return localStorage.getItem('codex-model') || FALLBACK_DEFAULT_MODEL.codex;
   });
-  // Choices belong to one model in one chat. Legacy provider-wide defaults
-  // intentionally do not enter this map: they cannot establish model intent.
+  // Explicit chat choices stay separate from model-bound new-chat defaults.
   const [providerEfforts, setProviderEfforts] = useState<Record<string, string>>({});
+  const [newChatDefaults, setNewChatDefaults] = useState<Partial<Record<LLMProvider, ModelEffortChoice>>>(() => (
+    Object.fromEntries(PROVIDERS.map(p => [p, {
+      model: localStorage.getItem(`${p}-model`) || FALLBACK_DEFAULT_MODEL[p],
+      effort: localStorage.getItem(`${p}-effort`) || DEFAULT_EFFORT_VALUE,
+    }]))
+  ));
   const effortKey = useCallback((targetProvider: LLMProvider, model: string, sessionId = selectedSession?.id) => (
     `model-effort:${JSON.stringify([sessionId || 'draft', targetProvider, model])}`
   ), [selectedSession?.id]);
@@ -372,12 +377,37 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
             localStorage.setItem(`${targetProvider}-effort`, effort);
           }
         }
+        setNewChatDefaults(Object.fromEntries(PROVIDERS.map(p => [p, {
+          model: migrateStoredModel(p, data.models?.[p] ?? null) || FALLBACK_DEFAULT_MODEL[p],
+          effort: data.efforts?.[p] || DEFAULT_EFFORT_VALUE,
+        }])));
       })
       .catch((error) => {
         console.warn('Failed to load account provider preferences:', error);
       });
     return () => {
       cancelled = true;
+    };
+  }, [setActiveProviderModel]);
+
+  useEffect(() => {
+    const refresh = () => {
+      setNewChatDefaults(Object.fromEntries(PROVIDERS.map(p => [p, {
+        model: localStorage.getItem(`${p}-model`) || FALLBACK_DEFAULT_MODEL[p],
+        effort: localStorage.getItem(`${p}-effort`) || DEFAULT_EFFORT_VALUE,
+      }])));
+      if (!selectedSessionIdRef.current && !draftModelPickedRef.current) {
+        for (const p of PROVIDERS) {
+          const model = localStorage.getItem(`${p}-model`);
+          if (model) setActiveProviderModel(p, model);
+        }
+      }
+    };
+    window.addEventListener(NEW_CHAT_DEFAULTS_CHANGED, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(NEW_CHAT_DEFAULTS_CHANGED, refresh);
+      window.removeEventListener('storage', refresh);
     };
   }, [setActiveProviderModel]);
 
@@ -674,13 +704,12 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       ?? localStorage.getItem(`${provider}-model`)
       ?? FALLBACK_DEFAULT_MODEL[provider];
     const key = effortKey(provider, nextModel);
-    const nextEffort = selectedSession?.id
-      ? localStorage.getItem(key) ?? sessionEffort ?? DEFAULT_EFFORT_VALUE
-      : DEFAULT_EFFORT_VALUE;
+    const nextEffort = localStorage.getItem(key) ?? sessionEffort ?? DEFAULT_EFFORT_VALUE;
     if (!selectedSession?.id && draftModelPickedRef.current) return;
 
     applyProviderModel(provider, nextModel, providerModelSetters);
 
+    if (!selectedSession?.id) return;
     setProviderEfforts((previous) => (
       previous[key] === nextEffort ? previous : { ...previous, [key]: nextEffort }
     ));
@@ -963,11 +992,13 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   }, [getEffortOptionsForModel, provider, providerModels]);
   const currentProviderEffort = useMemo(() => {
     const model = providerModels[provider];
-    return resolveModelEffort(getModelOption(provider, model), {
-      model,
-      effort: providerEfforts[effortKey(provider, model)] ?? DEFAULT_EFFORT_VALUE,
-    });
-  }, [effortKey, getModelOption, provider, providerEfforts, providerModels]);
+    const override = providerEfforts[effortKey(provider, model)];
+    return resolveChatEffort(
+      getModelOption(provider, model), selectedSession?.id,
+      override === undefined ? undefined : { model, effort: override },
+      newChatDefaults[provider],
+    );
+  }, [effortKey, getModelOption, provider, providerEfforts, providerModels, selectedSession?.id, newChatDefaults]);
 
   // Twin of commitPermissionModeToSession: a chat composed before it had an id
   // (model and level picked on the empty screen) records those choices against

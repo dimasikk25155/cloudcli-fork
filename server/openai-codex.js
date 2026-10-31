@@ -290,7 +290,7 @@ export async function queryCodex(command, options = {}, ws) {
   const turnEventPrefix = randomUUID();
 
   try {
-    const policy = codexRunPolicy(workMode, permissionMode);
+    const policy = codexRunPolicy(workMode, permissionMode, { model: resolvedModel, effort: resolvedEffort });
     codex = new Codex(buildCodexClientOptions({ ...options, jail }, policy));
 
     const threadOptions = {

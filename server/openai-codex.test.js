@@ -4,7 +4,7 @@ import test from 'node:test';
 import { Codex } from '@openai/codex-sdk';
 
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
-import { queryCodex } from './openai-codex.js';
+import { queryCodex, buildCodexClientOptions } from './openai-codex.js';
 
 test('Codex launch and effort resolver receive the same effective model when omitted', async (t) => {
   const launches = [];
@@ -64,4 +64,27 @@ test('Codex tool progress updates one row per turn and never overwrites a previo
     ids.push(tools[0].id);
   }
   assert.notEqual(ids[0], ids[1]);
+});
+
+test('SDK developer context and launch options agree on explicit High and resolved Low', async (t) => {
+  const launches = [];
+  const instructions = [];
+  t.mock.method(providerModelsService, 'getProviderModels', async () => ({ models: {
+    DEFAULT: 'gpt-6.1-sol', OPTIONS: [{ value: 'gpt-6.1-sol', effort: {
+      default: 'low', values: [{ value: 'low' }, { value: 'high' }],
+    } }],
+  } }));
+  t.mock.method(providerModelsService, 'resolveResumeModel', async () => 'gpt-6.1-sol');
+  t.mock.method(providerModelsService, 'resolveResumeEffort', async (_p, _s, effort) => effort);
+  t.mock.method(Codex.prototype, 'startThread', function (options) {
+    launches.push(options);
+    // SDK stores the same client configuration used to spawn its CLI.
+    instructions.push(this.options.config.developer_instructions);
+    return { runStreamed: async () => { const error = new Error('test boundary'); error.name = 'AbortError'; throw error; } };
+  });
+  for (const effort of ['high', 'default']) await queryCodex('fixture', { effort }, { send() {} });
+  assert.deepEqual(launches.map(o => o.modelReasoningEffort), ['high', 'low']);
+  assert.match(instructions[0], /model="gpt-6\.1-sol"; reasoning_effort="high"/);
+  assert.match(instructions[1], /reasoning_effort="low"/);
+  assert.equal(typeof buildCodexClientOptions({}, { instructions: instructions[0] }).config.developer_instructions, 'string');
 });

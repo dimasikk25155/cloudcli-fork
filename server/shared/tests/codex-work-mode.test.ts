@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+
 import { codexRunPolicy, mapPermissionModeToCodexOptions } from '../codex-work-mode.js';
 import { workModeInstruction } from '../work-mode.js';
+
+test('current turn reports the resolved runtime settings, including unknown effort honestly', () => {
+  const rules = codexRunPolicy('autopilot', 'default', { model: 'gpt-6.1-sol', effort: 'high' }).instructions;
+  assert.match(rules, /model="gpt-6\.1-sol"; reasoning_effort="high"/);
+  assert.match(rules, /THIS turn/);
+  assert.match(rules, /Do not infer them from earlier messages/);
+  assert.match(codexRunPolicy('autopilot', 'default', { model: 'fixture' }).instructions, /unspecified \(CLI\/model default\)/);
+});
 
 test('planning is enforced by the sandbox and stops before implementation', () => {
   assert.deepEqual(mapPermissionModeToCodexOptions('plan'), {

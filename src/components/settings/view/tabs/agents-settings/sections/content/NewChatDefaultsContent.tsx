@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { selectableModels } from '../../../../../../../utils/providerSelectionPolicy';
-import { resolveChatSelection, resolveModelEffort, persistNewChatModelDefault } from '../../../../../../chat/utils/providerModelState';
+import { resolveChatSelection, resolveModelEffort, persistNewChatModelDefault, NEW_CHAT_DEFAULTS_CHANGED } from '../../../../../../chat/utils/providerModelState';
 import { authenticatedFetch } from '../../../../../../../utils/api';
 import { WORK_MODES } from '../../../../../../chat/types/types';
 import type { WorkMode } from '../../../../../../chat/types/types';
@@ -105,6 +105,10 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
+      if ((path === 'model' || path === 'effort') && typeof body.provider === 'string' && typeof body[path] === 'string') {
+        localStorage.setItem(`${body.provider}-${path}`, body[path]);
+        window.dispatchEvent(new Event(NEW_CHAT_DEFAULTS_CHANGED));
+      }
       setError(null);
     } catch (saveError) {
       console.error('Failed to save new-chat default:', saveError);
@@ -133,7 +137,6 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
               value={model}
               onChange={(event) => {
                 setModel(event.target.value);
-                localStorage.setItem(`${agent}-model`, event.target.value);
                 // An explicit level belongs to its model; a new model starts on its default.
                 const nextEffort = resolveModelEffort(
                   modelsDefinition?.OPTIONS.find(option => option.value === event.target.value),

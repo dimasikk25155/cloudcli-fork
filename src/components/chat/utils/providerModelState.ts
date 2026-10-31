@@ -3,6 +3,19 @@ import type { LLMProvider, ProviderModelOption, ProviderModelsDefinition } from 
 
 export type ProviderModelSetters = Record<LLMProvider, (model: string) => void>;
 
+export const NEW_CHAT_DEFAULTS_CHANGED = 'neo3:new-chat-defaults-changed';
+export type ModelEffortChoice = { model: string; effort: string };
+
+/** Account defaults seed drafts; existing chats and explicit draft picks own their intent. */
+export function resolveChatEffort(
+  model: ProviderModelOption | null | undefined,
+  sessionId: string | null | undefined,
+  override: ModelEffortChoice | undefined,
+  accountDefault: ModelEffortChoice | undefined,
+): string {
+  return resolveModelEffort(model, override ?? (sessionId ? undefined : accountDefault));
+}
+
 /**
  * Writes `model` through the setter for `provider`.
  *
