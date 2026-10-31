@@ -33,7 +33,7 @@ APP_DIR="${APP_DIR:-$(systemctl show "$SERVICE" -p WorkingDirectory --value)}"
 [[ "$APP_DIR" != "$APP_HOME/.claude" && "$APP_DIR" != "$APP_HOME/.codex" && "$APP_DIR" != "$APP_HOME/.cloudcli" ]] || fail 'Каталог состояния нельзя использовать как каталог приложения.'
 NODE_VERSION="$(node -p 'Number(process.versions.node.split(".")[0])')"
 [[ "$NODE_VERSION" -ge 22 ]] || fail 'Нужен Node.js 22 или новее.'
-as_app() { runuser -u "$APP_USER" -- env HOME="$APP_HOME" PATH="$APP_HOME/.local/bin:$APP_HOME/.npm-global/bin:$PATH" "$@"; }
+as_app() { runuser -u "$APP_USER" -- env -i HOME="$APP_HOME" USER="$APP_USER" LOGNAME="$APP_USER" CI=1 PATH="$APP_HOME/.local/bin:$APP_HOME/.npm-global/bin:$PATH" "$@"; }
 REMOTE="$(git ls-remote "$REPO" "refs/heads/$REF" | awk '{print $1}')"
 [[ "$REMOTE" =~ ^[a-f0-9]{40}$ ]] || fail 'Не удалось проверить опубликованную версию.'
 echo "Neo3: опубликован $REMOTE; пользователь $APP_USER; каталог $APP_DIR"
@@ -85,7 +85,7 @@ if not re.search(r'^\s*NEO3_THREADS_MCP\s*=', text, re.M):
 PY
 chown "$APP_USER:$(id -gn "$APP_USER")" "$STAGE/app/.env"
 # Run npm from the target directory without interpolating shell commands.
-as_app npm --prefix "$STAGE/app" ci --no-audit --no-fund
+as_app npm --prefix "$STAGE/app" ci --include=dev --include=optional --no-audit --no-fund
 as_app npm --prefix "$STAGE/app" run typecheck
 as_app npm --prefix "$STAGE/app" test
 as_app npm --prefix "$STAGE/app" run build

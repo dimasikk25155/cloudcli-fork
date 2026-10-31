@@ -34,6 +34,8 @@ elif name=='git':
     else: print(sha)
 elif name=='runuser':
     command=args[args.index('--')+1:]
+    if command[:2]==['env','-i']:
+        command[2:2]=['FIXTURE_HOME='+str(home),'FIXTURE_MODE='+os.environ.get('FIXTURE_MODE','')]
     os.execvpe(command[0],command,os.environ)
 elif name=='node': print('24')
 elif name=='npm': pass
