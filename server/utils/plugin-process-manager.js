@@ -1,13 +1,34 @@
 import path from 'path';
+import fs from 'node:fs';
 
 // cross-spawn: drop-in spawn with Windows .cmd/PATHEXT resolution.
 import spawn from 'cross-spawn';
+
 import { scanPlugins, getPluginsConfig, getPluginDir } from './plugin-loader.js';
 
 // Map<pluginName, { process, port }>
 const runningPlugins = new Map();
 // Map<pluginName, Promise<port>> — in-flight start operations
 const startingPlugins = new Map();
+
+/** npm may unpack node-pty's macOS helper without its executable bits. */
+export function repairPluginPtyPermissions(pluginDir, platform = process.platform) {
+  if (platform !== 'darwin') return;
+  const prebuilds = path.join(pluginDir, 'node_modules', 'node-pty', 'prebuilds');
+  for (const architecture of ['darwin-arm64', 'darwin-x64']) {
+    const helper = path.join(prebuilds, architecture, 'spawn-helper');
+    try {
+      // Do not follow a plugin-supplied link outside its dependency directory.
+      const root = fs.realpathSync(pluginDir);
+      const real = fs.realpathSync(helper);
+      if (!real.startsWith(root + path.sep) || !fs.lstatSync(helper).isFile()) continue;
+      const mode = fs.statSync(helper).mode;
+      if (!(mode & 0o111)) fs.chmodSync(helper, (mode & 0o777) | 0o111);
+    } catch (error) {
+      if (error.code !== 'ENOENT') console.warn(`[Plugins] node-pty helper repair failed: ${error.message}`);
+    }
+  }
+}
 
 /**
  * Build the environment handed to a plugin server subprocess.
@@ -62,6 +83,8 @@ export function startPluginServer(name, pluginDir, serverEntry) {
   const startPromise = new Promise((resolve, reject) => {
 
     const serverPath = path.join(pluginDir, serverEntry);
+
+    repairPluginPtyPermissions(pluginDir);
 
     const pluginProcess = spawn('node', [serverPath], {
       cwd: pluginDir,

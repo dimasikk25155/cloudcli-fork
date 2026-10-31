@@ -9,7 +9,7 @@ import spawn from 'cross-spawn';
 
 import { appConfigDb } from '@/modules/database/index.js';
 import { providerMcpService } from '@/modules/providers/index.js';
-import { getModuleDir } from '@/utils/runtime-paths.js';
+import { getModuleDir, findAppRoot } from '@/utils/runtime-paths.js';
 
 const require = createRequire(import.meta.url);
 const __dirname = getModuleDir(import.meta.url);
@@ -81,8 +81,9 @@ const DEFAULT_SETTINGS: BrowserUseSettings = {
 };
 const AGENT_OWNER_ID = 'agent';
 const PROFILE_ROOT = path.join(os.homedir(), '.cloudcli', 'browser-use', 'profiles');
-const MCP_SERVER_NAME = 'cloudcli-browser';
-const LEGACY_MCP_SERVER_NAMES = ['cloudcli-browser-use'];
+const MCP_SERVER_NAME = process.platform === 'darwin' ? 'neo3-edge' : 'cloudcli-browser';
+const LEGACY_MCP_SERVER_NAMES = process.platform === 'darwin'
+  ? ['cloudcli-browser-use', 'cloudcli-browser'] : ['cloudcli-browser-use'];
 const RUNTIME_READINESS_CACHE_TTL_MS = 30_000;
 
 function getRuntime(): BrowserUseRuntime {
@@ -150,6 +151,11 @@ function getPlaywright(): any | null {
 }
 
 function getMcpCommand(): { command: string; args: string[] } {
+  if (process.platform === 'darwin') {
+    const script = path.join(findAppRoot(__dirname), 'scripts', 'edge-browser-mcp.mjs');
+    if (!fs.existsSync(script)) throw new Error('The shared Edge MCP script is missing. Reinstall Neo3.');
+    return { command: process.execPath, args: [script] };
+  }
   const serverDir = path.resolve(__dirname, '..', '..');
   const mcpScriptPath = path.join(serverDir, 'browser-use-mcp.js');
   if (fs.existsSync(mcpScriptPath)) {
