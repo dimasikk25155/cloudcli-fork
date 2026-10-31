@@ -185,6 +185,11 @@ const definitions = [
   ['browser_close_session', 'Close this session and only its own tabs.', {}, []],
 ];
 export const tools = definitions.map(([name, description, properties, required]) => ({ name, description,
+  annotations: {
+    readOnlyHint: ['browser_list_sessions', 'browser_snapshot', 'browser_take_screenshot', 'browser_wait_for'].includes(name),
+    destructiveHint: false,
+    openWorldHint: !['browser_create_session', 'browser_list_sessions', 'browser_close_session'].includes(name),
+  },
   inputSchema: { type: 'object', properties: { ...(name === 'browser_create_session' || name === 'browser_list_sessions' ? {} : { sessionId: string }), ...properties },
     required: [...(name === 'browser_create_session' || name === 'browser_list_sessions' ? [] : ['sessionId']), ...required], additionalProperties: false } }));
 
