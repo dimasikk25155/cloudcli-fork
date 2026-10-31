@@ -7,7 +7,7 @@ import type { ChatMessage, SubagentState } from '../chat/types/types';
  * prompt and result stay behind «Подробности».
  */
 
-export type CrabTint = 'haiku' | 'sonnet' | 'opus' | 'fable' | 'grok' | 'other';
+export type CrabTint = 'haiku' | 'sonnet' | 'opus' | 'fable' | 'grok' | 'codex' | 'other';
 
 /**
  * running — out working; done — back with a result; failed — came back
@@ -45,6 +45,7 @@ export const CRAB_TINT_COLOR: Record<CrabTint, string> = {
   opus: '#a78bfa',
   fable: '#34d399',
   grok: '#f87171',
+  codex: '#22c55e',
   other: '#94a3b8',
 };
 
@@ -54,6 +55,7 @@ export const CRAB_TINT_LABEL: Record<CrabTint, string> = {
   opus: 'Opus',
   fable: 'Fable',
   grok: 'Grok',
+  codex: 'Codex',
   other: 'модель сессии',
 };
 
@@ -64,6 +66,7 @@ export function tintForModel(model: string | undefined): CrabTint {
   if (name.includes('opus')) return 'opus';
   if (name.includes('fable')) return 'fable';
   if (name.includes('grok')) return 'grok';
+  if (name.includes('gpt-') || name.includes('codex')) return 'codex';
   return 'other';
 }
 

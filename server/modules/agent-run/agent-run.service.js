@@ -14,11 +14,13 @@ import { spawnOpenCode } from '../../opencode-cli.js';
 import { spawnKimi } from '../../kimi-cli.js';
 import { spawnGemini } from '../../gemini-cli.js';
 import { spawnGrok } from '../../grok-cli.js';
-import { providerModelsService } from '../providers/index.js';
+import { providerModelsService, codexMeterMessage } from '../providers/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '../governance/index.js';
 import { normalizeProjectPath } from '../../shared/utils.js';
 import { SUPPORTED_PROVIDERS } from '../../shared/providers.js';
 import { JAIL_DENIED_MESSAGE, JAIL_PROVIDER_MESSAGE, JAILED_PROVIDERS, userJailFor } from '../../shared/user-jail.js';
+
+import { runCodexReadOnly } from './codex-read-only.js';
 
 export { SUPPORTED_PROVIDERS };
 
@@ -199,7 +201,7 @@ export function checkProjectAccess(userId, projectPath) {
  * @param {string} [options.effort]      Reasoning effort, where the engine supports it.
  * @param {string} [options.sessionId]   Resume an existing session instead of starting fresh.
  * @param {(event: object) => void} [options.onEvent]  Progress callback, best-effort.
- * @param {boolean} [options.readOnly]  Look, never act: Claude only, read tools only,
+ * @param {boolean} [options.readOnly]  Look, never act: Claude read tools or Codex tool-free source snapshot,
  *        no user permission settings and no MCP (see readOnly in claude-sdk.js).
  * @param {'schedule'|'pipeline'|'telegram'|'api'|'user'|'duet'|'system'} [options.actor]
  *        What triggered this run, for the audit log. A schedule runs on behalf
@@ -244,9 +246,9 @@ export async function runHeadlessPrompt(options) {
     preferences,
   });
 
-  // Only Claude can be held to "read, never act" (its callback refuses the rest).
-  if (readOnly && provider !== 'claude') {
-    throw new Error('read-only runs are Claude only');
+  // Codex analysis runs in an isolated home without executable tools or MCP.
+  if (readOnly && provider !== 'claude' && provider !== 'codex') {
+    throw new Error('read-only runs support Claude and Codex only');
   }
 
   const access = checkProjectAccess(userId, projectPath);
@@ -307,7 +309,13 @@ export async function runHeadlessPrompt(options) {
       await spawnCursor(trimmedPrompt, { ...base, model: model || undefined, skipPermissions: true }, collector);
     } else if (provider === 'codex') {
       const models = (await providerModelsService.getProviderModels('codex')).models;
-      await spawnCodexCompat(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions' }, collector);
+      if (readOnly) {
+        const result = await runCodexReadOnly({ projectPath: cwd, prompt: trimmedPrompt, model: model || models.DEFAULT, effort });
+        meter.addMessage(codexMeterMessage(result.usage, model || models.DEFAULT));
+        collector.send({ kind: 'text', role: 'assistant', content: result.text });
+      } else {
+        await spawnCodexCompat(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions', meter }, collector);
+      }
     } else if (provider === 'opencode') {
       const models = (await providerModelsService.getProviderModels('opencode')).models;
       await spawnOpenCode(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions' }, collector);
@@ -322,6 +330,8 @@ export async function runHeadlessPrompt(options) {
       const models = (await providerModelsService.getProviderModels('grok')).models;
       await spawnGrok(trimmedPrompt, { ...base, model: model || models.DEFAULT, effort, permissionMode: 'bypassPermissions', meter }, collector);
     }
+    const failed = collector.messages.find((message) => message?.kind === 'error' || (message?.kind === 'complete' && Number(message.exitCode) !== 0 && message.exitCode != null));
+    if (failed) throw new Error(failed.content || 'Agent run failed');
   } catch (err) {
     outcome = 'error';
     failureDetail = err?.message ?? String(err);

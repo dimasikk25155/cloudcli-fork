@@ -39,6 +39,7 @@ const getCompactToolDisplay = (toolName: string, toolInput: unknown): string => 
     case 'Task':
     case 'Agent':
     case 'spawn_subagent':
+    case 'spawn_agent':
       return input.description || input.subagent_type || '';
     case 'read_file':
       return input.target_file?.split('/').pop() || '';

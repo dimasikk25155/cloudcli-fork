@@ -13,6 +13,7 @@
  * - getActiveCodexSessions() - List all active sessions
  */
 
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -20,6 +21,8 @@ import { fileURLToPath } from 'node:url';
 
 import { Codex } from '@openai/codex-sdk';
 
+import { CodexSubagentTracker } from './modules/providers/list/codex/codex-subagents.js';
+import { codexMeterMessage } from './modules/providers/list/codex/codex-usage.js';
 import { readCodexContextBudget } from './shared/context-budget.js';
 import { codexRunPolicy, mapPermissionModeToCodexOptions } from './shared/codex-work-mode.js';
 import { buildCodexInputItems, normalizeImageDescriptors } from './shared/image-attachments.js';
@@ -283,6 +286,8 @@ export async function queryCodex(command, options = {}, ws) {
   let sessionCreatedSent = false;
   let terminalFailure = null;
   const abortController = new AbortController();
+  const subagents = new CodexSubagentTracker();
+  const turnEventPrefix = randomUUID();
 
   try {
     const policy = codexRunPolicy(workMode, permissionMode);
@@ -359,11 +364,18 @@ export async function queryCodex(command, options = {}, ws) {
         }
       }
 
-      if (event.type === 'item.started' || event.type === 'item.updated') {
+      if (event.item?.type === 'collab_tool_call') {
+        for (const row of subagents.event({ ...event.item, id: `${turnEventPrefix}:${event.item.id}` }, capturedSessionId || sessionId || null, resolvedModel)) sendMessage(ws, row);
+        continue;
+      }
+
+      if ((event.type === 'item.started' || event.type === 'item.updated')
+        && !['command_execution', 'mcp_tool_call', 'file_change', 'web_search', 'todo_list'].includes(event.item?.type)) {
         continue;
       }
 
       const transformed = transformCodexEvent(event);
+      if (event.item?.id) transformed.uuid = `${turnEventPrefix}:${event.item.id}`;
 
       // Normalize the transformed event into NormalizedMessage(s) via adapter
       const normalizedMsgs = sessionsService.normalizeMessage('codex', transformed, capturedSessionId || sessionId || null);
@@ -384,6 +396,7 @@ export async function queryCodex(command, options = {}, ws) {
 
       // Extract and send token usage if available (normalized to match Claude format)
       if (event.type === 'turn.completed') {
+        options.meter?.addMessage(codexMeterMessage(event.usage, resolvedModel, capturedSessionId || undefined));
         const tokenBudget = readCodexContextBudget(event);
         if (tokenBudget) {
           sendMessage(ws, createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));

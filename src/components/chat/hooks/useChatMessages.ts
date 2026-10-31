@@ -59,7 +59,7 @@ function parseTaskNotification(content: string): ParsedTaskNotification | null {
  * Tools that start a subagent. Claude Code renamed `Task` to `Agent`; Grok
  * calls it `spawn_subagent`. All render as the subagent card.
  */
-export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Task', 'Agent', 'spawn_subagent']);
+export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Task', 'Agent', 'spawn_subagent', 'spawn_agent']);
 
 /** Grok's helper runs in the background unless the call says `background:false`. */
 const GROK_SUBAGENT_TOOL = 'spawn_subagent';

@@ -475,7 +475,8 @@ function JournalTab({ state, refresh }: { state: DuetStateResponse; refresh: () 
         </div>
         {error && <div className="mt-1.5 text-xs text-rose-600 dark:text-rose-400">{error}</div>}
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          Бриф и идеи — прогоны Claude только на чтение, по одному за раз; при почти исчерпанном лимите подписки они ждут.
+          Бриф и идеи — анализ только на чтение через Codex или Claude, по одному заданию за раз.
+          Codex получает снимок исходников без ключей и не запускает команды.
           Чинит и делает идеи Дуэт только после твоего «Да». Расход виден в «Аудит и деньги» (автор «Дуэт»).
         </p>
       </section>

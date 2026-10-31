@@ -9,7 +9,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { projectsDb, pushSubscriptionsDb, telegramDb, userDb } from '@/modules/database/index.js';
+import { projectsDb, providerPreferencesDb, pushSubscriptionsDb, telegramDb, userDb } from '@/modules/database/index.js';
 import {
   buildNotificationPayload,
   createNotificationEvent,
@@ -37,7 +37,10 @@ function statePath(): string {
 }
 
 function antigravityRoot(): string {
-  return process.env.NEO3_DUET_PROJECT || path.join(os.homedir(), 'Antigravity Project');
+  if (process.env.NEO3_DUET_PROJECT) return process.env.NEO3_DUET_PROJECT;
+  const personal = path.join(os.homedir(), 'Antigravity Project');
+  if (fs.existsSync(personal)) return personal;
+  return process.env.WORKSPACES_ROOT || path.join(os.homedir(), 'workspace');
 }
 
 /** Активные админы: Дуэт есть только у владельца. */
@@ -165,6 +168,14 @@ function projects(): string[] {
     .sort((a: string, b: string) => a.localeCompare(b, 'ru'));
 }
 
+export function duetProvider(): 'claude' | 'codex' {
+  const explicit = process.env.NEO3_DUET_PROVIDER;
+  if (explicit === 'claude' || explicit === 'codex') return explicit;
+  const owner = duetOwnerId();
+  const preferred = owner ? providerPreferencesDb.getProviderPreferences(owner).defaultProvider : null;
+  return preferred === 'claude' ? 'claude' : 'codex';
+}
+
 async function runAgent(run: { projectPath: string; prompt: string; readOnly: boolean }) {
   const owner = duetOwnerId();
   if (!owner) throw new Error('Нет администратора — Дуэту не от чьего имени работать');
@@ -173,7 +184,7 @@ async function runAgent(run: { projectPath: string; prompt: string; readOnly: bo
     projectPath: run.projectPath,
     prompt: run.prompt,
     userId: owner,
-    provider: 'claude',
+    provider: duetProvider(),
     actor: 'duet',
     readOnly: run.readOnly,
   });
@@ -181,6 +192,7 @@ async function runAgent(run: { projectPath: string; prompt: string; readOnly: bo
 }
 
 async function usageBlocked(): Promise<string | null> {
+  if (duetProvider() !== 'claude') return null;
   const guard = await checkUsageGuard();
   if (!guard.blocked) return null;
   return `лимит подписки ${guard.pct === null ? '' : `${Math.round(guard.pct)}% `}— сброс в ${formatResetMoscow(guard.resetsAt)}`;
@@ -212,7 +224,11 @@ export const duetService = createDuetService({
   notify,
   closeTelegram,
   projects,
-  homeProject: antigravityRoot,
+  homeProject: () => {
+    const root = antigravityRoot();
+    const registered = projectsDb.getProjectPaths().map((row: { project_path: string }) => row.project_path).filter((dir: string) => fs.existsSync(dir));
+    return registered.includes(root) ? root : registered[0] || root;
+  },
 });
 
 const REFUSAL: Record<string, string> = {

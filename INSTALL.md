@@ -2,7 +2,7 @@
 
 Отдай этот файл своему Claude Code (или любому ИИ-агенту с доступом к серверу) и скажи: «сделай по инструкции». Ничего больше не нужно — ни паролей, ни ключей, ни ожидания, пока кто-то тебе что-то пришлёт.
 
-**Что это.** Веб-оболочка для Claude Code: чат в браузере и на телефоне, проекты, файлы, git, режимы работы, счётчик расхода лимитов. Под капотом — твой собственный Claude Code на твоей подписке. Форк открытого проекта [siteboon/claudecodeui](https://github.com/siteboon/claudecodeui), лицензия AGPL-3.0.
+**Что это.** Веб-оболочка для Claude Code, Codex CLI и Grok: чат в браузере и на телефоне, проекты, файлы, git, режимы работы, счётчик расхода лимитов. Под капотом — твои собственные CLI и аккаунты; вход Codex выполняется своим аккаунтом ChatGPT. Форк открытого проекта [siteboon/claudecodeui](https://github.com/siteboon/claudecodeui), лицензия AGPL-3.0.
 
 **Код:** https://github.com/dimasikk25155/cloudcli-fork , ветка `dima/fork-customizations`.
 
@@ -114,27 +114,38 @@ systemctl start cloudcli && sleep 3 && systemctl is-active cloudcli
 
 ## Шаг 3. Обновление
 
-**Вариант А — установка клоном (в `/home/cloudcli/cloudcli` есть `.git`).** Одна команда:
+Для существующего Neo3 на Linux VPS с systemd выполни одну команду:
 
 ```bash
-sudo bash /home/cloudcli/cloudcli/self-update.sh
+neo3_update="$(mktemp)" && curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 https://raw.githubusercontent.com/dimasikk25155/cloudcli-fork/dima/fork-customizations/scripts/upgrade-neo3.sh -o "$neo3_update" && sudo bash "$neo3_update"
 ```
 
-Тянет свежий код, пересобирает, перезапускает сервис и проверяет, что инстанс реально поднялся на новой версии. Данные (`~/.cloudcli`, `~/.claude`, `~/workspace`, `.env`) не трогает.
+Обновлятор определяет владельца и рабочую папку службы `cloudcli`, получает
+именно ветку Neo3, проверяет типы, тесты и сборку в отдельной папке. После
+успешной проверки сохраняет прежнюю версию целиком и резервную копию SQLite,
+переключает приложение и сверяет `/health` и имя нового фронтового бандла.
+При отказе проверки восстанавливает прежнюю версию и базу автоматически.
+Локальные изменения сохраняются вместе с прежней версией. Логины, проекты,
+плагины в домашней папке и `.env` принадлежат владельцу установки.
 
-**Вариант Б — установка из архива (`.git` нет).** Переведи коробку на клон один раз, дальше работает вариант А:
+Обновляются встроенный SDK Codex и пользовательский Codex CLI; навыки этого
+же пользователя из `~/.claude/skills` становятся доступны через `~/.agents/skills`.
+Существующие навыки не перезаписываются. Claude-хуки автоматически в хуки Codex
+не конвертируются. Личных ключей Димы в обновлении нет.
 
-```bash
-systemctl stop cloudcli
-mv /home/cloudcli/cloudcli /home/cloudcli/cloudcli-old
-su - cloudcli -c "git clone --branch dima/fork-customizations https://github.com/dimasikk25155/cloudcli-fork.git ~/cloudcli"
-cp /home/cloudcli/cloudcli-old/.env /home/cloudcli/cloudcli/.env
-su - cloudcli -c "cd ~/cloudcli && npm install && npm run build"
-systemctl start cloudcli && sleep 3 && systemctl is-active cloudcli
-# убедился, что всё работает — удали /home/cloudcli/cloudcli-old
-```
+Проверка без изменений: `sudo bash "$neo3_update" --check`.
+Для нестандартной службы: `sudo SERVICE=neo3 APP_DIR=/home/owner/app bash "$neo3_update"`.
+Нужны Node.js 22+, Git, Python 3 и 3 ГБ свободного места. Запуск через `sudo`
+нужен только для переключения службы; сборка идёт от её владельца.
 
-**После любого обновления обнови страницу в браузере жёстко** (Safari — ⌥⌘R, Chrome — Ctrl+Shift+R). Иначе увидишь старый интерфейс из кеша и решишь, что ничего не изменилось.
+После обновления перезагрузи страницу. Если Codex ещё не авторизован:
+Настройки → Агенты → Codex → вход своим аккаунтом ChatGPT.
+Дуэт использует Codex, либо Claude при таком выборе владельца; можно явно
+задать `NEO3_DUET_PROVIDER=codex` или `claude` в окружении службы.
+
+Крабик — отдельный агент Herdr. Установка клиента не выдаёт доступ к серверу
+Димы: настрой свой Herdr/SSH (`NEO3_KRABIK_MACHINE`, `NEO3_KRABIK_SSH`) и реестр
+своих сервисов (`NEO3_DUET_REGISTRY`).
 
 ---
 

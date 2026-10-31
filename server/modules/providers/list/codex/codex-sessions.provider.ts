@@ -8,6 +8,8 @@ import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMess
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
 import { readCodexContextBudget } from '@/shared/context-budget.js';
 
+import { codexSubagentHistory } from './codex-subagents.js';
+
 const PROVIDER = 'codex';
 
 type CodexHistoryResult =
@@ -614,10 +616,12 @@ export class CodexSessionsProvider implements IProviderSessions {
     const rawMessages = Array.isArray(result) ? result : (result.messages || []);
     const tokenUsage = Array.isArray(result) ? undefined : result.tokenUsage;
 
-    const normalized: NormalizedMessage[] = [];
+    let normalized: NormalizedMessage[] = [];
     for (const raw of rawMessages) {
       normalized.push(...this.normalizeHistoryEntry(raw, sessionId));
     }
+
+    normalized = codexSubagentHistory(normalized);
 
     const toolResultMap = new Map<string, NormalizedMessage>();
     for (const msg of normalized) {

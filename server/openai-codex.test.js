@@ -37,3 +37,31 @@ test('Codex launch and effort resolver receive the same effective model when omi
   ]);
   assert.deepEqual(effortModels, ['gpt-6-sol', 'gpt-6-sol', 'explicit-model']);
 });
+
+test('Codex tool progress updates one row per turn and never overwrites a previous turn', async (t) => {
+  t.mock.method(providerModelsService, 'getProviderModels', async () => ({ models: { DEFAULT: 'fixture', OPTIONS: [] } }));
+  t.mock.method(providerModelsService, 'resolveResumeModel', async () => 'fixture');
+  t.mock.method(providerModelsService, 'resolveResumeEffort', async () => undefined);
+  t.mock.method(Codex.prototype, 'startThread', () => ({
+    runStreamed: async () => ({ events: (async function* () {
+      yield { type: 'thread.started', thread_id: 'fixture-progress' };
+      yield { type: 'item.started', item: { id: 'item_0', type: 'command_execution', command: 'fixture', status: 'in_progress' } };
+      yield { type: 'item.completed', item: { id: 'item_0', type: 'command_execution', command: 'fixture', status: 'completed', exit_code: 0, aggregated_output: 'ok' } };
+      yield { type: 'turn.completed', usage: { input_tokens: 10, cached_input_tokens: 5, output_tokens: 2 } };
+    })() }),
+  }));
+  const ids = [];
+  for (let i = 0; i < 2; i++) {
+    const rows = [];
+    const metered = [];
+    await queryCodex('fixture', { meter: { addMessage: (message) => metered.push(message) } }, { send: (value) => rows.push(typeof value === 'string' ? JSON.parse(value) : value) });
+    const tools = rows.filter((row) => row.kind === 'tool_use');
+    assert.equal(tools.length, 2);
+    assert.equal(tools[0].id, tools[1].id);
+    assert.equal(tools[0].status, 'in_progress');
+    assert.equal(tools[1].status, 'completed');
+    assert.equal(metered[0].usage.input_tokens, 5);
+    ids.push(tools[0].id);
+  }
+  assert.notEqual(ids[0], ids[1]);
+});
