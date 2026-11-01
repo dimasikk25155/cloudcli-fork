@@ -12,6 +12,6 @@ for action in ensure transcript; do
   chmod 755 "/usr/local/bin/krabik-$action"
 done
 if [ ! -e /home/agents/krabik/AGENTS.md ]; then
-  install -o agents -g agents -m 644 "$source_dir/AGENTS.md" /home/agents/krabik/AGENTS.md
+  install -o agents -g agents -m 644 "$source_dir/AGENTS.template.md" /home/agents/krabik/AGENTS.md
 fi
 printf '%s\n' 'Installed; provider and running session unchanged.'
