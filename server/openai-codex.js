@@ -25,6 +25,7 @@ import { CodexSubagentTracker } from './modules/providers/list/codex/codex-subag
 import { codexMeterMessage } from './modules/providers/list/codex/codex-usage.js';
 import { readCodexContextBudget } from './shared/context-budget.js';
 import { codexRunPolicy, mapPermissionModeToCodexOptions } from './shared/codex-work-mode.js';
+import { shouldYieldForUser } from './shared/turn-ending.js';
 import { buildCodexInputItems, normalizeImageDescriptors } from './shared/image-attachments.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
@@ -287,6 +288,7 @@ export async function queryCodex(command, options = {}, ws) {
   let capturedSessionId = sessionId;
   let sessionCreatedSent = false;
   let terminalFailure = null;
+  let waitingForUser = false;
   const abortController = new AbortController();
   const subagents = new CodexSubagentTracker();
   const turnEventPrefix = randomUUID();
@@ -378,11 +380,27 @@ export async function queryCodex(command, options = {}, ws) {
 
       const transformed = transformCodexEvent(event);
       if (event.item?.id) transformed.uuid = `${turnEventPrefix}:${event.item.id}`;
+      // Search/todo items have no native status; preserve their SDK lifecycle.
+      if (event.item && ['item.started', 'item.updated', 'item.completed'].includes(event.type)) {
+        transformed.status = event.item.status || (event.type === 'item.completed' ? 'completed' : 'in_progress');
+      }
 
       // Normalize the transformed event into NormalizedMessage(s) via adapter
       const normalizedMsgs = sessionsService.normalizeMessage('codex', transformed, capturedSessionId || sessionId || null);
       for (const msg of normalizedMsgs) {
+        // Only the executor emits completion, after CLI cleanup. A duplicate
+        // adapter completion can flush the next user turn while this one lives.
+        if (msg.kind === 'complete') continue;
         sendMessage(ws, msg);
+        if (msg.kind === 'text' && msg.role === 'assistant' && shouldYieldForUser(msg.content || '')) {
+          waitingForUser = true;
+        }
+      }
+      if (waitingForUser) {
+        // exec has no answer channel. Close it at the question boundary so the
+        // composer can send the user's answer immediately in the same session.
+        abortController.abort();
+        break;
       }
 
       if (event.type === 'turn.failed' && !terminalFailure) {
@@ -431,6 +449,7 @@ export async function queryCodex(command, options = {}, ws) {
   } catch (error) {
     const session = capturedSessionId ? activeCodexSessions.get(capturedSessionId) : null;
     const wasAborted =
+      (waitingForUser && abortController.signal.aborted) ||
       session?.status === 'aborted' ||
       error?.name === 'AbortError' ||
       String(error?.message || '').toLowerCase().includes('aborted');
@@ -468,6 +487,17 @@ export async function queryCodex(command, options = {}, ws) {
       if (session) {
         session.status = session.status === 'aborted' ? 'aborted' : 'completed';
       }
+    }
+    if (waitingForUser) {
+      sendMessage(ws, createCompleteMessage({
+        provider: 'codex', sessionId: capturedSessionId || sessionId || null,
+        actualSessionId: capturedSessionId || sessionId || null, exitCode: 0,
+      }));
+      notifyRunStopped({
+        userId: ws?.userId || null, provider: 'codex',
+        sessionId: capturedSessionId || sessionId || null,
+        sessionName: sessionSummary, stopReason: 'question',
+      });
     }
   }
 }

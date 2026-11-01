@@ -20,13 +20,21 @@ export function isStepOverdue(step: SessionStep | null | undefined, now: number)
  */
 export class OpenSteps {
   private readonly open = new Map<string, SessionStep>();
+  private readonly finished = new Set<string>();
+
+  update(toolId: string, name: string, status: unknown, now: number): SessionStep | null {
+    return ['completed', 'failed', 'cancelled', 'canceled', 'succeeded'].includes(String(status))
+      ? this.finish(toolId)
+      : this.start(toolId, name, now);
+  }
 
   start(toolId: string, name: string, now: number): SessionStep | null {
-    if (!this.open.has(toolId)) this.open.set(toolId, { name, startedAt: now });
+    if (!this.finished.has(toolId) && !this.open.has(toolId)) this.open.set(toolId, { name, startedAt: now });
     return this.current();
   }
 
   finish(toolId: string): SessionStep | null {
+    this.finished.add(toolId);
     this.open.delete(toolId);
     return this.current();
   }

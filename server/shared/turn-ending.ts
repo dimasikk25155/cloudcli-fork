@@ -70,9 +70,16 @@ export function isTimestampLine(paragraph: string): boolean {
 
 function lastParagraph(text: string): string {
   const paragraphs = text
+    .replace(/<oai-mem-citation>[\s\S]*?(?:<\/oai-mem-citation>|$)/gi, '')
     .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0 && !isTimestampLine(paragraph));
+    .map((paragraph) => paragraph.split('\n').filter((line) => !isTimestampLine(line)).join('\n').trim())
+    .filter((paragraph) => paragraph.length > 0 && !/^💡\s*Что можно улучшить дальше:/u.test(paragraph));
+  // A native question can put its answer choices in the following paragraph.
+  const last = paragraphs.at(-1) ?? '';
+  const previous = paragraphs.at(-2) ?? '';
+  if (last.split('\n').every((line) => /^\s*(?:[-*•]|\d+[.)])\s+/.test(line)) && QUESTION_MARK_PATTERN.test(previous)) {
+    return `${previous}\n${last}`;
+  }
   return paragraphs.length > 0 ? paragraphs[paragraphs.length - 1] : '';
 }
 
@@ -140,4 +147,16 @@ export function classifyTurnEnding(text: string): TurnEnding {
   }
 
   return { kind: 'none', excerpt: '' };
+}
+
+/** Stricter than attention badges: never interrupt a report answering its own question. */
+export function shouldYieldForUser(text: string): boolean {
+  const paragraph = lastParagraph(stripCodeBlocks(text));
+  const kind = classifyTurnEnding(text).kind;
+  if (kind === 'none') return false;
+  if (kind === 'manual_ask') return splitSentences(paragraph).some((sentence) =>
+    /^(?:пожалуйста[,\s]+)?(?:подтверди|скажи|напиши|пришли|выбери|разреши)(?:те)?(?!\p{L})/iu.test(sentence)
+    || /^please\s+(?:confirm|choose|send|select)\b/i.test(sentence));
+  const withoutChoices = paragraph.replace(/\n\s*(?:[-*•]|\d+[.)])\s+[^\n]+/g, '').trim();
+  return /\?[\s"'»)*_]*$/u.test(withoutChoices);
 }

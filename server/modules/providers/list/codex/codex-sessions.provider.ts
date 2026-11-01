@@ -450,12 +450,28 @@ export class CodexSessionsProvider implements IProviderSessions {
    * Normalizes either a Codex history entry or a transformed live SDK event.
    */
   normalizeMessage(rawMessage: unknown, sessionId: string | null): NormalizedMessage[] {
+    const rows = this.normalizeMessageRows(rawMessage, sessionId);
+    // Live SDK completion updates the tool row; consumers also need a result
+    // event to close timers and transition back to thinking.
+    return rows.flatMap((row) => {
+      if (row.kind !== 'tool_use' || !['completed', 'failed', 'cancelled'].includes(String(row.status))) return [row];
+      const output = row.output ?? row.result ?? row.error ?? '';
+      return [row, createNormalizedMessage({
+        id: `${row.id}:result`, sessionId, provider: PROVIDER, timestamp: row.timestamp,
+        kind: 'tool_result', toolId: row.toolId,
+        content: typeof output === 'string' ? output : JSON.stringify(output),
+        isError: row.status === 'failed' || Boolean(row.error) || (typeof row.exitCode === 'number' && row.exitCode !== 0),
+      })];
+    });
+  }
+
+  private normalizeMessageRows(rawMessage: unknown, sessionId: string | null): NormalizedMessage[] {
     const raw = readObjectRecord(rawMessage);
     if (!raw) {
       return [];
     }
 
-    if (raw.message?.role) {
+    if (raw.type !== 'item' && raw.message?.role) {
       return this.normalizeHistoryEntry(raw, sessionId);
     }
 
@@ -534,6 +550,7 @@ export class CodexSessionsProvider implements IProviderSessions {
             toolName: 'WebSearch',
             toolInput: { query: raw.query },
             toolId: baseId,
+            status: raw.status,
           })];
         case 'todo_list':
           return [createNormalizedMessage({
@@ -545,6 +562,7 @@ export class CodexSessionsProvider implements IProviderSessions {
             toolName: 'TodoList',
             toolInput: { items: raw.items },
             toolId: baseId,
+            status: raw.status,
           })];
         case 'error':
           return [createNormalizedMessage({
@@ -565,6 +583,7 @@ export class CodexSessionsProvider implements IProviderSessions {
             toolName: raw.itemType || 'Unknown',
             toolInput: raw.item || raw,
             toolId: baseId,
+            status: raw.status,
           })];
       }
     }

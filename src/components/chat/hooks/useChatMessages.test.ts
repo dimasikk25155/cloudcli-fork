@@ -10,6 +10,14 @@ const row = (content: string, kind: 'text' | 'stream_delta' = 'text', role: 'use
   id: 'test', sessionId: 'test', provider: 'codex', timestamp: '2026-09-14T07:20:52.531Z', kind, role, content,
 });
 
+test('missing signatures continue the visible assistant reply count after signed history', () => {
+  const converted = normalizedToChatMessages([
+    row('Готово.\n🕐 2026-11-01 23:30 МСК · ✉️ #9'),
+    row('Продолжай', 'text', 'user'), row('Проверяю.'), row('Готово.\n🕐 2026-11-01 23:30 МСК · ✉️ #10'),
+  ]);
+  assert.deepEqual(converted.filter(message => message.type === 'assistant').map(message => message.replyNumber), [9, 10, 11]);
+});
+
 test('assistant history and stream hide the entire memory citation, including every unfinished prefix', () => {
   assert.equal(normalizedToChatMessages([row('Ответ.\n' + citation)])[0]?.content, 'Ответ.');
   for (let length = 5; length <= citation.length; length++) {

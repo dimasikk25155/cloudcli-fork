@@ -154,6 +154,7 @@ function toChildTool(tool: any): SubagentChildTool {
  */
 export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMessage[] {
   const converted: ChatMessage[] = [];
+  let assistantReplyNumber = 0;
 
   // First pass: collect tool results for attachment
   const toolResultMap = new Map<string, NormalizedMessage>();
@@ -250,10 +251,13 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           text = formatUsageLimitText(text);
           text = stripMemoryCitations(text);
           if (!text.trim()) continue;
+          const signedNumber = /🕐[^\n]*✉️?\s*#(\d+)/u.exec(text)?.[1];
+          assistantReplyNumber = Math.max(assistantReplyNumber + 1, signedNumber ? Number(signedNumber) : 0);
           converted.push({
             type: 'assistant',
             content: text,
             timestamp: msg.timestamp,
+            replyNumber: assistantReplyNumber,
             ...sharedMetadata,
           });
         }

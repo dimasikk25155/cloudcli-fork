@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { classifyTurnEnding, finalParagraph, isTimestampLine } from '@/shared/turn-ending.js';
+import { classifyTurnEnding, finalParagraph, isTimestampLine, shouldYieldForUser } from '@/shared/turn-ending.js';
+
+test('execution yields for user questions, not diagnostic questions answered in the same report', () => {
+  assert.equal(shouldYieldForUser('Почему завис таймер? Проверю обработчик завершения.'), false);
+  assert.equal(shouldYieldForUser('Check completed successfully.'), false);
+  assert.equal(shouldYieldForUser('Какой цвет выбрать?\n\n- Синий\n- Зелёный'), true);
+  assert.equal(shouldYieldForUser('Подтверди удаление.'), true);
+});
 
 // Endings taken from real Neo3 sessions (Claude/Grok/Codex replies to Dima):
 // the agent stops and asks for a manual action on the user's side.
@@ -104,4 +111,11 @@ test('«скажи» and «напиши» ask the user for an answer', () => {
   assert.equal(classifyTurnEnding('Обходной путь описал.\n\nЧтобы выкатить исправление, скажите «выкатывай».').kind, 'manual_ask');
   assert.equal(classifyTurnEnding('Когда лимит восстановится, напиши «начинай перепроверку».').kind, 'manual_ask');
   assert.equal(classifyTurnEnding('Если её нет, напиши «перезапусти Neo3».').kind, 'none', 'conditional offer');
+});
+
+test('question choices and mandatory suggestion/signature metadata do not hide the question', () => {
+  const question = 'Какой цвет выбрать?\n\n- Синий\n- Зелёный';
+  const footer = '\n\n💡 Что можно улучшить дальше: проверить выбранный цвет.\n🕐 2026-11-01 23:15 МСК · ✉️ #3\n\n<oai-mem-citation>metadata</oai-mem-citation>';
+  assert.equal(classifyTurnEnding(question + footer).kind, 'question');
+  assert.equal(classifyTurnEnding('Готово. Все проверки прошли.' + footer).kind, 'none');
 });

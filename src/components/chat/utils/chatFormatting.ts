@@ -125,3 +125,33 @@ export function stripMemoryCitations(text: string): string {
     },
   ).trimEnd();
 }
+
+/** Keep the assistant's signature last; literal examples in code are untouched. */
+export function normalizeAssistantSignature(text: string, timestamp?: string | number | Date, replyNumber?: number): string {
+  let signature = '';
+  const body = text.replace(
+    /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)|🕐\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+МСК\s*·\s*✉️?\s*#\d+/gu,
+    (match, code: string | undefined) => {
+      if (code) return code;
+      signature = match;
+      return '';
+    },
+  );
+  const date = timestamp === undefined ? null : new Date(timestamp);
+  if (!signature && date && Number.isFinite(date.getTime()) && Number.isInteger(replyNumber) && replyNumber! > 0) {
+    signature = `🕐 2000-01-01 00:00 МСК · ✉️ #${replyNumber}`;
+  }
+  if (signature && date && Number.isFinite(date.getTime())) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date);
+    const part = (type: string) => parts.find((entry) => entry.type === type)?.value;
+    signature = signature.replace(/\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/,
+      `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`);
+  }
+  if (signature && Number.isInteger(replyNumber) && replyNumber! > 0) {
+    signature = signature.replace(/#\d+$/, `#${replyNumber}`);
+  }
+  return signature ? `${body.trim()}\n\n${signature}` : text;
+}

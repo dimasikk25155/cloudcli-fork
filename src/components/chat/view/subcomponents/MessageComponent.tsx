@@ -8,7 +8,7 @@ import type {
   PermissionGrantResult,
   Provider,
 } from '../../types/types';
-import { formatUsageLimitText } from '../../utils/chatFormatting';
+import { formatUsageLimitText, normalizeAssistantSignature } from '../../utils/chatFormatting';
 import { visibleUserText } from '../../utils/catalogBrief';
 import type { Project } from '../../../../types/app';
 import { ToolRenderer, shouldHideToolResult } from '../../tools';
@@ -57,8 +57,12 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
   const messageRef = useRef<HTMLDivElement | null>(null);
   const userCopyContent = visibleUserText(String(message.content || ''));
   const formattedMessageContent = useMemo(
-    () => formatUsageLimitText(String(message.content || '')),
-    [message.content]
+    () => {
+      const content = formatUsageLimitText(String(message.content || ''));
+      return message.type === 'assistant' && !message.isToolUse && !message.isThinking
+        ? normalizeAssistantSignature(content, message.timestamp, typeof message.replyNumber === 'number' ? message.replyNumber : undefined) : content;
+    },
+    [message.content, message.type, message.isToolUse, message.isThinking, message.timestamp, message.replyNumber]
   );
   const assistantCopyContent = message.isToolUse
     ? String(message.displayText || message.content || '')

@@ -4,7 +4,7 @@ import test from 'node:test';
 import { Codex } from '@openai/codex-sdk';
 
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
-import { queryCodex, buildCodexClientOptions } from './openai-codex.js';
+import { queryCodex, buildCodexClientOptions, isCodexSessionActive } from './openai-codex.js';
 
 test('Codex receives the same Neo3 hook marker as Claude and Grok', () => {
   assert.equal(buildCodexClientOptions({}, {}).env.NEO3_SESSION, '1');
@@ -60,6 +60,7 @@ test('Codex tool progress updates one row per turn and never overwrites a previo
     const metered = [];
     await queryCodex('fixture', { meter: { addMessage: (message) => metered.push(message) } }, { send: (value) => rows.push(typeof value === 'string' ? JSON.parse(value) : value) });
     const tools = rows.filter((row) => row.kind === 'tool_use');
+    assert.equal(rows.filter((row) => row.kind === 'complete').length, 1);
     assert.equal(tools.length, 2);
     assert.equal(tools[0].id, tools[1].id);
     assert.equal(tools[0].status, 'in_progress');
@@ -91,4 +92,32 @@ test('SDK developer context and launch options agree on explicit High and resolv
   assert.match(instructions[0], /model="gpt-6\.1-sol"; reasoning_effort="high"/);
   assert.match(instructions[1], /reasoning_effort="low"/);
   assert.equal(typeof buildCodexClientOptions({}, { instructions: instructions[0] }).config.developer_instructions, 'string');
+});
+
+test('a required question ends the run before further tools and releases the next answer', async (t) => {
+  t.mock.method(providerModelsService, 'getProviderModels', async () => ({ models: { DEFAULT: 'fixture', OPTIONS: [] } }));
+  t.mock.method(providerModelsService, 'resolveResumeModel', async () => 'fixture');
+  t.mock.method(providerModelsService, 'resolveResumeEffort', async () => undefined);
+  let continued = false;
+  let signal;
+  t.mock.method(Codex.prototype, 'startThread', () => ({
+    runStreamed: async (_input, opts) => {
+      signal = opts.signal;
+      return { events: (async function* () {
+        yield { type: 'thread.started', thread_id: 'fixture-question' };
+        yield { type: 'item.completed', item: { id: 'question', type: 'agent_message', text:
+          'Какой цвет выбрать?\n\n- Синий\n- Зелёный\n\n💡 Что можно улучшить дальше: проверить контраст.\n🕐 2026-11-01 23:15 МСК · ✉️ #1' } };
+        continued = true;
+        yield { type: 'item.started', item: { id: 'unwanted', type: 'command_execution', command: 'sleep 60', status: 'in_progress' } };
+      })() };
+    },
+  }));
+  const rows = [];
+  await queryCodex('fixture', {}, { send: row => rows.push(typeof row === 'string' ? JSON.parse(row) : row) });
+  assert.equal(continued, false, 'the provider must not continue after a user decision');
+  assert.equal(signal.aborted, true);
+  assert.equal(isCodexSessionActive('fixture-question'), false);
+  assert.equal(rows.filter(row => row.kind === 'complete').length, 1);
+  assert.equal(rows.some(row => row.kind === 'error'), false);
+  assert.equal(rows.some(row => row.kind === 'text' && row.content.includes('Какой цвет')), true);
 });

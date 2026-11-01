@@ -205,10 +205,10 @@ export function useChatRealtimeHandlers({
         // memory-suggestions hub. They carry a sessionId but are not chat rows:
         // stored as a message they broke the history merge (no id), so a
         // session opened from «Ждут тебя» rendered empty.
-        case 'attention_changed':
-        case 'memory_suggestions_changed':
         // «Авто-перенос» status — owned by useAutoRelay; settings saved on
         // another device (`ui_preferences_changed`) — owned by useUiPreferencesSync.
+        case 'attention_changed':
+        case 'memory_suggestions_changed':
         case 'auto_relay':
         case 'ui_preferences_changed':
           return;
@@ -418,11 +418,11 @@ export function useChatRealtimeHandlers({
             // inside its Agent step and do not restart the timer.
             const isTopLevel = !msg.parentToolUseId;
             const step = isTopLevel && typeof msg.toolId === 'string' && msg.toolId
-              ? stepsFor(sid).start(msg.toolId, toolName ?? 'Tool', Date.now())
+              ? stepsFor(sid).update(msg.toolId, toolName ?? 'Tool', msg.status, Date.now())
               : undefined;
             onSessionProcessing?.(sid, {
-              activityKind: 'tools',
-              toolName,
+              activityKind: step === null ? 'thinking' : 'tools',
+              toolName: step === null ? null : step?.name ?? toolName,
               ...(step !== undefined ? { step } : {}),
             });
           }
@@ -434,7 +434,9 @@ export function useChatRealtimeHandlers({
             const before = steps.current();
             const step = steps.finish(msg.toolId);
             if (step !== before) {
-              onSessionProcessing?.(sid, { step });
+              onSessionProcessing?.(sid, {
+                step, activityKind: step ? 'tools' : 'thinking', toolName: step?.name ?? null,
+              });
             }
           }
           break;
