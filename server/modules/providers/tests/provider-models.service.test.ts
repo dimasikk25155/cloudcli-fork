@@ -423,6 +423,10 @@ test('resume resolves default sentinel and invalid levels using selected model m
   assert.equal(await service.resolveResumeEffort('codex', undefined, 'default', 'sol'), 'low');
   assert.equal(await service.resolveResumeEffort('codex', undefined, 'ultra', 'astra'), 'medium');
   assert.equal(await service.resolveResumeEffort('codex', undefined, 'high', 'sol'), 'high');
+  assert.equal(await service.resolveResumeEffort('codex', undefined, 'low', 'new-sol-version'), 'low');
+  assert.equal(await service.resolveResumeEffort('codex', undefined, 'high', 'new-sol-version'), 'high');
+  assert.equal(await service.resolveResumeEffort('codex', undefined, 'invented', 'new-sol-version'), undefined);
+  assert.equal(await service.resolveResumeEffort('claude', undefined, 'low', 'unknown'), undefined);
 });
 
 

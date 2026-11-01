@@ -24,7 +24,7 @@ import { Codex } from '@openai/codex-sdk';
 import { CodexSubagentTracker } from './modules/providers/list/codex/codex-subagents.js';
 import { codexMeterMessage } from './modules/providers/list/codex/codex-usage.js';
 import { readCodexContextBudget } from './shared/context-budget.js';
-import { codexRunPolicy, mapPermissionModeToCodexOptions } from './shared/codex-work-mode.js';
+import { CODEX_SDK_EFFORTS, codexRunPolicy, mapPermissionModeToCodexOptions } from './shared/codex-work-mode.js';
 import { shouldYieldForUser } from './shared/turn-ending.js';
 import { buildCodexInputItems, normalizeImageDescriptors } from './shared/image-attachments.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
@@ -276,7 +276,8 @@ export async function queryCodex(command, options = {}, ws) {
     : null;
   const sandboxMode = jail ? 'danger-full-access' : codexModes.sandboxMode;
   const selectedModel = catalog.OPTIONS.find((option) => option.value === resolvedModel) || null;
-  const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value) || [];
+  const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value)
+    ?? (!selectedModel ? CODEX_SDK_EFFORTS : []);
   const resolvedEffort = typeof resolvedRequestedEffort === 'string'
     && resolvedRequestedEffort !== 'default'
     && allowedEfforts.includes(resolvedRequestedEffort)

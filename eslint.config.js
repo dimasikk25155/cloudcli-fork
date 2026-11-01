@@ -165,6 +165,8 @@ export default tseslint.config(
             "server/shared/run-outcomes.ts",
             "server/shared/claude-usage.ts",
             "server/shared/context-budget.ts", // pure provider occupancy parsers shared by live and restored sessions
+            "server/shared/codex-work-mode.ts", // Codex launch policy and SDK effort enum
+            "server/shared/work-mode.ts", // shared per-turn execution instructions
             "server/shared/token-pricing.ts", // pure price/context-window table; the Grok sessions provider reads the 500K window from it
             "server/shared/moscow-day.ts", // single definition of the Moscow day, shared by usage history and the audit feed
             "server/shared/secret-scrub.ts", // pure credential redaction; the audit log must not become a second key store

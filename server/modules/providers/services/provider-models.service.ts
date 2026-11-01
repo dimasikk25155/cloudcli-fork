@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
+import { CODEX_SDK_EFFORTS } from '@/shared/codex-work-mode.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type {
   LLMProvider,
@@ -329,7 +330,8 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     const catalog = (await getProviderModels(provider)).models;
     const model = changed?.model || requestedModel || (sessionId ? (await getCurrentActiveModel(provider, sessionId)).model : null) || catalog.DEFAULT;
     const option = catalog.OPTIONS.find((candidate) => candidate.value === model);
-    const allowed = option?.effort?.values.map((value) => value.value) || [];
+    const allowed = option?.effort?.values.map((value) => value.value)
+      ?? (provider === 'codex' && !option ? CODEX_SDK_EFFORTS : []);
     const explicitRequest = typeof requestedEffort === 'string' ? requestedEffort.trim() : '';
     const candidate = explicitRequest || changed?.effort?.trim();
     if (candidate && candidate !== 'default' && allowed.includes(candidate)) return candidate;

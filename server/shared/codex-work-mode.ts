@@ -1,5 +1,9 @@
 import { workModeInstruction } from './work-mode.js';
 
+// SDK 0.166 exec enum. A stale catalog must not silently drop an explicit
+// effort for a newer/resumed model; the CLI validates that model's support.
+export const CODEX_SDK_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'persistent'];
+
 /** Per-turn instructions stay out of the user's prompt and persisted messages. */
 export function codexRunPolicy(workMode: unknown, permissionMode: unknown, runtime?: { model: string; effort?: string }) {
   const instructions = [

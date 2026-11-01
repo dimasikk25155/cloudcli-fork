@@ -121,3 +121,16 @@ test('a required question ends the run before further tools and releases the nex
   assert.equal(rows.some(row => row.kind === 'error'), false);
   assert.equal(rows.some(row => row.kind === 'text' && row.content.includes('Какой цвет')), true);
 });
+
+test('a resumed model missing from the catalog retains its SDK effort', async (t) => {
+  const launches = [];
+  t.mock.method(providerModelsService, 'getProviderModels', async () => ({ models: { DEFAULT: 'old-sol', OPTIONS: [] } }));
+  t.mock.method(providerModelsService, 'resolveResumeModel', async () => 'new-sol');
+  t.mock.method(providerModelsService, 'resolveResumeEffort', async (_p, _s, effort) => effort);
+  t.mock.method(Codex.prototype, 'startThread', (options) => {
+    launches.push(options);
+    return { runStreamed: async () => { const error = new Error('test boundary'); error.name = 'AbortError'; throw error; } };
+  });
+  for (const effort of ['low', 'high', 'low']) await queryCodex('fixture', { effort }, { send() {} });
+  assert.deepEqual(launches.map(options => options.modelReasoningEffort), ['low', 'high', 'low']);
+});
