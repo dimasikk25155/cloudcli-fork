@@ -24,7 +24,9 @@ type ParsedSession = {
  * Session indexer for Codex transcript artifacts.
  */
 export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
-  constructor(private readonly titleGenerator: TitleGenerator = generateTitle) {}
+  constructor(private readonly titleGenerator: TitleGenerator = generateTitle, private readonly now = Date.now) {}
+
+  private readonly titleChecks = new Map<string, { at: number; name: string }>();
 
   private readonly provider = 'codex' as const;
   private readonly codexHome = path.join(os.homedir(), '.codex');
@@ -131,6 +133,10 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
     const existingSession = sessionsDb.getSessionByProviderSessionId(parsed.sessionId)
       ?? sessionsDb.getSessionById(parsed.sessionId);
     const existingName = existingSession?.custom_name;
+    const checked = this.titleChecks.get(parsed.sessionId);
+    if (existingName && checked?.name === existingName && this.now() - checked.at < 30_000) {
+      return { ...parsed, sessionName: existingName };
+    }
     const key = `codex-auto-title:${parsed.sessionId}`;
     let state: TitleState | null = null;
     try { state = JSON.parse(appConfigDb.get(key) || 'null'); } catch { /* No previous title owner. */ }
@@ -140,7 +146,10 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
     const latest = existingSession ? sessionsDb.getSessionById(existingSession.session_id)?.custom_name : existingName;
     if (latest !== existingName) return { ...parsed, sessionName: latest || undefined };
     if (next) appConfigDb.set(key, JSON.stringify(next));
-    return { ...parsed, sessionName: normalizeSessionName(next?.title || existingName || nameMap.get(parsed.sessionId), 'Untitled Codex Session') };
+    const sessionName = normalizeSessionName(next?.title || existingName || nameMap.get(parsed.sessionId), 'Untitled Codex Session');
+    if (this.titleChecks.size >= 1000) this.titleChecks.delete(this.titleChecks.keys().next().value!);
+    this.titleChecks.set(parsed.sessionId, { at: this.now(), name: sessionName });
+    return { ...parsed, sessionName };
   }
 
   /**
