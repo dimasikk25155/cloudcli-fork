@@ -103,6 +103,7 @@ const defaultExec: Exec = async (file, args) => {
 // ------------------------------------------------------------ чистые разборы
 
 function asStatus(value: unknown): KrabikStatus {
+  if (value === 'done') return 'idle';
   return value === 'idle' || value === 'working' || value === 'blocked' ? value : 'unknown';
 }
 

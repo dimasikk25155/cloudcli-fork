@@ -45,8 +45,9 @@ test('Codex questions and patch steps stay visible, raw patch content stays hidd
 });
 
 test('Herdr exposes the actual Codex engine to the Krabik panel', () => {
-  const state = parseAgentGet(JSON.stringify({ result: { agent: { agent: 'codex', agent_status: 'idle', completion_seq: 2 } } }));
+  const state = parseAgentGet(JSON.stringify({ result: { agent: { agent: 'codex', agent_status: 'done', completion_seq: 2 } } }));
   assert.equal((state as { provider?: string }).provider, 'codex');
+  assert.equal(state.status, 'idle');
 });
 
 test('Codex prompt delivery does not inherit the Claude-specific extra Enter workaround', async () => {

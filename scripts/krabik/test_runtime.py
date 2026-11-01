@@ -56,6 +56,12 @@ class KrabikRuntimeTest(unittest.TestCase):
         self.assertEqual([call.args[0] for call in self.runtime.start.call_args_list], ['codex', 'claude'])
         self.assertFalse(self.runtime.CONFIG.exists())
 
+    def test_unseen_completion_is_a_settled_agent_not_running_work(self):
+        self.runtime.current = Mock(side_effect=[{'agent': 'claude', 'agent_status': 'done', 'pane_id': 'w1:p1'}, None])
+        self.runtime.herdr = Mock(return_value={})
+        self.runtime.start = Mock()
+        self.assertEqual(self.runtime.switch('codex'), 'started')
+
     def test_transcript_is_bound_to_the_current_agent_and_its_project(self):
         root = self.runtime.HOME / '.codex/sessions'
         root.mkdir(parents=True)
@@ -69,6 +75,14 @@ class KrabikRuntimeTest(unittest.TestCase):
         self.assertIsNone(self.runtime.session_file('codex', other))
         with self.assertRaisesRegex(RuntimeError, 'некорректный'):
             self.runtime.session_file('codex', '../../auth.json')
+
+    def test_interactive_codex_does_not_escape_into_a_shared_background_server(self):
+        self.runtime.session_file = Mock(return_value=None)
+        self.runtime.herdr = Mock(return_value={'agent': {}})
+        self.runtime.start('codex', 'w1:p1')
+        args = self.runtime.herdr.call_args.args
+        self.assertIn('--no-daemon', args)
+        self.assertEqual(args[args.index('--') + 1], '--no-daemon')
 
 
 if __name__ == '__main__':

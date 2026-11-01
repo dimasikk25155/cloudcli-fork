@@ -97,7 +97,8 @@ def start(engine, pane=None):
         session_id = None
     # Keep the existing owner-approved administrative rights and project rules.
     if engine == 'codex':
-        args = (['resume', session_id] if session_id else []) + ['--cd', str(PROJECT), '--ask-for-approval', 'never', '--sandbox', 'danger-full-access']
+        # Herdr must own the interactive process and its proxy environment.
+        args = ['--no-daemon'] + (['resume', session_id] if session_id else []) + ['--cd', str(PROJECT), '--ask-for-approval', 'never', '--sandbox', 'danger-full-access']
     else:
         args = (['--resume', session_id] if session_id else []) + ['--model', 'opus[1m]', '--permission-mode', 'bypassPermissions']
     result = herdr('agent', 'start', 'krabik', '--kind', engine, '--pane', pane, '--timeout', '12000', '--', *args)
@@ -126,7 +127,7 @@ def switch(engine):
         return 'ok'
     pane = None
     if agent:
-        if agent.get('agent_status') != 'idle':
+        if agent.get('agent_status') not in ('idle', 'done'):
             raise RuntimeError('Крабик занят или ждёт ответа — переключение отложено')
         pane = agent.get('pane_id')
         herdr('agent', 'prompt', 'krabik', '/exit')
