@@ -13,6 +13,7 @@ export type KrabikMessage = {
 };
 
 export type KrabikStateResponse = {
+  provider?: 'claude' | 'codex';
   reachable: boolean;
   status: KrabikStatus;
   title: string;
@@ -115,8 +116,8 @@ export function shortWhen(at: string | number | null | undefined, now: Date = ne
 }
 
 /** Подпись под статусом: пока работает — что сейчас, иначе — последняя задача. */
-export function krabikSubtitle(state: Pick<KrabikStateResponse, 'reachable' | 'status' | 'title' | 'messages'> | null): string {
-  const fallback = 'Сервер VPS NL · работает, даже когда мак спит';
+export function krabikSubtitle(state: Pick<KrabikStateResponse, 'reachable' | 'status' | 'title' | 'messages' | 'provider'> | null): string {
+  const fallback = `${state?.provider === 'codex' ? 'Codex · ' : ''}Сервер VPS · работает, даже когда мак спит`;
   if (!state?.reachable) return fallback;
   if (state.status === 'blocked') return 'Задал вопрос — ответь в поле ниже';
   if (state.status === 'working') {

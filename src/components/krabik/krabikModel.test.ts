@@ -46,7 +46,8 @@ describe('окно Крабика', () => {
     ];
     assert.equal(krabikSubtitle({ reachable: true, status: 'working', title: 'Смотрю логи', messages }), 'Сейчас: Смотрю логи');
     assert.equal(krabikSubtitle({ reachable: true, status: 'idle', title: 'старый заголовок', messages }), 'Последняя задача: Проверь ботов');
-    assert.match(krabikSubtitle({ reachable: false, status: 'unknown', title: '', messages: [] }), /VPS NL/);
+    assert.match(krabikSubtitle({ reachable: false, status: 'unknown', title: '', messages: [] }), /Сервер VPS/);
+    assert.match(krabikSubtitle({ reachable: true, status: 'idle', title: '', messages: [], provider: 'codex' }), /^Codex ·/);
     const stepping = [...messages, { id: '3', role: 'tool' as const, text: 'читает a.log\nвыполняет: Сравниваю поля', at: null }];
     assert.equal(krabikSubtitle({ reachable: true, status: 'working', title: 'старый', messages: stepping }), 'Сейчас: выполняет: Сравниваю поля');
     assert.match(krabikSubtitle({ reachable: true, status: 'blocked', title: '', messages }), /ответь/);

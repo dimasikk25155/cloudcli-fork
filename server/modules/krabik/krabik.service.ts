@@ -21,6 +21,8 @@ import { AppError } from '@/shared/utils.js';
 
 import { stripAgentOnlyBlocks } from '../../../shared/agent-only-blocks.js';
 
+import { normalizeCodexEntry, type TranscriptEntry } from './krabik-codex.js';
+
 const run = promisify(execFile);
 
 const EXEC_OPTS = { timeout: 20_000, maxBuffer: 16 * 1024 * 1024 } as const;
@@ -34,6 +36,7 @@ const MESSAGES_LIMIT = 80;
 export type KrabikStatus = 'idle' | 'working' | 'blocked' | 'unknown';
 
 export type KrabikState = {
+  provider?: 'claude' | 'codex';
   /** Сервер ответил. false — нет связи (мак без сети, VPS лежит, Herdr не запущен). */
   reachable: boolean;
   status: KrabikStatus;
@@ -113,6 +116,7 @@ export function parseAgentGet(stdout: string): KrabikState {
       status: asStatus(agent.agent_status),
       title: String(agent.terminal_title_stripped || '').replace(/^[\s✳·*]+/, '').trim(),
       completionSeq: Number(agent.completion_seq) || 0,
+      ...(agent.agent === 'codex' ? { provider: 'codex' as const } : {}),
     };
   } catch {
     return { reachable: false, status: 'unknown', title: '', completionSeq: 0, error: 'Крабик не ответил' };
@@ -183,15 +187,6 @@ export function formatQuestion(input: unknown): string {
     .join('\n\n');
 }
 
-type JsonlEntry = {
-  type?: string;
-  uuid?: string;
-  timestamp?: string;
-  isMeta?: boolean;
-  isSidechain?: boolean;
-  message?: { role?: string; content?: unknown };
-};
-
 /**
  * Хвост JSONL-сессии Claude → пузыри. Подряд идущие вызовы инструментов
  * сворачиваются в одну строку «tool»; ответы инструментов, мета-строки и
@@ -200,6 +195,14 @@ type JsonlEntry = {
  */
 export function parseTranscript(jsonl: string, limit = MESSAGES_LIMIT): KrabikMessage[] {
   const out: KrabikMessage[] = [];
+  let source: TranscriptEntry['source'];
+  let previousSource: TranscriptEntry['source'];
+  const pushMessage = (message: KrabikMessage) => {
+    const previous = out.at(-1);
+    if (source && previousSource && source !== previousSource && previous?.role === message.role && previous.text === message.text) return;
+    out.push(message);
+    previousSource = source;
+  };
   const pushTool = (id: string, at: string | null, line: string) => {
     const last = out[out.length - 1];
     if (last && last.role === 'tool') {
@@ -210,15 +213,18 @@ export function parseTranscript(jsonl: string, limit = MESSAGES_LIMIT): KrabikMe
     out.push({ id, role: 'tool', text: line, at });
   };
 
+  let line = 0;
   for (const raw of jsonl.split('\n')) {
+    line += 1;
     if (!raw.trim()) continue;
-    let entry: JsonlEntry;
+    let entry: TranscriptEntry | null;
     try {
-      entry = JSON.parse(raw);
+      entry = normalizeCodexEntry(JSON.parse(raw), line);
     } catch {
       continue;
     }
-    if (entry.isMeta || entry.isSidechain) continue;
+    if (!entry || entry.isMeta || entry.isSidechain) continue;
+    source = entry.source;
     if (entry.type !== 'user' && entry.type !== 'assistant') continue;
     const id = String(entry.uuid || `${out.length}`);
     const at = entry.timestamp ? String(entry.timestamp) : null;
@@ -227,7 +233,7 @@ export function parseTranscript(jsonl: string, limit = MESSAGES_LIMIT): KrabikMe
     if (entry.type === 'user') {
       if (typeof content === 'string') {
         const text = cleanText(content);
-        if (text) out.push({ id, role: 'user', text, at });
+        if (text) pushMessage({ id, role: 'user', text, at });
         continue;
       }
       if (Array.isArray(content)) {
@@ -238,7 +244,7 @@ export function parseTranscript(jsonl: string, limit = MESSAGES_LIMIT): KrabikMe
             .map((part) => String(part.text || ''))
             .join('\n'),
         );
-        if (text) out.push({ id, role: 'user', text, at });
+        if (text) pushMessage({ id, role: 'user', text, at });
       }
       continue;
     }
@@ -251,11 +257,11 @@ export function parseTranscript(jsonl: string, limit = MESSAGES_LIMIT): KrabikMe
         const last = out[out.length - 1];
         // Claude пишет один ответ несколькими строками JSONL — склеиваем.
         if (last && last.role === 'assistant' && last.id === id) last.text = `${last.text}\n\n${text}`;
-        else out.push({ id, role: 'assistant', text, at });
+        else pushMessage({ id, role: 'assistant', text, at });
       } else if (part?.type === 'tool_use' && part.name === 'AskUserQuestion') {
         // Вопрос с вариантами — это реплика для Димы, а не «шаг»: показываем пузырём.
         const text = formatQuestion(part.input);
-        if (text) out.push({ id: `${id}:${index}`, role: 'assistant', text, at });
+        if (text) pushMessage({ id: `${id}:${index}`, role: 'assistant', text, at });
       } else if (part?.type === 'tool_use') {
         pushTool(`${id}:${index}`, at, describeTool(String(part.name || ''), part.input));
       }
@@ -291,7 +297,7 @@ export function parseReportList(stdout: string): KrabikReport[] {
 
 // Постоянные удалённые команды: в них не попадает ничего от пользователя.
 const REMOTE_TRANSCRIPT =
-  'f=$(ls -t ~/.claude/projects/-home-agents-krabik/*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -c 3000000 "$f"; true';
+  'if [ -x /usr/local/bin/krabik-transcript ]; then /usr/local/bin/krabik-transcript; else f=$(ls -t ~/.claude/projects/-home-agents-krabik/*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -c 3000000 "$f"; true; fi';
 const REMOTE_REPORTS =
   'cd ~/krabik/reports 2>/dev/null || exit 0; ls -t *.md 2>/dev/null | head -60 | while read -r f; do printf "%s\\t%s\\t%s\\t%s\\n" "$f" "$(stat -c %Y "$f")" "$(head -n 1 "$f" | tr "\\t" " ")" "$(grep -m1 "^# " "$f" | tr "\\t" " ")"; done';
 const REMOTE_ENSURE = '/usr/local/bin/krabik-ensure';
@@ -351,7 +357,7 @@ export function createKrabikService(deps: KrabikDeps = {}) {
     // остаётся в поле ввода неотправленным (23.10). Встал в «свободен» — жмём
     // Enter ещё раз: на пустом поле он ничего не делает. При вопросе не жмём —
     // Enter выбрал бы ответ за человека.
-    if (before.status !== 'working') return;
+    if (before.provider === 'codex' || before.status !== 'working') return;
     await sleep(PROMPT_SETTLE_MS);
     const after = await getState();
     if (after.reachable && after.status === 'idle') {

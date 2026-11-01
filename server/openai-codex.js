@@ -188,6 +188,8 @@ export function buildCodexClientOptions(options = {}, policy = {}) {
       env[name] = value;
     }
   }
+  // Shared hooks distinguish Neo3-owned runs from independent terminal sessions.
+  env.NEO3_SESSION = '1';
   if (!options.jail?.root) {
     return { config: { developer_instructions: policy.instructions }, env };
   }

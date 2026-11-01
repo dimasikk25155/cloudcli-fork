@@ -6,6 +6,10 @@ import { Codex } from '@openai/codex-sdk';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { queryCodex, buildCodexClientOptions } from './openai-codex.js';
 
+test('Codex receives the same Neo3 hook marker as Claude and Grok', () => {
+  assert.equal(buildCodexClientOptions({}, {}).env.NEO3_SESSION, '1');
+});
+
 test('Codex launch and effort resolver receive the same effective model when omitted', async (t) => {
   const launches = [];
   const effortModels = [];
