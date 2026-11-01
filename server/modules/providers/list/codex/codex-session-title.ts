@@ -14,22 +14,35 @@ export function shortTitle(text: string): string {
 
 export function titleFacts(content: string): TitleFacts {
   const facts: TitleFacts = { prompts: [], compactions: 0, legacy: [] };
+  const responsePrompts: string[] = [];
   for (const line of content.split('\n')) {
     try {
       const row = JSON.parse(line);
       if (row.type === 'compacted') facts.compactions++;
+      if (row.type === 'response_item' && row.payload?.role === 'user') {
+        const raw = typeof row.payload.content === 'string' ? row.payload.content
+          : (row.payload.content || []).map((part: { text?: string }) => part.text || '').join('\n');
+        const prompt = cleanPrompt(raw);
+        if (prompt) responsePrompts.push(prompt);
+      }
       if (row.type !== 'event_msg') continue;
       if (row.payload?.type === 'task_complete' && typeof row.payload.last_agent_message === 'string') {
         facts.legacy.push(row.payload.last_agent_message.replace(/\s+/g, ' ').trim().slice(0, 120));
       }
       if (row.payload?.type !== 'user_message' || typeof row.payload.message !== 'string') continue;
-      const raw = row.payload.message;
-      if (/^\s*(<hook_prompt|# AGENTS\.md instructions|<environment_context|<permissions instructions)/.test(raw)) continue;
-      const prompt = stripAgentOnlyBlocks(raw).replace(/<image\b[^>]*>[\s\S]*?<\/image>/g, '').trim();
-      if (prompt) facts.prompts.push(prompt.slice(0, 2000));
+      const prompt = cleanPrompt(row.payload.message);
+      if (prompt) facts.prompts.push(prompt);
     } catch { /* A partially written last line is normal during streaming. */ }
   }
+  if (!facts.prompts.length) facts.prompts = responsePrompts;
   return facts;
+}
+
+function cleanPrompt(raw: string): string {
+  if (/^\s*(<hook_prompt|# AGENTS\.md instructions|<environment_context|<permissions instructions)/.test(raw)) return '';
+  return stripAgentOnlyBlocks(raw)
+    .replace(/<(image|images_input|environment_context)\b[^>]*>[\s\S]*?<\/\1>/g, '')
+    .trim().slice(0, 2000);
 }
 
 let generating = false;

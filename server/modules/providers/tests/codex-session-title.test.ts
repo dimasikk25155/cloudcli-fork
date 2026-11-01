@@ -29,3 +29,14 @@ test('model outage retains a useful short user title', async () => {
   const result = await resolveTitle({ prompts: ['Почини оплату картой'], compactions: 0, legacy: [] }, null, null, async () => null);
   assert.equal(result?.title, 'Почини оплату картой');
 });
+
+test('current SDK response_item user blocks work without user_message events', () => {
+  const row = (text: string) => JSON.stringify({ type: 'response_item', payload: { role: 'user', content: [{ type: 'input_text', text }] } });
+  const facts = titleFacts([
+    row('# AGENTS.md instructions for project\nRules'),
+    row('<image name="x">image</image>Почини названия<screenshot_context>caption</screenshot_context><images_input>attachment metadata</images_input>'),
+    row('<hook_prompt>write memory</hook_prompt>'),
+    row('<environment_context>time</environment_context>'),
+  ].join('\n'));
+  assert.deepEqual(facts.prompts, ['Почини названия']);
+});
