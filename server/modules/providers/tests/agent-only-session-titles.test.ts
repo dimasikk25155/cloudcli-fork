@@ -57,7 +57,7 @@ async function codexTitleFor(home: string, codexId: string, firstMessage: string
   const appId = `app-${codexId}`;
   sessionsDb.createAppSession(appId, 'codex', workspace);
   sessionsDb.assignProviderSessionId(appId, codexId);
-  await new CodexSessionSynchronizer().synchronize();
+  await new CodexSessionSynchronizer(async () => null).synchronize();
   return sessionsDb.getSessionById(appId)?.custom_name ?? undefined;
 }
 

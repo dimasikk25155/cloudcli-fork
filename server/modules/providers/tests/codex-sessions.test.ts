@@ -77,7 +77,7 @@ test('Codex synchronizer titles app-created sessions from the first user message
       sessionsDb.createAppSession('app-1', 'codex', workspacePath);
       sessionsDb.assignProviderSessionId('app-1', 'codex-app-1');
 
-      const synchronizer = new CodexSessionSynchronizer();
+      const synchronizer = new CodexSessionSynchronizer(async () => null);
       await synchronizer.synchronize();
 
       assert.equal(sessionsDb.getSessionById('app-1')?.custom_name, 'Fix the login redirect bug');
@@ -116,7 +116,7 @@ test('Codex synchronizer skips sub-agent rollout files', { concurrency: false },
     await writeCodexTranscript(tempRoot, 'codex-parent-1', workspacePath);
 
     await withIsolatedDatabase(async () => {
-      const synchronizer = new CodexSessionSynchronizer();
+      const synchronizer = new CodexSessionSynchronizer(async () => null);
       const processed = await synchronizer.synchronize();
 
       assert.equal(processed, 1);
@@ -129,21 +129,20 @@ test('Codex synchronizer skips sub-agent rollout files', { concurrency: false },
   }
 });
 
-test('Codex synchronizer leaves indexed sessions untitled when no name is available', { concurrency: false }, async () => {
+test('Codex synchronizer titles indexed sessions from the user instead of assistant output', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-session-sync-indexed-'));
   const workspacePath = path.join(tempRoot, 'workspace');
   await mkdir(workspacePath, { recursive: true });
   const restoreHomeDir = patchHomeDir(tempRoot);
 
   try {
-    // A CLI-created session has no app row; its first user message must NOT be
-    // used as the title, preserving the existing indexing behavior.
+    // CLI-created sessions follow the same user-prompt naming rule.
     await writeCodexTranscript(tempRoot, 'codex-indexed-1', workspacePath, 'This prompt should be ignored');
     await withIsolatedDatabase(async () => {
-      const synchronizer = new CodexSessionSynchronizer();
+      const synchronizer = new CodexSessionSynchronizer(async () => null);
       await synchronizer.synchronize();
 
-      assert.equal(sessionsDb.getSessionById('codex-indexed-1')?.custom_name, 'Untitled Codex Session');
+      assert.equal(sessionsDb.getSessionById('codex-indexed-1')?.custom_name, 'This prompt should be ignored');
     });
   } finally {
     restoreHomeDir();
@@ -169,4 +168,31 @@ test('Codex restored context follows latest sample and compaction, never cumulat
       assert.equal(((await provider.fetchHistory('context-test')).tokenUsage as Record<string, unknown>)?.used, null);
     });
   } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+test('Codex title ownership persists through sync and preserves a manual rename', { concurrency: false }, async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), 'codex-title-owner-'));
+  const restore = patchHomeDir(temp);
+  try {
+    const file = await writeCodexTranscript(temp, 'native-title', temp, 'Почини лаги Codex');
+    await withIsolatedDatabase(async () => {
+      sessionsDb.createAppSession('app-title', 'codex', temp);
+      sessionsDb.assignProviderSessionId('app-title', 'native-title');
+      let calls = 0;
+      const sync = new CodexSessionSynchronizer(async () => ++calls === 1 ? 'Codex: исправление лагов' : 'Codex: названия чатов');
+      await sync.synchronizeFile(file);
+      assert.equal(sessionsDb.getSessionById('app-title')?.custom_name, 'Codex: исправление лагов');
+      await sync.synchronizeFile(file);
+      assert.equal(calls, 1);
+      const { appendFile } = await import('node:fs/promises');
+      await appendFile(file, JSON.stringify({ type: 'compacted' }) + '\n');
+      await sync.synchronizeFile(file);
+      assert.equal(sessionsDb.getSessionById('app-title')?.custom_name, 'Codex: названия чатов');
+      sessionsDb.updateSessionCustomName('app-title', 'Мой Codex');
+      await appendFile(file, JSON.stringify({ type: 'compacted' }) + '\n');
+      await sync.synchronizeFile(file);
+      assert.equal(sessionsDb.getSessionById('app-title')?.custom_name, 'Мой Codex');
+      assert.equal(calls, 2);
+    });
+  } finally { restore(); await rm(temp, { recursive: true, force: true }); }
 });

@@ -160,6 +160,7 @@ export default tseslint.config(
           pattern: [
             "server/shared/utils.{js,ts}",
             "server/shared/frontmatter.ts",
+            "server/shared/local-llm.ts", // bounded local JSON completions for session titles
             "server/shared/claude-cli-path.ts",
             "server/shared/image-attachments.ts",
             "server/shared/run-outcomes.ts",
