@@ -82,6 +82,7 @@ interface ChatComposerProps {
   /** False for providers whose runtime has no system-prompt hook to carry the mode. */
   isWorkModeSupported: boolean;
   model: string;
+  provider: string;
   availableModelOptions: ProviderModelOption[];
   onSelectModel: (model: string) => void;
   effort: string;
@@ -195,6 +196,7 @@ export default function ChatComposer({
   onSelectWorkMode,
   isWorkModeSupported,
   model,
+  provider,
   availableModelOptions,
   onSelectModel,
   effort,
@@ -956,7 +958,7 @@ export default function ChatComposer({
               <PromptCacheChip className="hidden sm:block" lastModelAt={promptCache.lastModelAt} isRunning={promptCache.isRunning} />
             )}
 
-            <UsageLimitsBadge model={model} />
+            <UsageLimitsBadge model={model} provider={provider} />
 
             {hasInput && (
               <PromptInputButton

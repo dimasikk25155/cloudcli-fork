@@ -1,0 +1,113 @@
+/**
+ * Classifies how an agent turn ended, from the final assistant text alone.
+ *
+ * Used by the session-attention module to tell "the agent is waiting for you"
+ * apart from "the agent finished": a turn that ends with a direct question or
+ * with a request to do something by hand ("открой…и пришли", "нажми
+ * Обновить") leaves the session waiting even though no question panel is up.
+ *
+ * Regular expressions rather than a model: the status must be instant and must
+ * not depend on the Windows box being reachable.
+ */
+const EXCERPT_MAX = 200;
+/**
+ * Russian imperative verbs addressed to the user (singular and polite plural).
+ * Past-tense reports ("открыл", "сделал") and first-person plans ("открою")
+ * never match these stems because the whole word is compared.
+ */
+const RU_IMPERATIVES = [
+    'открой', 'нажми', 'пришли', 'скопируй', 'сделай', 'проверь', 'отправь', 'скинь',
+    'вставь', 'запусти', 'зайди', 'перезагрузи', 'перезапусти', 'обнови', 'введи',
+    'выполни', 'подтверди', 'установи', 'скачай', 'загрузи', 'кликни', 'тапни', 'смахни',
+    'разреши', 'залогинься', 'авторизуйся', 'скажи', 'напиши',
+];
+const RU_IMPERATIVE_PATTERN = new RegExp(`(?<![\\p{L}\\p{N}])(?:${RU_IMPERATIVES.join('|')})(?:те)?(?![\\p{L}\\p{N}])`, 'iu');
+/** English requests: either "please <verb>" anywhere or a bare imperative opening the sentence. */
+const EN_VERBS = 'open|click|press|tap|send|copy|paste|run|check|restart|reload|refresh|install|download|log in|sign in|confirm';
+const EN_PLEASE_PATTERN = new RegExp(`\\bplease\\s+(?:${EN_VERBS})\\b`, 'i');
+const EN_LEADING_IMPERATIVE_PATTERN = new RegExp(`^(?:now\\s+|then\\s+|next,?\\s+)?(?:${EN_VERBS})\\b`, 'i');
+/** Conditional offers ("Если хочешь, могу…", "If you want…") are not requests. */
+const CONDITIONAL_SENTENCE_PATTERN = /^(?:если|if)(?![\p{L}])/iu;
+/** A question mark that ends a clause — not the one inside a URL query (`/?ref=`). */
+const QUESTION_MARK_PATTERN = /\?(?=$|[\s"'»)\]*_.!…])/u;
+function stripCodeBlocks(text) {
+    return text
+        .replace(/```[\s\S]*?(?:```|$)/g, '\n\n')
+        .replace(/`[^`\n]*`/g, ' ');
+}
+/**
+ * A reply signature, not content: Dima's agents close every reply with a time
+ * stamp on its own line — «22:30 МСК», «*2026-10-07 16:29 МСК*»,
+ * «_30.09.2026 22:16 МСК_», «<sub>…</sub>», «🕐 2026-10-01 11:46 МСК · ✉️ #4».
+ * Without skipping it the question right above it was never seen.
+ */
+export function isTimestampLine(paragraph) {
+    const bare = paragraph.replace(/<\/?sub>/gi, '').replace(/[*_`]/g, '').trim();
+    return bare.length > 0
+        && bare.length <= 60
+        && /\d{1,2}:\d{2}/.test(bare)
+        && !/\p{L}/u.test(bare.replace(/МСК|MSK|UTC|GMT/gi, ''));
+}
+function lastParagraph(text) {
+    const paragraphs = text
+        .split(/\n\s*\n/)
+        .map((paragraph) => paragraph.trim())
+        .filter((paragraph) => paragraph.length > 0 && !isTimestampLine(paragraph));
+    return paragraphs.length > 0 ? paragraphs[paragraphs.length - 1] : '';
+}
+/**
+ * The asking part of a reply for reply chips: its last paragraph (time stamp
+ * skipped), whole and with inline code kept — the classifier's excerpt is cut
+ * from the start and would lose the last of several questions.
+ */
+export function finalParagraph(text) {
+    return typeof text === 'string' ? lastParagraph(text.replace(/```[\s\S]*?(?:```|$)/g, '\n\n')) : '';
+}
+/** Sentences and list items of one paragraph, each trimmed of list markers. */
+function splitSentences(paragraph) {
+    return paragraph
+        .split(/\n+|(?<=[.!?…])\s+/u)
+        .map((sentence) => sentence.replace(/^\s*(?:[-*•]|\d+[.)])\s*/u, '').trim())
+        .filter((sentence) => sentence.length > 0);
+}
+function isManualAsk(sentence) {
+    if (CONDITIONAL_SENTENCE_PATTERN.test(sentence)) {
+        return false;
+    }
+    return (RU_IMPERATIVE_PATTERN.test(sentence)
+        || EN_PLEASE_PATTERN.test(sentence)
+        || EN_LEADING_IMPERATIVE_PATTERN.test(sentence));
+}
+/**
+ * Collapses whitespace and cuts the text to at most `max` characters
+ * (ellipsis included). Shared with session-attention for every short text it
+ * stores (errors, questions, plan excerpts).
+ */
+export function clipText(text, max) {
+    const collapsed = text.replace(/\s+/g, ' ').trim();
+    return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
+}
+/**
+ * Pure classifier: looks only at the last paragraph of the reply (code blocks
+ * removed). A request to act by hand wins over a question in the same
+ * paragraph — the user has to do something either way, and the request is
+ * the more specific signal.
+ */
+export function classifyTurnEnding(text) {
+    if (typeof text !== 'string' || text.trim().length === 0) {
+        return { kind: 'none', excerpt: '' };
+    }
+    const paragraph = lastParagraph(stripCodeBlocks(text));
+    if (!paragraph) {
+        return { kind: 'none', excerpt: '' };
+    }
+    const sentences = splitSentences(paragraph);
+    if (sentences.some(isManualAsk)) {
+        return { kind: 'manual_ask', excerpt: clipText(paragraph, EXCERPT_MAX) };
+    }
+    if (QUESTION_MARK_PATTERN.test(paragraph)) {
+        return { kind: 'question', excerpt: clipText(paragraph, EXCERPT_MAX) };
+    }
+    return { kind: 'none', excerpt: '' };
+}
+//# sourceMappingURL=turn-ending.js.map

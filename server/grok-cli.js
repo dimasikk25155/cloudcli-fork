@@ -11,7 +11,7 @@ import { createGrokBackgroundTaskTracker } from './modules/providers/list/grok/g
 import { workModeInstruction } from './shared/work-mode.js';
 import { withNeo3SessionMarker } from './shared/neo3-session.js';
 import { withThreadsEnv } from './shared/threads-env.js';
-import { jailCommand, jailInstruction } from './shared/user-jail.js';
+import { jailCommand, jailInstruction, prepareGrokSessionDir } from './shared/user-jail.js';
 import {
   appendImagesInputTag,
   appendVisibleImagePathsTag,
@@ -1338,6 +1338,10 @@ async function spawnGrok(command, options = {}, ws) {
         grokBackgroundTasks.set(processKey, backgroundTracker);
 
         // Non-admin run: the CLI lives in the project jail (server/shared/user-jail.ts).
+        // The session directory has to exist first. Creating it needs write
+        // access to ~/.grok/sessions, which the jail denies, and the first
+        // message then dies with FS_PERMISSION_DENIED.
+        if (jail) prepareGrokSessionDir(jail, getGrokHome());
         const launch = jail
           ? jailCommand(jail, resolveGrokCliPath(), args)
           : { command: resolveGrokCliPath(), args };

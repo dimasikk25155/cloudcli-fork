@@ -8,6 +8,7 @@ import { getKimiUsage } from '../shared/kimi-usage.js';
 import { getSessionUsageHistory } from '../shared/session-usage.js';
 import { getProjectStats } from '../shared/project-stats.js';
 import { projectsDb, userProjectAccessDb } from '../modules/database/index.js';
+import { getCodexUsage } from '../modules/providers/index.js';
 
 const router = express.Router();
 
@@ -26,6 +27,9 @@ function canReadProject(user, projectPath) {
 // window pair for the separate Kimi Code subscription (null when no key).
 router.get('/limits', async (req, res) => {
   try {
+    if (req.query.provider === 'codex') {
+      return res.json({ ok: true, codex: await getCodexUsage() });
+    }
     const [usage, kimi] = await Promise.all([getClaudeUsage(), getKimiUsage()]);
     const threshold = resolveUsageGuardThreshold();
     const fiveHourPct = usage?.fiveHour?.utilization ?? null;

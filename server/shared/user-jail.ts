@@ -257,6 +257,21 @@ const CODEX_CONFIG_KEYS = [
  */
 export const JAIL_CLAUDE_ENV = { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } as const;
 
+/**
+ * Grok keeps one project's chats in `~/.grok/sessions/<url-encoded real cwd>/`.
+ * Creating that directory asks for write-mode on `~/.grok/sessions` itself.
+ * The jail denies that (it would expose every other project's chats), so the
+ * first jailed run dies with FS_PERMISSION_DENIED and leaves an empty session
+ * folder. Once the directory exists, later runs only write inside it and succeed.
+ * Make the directory here, outside the jail, before spawn. Do not chmod the
+ * parent: that is the operation the jail is there to forbid.
+ */
+export function prepareGrokSessionDir(jail: UserJail, grokHome = path.join(os.homedir(), '.grok')): string {
+  const dir = path.join(grokHome, 'sessions', encodeURIComponent(jail.root));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
 /** argv that starts `command args…` inside the jail. */
 export function jailCommand(jail: UserJail, command: string, args: string[]): { command: string; args: string[] } {
   return { command: SANDBOX_EXEC, args: ['-p', buildJailProfile(jail), command, ...args] };

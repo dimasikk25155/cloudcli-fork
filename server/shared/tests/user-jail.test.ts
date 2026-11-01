@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -13,6 +13,7 @@ import {
   jailInstruction,
   jailSupported,
   prepareCodexHome,
+  prepareGrokSessionDir,
   SANDBOX_EXEC,
   userJailFor,
 } from '@/shared/user-jail.js';
@@ -147,4 +148,16 @@ test('prepareCodexHome: shared sign-in, Dima model settings, only the threads MC
   assert.match(config, /\/work\/proj/);
   // Second run: same folder, link kept.
   assert.equal(prepareCodexHome({ root: '/work/proj', userId: 3 }, home), dir);
+});
+
+test('prepareGrokSessionDir: project chat folder exists before the jail starts', async (t) => {
+  const home = await realpath(await mkdtemp(path.join(tmpdir(), 'user-jail-grok-')));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const root = '/Users/dimasik/Antigravity Project/Tyres-sergey-lines';
+  const dir = prepareGrokSessionDir({ root, userId: 3 }, path.join(home, '.grok'));
+  assert.equal(dir, path.join(home, '.grok', 'sessions', encodeURIComponent(root)));
+  assert.equal(statSync(dir).isDirectory(), true);
+  // Idempotent: a second message must not fail because the folder is already there.
+  assert.equal(prepareGrokSessionDir({ root, userId: 3 }, path.join(home, '.grok')), dir);
+  assert.equal(statSync(path.join(home, '.grok', 'sessions')).isDirectory(), true);
 });

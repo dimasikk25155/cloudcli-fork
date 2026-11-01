@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { GaugeIcon } from 'lucide-react';
 
 import {
@@ -7,6 +7,8 @@ import {
   refreshUsageLimits,
   subscribeUsageLimits,
 } from '../../../../utils/usageLimits';
+
+import CodexUsageLimitsBadge from './CodexUsageLimitsBadge';
 
 const POLL_INTERVAL_MS = 60_000;
 
@@ -69,6 +71,7 @@ function isGrokModel(model: string | undefined): boolean {
 }
 
 type Props = {
+  provider?: string;
   /** Currently selected model id — decides which subscription's limits to show. */
   model?: string;
 };
@@ -76,14 +79,18 @@ type Props = {
 /**
  * Compact subscription-limits badge for the composer toolbar: "5ч 16% · 7д 36%"
  * ("4ч …" for Kimi — its rolling window is 4 hours, not 5).
- * Shows only the subscription that matches the selected model — Kimi limits when
- * a Kimi model is active, Claude limits otherwise — so it stays narrow instead
- * of stacking both. Polls /api/usage/limits once a minute.
+ * Routes Codex to its own limits store and RPC. Other subscriptions retain their
+ * existing model-specific badge. Each store polls its endpoint once a minute.
  * On Claude it is a link to the official usage page (reset times live in the
  * hover tooltip); on Kimi — which has no such page — tapping still opens the
  * local panel with reset times (Moscow).
  */
-export default function UsageLimitsBadge({ model }: Props) {
+export default function UsageLimitsBadge({ model, provider }: Props) {
+  if (provider === 'codex' || (!provider && /^(gpt-|o\d)/i.test(model ?? ''))) return <CodexUsageLimitsBadge />;
+  return <OtherUsageLimitsBadge model={model} />;
+}
+
+function OtherUsageLimitsBadge({ model }: Props) {
   const usage = useSyncExternalStore(subscribeUsageLimits, getUsageLimits, getUsageLimits);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);

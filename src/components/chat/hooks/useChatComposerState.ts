@@ -1070,7 +1070,7 @@ export function useChatComposerState({
       // override flag the server honors. Cancel keeps the composed input.
       let usageGuardOverride = false;
       const usageLimits = getUsageLimits();
-      if (usageLimits?.blocked) {
+      if (provider === 'claude' && usageLimits?.blocked) {
         const pctInfo = usageLimits.fiveHourPct === null
           ? ''
           : ` (использовано ${Math.round(usageLimits.fiveHourPct)}%)`;

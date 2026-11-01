@@ -752,6 +752,7 @@ function ChatInterface({
           // runtime never means touching this component.
           isWorkModeSupported={supportsWorkModeForProvider(provider)}
           model={providerModels[provider]}
+          provider={provider}
           availableModelOptions={composerModelOptions}
           onSelectModel={(nextModel) => {
             // A model belonging to another engine (Grok listed under the Claude
