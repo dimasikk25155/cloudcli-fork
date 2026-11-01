@@ -13,7 +13,8 @@ import { getSessionCostSnapshot, snapshotToComposerBudget } from '@/shared/sessi
 import { requireSessionAccess } from '@/shared/require-session-access.js';
 
 import { projectsDb, sessionsDb } from '../modules/database/index.js';
-import { readCodexContextBudget, readClaudeContextBudget } from '../shared/context-budget.js';
+import { readClaudeContextBudget } from '../shared/context-budget.js';
+import { readCodexSessionBudget } from '../modules/providers/index.js';
 
 // Get token usage for a specific session. `projectId` is the DB primary key;
 // the Claude branch below resolves it to an absolute path via the DB.
@@ -145,31 +146,20 @@ export async function sessionTokenUsageHandler(req, res) {
                 return null;
             };
 
-            const sessionFilePath = await findSessionFile(codexSessionsDir);
+            const sessionFilePath = sessionRow.jsonl_path || await findSessionFile(codexSessionsDir);
 
             if (!sessionFilePath) {
                 return res.status(404).json({ error: 'Codex session file not found', sessionId: safeSessionId });
             }
 
-            // Read and parse the Codex JSONL file
-            let fileContent;
             try {
-                fileContent = await fsPromises.readFile(sessionFilePath, 'utf8');
+                return res.json(await readCodexSessionBudget(sessionFilePath));
             } catch (error) {
                 if (error.code === 'ENOENT') {
                     return res.status(404).json({ error: 'Session file not found', path: sessionFilePath });
                 }
                 throw error;
             }
-            const lines = fileContent.trim().split('\n');
-            let budget = { used: null };
-            for (let i = lines.length - 1; i >= 0; i--) {
-                try {
-                    const parsed = readCodexContextBudget(JSON.parse(lines[i]));
-                    if (parsed) { budget = parsed; break; }
-                } catch { /* Skip malformed rows. */ }
-            }
-            return res.json(budget);
         }
 
         // Handle Claude sessions (default)

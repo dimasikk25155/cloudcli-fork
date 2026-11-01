@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -68,6 +68,22 @@ test('token usage of a session you cannot open is 403; your own and the admin pa
 
     assert.equal((await get(Number(admin.id), 'admin', dimaProject, 'sess-dima')).status, 200);
     assert.equal((await get(Number(admin.id), 'admin', dimaProject, 'no-such-session')).status, 404);
+
+    // A teammate's indexed Codex transcript lives outside Dima's ~/.codex.
+    // App-facing ids also need not equal the native thread id.
+    const transcript = path.join(tempDirectory, 'rollout-native-codex.jsonl');
+    await writeFile(transcript, `${JSON.stringify({ type: 'event_msg', payload: {
+      type: 'token_count', info: { model_context_window: 475000,
+        last_token_usage: { total_tokens: 103715 },
+        total_token_usage: { input_tokens: 525086, output_tokens: 2556 },
+      },
+    } })}\n`);
+    sessionsDb.createAppSession('app-codex', 'codex', '/workspace/slava');
+    sessionsDb.createSession('native-codex', 'codex', '/workspace/slava', undefined, undefined, undefined, transcript);
+    sessionsDb.assignProviderSessionId('app-codex', 'native-codex');
+    const codex = await get(Number(member.id), 'user', slavaProject, 'app-codex');
+    assert.equal(codex.status, 200);
+    assert.deepEqual(await codex.json(), { used: 103715, total: 475000, inputTokens: 525086, outputTokens: 2556 });
   } finally {
     await new Promise((resolve) => server.close(resolve));
     closeConnection();

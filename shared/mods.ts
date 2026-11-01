@@ -52,7 +52,7 @@ export const MODS: readonly ModDef[] = [
     title: 'Ответ из пуша и Telegram',
     description:
       'Кнопки ответа прямо в уведомлении и в Telegram — не нужно открывать Neo3. '
-      + 'Выключено — останется только кнопка «Открыть».',
+      + 'Кнопки доступны для Claude и Grok; в Codex — «Открыть» и ответ в чате.',
     requires: 'modAttention',
   },
   {
@@ -86,8 +86,8 @@ export const MODS: readonly ModDef[] = [
     key: 'modBackgroundConsole',
     title: 'Пульт фона',
     description:
-      'Показывает, что агент делает в фоне («Фон: N»), сколько идёт текущий шаг, и даёт остановить '
-      + 'фоновую задачу. Не даёт агенту надолго зависнуть в ожидании.',
+      'Таймер текущего шага работает и в Codex. «Фон: N» доступен для Claude и Grok, '
+      + 'остановка отдельной фоновой задачи — только для Claude.',
   },
   {
     key: 'modThreads',
@@ -109,7 +109,7 @@ export const MODS: readonly ModDef[] = [
   {
     key: 'modCacheTimer',
     title: 'Таймер кэша',
-    description: 'Показывает у поля ввода, сколько минут ответ агента будет дешевле и быстрее, если написать сейчас.',
+    description: 'Оценка оставшегося времени кэша Claude. Codex и Grok не сообщают Neo3 точное время истечения кэша чата — обратный отсчёт для них не показывается.',
   },
   {
     key: 'modKrabikAgent',

@@ -773,6 +773,20 @@ export function useChatSessionState({
     void refreshTokenUsage();
   }, [selectedProject, selectedSession?.id, refreshTokenUsage, setTokenBudget]);
 
+  // Codex SDK streams billing totals but keeps occupancy in the transcript.
+  // Refresh only the viewed chat's small budget endpoint, never its messages.
+  useEffect(() => {
+    if (selectedSession?.__provider !== 'codex') return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async () => {
+      await refreshTokenUsage();
+      if (!cancelled && isProcessing) timer = setTimeout(refresh, 5_000);
+    };
+    void refresh();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [selectedSession?.__provider, isProcessing, refreshTokenUsage]);
+
   const visibleMessages = useMemo(() => {
     if (chatMessages.length <= visibleMessageCount) return chatMessages;
     return chatMessages.slice(-visibleMessageCount);

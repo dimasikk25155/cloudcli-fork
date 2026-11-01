@@ -119,6 +119,10 @@ export function BuiltInModsSection() {
   return (
     <section className="space-y-2" data-builtin-mods>
       <h4 className="text-sm font-semibold text-foreground">Встроенные моды</h4>
+      <p className="text-sm text-muted-foreground">
+        Моды Neo3 общие для Claude, Codex и Grok; ограничения отдельных движков указаны на карточках.
+        Треды, помощники и перенос появляются в чате, когда используются. Они не требуют отдельной установки.
+      </p>
       {MODS.map((mod) => {
         const parent = mod.requires ? MODS.find((candidate) => candidate.key === mod.requires) : undefined;
         const blocked = Boolean(parent && !preferences[parent.key]);

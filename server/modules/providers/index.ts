@@ -10,3 +10,5 @@ export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { providerModelsService } from './services/provider-models.service.js';
 
 export { codexMeterMessage } from './list/codex/codex-usage.js';
+export { getCodexUsage } from './list/codex/codex-limits.js';
+export { readCodexSessionBudget } from './list/codex/codex-context.js';
