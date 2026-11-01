@@ -1,0 +1,5 @@
+{
+  "log": { "loglevel": "warning", "access": "none" },
+  "inbounds": [{ "listen": "127.0.0.1", "port": 11809, "protocol": "http", "settings": {} }],
+  "outbounds": [{ "protocol": "freedom", "tag": "vps-egress" }]
+}

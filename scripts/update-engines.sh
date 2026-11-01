@@ -64,4 +64,14 @@ if [ -x "${HOME}/.kimi-code/bin/kimi" ]; then
   log "kimi     -> present $("${HOME}/.kimi-code/bin/kimi" --version 2>/dev/null | head -1) (manual installer update only)"
 fi
 
+# Reinstall only an already-configured proxy: upstream updaters replace launchers.
+AGENT_PROXY_INSTALLER="${HOME}/.local/share/neo3-agent-proxy/install.py"
+if [ -f "$AGENT_PROXY_INSTALLER" ]; then
+  if python3 "$AGENT_PROXY_INSTALLER" >>"$LOG" 2>&1; then
+    log "agent proxy -> launchers restored"
+  else
+    log "agent proxy -> RESTORE FAILED (see log)"
+  fi
+fi
+
 log "=== engine update: done ==="
