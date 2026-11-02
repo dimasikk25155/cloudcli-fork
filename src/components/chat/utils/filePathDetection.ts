@@ -91,6 +91,17 @@ export function webAddressFor(value: string | undefined | null): string | null {
   return `https://${cleaned}`;
 }
 
+/** Decode a Markdown URL once, at the href-to-filesystem boundary only.
+ * Raw code/text paths must never pass through this function: %20 can be a filename.
+ */
+export function decodeFileHref(href: string): string {
+  try {
+    return decodeURIComponent(href);
+  } catch {
+    return href;
+  }
+}
+
 /** Убирает хвост `:строка` / `:строка:колонка` (`src/foo.ts:130`). */
 export const stripLineSuffix = (value: string): string => value.replace(/:\d+(?::\d+)?$/, '');
 

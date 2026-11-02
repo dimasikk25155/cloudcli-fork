@@ -7,7 +7,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTranslation } from 'react-i18next';
 import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
-import { bracketSpacedLinkTargets, looksLikePath, shortenPathLabel, stripLineSuffix, webAddressFor } from '../../utils/filePathDetection';
+import { bracketSpacedLinkTargets, decodeFileHref, looksLikePath, shortenPathLabel, stripLineSuffix, webAddressFor } from '../../utils/filePathDetection';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
@@ -231,7 +231,10 @@ export function Markdown({ children, className }: MarkdownProps) {
         // Prefer the href when it is a real path; otherwise fall back to the
         // link text, since models often emit `[src/foo.ts]()` with an empty href.
         const linkText = childrenToText(linkChildren);
-        const fileRef = looksLikePath(href) ? href : looksLikePath(linkText) ? linkText : undefined;
+        // react-markdown serializes href spaces and Unicode as URL escapes.
+        // Decode only hrefs, never the raw fallback text or inline code paths.
+        const fileHref = href && !isExternalHref(href) ? decodeFileHref(href) : undefined;
+        const fileRef = looksLikePath(fileHref) ? fileHref : looksLikePath(linkText) ? linkText : undefined;
 
         if (fileRef && !isExternalHref(href)) {
           return (
