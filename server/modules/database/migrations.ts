@@ -8,6 +8,7 @@ import {
   AUDIT_LOG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL,
+  IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
@@ -578,6 +579,7 @@ export const runMigrations = (db: Database) => {
 
     // Vault-note suggestions (memory-suggestions).
     db.exec(MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL);
+    db.exec(IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL);
 
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');

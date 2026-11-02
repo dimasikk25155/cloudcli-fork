@@ -94,6 +94,9 @@ import { codeStatusRoutes } from './modules/code-status/index.js';
 import { sessionTokenUsageRoute } from './routes/session-token-usage.js';
 import { relayRoutes } from './modules/relay/index.js';
 import { autoRelayRoutes, autoRelayService } from './modules/auto-relay/index.js';
+import { improvementIdeas } from './modules/improvement-ideas/improvement-ideas.service.js';
+import { createImprovementIdeasRouter } from './modules/improvement-ideas/improvement-ideas.routes.js';
+import { createIdeaRunControl } from './modules/websocket/services/chat-websocket.service.js';
 import { memorySuggestionsRoutes, startMemorySuggestionsLoop } from './modules/memory-suggestions/index.js';
 import { pendingAnswers, pendingAnswersRoutes } from './modules/pending-answers/index.js';
 import { registerThreadsMcp, shouldRegisterThreadsMcp, threadsRoutes, threadsService, threadTokens } from './modules/threads/index.js';
@@ -194,6 +197,7 @@ threadsService.setRunControl(createThreadRunControl(chatDependencies));
 // Auto-relay: the handoff request and the continuation's first message go
 // through the same chat gateway — registry, indicator, Stop.
 autoRelayService.setRunControl(createAutoRelayRunControl(chatDependencies));
+improvementIdeas.setRunControl(createIdeaRunControl(chatDependencies));
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {
@@ -340,6 +344,7 @@ app.use('/api/sessions', authenticateToken, autoRelayRoutes);
 // Vault-note suggestions (replaces the obsidian-memory Stop hook inside Neo3).
 // Writing and dismissing are admin-only inside the router.
 app.use('/api/memory-suggestions', authenticateToken, memorySuggestionsRoutes);
+app.use('/api/improvement-ideas', authenticateToken, createImprovementIdeasRouter());
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);

@@ -515,6 +515,24 @@ CREATE TABLE IF NOT EXISTS memory_suggestions (
 CREATE INDEX IF NOT EXISTS idx_memory_suggestions_status ON memory_suggestions(status);
 `;
 
+export const IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS improvement_ideas (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL,
+ session_id TEXT NOT NULL,
+ project_path TEXT NOT NULL,
+ fingerprint TEXT NOT NULL,
+ text TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'proposed',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ vault_path TEXT,
+ vault_error TEXT,
+ UNIQUE(user_id, project_path, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_improvement_ideas_session ON improvement_ideas(session_id);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -602,6 +620,7 @@ ${SESSION_THREADS_TABLE_SCHEMA_SQL}
 ${SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL}
 
 ${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
+${IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL}
 
 ${LAST_SCANNED_AT_SQL}
 

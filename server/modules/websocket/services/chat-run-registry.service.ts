@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { improvementIdeas } from '@/modules/improvement-ideas/index.js';
+import { createIdeaCollector } from '@/modules/improvement-ideas/index.js';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
@@ -49,6 +51,7 @@ type ChatRun = {
   projectId: string | null;
   /** The engine can stop a background task (it has a stop in stopTaskFns). */
   canStopTasks: boolean;
+  ideas: ReturnType<typeof createIdeaCollector>;
 };
 
 /**
@@ -185,6 +188,15 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     evictRunLater(run.appSessionId);
   }
 
+  try {
+    run.ideas.event(outbound);
+    if (outbound.kind === 'complete' && !outbound.aborted && (outbound.exitCode === undefined || outbound.exitCode === 0)) {
+      void improvementIdeas.capture(run.appSessionId, run.userId, run.ideas.texts()).catch(() => {
+        console.warn('[ImprovementIdeas] Capture failed');
+      });
+    }
+  } catch { /* Optional suggestions must never break the chat stream. */ }
+
   run.events.push(outbound);
   if (run.events.length > MAX_BUFFERED_EVENTS_PER_RUN) {
     run.events.splice(0, run.events.length - MAX_BUFFERED_EVENTS_PER_RUN);
@@ -313,6 +325,7 @@ export const chatRunRegistry = {
       userId: input.userId,
       projectId: input.projectId ?? null,
       canStopTasks: input.canStopTasks === true,
+      ideas: createIdeaCollector(),
     };
 
     run.writer = new ChatSessionWriter({

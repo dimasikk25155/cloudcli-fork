@@ -12,7 +12,8 @@ import {
   type PendingRequestInfo,
 } from '@/modules/pending-answers/pending-answers.service.js';
 import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
-import { rememberRunOptions } from '@/modules/auto-relay/run-options.js';
+import { lastRunOptions, rememberRunOptions } from '@/modules/auto-relay/run-options.js';
+import { IdeaError, type IdeaRunControl } from '@/modules/improvement-ideas/index.js';
 import type { AutoRelayRunControl } from '@/modules/auto-relay/auto-relay.service.js';
 import { threadTokens } from '@/modules/threads/thread-tokens.js';
 import { beginServiceTurn } from '@/shared/service-turns.js';
@@ -42,7 +43,7 @@ import {
   takeGrokQuestionsForAppSession,
 } from '@/shared/grok-question.js';
 import { isModOn, MOD_OFF, type IsModOn } from '@/shared/mods.js';
-import { canAccessSession } from '@/shared/project-access.js';
+import { canAccessSession, isAdminUser } from '@/shared/project-access.js';
 import { teamTelegram, teamTelegramUrl } from '@/modules/team-telegram/index.js';
 import { JAIL_DENIED_MESSAGE, JAIL_PROVIDER_MESSAGE, JAILED_PROVIDERS, userJailFor } from '@/shared/user-jail.js';
 import { threadsApiUrl, type ThreadsRunEnv } from '@/shared/threads-env.js';
@@ -207,6 +208,7 @@ type ChatSendStart = { started: false } | { started: true; finished: Promise<voi
 type ChatSendAccess =
   | { kind: 'socket' }
   | { kind: 'verified-answer' }
+  | { kind: 'idea'; userId: number }
   | { kind: 'thread'; userId: number; parentSessionId: string }
   | { kind: 'auto-relay'; userId: number; parentSessionId: string };
 
@@ -303,7 +305,9 @@ function beginChatSend(
   // `pendingAnswers` has already checked (see ChatSendAccess).
   const accessDenied = access.kind === 'socket'
     ? !canAccessSession(clientIdentities.get(ws), sessionId)
-    : access.kind === 'thread'
+    : access.kind === 'idea'
+      ? !isAdminUser({ id: access.userId }) || !canAccessSession({ id: access.userId }, sessionId)
+      : access.kind === 'thread'
       ? !canStartThreadRun(access, sessionId)
       : access.kind === 'auto-relay' && !canStartLinkedRun(access, sessionId, 'relay');
   if (accessDenied) {
@@ -376,7 +380,7 @@ function beginChatSend(
 
   // Auto-relay repeats a person's engine settings (model, effort, mode, tools)
   // on its own turns; only runs a person started count.
-  if (access.kind === 'socket') {
+  if (access.kind === 'socket' || access.kind === 'idea') {
     rememberRunOptions(sessionId, clientOptions);
   }
 
@@ -789,6 +793,26 @@ function createDetachedConnection(): RealtimeClientConnection {
   return {
     readyState: 3, // CLOSED: the writer buffers, never sends
     send: () => {},
+  };
+}
+
+/** Explicit UI approval starts one ordinary run; it never widens permissions. */
+export function createIdeaRunControl(dependencies: ChatWebSocketDependencies): IdeaRunControl {
+  return {
+    start({ sessionId, userId, content }) {
+      if (!isAdminUser({ id: userId }) || !canAccessSession({ id: userId }, sessionId)
+        || !(dependencies.isModOn ?? isModOn)(userId, 'modImprovementIdeas')) return false;
+      if (chatRunRegistry.getRun(sessionId)?.status === 'running') return false;
+      const session = sessionsDb.getSessionById(sessionId);
+      if (!session) return false;
+      const previous = lastRunOptions(sessionId);
+      const options = previous ?? { model: session.model, effort: session.effort, permissionMode: 'default' };
+      if (options.permissionMode === 'plan') throw new IdeaError(409, 'В чате включено только планирование. Выбери режим выполнения и отправь сообщение, затем повтори.');
+      const result = beginChatSend(createDetachedConnection(), userId, 'admin',
+        { sessionId, content, options }, dependencies, { kind: 'idea', userId });
+      if (result.started) void result.finished.catch(() => console.warn('[ImprovementIdeas] Run failed; see chat'));
+      return result.started;
+    },
   };
 }
 

@@ -24,6 +24,7 @@ export const MOD_KEYS = [
   'modCacheTimer',
   'modKrabikAgent',
   'modDuet',
+  'modImprovementIdeas',
 ] as const;
 
 export type ModKey = (typeof MOD_KEYS)[number];
@@ -40,6 +41,11 @@ export type ModDef = {
 
 /** Card order on the settings screen. */
 export const MODS: readonly ModDef[] = [
+  {
+    key: 'modImprovementIdeas',
+    title: 'Идеи улучшений',
+    description: 'Сохраняет предложения агента в Obsidian. В чате можно сразу одобрить реализацию или оставить на потом.',
+  },
   {
     key: 'modAttention',
     title: 'Ждут тебя',

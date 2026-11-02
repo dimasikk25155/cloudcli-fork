@@ -17,3 +17,5 @@ export {
   createMemorySuggestionsRouter,
   default as memorySuggestionsRoutes,
 } from '@/modules/memory-suggestions/memory-suggestions.routes.js';
+
+export { vaultDir } from './vault-writer.js';

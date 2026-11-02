@@ -48,6 +48,7 @@ import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import PinnedUserMessage from './subcomponents/PinnedUserMessage';
 import ThreadsBar from '../../threads/ThreadsBar';
 import CrabSquadBand from '../../crabs/CrabSquadBand';
+import { IdeaCards } from '../../improvement-ideas/IdeaCards';
 import { currentSessionLinks } from '../../threads/threadsBarModel';
 import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
@@ -846,6 +847,7 @@ function ChatInterface({
           memorySessionId={chipsSessionId}
           relayBand={(
             <>
+              <IdeaCards sessionId={chipsSessionId} isProcessing={isProcessing} />
               <CrabSquadBand chatMessages={chatMessages} sessionId={chipsSessionId} isRunActive={isProcessing} />
               {relayOn && <RelayBand relay={relay} autoRelay={autoRelay} onOpenChat={followMovedChat} />}
             </>
