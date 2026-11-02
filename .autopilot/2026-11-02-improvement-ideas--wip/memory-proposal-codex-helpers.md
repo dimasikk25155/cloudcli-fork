@@ -1,0 +1,11 @@
+# Предложение памяти: карточки помощников Codex
+- Коммиты исходников: c9dbec18 и 3b79ed00; принятие исходников не означает выкатку.
+- Reducer: server/modules/providers/list/codex/codex-subagents.ts; история: codex-sessions.provider.ts; live: server/openai-codex.js.
+- Новые формы: typed SubAgentActivity/subagent_activity и agent_message с проверяемым FINAL_ANSWER; обычный текст не является сигналом завершения.
+- collaboration.spawn_agent/followup_task связываются с agent_path/agent_thread_id; followup создаёт отдельный цикл.
+- Первый поздний FINAL_ANSWER дополняет завершённый старый цикл, не завершает активный followup.
+- UI: src/components/chat/hooks/useChatMessages.ts переносит итоговый summary в результат карточки.
+- Тест: server/modules/providers/tests/codex-subagents.test.ts — 6/6 на 3b79ed00; ранее выбранные UI/crab тесты — 26/26 на c9dbec18.
+- Чистый clone c9dbec18 прошёл npm run typecheck; на 3b79ed00 в этой приёмке typecheck не повторялся.
+- Read-only replay 3b79ed00: 21 карточка, 20 completed с итогом, 1 pending; временные HOME/БД, исходная история не изменялась.
+- Ограничение проверки: браузерный E2E и реальный live SDK→WS→UI не подтверждены; разрешённый Edge недоступен ENOENT.

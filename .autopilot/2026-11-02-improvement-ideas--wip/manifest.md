@@ -17,3 +17,5 @@
 | G10 | «хочу видеть все своими глазами либо в превью по ссылке или уже на мейн» | done | Доступное превью, проверка клика; production separate explicit release boundary | spec § Просмотр файлов → T02 → e142b87 |
 
 | G11 | «путь же битый всю дорогу ты мне показываешь, антигравити без % папка называется» | done | Decode Markdown href once at URL/file boundary, preserve literal percent filenames | spec § Кодирование ссылок → T03 → e834108 |
+
+| G12 | «постарайся сделать что сможешь» — помощник «не вернулся» | done | Связать реальные события Codex с карточкой и результатом, live/history; unknown != success | spec § Помощники Codex → T04 → 3b79ed0 |
