@@ -11,7 +11,7 @@
 | R05 | «ЧТОБЫ ЕСЛИ Я ТЕБЯ СПРОСИЛ ТЫ УЖЕ НАКОПИЛ ОПЫТ ПО ХОДУ РАБОТЫ» | done | Постоянный доступный поиску реестр, статусы, без повторов | spec § Память → T01 → 75ea7f9 |
 | R06 | «В ИНТЕРФЕЙСЕ cli чтобы я сразу одобрял если идею нужно реализовать сразау» | done | Карточка в Neo3 с подтверждением и запуском в контексте проекта | spec § Одобрение → T01 → 75ea7f9 |
 
-| G07 | «когда я жму на html я хочу увидеть сайт а не код» | in-ticket | HTML/HTM rendered preview by default | spec § Просмотр файлов → T02 |
-| G08 | «кликом в веб интерфейсе нажжать на твой ответ на гиперссылку» | in-ticket | Работает из ответа агента, пути с пробелами | spec § Просмотр файлов → T02 |
-| G09 | «если он не .md то в идеале открыть его в браузере html страницой» | in-ticket | ASSUMPTION: browser-supported formats rendered; code stays code, unsupported binary downloads, Markdown unchanged | spec § Просмотр файлов → T02 |
-| G10 | «хочу видеть все своими глазами либо в превью по ссылке или уже на мейн» | in-ticket | Доступное превью, проверка клика; production separate explicit release boundary | spec § Просмотр файлов → T02 |
+| G07 | «когда я жму на html я хочу увидеть сайт а не код» | done | HTML/HTM rendered preview by default | spec § Просмотр файлов → T02 → e142b87 |
+| G08 | «кликом в веб интерфейсе нажжать на твой ответ на гиперссылку» | done | Работает из ответа агента, пути с пробелами | spec § Просмотр файлов → T02 → e142b87 |
+| G09 | «если он не .md то в идеале открыть его в браузере html страницой» | done | ASSUMPTION: browser-supported formats rendered; code stays code, unsupported binary downloads, Markdown unchanged | spec § Просмотр файлов → T02 → e142b87 |
+| G10 | «хочу видеть все своими глазами либо в превью по ссылке или уже на мейн» | done | Доступное превью, проверка клика; production separate explicit release boundary | spec § Просмотр файлов → T02 → e142b87 |
