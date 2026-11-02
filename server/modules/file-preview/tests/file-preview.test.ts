@@ -92,3 +92,16 @@ test('admin file outside project scopes only its own directory', async (t) => {
   assert.equal(await service.resource(token, 'index.htm'), path.join(await fs.realpath(root), 'external', 'index.htm'));
   await assert.rejects(service.resource(token, '../project/file.js'), { status: 403 });
 });
+
+for (const directory of ['secrets', 'credentials', '.secrets']) {
+  test(`admin cannot publish HTML from external ${directory} directory`, async (t) => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'html-private-root-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    await fs.mkdir(path.join(root, 'project'));
+    await fs.mkdir(path.join(root, directory, 'nested'), { recursive: true });
+    const file = path.join(root, directory, 'nested', 'index.html');
+    await fs.writeFile(file, '<h1>Private</h1>');
+    const service = createFilePreviewService();
+    await assert.rejects(service.issue({ file, projectRoot: path.join(root, 'project'), projectId: 'p', userId: 1, admin: true }), { status: 403 });
+  });
+}

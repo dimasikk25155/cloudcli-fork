@@ -20,6 +20,9 @@ export function createFilePreviewService({ now = Date.now, ttlMs = 30 * 60_000, 
       const [resolved, project] = await Promise.all([fs.realpath(file), fs.realpath(projectRoot)]);
       if (!inside(project, resolved) && !admin) throw new PreviewError(403, 'Файл вне проекта');
       const root = inside(project, resolved) ? project : path.dirname(resolved);
+      // An external directory becomes the grant root, so its own private path components
+      // must be checked before they disappear from the relative asset path.
+      if (!inside(project, resolved) && !safeRelative(root)) throw new PreviewError(403, 'Ресурс недоступен');
       const relative = path.relative(root, resolved);
       if (!safeRelative(relative) || !/\.html?$/i.test(resolved)) throw new PreviewError(403, 'Этот файл нельзя открыть как страницу');
       if (!(await fs.stat(resolved)).isFile()) throw new PreviewError(404, 'Файл не найден');
