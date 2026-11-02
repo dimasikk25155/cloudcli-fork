@@ -166,8 +166,13 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
   // A background agent's return, keyed by the Agent call it closes.
   const notifications = new Map<string, NormalizedMessage>();
   for (const msg of messages) {
-    if (msg.kind === 'task_notification' && msg.toolId && !notifications.has(msg.toolId)) {
-      notifications.set(msg.toolId, msg);
+    if (msg.kind === 'task_notification' && msg.toolId) {
+      const previous = notifications.get(msg.toolId);
+      // Codex can report completion before its separate final-answer envelope.
+      if (!previous || (msg.provider === 'codex' && previous.id === msg.id
+        && previous.status === msg.status && !previous.summary && msg.summary)) {
+        notifications.set(msg.toolId, msg);
+      }
     }
     if (msg.parentToolUseId) {
       if (msg.kind === 'tool_use' && msg.toolId) {
@@ -294,7 +299,11 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           }
         }
 
-        const toolResult = tr
+        const helperResult = msg.provider === 'codex' && isSubagentContainer && msg.toolId
+          ? notifications.get(msg.toolId) : undefined;
+        const toolResult = helperResult?.summary
+          ? { content: String(helperResult.summary), isError: helperResult.status === 'failed' }
+          : tr
           ? {
               content: formatToolResultContent(tr.content),
               isError: Boolean(tr.isError),

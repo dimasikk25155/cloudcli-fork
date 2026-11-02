@@ -8,7 +8,7 @@ import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMess
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
 import { readCodexContextBudget } from '@/shared/context-budget.js';
 
-import { codexSubagentHistory } from './codex-subagents.js';
+import { codexHelperPayload, codexSubagentHistory } from './codex-subagents.js';
 
 const PROVIDER = 'codex';
 
@@ -165,6 +165,8 @@ async function getCodexSessionMessages(
 
       try {
         const entry = JSON.parse(line) as AnyRecord;
+        const helper = codexHelperPayload(entry);
+        if (helper) messages.push({ type: 'codex_helper', helper, timestamp: entry.timestamp });
 
         const budget = readCodexContextBudget(entry);
         if (budget) tokenUsage = budget;
@@ -350,6 +352,10 @@ export class CodexSessionsProvider implements IProviderSessions {
   private normalizeHistoryEntry(raw: AnyRecord, sessionId: string | null): NormalizedMessage[] {
     const ts = raw.timestamp || new Date().toISOString();
     const baseId = raw.uuid || generateMessageId('codex');
+
+    if (raw.type === 'codex_helper') {
+      return [createNormalizedMessage({ id: baseId, sessionId, timestamp: ts, provider: PROVIDER, kind: 'status', codexHelper: raw.helper })];
+    }
 
     if (raw.type === 'thinking' || raw.isReasoning) {
       const thinkingContent = typeof raw.message?.content === 'string'

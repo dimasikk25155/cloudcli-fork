@@ -11,11 +11,36 @@ type CollabItem = {
   status?: string;
 };
 
+function object(value: unknown): Record<string, any> {
+  if (typeof value === 'string') {
+    try { return object(JSON.parse(value)); } catch { return {}; }
+  }
+  return value && typeof value === 'object' ? value as Record<string, any> : {};
+}
+
+function toolKind(name: unknown): string {
+  return typeof name === 'string' ? name.replace(/^(?:functions\.)?collaboration\./, '') : '';
+}
+
+/** Only typed transport records are accepted, never ordinary assistant/user prose. */
+export function codexHelperPayload(event: unknown): Record<string, any> | null {
+  const raw = object(event);
+  const payload = ['response_item', 'event_msg'].includes(raw.type) ? object(raw.payload) : raw;
+  const item = object(payload.item);
+  if (['SubAgentActivity', 'subagent_activity'].includes(item.type)) return item;
+  if (['SubAgentActivity', 'subagent_activity'].includes(payload.type)) return payload;
+  if (payload.type === 'agent_message' && typeof payload.author === 'string' && typeof payload.recipient === 'string') return payload;
+  if (item.type === 'agent_message' && typeof item.author === 'string' && typeof item.recipient === 'string') return item;
+  return null;
+}
+
 /** Spawn completion means the helper started, not that its work finished. */
 export class CodexSubagentTracker {
   private calls = new Map<string, string>();
+  private tools = new Map<string, { kind: string; input: Record<string, any> }>();
   private started = new Set<string>();
-  private finished = new Set<string>();
+  private finished = new Map<string, { status: string; summary: string }>();
+  private seenRecords = new Set<string>();
 
   event(item: CollabItem, sessionId: string | null, model?: string): NormalizedMessage[] {
     const rows: NormalizedMessage[] = [];
@@ -35,61 +60,96 @@ export class CodexSubagentTracker {
       const call = this.calls.get(child);
       if (!call) continue;
       if (state.status === 'completed') rows.push(...this.finish(call, 'completed', state.message ?? '', sessionId));
-      else if (['errored', 'interrupted', 'shutdown', 'not_found'].includes(state.status)) {
-        rows.push(...this.finish(call, 'failed', state.message ?? '', sessionId));
-      }
+      else if (['errored', 'interrupted', 'shutdown', 'not_found'].includes(state.status)) rows.push(...this.finish(call, 'failed', state.message ?? '', sessionId));
     }
     return rows;
   }
 
-  private finish(toolId: string, status: string, summary: string, sessionId: string | null): NormalizedMessage[] {
-    if (this.finished.has(toolId)) return [];
-    this.finished.add(toolId);
-    return [createNormalizedMessage({
-      id: `${toolId}_subagent_return`, toolId, sessionId, provider: 'codex',
-      kind: 'task_notification', status, summary,
-    })];
-  }
-}
-
-function object(value: unknown): Record<string, any> {
-  if (typeof value === 'string') {
-    try { return object(JSON.parse(value)); } catch { return {}; }
-  }
-  return value && typeof value === 'object' ? value as Record<string, any> : {};
-}
-
-/** Reconstruct native helper endings after reloading a Codex JSONL transcript. */
-export function codexSubagentHistory(messages: NormalizedMessage[]): NormalizedMessage[] {
-  const tracker = new CodexSubagentTracker();
-  const tools = new Map<string, NormalizedMessage>();
-  const result: NormalizedMessage[] = [];
-  for (const message of messages) {
-    result.push(message);
+  /** The same reducer serves persisted history and normalized live tool rows. */
+  message(message: NormalizedMessage): NormalizedMessage[] {
+    if (message.codexHelper) return this.record(object(message.codexHelper), message.sessionId, message.id, message.timestamp);
+    const kind = toolKind(message.toolName);
     if (message.kind === 'tool_use' && message.toolId) {
-      tools.set(message.toolId, message);
-      if (message.toolName === 'spawn_agent') {
-        message.toolInput = { ...object(message.toolInput), run_in_background: true };
+      const input = object(message.toolInput);
+      this.tools.set(message.toolId, { kind, input });
+      if (kind === 'spawn_agent' || kind === 'followup_task') {
+        this.started.add(message.toolId);
+        if (kind === 'followup_task' && typeof input.target === 'string') {
+          const previous = this.resolve(input.target);
+          if (previous) for (const [alias, call] of this.calls) if (call === previous) this.calls.set(alias, message.toolId);
+        }
+        return [{ ...message, toolName: 'spawn_agent', toolInput: { ...input, run_in_background: true } }];
       }
     }
-    if (message.kind !== 'tool_result' || !message.toolId) continue;
-    const tool = tools.get(message.toolId);
+    if (message.kind !== 'tool_result' || !message.toolId) return [message];
+    const tool = this.tools.get(message.toolId);
     const output = object(message.content);
-    if (tool?.toolName === 'spawn_agent') {
-      const input = object(tool.toolInput);
-      result.push(...tracker.event({
-        id: message.toolId, tool: 'spawn_agent', prompt: input.message || input.prompt,
-        receiver_thread_ids: typeof output.agent_id === 'string' ? [output.agent_id] : [],
-        status: message.isError ? 'failed' : 'completed',
-      }, message.sessionId).filter((row) => row.kind === 'task_notification').map((row) => ({ ...row, timestamp: message.timestamp })));
-    } else if (tool?.toolName === 'wait' || tool?.toolName === 'wait_agent') {
-      const states: Record<string, AgentState> = {};
+    const extra: NormalizedMessage[] = [];
+    if (tool?.kind === 'spawn_agent' || tool?.kind === 'followup_task') {
+      for (const child of [output.agent_id, output.task_name]) if (typeof child === 'string') this.calls.set(child, message.toolId);
+      if (message.isError) extra.push(...this.finish(message.toolId, 'failed', String(message.content ?? ''), message.sessionId));
+    } else if (tool?.kind === 'wait' || tool?.kind === 'wait_agent') {
       for (const [child, value] of Object.entries(object(output.status))) {
+        const call = this.resolve(child);
+        if (!call) continue;
         const state = object(value);
-        if (typeof state.completed === 'string') states[child] = { status: 'completed', message: state.completed };
-        else if ('errored' in state || ['shutdown', 'not_found', 'interrupted'].includes(String(value))) states[child] = { status: 'errored' };
+        if (typeof state.completed === 'string') extra.push(...this.finish(call, 'completed', state.completed, message.sessionId));
+        else if ('errored' in state || ['shutdown', 'not_found', 'interrupted'].includes(String(value))) extra.push(...this.finish(call, 'failed', '', message.sessionId));
       }
-      result.push(...tracker.event({ id: message.toolId, tool: 'wait', agents_states: states }, message.sessionId).map((row) => ({ ...row, timestamp: message.timestamp })));
+    }
+    return [message, ...extra.map(row => ({ ...row, timestamp: message.timestamp }))];
+  }
+
+  private resolve(child: string): string | undefined {
+    const exact = this.calls.get(child);
+    if (exact || child.startsWith('/')) return exact;
+    const matches = [...this.calls].filter(([name]) => name.endsWith(`/${child}`));
+    return matches.length === 1 ? matches[0][1] : undefined;
+  }
+
+  record(payload: Record<string, any>, sessionId: string | null, recordId: string, timestamp?: string, callPrefix = ''): NormalizedMessage[] {
+    if (this.seenRecords.has(recordId)) return [];
+    this.seenRecords.add(recordId);
+    let rows: NormalizedMessage[] = [];
+    if (['SubAgentActivity', 'subagent_activity'].includes(payload.type)) {
+      const id = callPrefix + payload.id;
+      if (payload.kind === 'started') {
+        for (const child of [payload.agent_path, payload.agent_thread_id]) if (typeof child === 'string') this.calls.set(child, id);
+        if (!this.started.has(id)) rows = this.event({ id, tool: 'spawn_agent', receiver_thread_ids: [payload.agent_path, payload.agent_thread_id].filter(v => typeof v === 'string') }, sessionId, payload.model);
+      } else if (payload.kind === 'interacted') {
+        // send_message also emits interacted; only followup_task starts a new cycle.
+        if (this.tools.get(id)?.kind === 'followup_task') for (const child of [payload.agent_path, payload.agent_thread_id]) if (typeof child === 'string') this.calls.set(child, id);
+      } else if (['completed', 'errored', 'failed', 'interrupted'].includes(payload.kind)) {
+        const call = this.resolve(payload.agent_path ?? '') ?? this.resolve(payload.agent_thread_id ?? '');
+        if (call) rows = this.finish(call, payload.kind === 'completed' ? 'completed' : 'failed', '', sessionId);
+      }
+    } else if (payload.type === 'agent_message') {
+      const call = this.resolve(payload.author ?? '');
+      const text = Array.isArray(payload.content) ? payload.content.map((part: any) => typeof part?.text === 'string' ? part.text : '').join('\n') : '';
+      const match = /^Message Type: FINAL_ANSWER\r?\nTask name: ([^\r\n]+)\r?\nSender: ([^\r\n]+)\r?\nPayload:\s*([\s\S]*)$/.exec(text);
+      if (call && match && match[1] === payload.recipient && match[2] === payload.author) rows = this.finish(call, 'completed', match[3], sessionId);
+    }
+    return timestamp ? rows.map(row => ({ ...row, timestamp })) : rows;
+  }
+
+  private finish(toolId: string, status: string, summary: string, sessionId: string | null): NormalizedMessage[] {
+    const previous = this.finished.get(toolId);
+    if (previous && (previous.summary || !summary || previous.status !== status)) return [];
+    this.finished.set(toolId, { status, summary });
+    return [createNormalizedMessage({ id: `${toolId}_subagent_return`, toolId, sessionId, provider: 'codex', kind: 'task_notification', status, summary })];
+  }
+}
+
+/** Reconstruct helper endings after reloading a Codex JSONL transcript. */
+export function codexSubagentHistory(messages: NormalizedMessage[]): NormalizedMessage[] {
+  const tracker = new CodexSubagentTracker();
+  const result: NormalizedMessage[] = [];
+  const indexes = new Map<string, number>();
+  for (const message of messages) {
+    for (const row of tracker.message(message)) {
+      const index = indexes.get(row.id);
+      if (index === undefined) { indexes.set(row.id, result.length); result.push(row); }
+      else result[index] = row;
     }
   }
   return result;

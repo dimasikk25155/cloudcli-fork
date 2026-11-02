@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import { Codex } from '@openai/codex-sdk';
 
-import { CodexSubagentTracker } from './modules/providers/list/codex/codex-subagents.js';
+import { CodexSubagentTracker, codexHelperPayload } from './modules/providers/list/codex/codex-subagents.js';
 import { codexMeterMessage } from './modules/providers/list/codex/codex-usage.js';
 import { readCodexContextBudget } from './shared/context-budget.js';
 import { CODEX_SDK_EFFORTS, codexRunPolicy, mapPermissionModeToCodexOptions } from './shared/codex-work-mode.js';
@@ -369,6 +369,13 @@ export async function queryCodex(command, options = {}, ws) {
         }
       }
 
+      const helper = codexHelperPayload(event);
+      if (helper) {
+        const helperId = event.item?.id || event.id || JSON.stringify(helper);
+        for (const row of subagents.record(helper, capturedSessionId || sessionId || null, `${turnEventPrefix}:${helperId}`, event.timestamp, `${turnEventPrefix}:`)) sendMessage(ws, row);
+        continue;
+      }
+
       if (event.item?.type === 'collab_tool_call') {
         for (const row of subagents.event({ ...event.item, id: `${turnEventPrefix}:${event.item.id}` }, capturedSessionId || sessionId || null, resolvedModel)) sendMessage(ws, row);
         continue;
@@ -388,7 +395,7 @@ export async function queryCodex(command, options = {}, ws) {
 
       // Normalize the transformed event into NormalizedMessage(s) via adapter
       const normalizedMsgs = sessionsService.normalizeMessage('codex', transformed, capturedSessionId || sessionId || null);
-      for (const msg of normalizedMsgs) {
+      for (const msg of normalizedMsgs.flatMap((row) => subagents.message(row))) {
         // Only the executor emits completion, after CLI cleanup. A duplicate
         // adapter completion can flush the next user turn while this one lives.
         if (msg.kind === 'complete') continue;
