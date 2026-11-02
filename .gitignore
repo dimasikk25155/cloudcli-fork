@@ -157,3 +157,4 @@ electron/*.tar.gz
 
 # Local environment backups may contain live credentials
 .env.bak*
+.autopilot/serve.*

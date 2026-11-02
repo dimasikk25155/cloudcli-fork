@@ -1,0 +1,1 @@
+UI reference: existing RelayBand and attention/memory cards in this repository. Match their dark theme tokens, compact typography, ordinary buttons and expandable details. No new design direction or external assets needed.
