@@ -532,6 +532,11 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   }
 
   async function callTool(token: unknown, name: string, input: Record<string, unknown>): Promise<unknown> {
+    if (name === 'workspace_action') {
+      const owner = authorize(token);
+      const { callWorkspaceTool } = await import('../agent-workspace/index.js');
+      return callWorkspaceTool(owner.userId, owner.sessionId, input);
+    }
     switch (name) {
       case 'spawn_thread': return spawnThread(token, input);
       case 'thread_status': return threadStatus(token, input);

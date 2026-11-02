@@ -1,3 +1,5 @@
+import { HANDOFF_STORAGE_PREFIX, WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
+import { workspaceApi, workspaceJson } from '../../agent-workspace/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ChangeEvent,
@@ -1154,6 +1156,20 @@ export function useChatComposerState({
           summary: sessionSummary,
         });
       }
+      const handoffKey = HANDOFF_STORAGE_PREFIX + selectedProject.projectId;
+      const pendingHandoff = sessionStorage.getItem(handoffKey);
+      if (pendingHandoff) {
+        try {
+          const handoff = JSON.parse(pendingHandoff);
+          if (handoff.projectId !== selectedProject.projectId || !handoff.grantId) throw new Error('Некорректная передача материала');
+          await workspaceApi('/handoff/'+encodeURIComponent(handoff.grantId)+'/bind',workspaceJson('POST',{sessionId:targetSessionId}));
+          sessionStorage.removeItem(handoffKey);
+        } catch (error) {
+          addMessage({type:'error',content:error instanceof Error?error.message:'Не удалось привязать источник к чату',timestamp:new Date()});
+          return;
+        }
+      }
+
 
       const hiddenBrief = catalogBriefRef.current;
       catalogBriefRef.current = null;
@@ -1345,6 +1361,15 @@ export function useChatComposerState({
   useEffect(() => {
     inputValueRef.current = input;
   }, [input]);
+
+  useEffect(() => {
+    const loadHandoff = (event:Event) => {
+      if ((event as CustomEvent<{projectId:string}>).detail?.projectId !== selectedProjectId) return;
+      fillInput(safeLocalStorage.getItem('draft_input_'+selectedProjectId)||'');
+    };
+    window.addEventListener(WORKSPACE_CHAT_EVENT,loadHandoff);
+    return () => window.removeEventListener(WORKSPACE_CHAT_EVENT,loadHandoff);
+  },[selectedProjectId,fillInput]);
 
   useEffect(() => {
     if (!selectedProjectId) {

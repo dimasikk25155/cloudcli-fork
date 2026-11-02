@@ -1,4 +1,3 @@
-import { HANDOFF_STORAGE_PREFIX } from '../../agent-workspace/SendToAgentButton';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
@@ -327,21 +326,6 @@ function ChatInterface({
     setPendingPermissionRequests,
     resolvePermissionModeForProvider,
   });
-
-  useEffect(() => {
-    const id = selectedSession?.id || currentSessionId;
-    if (!id || !selectedProject?.projectId) return;
-    const key = HANDOFF_STORAGE_PREFIX + id;
-    const raw = sessionStorage.getItem(key);
-    if (!raw) return;
-    try {
-      const handoff = JSON.parse(raw);
-      if (handoff.projectId !== selectedProject.projectId || typeof handoff.text !== 'string') return;
-      // Only fill the normal composer. Sending remains the user's explicit action.
-      fillInput(handoff.text);
-      sessionStorage.removeItem(key);
-    } catch { /* Invalid local draft never starts a run. */ }
-  }, [selectedSession?.id, currentSessionId, selectedProject?.projectId, fillInput]);
 
   // Reply chips: ready answers for the last reply, when it ended with a question
   // or a request. The server decides and generates; any failure → no chips.

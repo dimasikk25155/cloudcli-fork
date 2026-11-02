@@ -103,7 +103,7 @@ function textOf(result: Record<string, unknown>): string {
   return content.map((block) => block.text).join('\n');
 }
 
-test('initialize and tools/list expose exactly the four thread tools with their inputs', async () => {
+test('initialize and tools/list expose thread tools and scoped workspace tool with their inputs', async () => {
   await withClient({ NEO3_THREADS_TOKEN: 'a'.repeat(64), NEO3_THREADS_API_URL: 'http://127.0.0.1:9/api/threads' }, async (client) => {
     const init = await client.request('initialize', { protocolVersion: '2024-11-05', capabilities: {} });
     assert.ok((init.result as { capabilities: { tools?: unknown } }).capabilities.tools);
@@ -111,7 +111,7 @@ test('initialize and tools/list expose exactly the four thread tools with their 
     const list = await client.request('tools/list');
     const tools = (list.result as { tools: Array<{ name: string; inputSchema: { properties: Record<string, unknown>; required?: string[] } }> }).tools;
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
-    assert.deepEqual([...byName.keys()].sort(), ['message_thread', 'spawn_thread', 'stop_thread', 'thread_status']);
+    assert.deepEqual([...byName.keys()].sort(), ['message_thread', 'spawn_thread', 'stop_thread', 'thread_status', 'workspace_action']);
     assert.deepEqual(Object.keys(byName.get('spawn_thread')!.inputSchema.properties).sort(), ['model', 'prompt', 'provider', 'title']);
     assert.deepEqual(byName.get('spawn_thread')!.inputSchema.required, ['prompt']);
     assert.deepEqual(Object.keys(byName.get('thread_status')!.inputSchema.properties).sort(), ['threadId', 'wait']);
@@ -205,4 +205,16 @@ test('an unknown tool is a tool error', async () => {
     const failed = (answer.result as Record<string, unknown> | undefined)?.isError === true || Boolean(answer.error);
     assert.ok(failed);
   });
+});
+
+test('threads off with workspace token forwards workspace action but still refuses spawning',async()=>{
+ await withFakeNeo3(()=>({status:200,body:{success:true,data:{id:'doc'}}}),async(apiUrl,recorded)=>{
+  await withClient({NEO3_THREADS_TOKEN:'e'.repeat(64),NEO3_THREADS_OFF:'1',NEO3_THREADS_API_URL:apiUrl},async client=>{
+   const denied=await client.request('tools/call',{name:'spawn_thread',arguments:{prompt:'No'}});
+   assert.equal((denied.result as Record<string,unknown>).isError,true);
+   const allowed=await client.request('tools/call',{name:'workspace_action',arguments:{action:'document.create',data:{title:'Brief',text:'Text'}}});
+   assert.notEqual((allowed.result as Record<string,unknown>).isError,true);
+   assert.deepEqual(recorded.map(r=>r.url),['/api/threads/tools/workspace_action']);
+  });
+ });
 });

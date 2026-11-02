@@ -44,6 +44,18 @@ const threadsOff = (process.env.NEO3_THREADS_OFF || '').trim() === '1';
 
 const tools: ToolDefinition[] = [
   {
+    name: 'workspace_action',
+    description: 'Work in this chat project only. Read handed-off mail, prepare reply drafts, create/revise documents, search opted-in knowledge and prepare assignments/tasks. Never sends, approves or publishes. Mail needs an explicit handoff bound to this chat. data contains action fields; id and revision identify an existing record.',
+    inputSchema: {
+      type:'object',
+      properties:{
+        action:{type:'string',enum:['document.list','document.read','document.create','document.revise','knowledge.search','assignment.list','assignment.read','assignment.create','assignment.update','project.users','task.create','mail.read','mail.draft']},
+        id:{type:'string'},revision:{type:'number'},data:{type:'object'},
+      },
+      required:['action'],
+    },
+  },
+  {
     name: 'spawn_thread',
     description: [
       'Open a new Neo3 chat (a "thread") in the same project and start it on a task. The thread is a real chat:',

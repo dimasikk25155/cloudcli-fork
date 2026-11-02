@@ -3,18 +3,33 @@ import type { Router } from 'express';
 import type { WorkspaceHandoff, WorkspaceProject, WorkspaceSource, WorkspaceUser } from '../../../shared/agent-workspace.js';
 
 import type { WorkspaceStore } from './store.js';
-export type HandoffResolver = (input: {userId:number;projectId:string;source:WorkspaceSource}) => Promise<{text:string;version?:string}> | {text:string;version?:string};
+export type HandoffResolver = (input: {
+    userId: number;
+    projectId: string;
+    source: WorkspaceSource;
+}) => Promise<{
+    text: string;
+    version?: string;
+}> | {
+    text: string;
+    version?: string;
+};
 export interface WorkspaceDependencies {
- store: WorkspaceStore;
- now(): string;
- canAccessProject(userId: number, projectId: string): boolean;
- isAdmin(userId:number): boolean;
- getUser(id:number): WorkspaceUser | null;
- listUsers(): WorkspaceUser[];
- getProject(id:string): WorkspaceProject | null;
- listProjects(userId:number): WorkspaceProject[];
- handoffs: Map<string,HandoffResolver>;
- fetch?: typeof fetch;
+    store: WorkspaceStore;
+    now(): string;
+    canAccessProject(userId: number, projectId: string): boolean;
+    isAdmin(userId: number): boolean;
+    getUser(id: number): WorkspaceUser | null;
+    listUsers(): WorkspaceUser[];
+    getProject(id: string): WorkspaceProject | null;
+    listProjects(userId: number): WorkspaceProject[];
+    handoffs: Map<string, HandoffResolver>;
+    fetch?: typeof fetch;
+    sessionProject?(userId: number, sessionId: string): string | null;
 }
-export interface WorkspaceFeatures { mail?: Router; documents?: Router; team?: Router }
+export interface WorkspaceFeatures {
+    mail?: Router;
+    documents?: Router;
+    team?: Router;
+}
 export type { WorkspaceHandoff };

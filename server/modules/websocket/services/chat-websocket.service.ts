@@ -1,3 +1,4 @@
+import { workspaceSessionHasGrant } from '../../agent-workspace/index.js';
 import path from 'node:path';
 
 import type { WebSocket } from 'ws';
@@ -462,7 +463,7 @@ function beginChatSend(
   // working on them; a chat without threads gets no token at all.
   let threadsToken: string | null = null;
   const threadsOn = (dependencies.isModOn ?? isModOn)(userId, 'modThreads');
-  if (threadsOn || sessionThreadsDb.listByParent(sessionId).length > 0) {
+  if (threadsOn || sessionThreadsDb.listByParent(sessionId).length > 0 || (userId && workspaceSessionHasGrant(Number(userId), sessionId))) {
     try {
       threadsToken = threadTokens.issue({ sessionId, userId, permissionMode: clientOptions.permissionMode });
     } catch (error) {
