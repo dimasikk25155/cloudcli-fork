@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { workspaceRoutes, publicIntakeRoutes } from './modules/agent-workspace/runtime.js';
 
 // Load environment variables before other imports execute
 import './load-env.js';
+import { workspaceRoutes, publicIntakeRoutes } from './modules/agent-workspace/runtime.js';
 import fs, { promises as fsPromises } from 'fs';
 import path from 'path';
 import os from 'os';

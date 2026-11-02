@@ -7,8 +7,12 @@ import type { WorkspaceDependencies } from './dependencies.js';
 import { createWorkspaceStore } from './store.js';
 import { createWorkspaceRouter } from './routes.js';
 const project=(r:ReturnType<typeof projectsDb.getProjectById>)=>r?{id:r.project_id,path:r.project_path,name:r.custom_project_name||r.project_path}:null;
+// Construct the repository only on first use, after the server bootstrap has
+// loaded DATABASE_PATH and initialized the application's database. Imports stay inert.
+let workspaceStore: ReturnType<typeof createWorkspaceStore> | undefined;
 export const workspaceDependencies:WorkspaceDependencies={
- store:createWorkspaceStore(getConnection()),now:()=>new Date().toISOString(),
+ get store() { return workspaceStore ??= createWorkspaceStore(getConnection()); },
+ now:()=>new Date().toISOString(),
  canAccessProject:(id,p)=>projectAccessFor({id})(p),isAdmin:id=>isAdminUser({id}),
  getUser:id=>{const u=userDb.getUserById(id);return u?{id:u.id,username:u.username}:null;},
  listUsers:()=>userDb.listUsers().filter(u=>u.is_active).map(u=>({id:u.id,username:u.username})),
