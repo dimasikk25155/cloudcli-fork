@@ -4,6 +4,8 @@ import type { Extension } from '@codemirror/state';
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { defaultDocumentPreview } from '../utils/documentPreview';
+import { useHtmlPreview } from '../hooks/useHtmlPreview';
 import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { copyTextToClipboard } from '../../../utils/clipboard';
@@ -15,6 +17,7 @@ import { createMinimapExtension, createScrollToFirstChunkExtension, getLanguageE
 import { getEditorStyles } from '../utils/editorStyles';
 import { createEditorToolbarPanelExtension } from '../utils/editorToolbarPanel';
 
+import CodeEditorHtmlPreview from './subcomponents/CodeEditorHtmlPreview';
 import CodeEditorFooter from './subcomponents/CodeEditorFooter';
 import CodeEditorHeader from './subcomponents/CodeEditorHeader';
 import CodeEditorLoadingState from './subcomponents/CodeEditorLoadingState';
@@ -32,7 +35,7 @@ type CodeEditorProps = {
   onPopOut?: (() => void) | null;
 };
 
-export default function CodeEditor({
+function CodeEditorDocument({
   file,
   onClose,
   projectPath,
@@ -47,7 +50,9 @@ export default function CodeEditor({
   const [showDiff, setShowDiff] = useState(Boolean(file.diffInfo));
   // Markdown открывается сразу читаемым видом: файл открывают, чтобы понять,
   // что в нём, а решётки и звёздочки этому мешают. Правка — в одно нажатие.
-  const [markdownPreview, setMarkdownPreview] = useState(() => /\.(md|markdown)$/i.test(file.name));
+  const [markdownPreview, setMarkdownPreview] = useState(() => defaultDocumentPreview(file) === 'markdown');
+
+  const [htmlPreview, setHtmlPreview] = useState(() => defaultDocumentPreview(file) === 'html');
 
   // The code editor follows the app-wide theme; it has no theme of its own.
   const { isDarkMode } = useTheme();
@@ -69,6 +74,7 @@ export default function CodeEditor({
     isBinary,
     previewKind,
     fileProjectId,
+    resolvedPath,
     handleSave,
     handleDownload,
     handleShareLink,
@@ -101,23 +107,10 @@ export default function CodeEditor({
     return extension === 'html' || extension === 'htm';
   }, [file.name]);
 
+  const html = useHtmlPreview(fileProjectId, resolvedPath, isHtmlPreviewFile && !file.diffInfo && !loading);
   const openHtmlPreview = useCallback(() => {
-    const previewWindow = window.open('', '_blank');
-    if (!previewWindow) return;
-
-    previewWindow.opener = null;
-    previewWindow.document.title = file.name;
-    previewWindow.document.body.style.margin = '0';
-
-    const iframe = previewWindow.document.createElement('iframe');
-    iframe.title = file.name;
-    iframe.sandbox.add('allow-forms', 'allow-modals', 'allow-popups', 'allow-scripts');
-    iframe.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;background:white';
-
-    iframe.srcdoc = content;
-
-    previewWindow.document.body.appendChild(iframe);
-  }, [content, file.name]);
+    if (html.url) window.open(html.url, '_blank', 'noopener,noreferrer');
+  }, [html.url]);
 
   const minimapExtension = useMemo(
     () => (
@@ -274,7 +267,10 @@ export default function CodeEditor({
             isSidebar={isSidebar}
             isFullscreen={isFullscreen}
             isMarkdownFile={isMarkdownFile}
-            isHtmlPreviewFile={isHtmlPreviewFile}
+            isHtmlPreviewFile={isHtmlPreviewFile && !file.diffInfo}
+            htmlPreview={htmlPreview}
+            htmlPreviewReady={Boolean(html.url)}
+            onToggleHtmlPreview={() => { setHtmlPreview((previous) => !previous); html.retry(); }}
             markdownPreview={markdownPreview}
             saving={saving}
             saveSuccess={saveSuccess}
@@ -327,7 +323,10 @@ export default function CodeEditor({
           )}
 
           <div className="flex-1 overflow-hidden">
-            <CodeEditorSurface
+            {htmlPreview && isHtmlPreviewFile ? (
+              <CodeEditorHtmlPreview url={html.url} name={file.name} error={html.error} onRetry={html.retry}
+                hasRootReferences={/(?:src|href|action)\s*=\s*["']\/(?!\/)|url\(\s*["']?\/(?!\/)/i.test(content)} />
+            ) : <CodeEditorSurface
               content={content}
               onChange={setContent}
               markdownPreview={markdownPreview}
@@ -336,7 +335,7 @@ export default function CodeEditor({
               fontSize={fontSize}
               showLineNumbers={showLineNumbers}
               extensions={extensions}
-            />
+            />}
           </div>
 
           <CodeEditorFooter
@@ -349,4 +348,9 @@ export default function CodeEditor({
       </div>
     </>
   );
+}
+
+// A different file is a different document: reset preview, buffers and pending requests together.
+export default function CodeEditor(props: CodeEditorProps) {
+  return <CodeEditorDocument key={`${props.file.projectId ?? props.projectPath}:${props.file.path}:${Boolean(props.file.diffInfo)}`} {...props} />;
 }

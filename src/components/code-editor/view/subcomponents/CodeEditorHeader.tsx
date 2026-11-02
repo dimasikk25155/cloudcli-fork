@@ -1,3 +1,4 @@
+import React from 'react';
 import { Check, Code2, Copy, Download, Eye, Link2, Loader2, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
 
 import type { CodeEditorFile } from '../../types/types';
@@ -9,6 +10,9 @@ type CodeEditorHeaderProps = {
   isMarkdownFile: boolean;
   isHtmlPreviewFile: boolean;
   markdownPreview: boolean;
+  htmlPreview?: boolean;
+  htmlPreviewReady?: boolean;
+  onToggleHtmlPreview?: () => void;
   saving: boolean;
   saveSuccess: boolean;
   onToggleMarkdownPreview: () => void;
@@ -45,6 +49,9 @@ export default function CodeEditorHeader({
   isMarkdownFile,
   isHtmlPreviewFile,
   markdownPreview,
+  htmlPreview,
+  htmlPreviewReady,
+  onToggleHtmlPreview,
   saving,
   saveSuccess,
   onToggleMarkdownPreview,
@@ -80,7 +87,7 @@ export default function CodeEditorHeader({
       </div>
 
       {/* Buttons - don't shrink, always visible */}
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-0.5">
         {isMarkdownFile && (
           <button
             type="button"
@@ -97,14 +104,15 @@ export default function CodeEditorHeader({
         )}
 
         {isHtmlPreviewFile && (
-          <button
-            type="button"
-            onClick={onOpenHtmlPreview}
-            className="flex items-center justify-center rounded-ui-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={labels.previewHtml}
-          >
-            <Eye className="h-4 w-4" />
-          </button>
+          <>
+            <button type="button" onClick={onToggleHtmlPreview} className="rounded-ui-md border border-border px-2 py-1 text-xs" aria-label={htmlPreview ? 'Показать код' : 'Показать превью'}>
+              {htmlPreview ? 'Код' : 'Превью'}
+            </button>
+            <button type="button" onClick={onOpenHtmlPreview} disabled={!htmlPreviewReady}
+              className="rounded-ui-md border border-border px-2 py-1 text-xs disabled:opacity-40" title={labels.previewHtml}>
+              В новой вкладке
+            </button>
+          </>
         )}
 
         <button

@@ -23,6 +23,7 @@ import { getConnectableHost } from '../shared/networkHosts.js';
 import { findAppRoot, getModuleDir } from './utils/runtime-paths.js';
 import { findByBasename, resolveProjectFilePath } from './utils/file-reference-resolver.js';
 import fileShareRoutes, { serveSharedFile } from './routes/file-share.js';
+import { createFilePreviewRoutes } from './modules/file-preview/file-preview.routes.js';
 import autopilotRoutes, { serveAutopilotAsset } from './routes/autopilot.js';
 import {
     queryClaudeSDK,
@@ -263,6 +264,9 @@ app.use('/api/threads', threadsRoutes);
 app.use('/api/team-mcp/telegram', teamTelegramRoutes);
 
 // Optional API key validation (if configured)
+const filePreviewRoutes = createFilePreviewRoutes({ resolve: resolveProjectFilePath });
+app.use('/api/file-preview', filePreviewRoutes.assets);
+
 app.use('/api', validateApiKey);
 
 // Authentication routes (public)
@@ -270,6 +274,7 @@ app.use('/api/auth', authRoutes);
 
 // Projects API Routes (protected)
 app.use('/api/projects/:projectId/code-status', authenticateToken, codeStatusRoutes);
+app.use('/api/projects/:projectId/files/preview', authenticateToken, filePreviewRoutes.create);
 app.use('/api/projects', authenticateToken, projectModuleRoutes);
 
 // Chat image asset upload/serving (global ~/.cloudcli/assets store, protected)
