@@ -90,3 +90,20 @@ test('structured activity links thread/path, enriches one terminal result, and f
   assert.equal(tracker.record(activity('follow', 'interacted'), 'parent', 'follow-start').length, 0);
   assert.equal(tracker.record(activity('new-end', 'completed'), 'parent', 'follow-end')[0].toolId, 'follow');
 });
+
+test('a first late final enriches its completed cycle without completing the active followup', () => {
+  const tracker = new CodexSubagentTracker();
+  const base = { sessionId: 'parent', provider: 'codex' as const, timestamp: '2026-11-02T03:00:00Z' };
+  tracker.message({ ...base, id: 'spawn', kind: 'tool_use', toolId: 'spawn', toolName: 'collaboration.spawn_agent' });
+  tracker.record({ type: 'SubAgentActivity', id: 'spawn', kind: 'started', agent_path: '/root/check' }, 'parent', 'start');
+  tracker.record({ type: 'SubAgentActivity', id: 'end-old', kind: 'completed', agent_path: '/root/check' }, 'parent', 'end-old');
+  tracker.message({ ...base, id: 'follow', kind: 'tool_use', toolId: 'follow', toolName: 'collaboration.followup_task', toolInput: { target: 'check' } });
+  const final = (text: string) => ({ type: 'agent_message', author: '/root/check', recipient: '/root', content: [{ type: 'input_text', text: `Message Type: FINAL_ANSWER\nTask name: /root\nSender: /root/check\nPayload: ${text}` }] });
+  const late = tracker.record(final('OLD result'), 'parent', 'first-old-final');
+  assert.equal(late[0].toolId, 'spawn');
+  assert.equal(late[0].summary, 'OLD result');
+  assert.ok(late.every(row => row.toolId !== 'follow'));
+  const current = tracker.record({ type: 'SubAgentActivity', id: 'end-new', kind: 'completed', agent_path: '/root/check' }, 'parent', 'end-new');
+  assert.equal(current[0].toolId, 'follow');
+  assert.equal(tracker.record(final('NEW result'), 'parent', 'first-new-final')[0].summary, 'NEW result');
+});

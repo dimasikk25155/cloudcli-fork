@@ -37,6 +37,7 @@ export function codexHelperPayload(event: unknown): Record<string, any> | null {
 /** Spawn completion means the helper started, not that its work finished. */
 export class CodexSubagentTracker {
   private calls = new Map<string, string>();
+  private previousCalls = new Map<string, string>();
   private tools = new Map<string, { kind: string; input: Record<string, any> }>();
   private started = new Set<string>();
   private finished = new Map<string, { status: string; summary: string }>();
@@ -76,7 +77,10 @@ export class CodexSubagentTracker {
         this.started.add(message.toolId);
         if (kind === 'followup_task' && typeof input.target === 'string') {
           const previous = this.resolve(input.target);
-          if (previous) for (const [alias, call] of this.calls) if (call === previous) this.calls.set(alias, message.toolId);
+          if (previous && previous !== message.toolId) {
+            this.previousCalls.set(message.toolId, previous);
+            for (const [alias, call] of this.calls) if (call === previous) this.calls.set(alias, message.toolId);
+          }
         }
         return [{ ...message, toolName: 'spawn_agent', toolInput: { ...input, run_in_background: true } }];
       }
@@ -124,12 +128,28 @@ export class CodexSubagentTracker {
         if (call) rows = this.finish(call, payload.kind === 'completed' ? 'completed' : 'failed', '', sessionId);
       }
     } else if (payload.type === 'agent_message') {
-      const call = this.resolve(payload.author ?? '');
+      const activeCall = this.resolve(payload.author ?? '');
+      const call = activeCall ? this.finalCall(activeCall) : undefined;
       const text = Array.isArray(payload.content) ? payload.content.map((part: any) => typeof part?.text === 'string' ? part.text : '').join('\n') : '';
       const match = /^Message Type: FINAL_ANSWER\r?\nTask name: ([^\r\n]+)\r?\nSender: ([^\r\n]+)\r?\nPayload:\s*([\s\S]*)$/.exec(text);
       if (call && match && match[1] === payload.recipient && match[2] === payload.author) rows = this.finish(call, 'completed', match[3], sessionId);
     }
     return timestamp ? rows.map(row => ({ ...row, timestamp })) : rows;
+  }
+
+  private finalCall(activeCall: string): string {
+    // FINAL_ANSWER identifies the helper, not its cycle. Preserve completed
+    // cycles waiting for that separate envelope across followup alias changes.
+    let result = activeCall;
+    let previous = this.previousCalls.get(activeCall);
+    const seen = new Set([activeCall]);
+    while (previous && !seen.has(previous)) {
+      seen.add(previous);
+      const ending = this.finished.get(previous);
+      if (ending?.status === 'completed' && !ending.summary) result = previous;
+      previous = this.previousCalls.get(previous);
+    }
+    return result;
   }
 
   private finish(toolId: string, status: string, summary: string, sessionId: string | null): NormalizedMessage[] {
