@@ -1,4 +1,4 @@
-import { HANDOFF_STORAGE_PREFIX, WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
+import { bindPendingWorkspaceHandoffs, cancelPendingWorkspaceHandoffs, WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
 import { workspaceApi, workspaceJson } from '../../agent-workspace/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
@@ -312,6 +312,7 @@ export function useChatComposerState({
     }
     return '';
   });
+  const [workspaceHandoffError, setWorkspaceHandoffError] = useState<{ projectId: string; message: string } | null>(null);
   const [attachedImages, setAttachedImages] = useState<File[]>([]);
   const [uploadingImages, setUploadingImages] = useState<Map<string, number>>(new Map());
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
@@ -1156,20 +1157,17 @@ export function useChatComposerState({
           summary: sessionSummary,
         });
       }
-      const handoffKey = HANDOFF_STORAGE_PREFIX + selectedProject.projectId;
-      const pendingHandoff = sessionStorage.getItem(handoffKey);
-      if (pendingHandoff) {
-        try {
-          const handoff = JSON.parse(pendingHandoff);
-          if (handoff.projectId !== selectedProject.projectId || !handoff.grantId) throw new Error('Некорректная передача материала');
-          await workspaceApi('/handoff/'+encodeURIComponent(handoff.grantId)+'/bind',workspaceJson('POST',{sessionId:targetSessionId}));
-          sessionStorage.removeItem(handoffKey);
-        } catch (error) {
-          addMessage({type:'error',content:error instanceof Error?error.message:'Не удалось привязать источник к чату',timestamp:new Date()});
-          return;
-        }
+      try {
+        await bindPendingWorkspaceHandoffs(selectedProject.projectId!, targetSessionId, sessionStorage,
+          (grantId, sessionId) => workspaceApi('/handoff/' + encodeURIComponent(grantId) + '/bind', workspaceJson('POST', { sessionId })));
+        setWorkspaceHandoffError(null);
+      } catch (error) {
+        setWorkspaceHandoffError({
+          projectId: selectedProject.projectId!,
+          message: error instanceof Error ? error.message : 'Не удалось привязать источник к чату',
+        });
+        return;
       }
-
 
       const hiddenBrief = catalogBriefRef.current;
       catalogBriefRef.current = null;
@@ -1849,6 +1847,12 @@ export function useChatComposerState({
   );
 
   return {
+    workspaceHandoffError: workspaceHandoffError && workspaceHandoffError.projectId === selectedProject?.projectId ? workspaceHandoffError.message : null,
+    cancelWorkspaceHandoff: () => {
+      if (!selectedProject?.projectId) return;
+      cancelPendingWorkspaceHandoffs(selectedProject.projectId, sessionStorage);
+      setWorkspaceHandoffError(null);
+    },
     input,
     setInput,
     textareaRef,

@@ -21,14 +21,14 @@ export function createTeamRouter(deps:WorkspaceDependencies) {
 }
 export function createPublicIntakeRouter(deps:WorkspaceDependencies) {
  const router=Router(),intake=createIntake(deps);
- // Bounded, process-local abuse buckets plus persistent 500-session/form cap; no forwarded IP trust.
+ // Bounded, process-local abuse buckets plus persistent 500-session/form cap; forwarding trusted only by the application proxy policy.
  const buckets=new Map<string,{minute:number;count:number;hour:number;starts:number}>();let globalMinute=0,globalCount=0;
  router.use((req,res,next)=>{
   res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');
   const now=Date.parse(deps.now()),minute=Math.floor(now/60000),hour=Math.floor(now/3600000);
   if(globalMinute!==minute){globalMinute=minute;globalCount=0;}
   if(++globalCount>1000){res.status(429).json({error:'Слишком много запросов'});return;}
-  const key=req.socket.remoteAddress??'unknown';let bucket=buckets.get(key);
+  const key=req.ip??req.socket.remoteAddress??'unknown';let bucket=buckets.get(key);
   if(!bucket){if(buckets.size>=10000)buckets.clear();bucket={minute,count:0,hour,starts:0};buckets.set(key,bucket);}
   if(bucket.minute!==minute){bucket.minute=minute;bucket.count=0;}if(bucket.hour!==hour){bucket.hour=hour;bucket.starts=0;}
   if(++bucket.count>60||(req.path==='/start'&&++bucket.starts>10)){res.status(429).json({error:'Слишком много запросов. Попробуйте позже'});return;}next();

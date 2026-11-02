@@ -228,6 +228,13 @@ const wss = createWebSocketServer(server, {
 app.locals.wss = wss;
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
+// Only explicitly configured proxy addresses may supply the visitor IP.
+const trustedProxies = (process.env.NEO3_TRUSTED_PROXIES || '').split(',').map(value => value.trim()).filter(Boolean);
+app.set('trust proxy', trustedProxies.length ? trustedProxies : false);
+
+// Public intake authenticates with form/session capabilities, never the staff API key.
+app.use('/api/public-intake', publicIntakeRoutes);
+
 app.use(express.json({
     limit: '50mb',
     type: (req) => {
@@ -263,8 +270,6 @@ app.use('/api/threads', threadsRoutes);
 // project only (server/modules/team-telegram). Bearer = the run's token.
 app.use('/api/team-mcp/telegram', teamTelegramRoutes);
 
-// Public intake authenticates with form/session capabilities, never the staff API key.
-app.use('/api/public-intake', publicIntakeRoutes);
 
 // Optional API key validation (if configured)
 app.use('/api', validateApiKey);

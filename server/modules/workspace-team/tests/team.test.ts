@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import Database from 'better-sqlite3';
 import express from 'express';
@@ -65,4 +66,34 @@ test('public HTTP strictly limits schema and request size, never exposes staff A
   const malformed=await fetch(base+'/public/start',{method:'POST',headers:{'content-type':'application/json'},body:'{'});assert.equal(malformed.status,400);assert.match(malformed.headers.get('content-type')??'',/application\/json/);assert.equal('stack' in (await malformed.json() as Record<string,unknown>),false);
   for(let i=0;i<11;i++)await post('/public/start',{formToken:form.payload.token});assert.equal((await post('/public/start',{formToken:form.payload.token})).status,429);
  }finally{await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));db.close();}
+});
+
+test('production mounts bounded public parser before general parsers', async () => {
+ const entry=readFileSync(new URL('../../../index.js',import.meta.url),'utf8');
+ const publicMount=entry.indexOf("app.use('/api/public-intake', publicIntakeRoutes)");
+ assert.ok(publicMount>0 && publicMount<entry.indexOf('app.use(express.json('),'public body must not reach the general parser first');
+ const {db,deps}=fixture();const app=express();
+ app.use('/api/public-intake',createPublicIntakeRouter(deps));
+ app.use(express.json({limit:'50mb'}));app.use(express.urlencoded({limit:'50mb',extended:true}));
+ const server=app.listen(0,'127.0.0.1');await new Promise<void>(r=>server.once('listening',r));
+ const address=server.address();assert.ok(address&&typeof address==='object');
+ const post=(body:string)=>fetch('http://127.0.0.1:'+address.port+'/api/public-intake/start',{method:'POST',headers:{'content-type':'application/json'},body});
+ try {
+  const large=await post(JSON.stringify({formToken:'a'.repeat(14000)}));assert.equal(large.status,413);assert.deepEqual(await large.json(),{error:'Запрос слишком большой'});
+  const malformed=await post('{');assert.equal(malformed.status,400);assert.deepEqual(await malformed.json(),{error:'Некорректный запрос'});
+ } finally {await new Promise<void>(r=>server.close(()=>r()));db.close();}
+});
+
+test('intake rate buckets separate trusted proxy visitors and ignore spoofed forwarding without trust',async()=>{
+ for(const trustProxy of [false,'loopback'] as const){
+ const {db,deps,service}=fixture();const app=express();app.set('trust proxy',trustProxy);app.use('/public',createPublicIntakeRouter(deps));
+ const form=service.createForm(1,{projectId:'p',title:'Public',fields:[{id:'note',label:'Note',type:'text',required:true}]});service.updateForm(1,form.id,1,{enabled:true});
+ const server=app.listen(0,'127.0.0.1');await new Promise<void>(r=>server.once('listening',r));const address=server.address();assert.ok(address&&typeof address==='object');
+ const post=(ip:string)=>fetch('http://127.0.0.1:'+address.port+'/public/start',{method:'POST',headers:{'content-type':'application/json','x-forwarded-for':ip},body:JSON.stringify({formToken:form.payload.token})});
+ try {
+  for(let n=0;n<10;n++)assert.equal((await post('192.0.2.1')).status,201);
+  assert.equal((await post('192.0.2.1')).status,429);
+  assert.equal((await post('192.0.2.2')).status,trustProxy?201:429);
+ }finally{await new Promise<void>(r=>server.close(()=>r()));db.close();}
+ }
 });
