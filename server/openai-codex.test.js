@@ -4,7 +4,7 @@ import test from 'node:test';
 import { Codex } from '@openai/codex-sdk';
 
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
-import { queryCodex, buildCodexClientOptions, isCodexSessionActive } from './openai-codex.js';
+import { queryCodex, buildCodexClientOptions, isCodexSessionActive, abortCodexSession } from './openai-codex.js';
 
 test('Codex receives the same Neo3 hook marker as Claude and Grok', () => {
   assert.equal(buildCodexClientOptions({}, {}).env.NEO3_SESSION, '1');
@@ -133,4 +133,86 @@ test('a resumed model missing from the catalog retains its SDK effort', async (t
   });
   for (const effort of ['low', 'high', 'low']) await queryCodex('fixture', { effort }, { send() {} });
   assert.deepEqual(launches.map(options => options.modelReasoningEffort), ['low', 'high', 'low']);
+});
+
+function fixtureStream(t, events) {
+  t.mock.method(providerModelsService, 'getProviderModels', async () => ({ models: { DEFAULT: 'fixture', OPTIONS: [] } }));
+  t.mock.method(providerModelsService, 'resolveResumeModel', async () => 'fixture');
+  t.mock.method(providerModelsService, 'resolveResumeEffort', async () => undefined);
+  t.mock.method(Codex.prototype, 'startThread', () => ({
+    runStreamed: async () => ({ events: (async function* () { yield* events; })() }),
+  }));
+}
+
+test('fatal SDK error is visible and cannot finish successfully', async (t) => {
+  fixtureStream(t, [{ type: 'thread.started', thread_id: 'fatal-fixture' }, { type: 'error', message: 'Connection exhausted' }]);
+  const rows = [];
+  await queryCodex('fixture', {}, { isWebSocketWriter: true, send: row => rows.push(row) });
+  assert.equal(rows.filter(row => row.kind === 'error').length, 1);
+  assert.match(rows.find(row => row.kind === 'error').content, /Connection exhausted/);
+  assert.equal(rows.filter(row => row.kind === 'complete').length, 1);
+  assert.equal(rows.find(row => row.kind === 'complete').exitCode, 1);
+  assert.equal(isCodexSessionActive('fatal-fixture'), false);
+});
+
+test('EOF without turn.completed is a failed run, even after assistant text', async (t) => {
+  fixtureStream(t, [
+    { type: 'thread.started', thread_id: 'truncated-fixture' },
+    { type: 'item.completed', item: { id: 'partial', type: 'agent_message', text: 'Partial output.' } },
+  ]);
+  const rows = [];
+  await queryCodex('fixture', {}, { isWebSocketWriter: true, send: row => rows.push(row) });
+  assert.equal(rows.find(row => row.kind === 'complete').exitCode, 1);
+  assert.equal(rows.filter(row => row.kind === 'error').length, 1);
+});
+
+test('completion is published only after the active run is released', async (t) => {
+  fixtureStream(t, [
+    { type: 'thread.started', thread_id: 'release-fixture' },
+    { type: 'turn.completed', usage: {} },
+  ]);
+  const activeAtCompletion = [];
+  await queryCodex('fixture', {}, { isWebSocketWriter: true, send: row => {
+    if (row.kind === 'complete') activeAtCompletion.push(isCodexSessionActive('release-fixture'));
+  } });
+  assert.deepEqual(activeAtCompletion, [false]);
+  assert.equal(abortCodexSession('release-fixture'), false, 'completed runs cannot be aborted');
+});
+
+test('an upstream error containing aborted is not mistaken for user cancellation', async (t) => {
+  fixtureStream(t, []);
+  t.mock.method(Codex.prototype, 'startThread', () => ({ runStreamed: async () => { throw new Error('Transport aborted unexpectedly'); } }));
+  const rows = [];
+  await queryCodex('fixture', {}, { isWebSocketWriter: true, send: row => rows.push(row) });
+  assert.equal(rows.filter(row => row.kind === 'complete').length, 1);
+  assert.equal(rows.find(row => row.kind === 'complete').exitCode, 1);
+});
+
+test('caller cancellation before thread discovery reaches the SDK and never reports success', async (t) => {
+  fixtureStream(t, []);
+  const controller = new AbortController();
+  let receivedSignal;
+  t.mock.method(Codex.prototype, 'startThread', () => ({ runStreamed: async (_input, options) => {
+    receivedSignal = options.signal;
+    controller.abort();
+    throw new Error('process cancelled before thread.started');
+  } }));
+  const rows = [];
+  await queryCodex('fixture', { signal: controller.signal }, { isWebSocketWriter: true, send: row => rows.push(row) });
+  assert.equal(receivedSignal.aborted, true);
+  assert.equal(rows.some(row => row.kind === 'complete' || row.kind === 'error'), false);
+});
+
+test('user abort during a tool releases the run without a duplicate completion', async (t) => {
+  fixtureStream(t, [
+    { type: 'thread.started', thread_id: 'abort-fixture' },
+    { type: 'item.started', item: { id: 'call', type: 'command_execution', command: 'fixture', status: 'in_progress' } },
+  ]);
+  const rows = [];
+  await queryCodex('fixture', {}, { isWebSocketWriter: true, send: row => {
+    rows.push(row);
+    if (row.kind === 'tool_use') abortCodexSession('abort-fixture');
+  } });
+  assert.equal(isCodexSessionActive('abort-fixture'), false);
+  assert.equal(rows.some(row => row.kind === 'complete' || row.kind === 'error'), false);
 });

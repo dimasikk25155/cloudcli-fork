@@ -1,5 +1,4 @@
-import { spawn } from 'node:child_process';
-import readline from 'node:readline';
+import { readCodexRpc, type CodexReadRpcOptions } from './codex-rpc.js';
 
 export type CodexLimitWindow = {
   utilization: number;
@@ -36,39 +35,8 @@ export function parseCodexLimits(result: any): CodexUsageSnapshot | null {
 }
 
 /** Official read-only RPC. No prompt, thread, credential export or model call. */
-export function readCodexLimits({ spawnImpl = spawn, timeoutMs = 12_000 } = {}): Promise<CodexUsageSnapshot | null> {
-  return new Promise((resolve) => {
-    const child = spawnImpl('codex', ['app-server'], { stdio: ['pipe', 'pipe', 'ignore'] });
-    const lines = readline.createInterface({ input: child.stdout! });
-    let settled = false;
-    const finish = (value: CodexUsageSnapshot | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      lines.close();
-      child.stdin?.end();
-      child.kill();
-      resolve(value);
-    };
-    const timer = setTimeout(() => finish(null), timeoutMs);
-    const send = (request: unknown) => child.stdin?.write(`${JSON.stringify(request)}\n`);
-    child.on('error', () => finish(null));
-    child.on('exit', () => finish(null));
-    child.stdin?.on('error', () => finish(null));
-    lines.on('line', (line) => {
-      try {
-        const response = JSON.parse(line);
-        if (response.id === 1) {
-          if (response.error) return finish(null);
-          send({ method: 'initialized', params: {} });
-          send({ id: 2, method: 'account/rateLimits/read' });
-        } else if (response.id === 2) {
-          finish(response.error ? null : parseCodexLimits(response.result));
-        }
-      } catch { /* Ignore non-protocol stdout; never log account data. */ }
-    });
-    send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'neo3_usage', version: '1.0.0' } } });
-  });
+export async function readCodexLimits(options: CodexReadRpcOptions = {}): Promise<CodexUsageSnapshot | null> {
+  return parseCodexLimits(await readCodexRpc('account/rateLimits/read', {}, options));
 }
 
 export function createCodexUsageReader(read = readCodexLimits, now = Date.now) {

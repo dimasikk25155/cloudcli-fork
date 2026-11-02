@@ -31,11 +31,16 @@ elif name=='git':
         (app/'package.json').write_text('{"version":"1.38.0"}')
         (app/'dist/index.html').write_text('<script src="/assets/index-new.js"></script>')
         (app/'marker').write_text('new')
+    elif 'rev-parse' in args:
+        if os.environ.get('FIXTURE_ACTOR') != 'fixture':
+            print('fatal: detected dubious ownership in repository', file=sys.stderr)
+            sys.exit(128)
+        print(sha)
     else: print(sha)
 elif name=='runuser':
     command=args[args.index('--')+1:]
     if command[:2]==['env','-i']:
-        command[2:2]=['FIXTURE_HOME='+str(home),'FIXTURE_MODE='+os.environ.get('FIXTURE_MODE','')]
+        command[2:2]=['FIXTURE_HOME='+str(home),'FIXTURE_MODE='+os.environ.get('FIXTURE_MODE',''),'FIXTURE_ACTOR=fixture']
     os.execvpe(command[0],command,os.environ)
 elif name=='node': print('24')
 elif name=='npm': pass
@@ -69,7 +74,7 @@ async function fixture(t, mode) {
   return { home, result };
 }
 
-test('updater switches only after checks and retains the exact old application and env', async (t) => {
+test('updater checks the cloned repository as its owner and retains the old application and env', async (t) => {
   const { home, result } = await fixture(t, 'ok');
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.equal(await fs.readFile(path.join(home, 'app/marker'), 'utf8'), 'new');

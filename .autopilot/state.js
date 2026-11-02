@@ -4,7 +4,7 @@ window.STATE =
   "slug": "improvement-ideas",
   "dir": "2026-11-02-improvement-ideas--wip",
   "title": "Идеи улучшений и проверка выхода из плана",
-  "mode": "semi",
+  "mode": "full",
   "depth": "normal",
   "tier": "T1",
   "briefFile": "2026-11-02-brief.md",
@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.codex/skills/autopilot",
   "baseCommit": "e1e4d38b",
   "startedAt": "2026-11-02T03:19:42+03:00",
-  "updatedAt": "2026-11-02T03:45:05+03:00",
+  "updatedAt": "2026-11-02T05:15:22+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -38,7 +38,7 @@ window.STATE =
       "id": "spec",
       "status": "done",
       "startedAt": "2026-11-02T03:19:55+03:00",
-      "finishedAt": "2026-11-02T03:22:10+03:00"
+      "finishedAt": "2026-11-02T03:45:04+03:00"
     },
     {
       "id": "plan",
@@ -65,10 +65,10 @@ window.STATE =
     }
   ],
   "requirements": {
-    "total": 6,
+    "total": 10,
     "done": 6,
     "inTicket": 0,
-    "inSpec": 0,
+    "inSpec": 4,
     "placeholder": 0,
     "deferred": 0,
     "dropped": 0
@@ -154,10 +154,12 @@ window.STATE =
   },
   "additions": [],
   "coverage": {
-    "found": 1,
+    "found": 2,
     "fixed": 1,
-    "deferred": 0,
-    "items": []
+    "deferred": 1,
+    "items": [
+      "Browser QA: approved Edge executable absent (ENOENT); verify API/SSR/tests, report browser gap"
+    ]
   },
   "concerns": [],
   "blind": {
@@ -176,15 +178,19 @@ window.STATE =
     "2026-11-02T03:22:34+03:00",
     "2026-11-02T03:38:18+03:00",
     "2026-11-02T03:45:04+03:00",
-    "2026-11-02T03:45:05+03:00"
+    "2026-11-02T03:45:05+03:00",
+    "2026-11-02T05:14:37+03:00",
+    "2026-11-02T05:15:22+03:00"
   ],
-  "rev": 25,
-  "waiting": {
-    "kind": "action",
-    "since": "2026-11-02T03:45:05+03:00",
-    "note": "Применить готовый мод идей в Neo3 отдельным релизом и безопасно перезапустить; source 75ea7f9a, проверки пройдены"
-  },
-  "waits": [],
+  "rev": 29,
+  "waiting": null,
+  "waits": [
+    {
+      "kind": "action",
+      "from": "2026-11-02T03:45:05+03:00",
+      "to": "2026-11-02T05:14:37+03:00"
+    }
+  ],
   "log": [
     {
       "t": "2026-11-02T03:19:42+03:00",
@@ -342,6 +348,34 @@ window.STATE =
       "k": "ask",
       "kind": "action",
       "note": "Применить готовый мод идей в Neo3 отдельным релизом и безопасно перезапустить; source 75ea7f9a, проверки пройдены"
+    },
+    {
+      "t": "2026-11-02T05:14:37+03:00",
+      "k": "answered",
+      "kind": "action"
+    },
+    {
+      "t": "2026-11-02T05:14:37+03:00",
+      "k": "gate",
+      "g": "G1",
+      "ok": true,
+      "open": 0,
+      "total": 10
+    },
+    {
+      "t": "2026-11-02T05:14:37+03:00",
+      "k": "stage",
+      "id": "spec",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-02T05:15:22+03:00",
+      "k": "gate",
+      "g": "G2",
+      "ok": true,
+      "found": 2,
+      "fixed": 1,
+      "deferred": 1
     }
   ],
   "reqList": [
@@ -374,21 +408,41 @@ window.STATE =
       "id": "R06",
       "text": "«В ИНТЕРФЕЙСЕ cli чтобы я сразу одобрял если идею нужно реализовать сразау»",
       "status": "done"
+    },
+    {
+      "id": "G07",
+      "text": "«когда я жму на html я хочу увидеть сайт а не код»",
+      "status": "in-spec"
+    },
+    {
+      "id": "G08",
+      "text": "«кликом в веб интерфейсе нажжать на твой ответ на гиперссылку»",
+      "status": "in-spec"
+    },
+    {
+      "id": "G09",
+      "text": "«если он не .md то в идеале открыть его в браузере html страницой»",
+      "status": "in-spec"
+    },
+    {
+      "id": "G10",
+      "text": "«хочу видеть все своими глазами либо в превью по ссылке или уже на мейн»",
+      "status": "in-spec"
     }
   ],
   "gates": {
     "G1": {
       "ok": true,
-      "at": "2026-11-02T03:19:55+03:00",
+      "at": "2026-11-02T05:14:37+03:00",
       "open": 0,
-      "total": 6
+      "total": 10
     },
     "G2": {
       "ok": true,
-      "at": "2026-11-02T03:22:10+03:00",
-      "found": 1,
+      "at": "2026-11-02T05:15:22+03:00",
+      "found": 2,
       "fixed": 1,
-      "deferred": 0
+      "deferred": 1
     },
     "G3": {
       "ok": true,

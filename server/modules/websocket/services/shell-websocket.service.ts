@@ -9,7 +9,7 @@ import { projectsDb } from '@/modules/database/index.js';
 import { readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
 import { canAccessProject } from '@/shared/project-access.js';
 import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
-import { jailCommand, userJailFor } from '@/shared/user-jail.js';
+import { jailCommand, prepareCodexHome, userJailFor } from '@/shared/user-jail.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 
 type ShellIncomingMessage = {
@@ -119,7 +119,8 @@ function resolveResumeSessionId(
  */
 function buildShellCommand(
   message: ShellIncomingMessage,
-  dependencies: ShellWebSocketDependencies
+  dependencies: ShellWebSocketDependencies,
+  jailed = false,
 ): string {
   const hasSession = readBoolean(message.hasSession);
   const initialCommand = readString(message.initialCommand);
@@ -144,13 +145,16 @@ function buildShellCommand(
   }
 
   if (provider === 'codex') {
+    // The shared daemon would separate execution from this PTY's environment
+    // and outer jail. A jailed Codex must not nest its own Seatbelt sandbox.
+    const command = `codex --no-daemon${jailed ? ' --sandbox danger-full-access' : ''}`;
     if (resumeSessionId) {
       if (os.platform() === 'win32') {
-        return `codex resume "${resumeSessionId}"; if ($LASTEXITCODE -ne 0) { codex }`;
+        return `${command} resume "${resumeSessionId}"; if ($LASTEXITCODE -ne 0) { ${command} }`;
       }
-      return `codex resume "${resumeSessionId}" || codex`;
+      return `${command} resume "${resumeSessionId}" || ${command}`;
     }
-    return 'codex';
+    return command;
   }
 
   if (provider === 'opencode') {
@@ -358,7 +362,7 @@ export function handleShellConnection(
           return;
         }
 
-        const shellCommand = buildShellCommand(data, dependencies);
+        const shellCommand = buildShellCommand(data, dependencies, Boolean(jail));
         const resumeSessionId = resolveResumeSessionId(data, dependencies);
         // No command to run -> interactive login shell (the terminal a user can
         // type into). Otherwise run the single command and exit, as before.
@@ -385,6 +389,9 @@ export function handleShellConnection(
           cwd: resolvedProjectPath,
           env: {
             ...process.env,
+            // Match chat runs: a teammate's terminal must never load the owner's
+            // Codex history/config (also applies to Codex typed in plain shell).
+            ...(jail ? { CODEX_HOME: prepareCodexHome(jail) } : {}),
             [prioritizedPath.key]: prioritizedPath.value,
             TERM: 'xterm-256color',
             COLORTERM: 'truecolor',

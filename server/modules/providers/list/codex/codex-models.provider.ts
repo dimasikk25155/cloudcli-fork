@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import TOML from '@iarna/toml';
 
+import { codexHome } from '@/shared/codex-paths.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderChangeActiveModelInput,
@@ -96,15 +96,13 @@ type CodexCachedModel = {
   }>;
 };
 
-const CODEX_MODELS_CACHE_PATH = path.join(os.homedir(), '.codex', 'models_cache.json');
-const CODEX_CONFIG_PATH = path.join(os.homedir(), '.codex', 'config.toml');
 
 const isCodexCachedModel = (value: unknown): value is CodexCachedModel => {
   const record = readObjectRecord(value);
   return Boolean(record && readOptionalString(record.slug));
 };
 
-const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'persistent'];
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
 const family = (slug: string) => /^gpt-\d+(?:\.\d+)*-(astra|sol)$/.exec(slug)?.[1];
 const newest = (a: string, b: string) => b.localeCompare(a, undefined, { numeric: true });
@@ -143,7 +141,7 @@ export const buildCodexModelsDefinition = (models: CodexCachedModel[], previous 
 
 export class CodexProviderModels implements IProviderModels {
   private lastValid = CODEX_FALLBACK_MODELS;
-  constructor(private cachePath = CODEX_MODELS_CACHE_PATH) {}
+  constructor(private cachePath = path.join(codexHome(), 'models_cache.json')) {}
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
     try {
       const raw = await readFile(this.cachePath, { encoding: 'utf8', signal: AbortSignal.timeout(2000) });
@@ -163,7 +161,7 @@ export class CodexProviderModels implements IProviderModels {
 
   async getCurrentActiveModel(): Promise<ProviderCurrentActiveModel> {
     try {
-      const raw = await readFile(CODEX_CONFIG_PATH, 'utf8');
+      const raw = await readFile(path.join(codexHome(), 'config.toml'), 'utf8');
       const parsed = readObjectRecord(TOML.parse(raw));
       const model = readOptionalString(parsed?.model);
       if (!model) {

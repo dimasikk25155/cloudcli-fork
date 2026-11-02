@@ -4,6 +4,7 @@ import { promises as fsPromises } from 'node:fs';
 
 import chokidar, { type FSWatcher } from 'chokidar';
 
+import { codexHome } from '@/shared/codex-paths.js';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
@@ -24,7 +25,7 @@ const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> =
   },
   {
     provider: 'codex',
-    rootPath: path.join(os.homedir(), '.codex', 'sessions'),
+    rootPath: path.join(codexHome(), 'sessions'),
   },
   {
     provider: 'opencode',

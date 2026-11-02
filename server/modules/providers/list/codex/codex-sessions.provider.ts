@@ -112,18 +112,22 @@ export function extractCodexResponseUserMessage(payload: AnyRecord): AnyRecord |
   ));
   const images: Array<{ path?: string; data?: string }> = [];
   const text: string[] = [];
+  let imagePathPending = false;
   for (const part of parts) {
+    if (!part || typeof part !== 'object') continue;
     if (part.type === 'input_text' && typeof part.text === 'string') {
       // Codex surrounds an image item with two text-only transport markers.
       const imageOpen = /^<image\s+name=[^\n]*?\s+path="([^"]+)">\s*$/.exec(part.text);
       if (imageOpen) {
         images.push({ path: imageOpen[1] });
+        imagePathPending = true;
       } else if (part.text.trim() !== '</image>') {
         text.push(part.text);
       }
     } else if (part.type === 'input_image' && typeof part.image_url === 'string') {
       // Prefer the preceding path marker over duplicating its base64 payload.
-      if (images.length === 0 || !images.at(-1)?.path) images.push({ data: part.image_url });
+      if (!imagePathPending) images.push({ data: part.image_url });
+      imagePathPending = false;
     } else if (part.type === 'local_image' && typeof part.path === 'string') {
       images.push({ path: part.path });
     }
@@ -151,6 +155,7 @@ async function getCodexSessionMessages(
     }
 
     const messages: AnyRecord[] = [];
+    let lineNumber = 0;
     let tokenUsage: AnyRecord | null = null;
     const fileStream = fsSync.createReadStream(sessionFilePath);
     const rl = readline.createInterface({
@@ -159,12 +164,14 @@ async function getCodexSessionMessages(
     });
 
     for await (const line of rl) {
+      lineNumber++;
       if (!line.trim()) {
         continue;
       }
 
       try {
         const entry = JSON.parse(line) as AnyRecord;
+        const firstNewMessage = messages.length;
 
         const budget = readCodexContextBudget(entry);
         if (budget) tokenUsage = budget;
@@ -263,29 +270,21 @@ async function getCodexSessionMessages(
           const input = entry.payload.input || '';
 
           if (toolName === 'apply_patch') {
-            const fileMatch = String(input).match(/\*\*\* Update File: (.+)/);
-            const filePath = fileMatch ? fileMatch[1].trim() : 'unknown';
-            const lines = String(input).split('\n');
-            const oldLines: string[] = [];
-            const newLines: string[] = [];
-
-            for (const lineContent of lines) {
-              if (lineContent.startsWith('-') && !lineContent.startsWith('---')) {
-                oldLines.push(lineContent.slice(1));
-              } else if (lineContent.startsWith('+') && !lineContent.startsWith('+++')) {
-                newLines.push(lineContent.slice(1));
-              }
+            // One native patch may add, delete, rename and update several files.
+            // Do not fabricate a single Claude Edit by merging unrelated hunks.
+            const changes: Array<{ kind: string; path: string; moveTo?: string }> = [];
+            for (const lineContent of String(input).split('\n')) {
+              const file = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(lineContent);
+              if (file) changes.push({ kind: file[1].toLowerCase(), path: file[2].trim() });
+              const move = /^\*\*\* Move to: (.+)$/.exec(lineContent);
+              if (move && changes.length) changes[changes.length - 1].moveTo = move[1].trim();
             }
 
             messages.push({
               type: 'tool_use',
               timestamp: entry.timestamp,
-              toolName: 'Edit',
-              toolInput: JSON.stringify({
-                file_path: filePath,
-                old_string: oldLines.join('\n'),
-                new_string: newLines.join('\n'),
-              }),
+              toolName: 'FileChanges',
+              toolInput: { changes, patch: input },
               toolCallId: entry.payload.call_id,
             });
           } else {
@@ -306,6 +305,9 @@ async function getCodexSessionMessages(
             toolCallId: entry.payload.call_id,
             output: entry.payload.output || '',
           });
+        }
+        for (let index = firstNewMessage; index < messages.length; index++) {
+          messages[index].uuid ??= `codex-history:${sessionId}:${lineNumber}:${index - firstNewMessage}`;
         }
       } catch {
         // Skip malformed lines.
@@ -605,6 +607,13 @@ export class CodexSessionsProvider implements IProviderSessions {
         provider: PROVIDER,
         kind: 'error',
         content: raw.error?.message || 'Turn failed',
+      })];
+    }
+
+    if (raw.type === 'error') {
+      return [createNormalizedMessage({
+        id: baseId, sessionId, timestamp: ts, provider: PROVIDER,
+        kind: 'error', content: typeof raw.message === 'string' ? raw.message : 'Codex stream failed',
       })];
     }
 

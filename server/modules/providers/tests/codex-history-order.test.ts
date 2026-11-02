@@ -70,6 +70,8 @@ test('Codex 0.153 history keeps real prompts, excludes injected user context, an
       await writeFile(transcript, rows.map((row) => JSON.stringify(row)).join('\n') + '\n');
       const history = await provider.fetchHistory(session);
       const server = history.messages as NormalizedMessage[];
+      assert.deepEqual((await provider.fetchHistory(session)).messages.map(row => row.id), server.map(row => row.id),
+        'refreshing an unchanged transcript must preserve row identity');
       assert.equal(server.filter((row) => row.role === 'user').length, turn);
       assert.ok(!server.some((row) => row.content?.includes('Injected AGENTS')));
       realtime = pruneRealtimeSupersededByServer(server, realtime);
@@ -109,4 +111,18 @@ test('modern Codex user images keep attachments but hide image transport and inj
   assert.equal(result?.message.content, 'ну вот письмо');
   assert.deepEqual(result?.images, [{ path: '/tmp/shot.png' }]);
   assert.equal(extractCodexResponseUserMessage({ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'AGENTS.md' }] }), null);
+});
+
+test('a local image followed by an inline image keeps both attachments', () => {
+  const result = extractCodexResponseUserMessage({
+    type: 'message', role: 'user',
+    internal_chat_message_metadata_passthrough: { content_item_kinds: ['user.text', 'user.image', 'user.text', 'user.image'] },
+    content: [
+      { type: 'input_text', text: '<image name=[Image #1] path="/tmp/first.png">' },
+      { type: 'input_image', image_url: 'data:image/png;base64,first' },
+      { type: 'input_text', text: '</image>' },
+      { type: 'input_image', image_url: 'data:image/png;base64,second' },
+    ],
+  });
+  assert.deepEqual(result?.images, [{ path: '/tmp/first.png' }, { data: 'data:image/png;base64,second' }]);
 });

@@ -41,7 +41,10 @@ export function mapPermissionModeToCodexOptions(permissionMode: unknown) {
     default:
       return {
         sandboxMode: 'workspace-write',
-        approvalPolicy: 'untrusted'
+        // SDK 0.166 still advertises "untrusted", but its bundled CLI rejects
+        // that retired policy before starting a turn. Keep the workspace
+        // sandbox and use the supported request-based escalation policy.
+        approvalPolicy: 'on-request'
       };
   }
 }

@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { codexHome } from '@/shared/codex-paths.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
 import { NEO3_THREADS_ENV_NAMES } from '@/shared/threads-env.js';
 import type { ProviderMcpServer } from '@/shared/types.js';
@@ -80,7 +81,7 @@ export function shouldRegisterThreadsMcp(env: Record<string, string | undefined>
 function configFileOf(provider: 'claude' | 'codex'): string {
   return provider === 'claude'
     ? path.join(os.homedir(), '.claude.json')
-    : path.join(os.homedir(), '.codex', 'config.toml');
+    : path.join(codexHome(), 'config.toml');
 }
 
 /** Copy of the file as it was before neo3-threads first changed it (kept once). */

@@ -542,7 +542,7 @@
       "modes": {
         "default": {
           "title": "Default",
-          "description": "Only trusted commands (ls, cat, grep, git status, etc.) run automatically. Other commands are skipped. Can write to workspace."
+          "description": "Commands and file edits run in the project sandbox. Additional permission requests are not supported in the current Codex interface; those actions may be denied."
         },
         "acceptEdits": {
           "title": "Accept Edits",
@@ -555,7 +555,7 @@
       },
       "technicalDetails": "Technical details",
       "technicalInfo": {
-        "default": "sandboxMode=workspace-write, approvalPolicy=untrusted. Trusted commands: cat, cd, grep, head, ls, pwd, tail, git status/log/diff/show, find (without -exec), etc.",
+        "default": "sandboxMode=workspace-write, approvalPolicy=on-request. CLI 0.166 no longer supports untrusted. Interactive approval responses are unavailable through exec.",
         "acceptEdits": "sandboxMode=workspace-write, approvalPolicy=never. All commands auto-execute within project directory.",
         "bypassPermissions": "sandboxMode=danger-full-access, approvalPolicy=never. Full system access, use only in trusted environments.",
         "overrideNote": "You can override this per-session using the mode button in the chat interface."
@@ -604,7 +604,7 @@
     },
     "help": {
       "title": "About Codex MCP",
-      "description": "Codex supports stdio-based MCP servers. You can add servers that extend Codex's capabilities with additional tools and resources."
+      "description": "Codex supports local stdio and remote HTTP MCP servers. Add servers to give Codex additional tools and resources."
     }
   },
   "pluginSettings": {

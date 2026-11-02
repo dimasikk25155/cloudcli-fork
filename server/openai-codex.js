@@ -14,13 +14,11 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { Codex } from '@openai/codex-sdk';
 
+import { resolveBundledCodex } from './shared/codex-paths.js';
 import { CodexSubagentTracker } from './modules/providers/list/codex/codex-subagents.js';
 import { codexMeterMessage } from './modules/providers/list/codex/codex-usage.js';
 import { readCodexContextBudget } from './shared/context-budget.js';
@@ -29,7 +27,6 @@ import { shouldYieldForUser } from './shared/turn-ending.js';
 import { buildCodexInputItems, normalizeImageDescriptors } from './shared/image-attachments.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
-import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { withThreadsEnv } from './shared/threads-env.js';
@@ -216,24 +213,6 @@ export function buildCodexClientOptions(options = {}, policy = {}) {
   };
 }
 
-/** The Codex binary the SDK itself would start (same lookup as its findCodexPath). */
-function resolveBundledCodex() {
-  const triple = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`;
-  const sdkRequire = createRequire(fileURLToPath(import.meta.resolve('@openai/codex-sdk')));
-  const codexRequire = createRequire(sdkRequire.resolve('@openai/codex/package.json'));
-  const platformPackage = `@openai/codex-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
-  const packageRoot = path.join(path.dirname(codexRequire.resolve(`${platformPackage}/package.json`)), 'vendor', triple);
-  const layouts = [
-    { bin: path.join(packageRoot, 'bin', 'codex'), pathDir: path.join(packageRoot, 'codex-path') },
-    { bin: path.join(packageRoot, 'codex', 'codex'), pathDir: path.join(packageRoot, 'path') },
-  ];
-  const found = layouts.find((layout) => fs.existsSync(layout.bin));
-  if (!found) {
-    throw new Error('Codex CLI binary not found for the jailed run.');
-  }
-  return { executablePath: found.bin, pathDirs: fs.existsSync(found.pathDir) ? [found.pathDir] : [] };
-}
-
 /**
  * Execute a Codex query with streaming
  * @param {string} command - The prompt to send
@@ -290,7 +269,11 @@ export async function queryCodex(command, options = {}, ws) {
   let sessionCreatedSent = false;
   let terminalFailure = null;
   let waitingForUser = false;
+  let turnCompleted = false;
+  let activeRun = null;
   const abortController = new AbortController();
+  const externalSignal = options.signal instanceof AbortSignal ? options.signal : null;
+  const signal = externalSignal ? AbortSignal.any([abortController.signal, externalSignal]) : abortController.signal;
   const subagents = new CodexSubagentTracker();
   const turnEventPrefix = randomUUID();
 
@@ -317,13 +300,14 @@ export async function queryCodex(command, options = {}, ws) {
       if (!id) {
         return;
       }
-      activeCodexSessions.set(id, {
+      activeRun = {
         thread,
         codex,
         status: 'running',
         abortController,
         startedAt: new Date().toISOString()
-      });
+      };
+      activeCodexSessions.set(id, activeRun);
     };
 
     if (capturedSessionId) {
@@ -336,7 +320,7 @@ export async function queryCodex(command, options = {}, ws) {
       ? buildCodexInputItems(command, images, workingDirectory)
       : command;
     const streamedTurn = await thread.runStreamed(turnInput, {
-      signal: abortController.signal
+      signal
     });
 
     for await (const event of streamedTurn.events) {
@@ -359,7 +343,7 @@ export async function queryCodex(command, options = {}, ws) {
       }
 
       // Check if session was aborted
-      if (abortController.signal.aborted) {
+      if (signal.aborted) {
         break;
       }
       if (capturedSessionId) {
@@ -404,8 +388,8 @@ export async function queryCodex(command, options = {}, ws) {
         break;
       }
 
-      if (event.type === 'turn.failed' && !terminalFailure) {
-        terminalFailure = event.error || new Error('Turn failed');
+      if ((event.type === 'turn.failed' || event.type === 'error') && !terminalFailure) {
+        terminalFailure = event.error || new Error(event.message || 'Turn failed');
         notifyRunFailed({
           userId: ws?.userId || null,
           provider: 'codex',
@@ -417,6 +401,7 @@ export async function queryCodex(command, options = {}, ws) {
 
       // Extract and send token usage if available (normalized to match Claude format)
       if (event.type === 'turn.completed') {
+        turnCompleted = true;
         options.meter?.addMessage(codexMeterMessage(event.usage, resolvedModel, capturedSessionId || undefined));
         const tokenBudget = readCodexContextBudget(event);
         if (tokenBudget) {
@@ -425,52 +410,27 @@ export async function queryCodex(command, options = {}, ws) {
       }
     }
 
-    // Send the terminal completion event — skipped for aborted runs, whose
-    // terminal `complete` (aborted: true) was already sent by abort-session.
-    const runSession = capturedSessionId ? activeCodexSessions.get(capturedSessionId) : null;
-    const runAborted = runSession?.status === 'aborted' || abortController.signal.aborted;
-    if (!runAborted) {
-      sendMessage(ws, createCompleteMessage({
-        provider: 'codex',
-        sessionId: capturedSessionId || sessionId || null,
-        actualSessionId: capturedSessionId || thread.id || sessionId || null,
-        exitCode: terminalFailure ? 1 : 0,
-      }));
-      if (!terminalFailure) {
-        notifyRunStopped({
-          userId: ws?.userId || null,
-          provider: 'codex',
-          sessionId: capturedSessionId || sessionId || null,
-          sessionName: sessionSummary,
-          stopReason: 'completed'
-        });
-      }
+    if (!turnCompleted && !terminalFailure && !signal.aborted) {
+      throw new Error('Codex stream ended before turn.completed. The response may be incomplete.');
     }
 
   } catch (error) {
-    const session = capturedSessionId ? activeCodexSessions.get(capturedSessionId) : null;
-    const wasAborted =
-      (waitingForUser && abortController.signal.aborted) ||
-      session?.status === 'aborted' ||
-      error?.name === 'AbortError' ||
-      String(error?.message || '').toLowerCase().includes('aborted');
+    // Only our own cancellation signal proves a user stop/question boundary.
+    // A network AbortError (or an error mentioning "aborted") is still a failure.
+    const wasAborted = signal.aborted || activeRun?.status === 'aborted';
 
     if (!wasAborted) {
       console.error('[Codex] Error:', error);
 
       // Check if Codex SDK is available for a clearer error message
-      const installed = await providerAuthService.isProviderInstalled('codex');
+      let installed = true;
+      try { resolveBundledCodex(); } catch { installed = false; }
       const errorContent = !installed
         ? 'Codex CLI is not configured. Please set up authentication first.'
         : error.message;
 
-      sendMessage(ws, createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));
-      sendMessage(ws, createCompleteMessage({
-        provider: 'codex',
-        sessionId: capturedSessionId || sessionId || null,
-        exitCode: 1,
-      }));
       if (!terminalFailure) {
+        sendMessage(ws, createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));
         notifyRunFailed({
           userId: ws?.userId || null,
           provider: 'codex',
@@ -479,25 +439,24 @@ export async function queryCodex(command, options = {}, ws) {
           error
         });
       }
+      terminalFailure ??= error;
     }
 
   } finally {
-    // Update session status
-    if (capturedSessionId) {
-      const session = activeCodexSessions.get(capturedSessionId);
-      if (session) {
-        session.status = session.status === 'aborted' ? 'aborted' : 'completed';
-      }
-    }
-    if (waitingForUser) {
+    // Release before publishing complete: a writer may immediately start the
+    // next turn. Never mutate that newer run through the shared session map.
+    const userAborted = activeRun?.status === 'aborted' || externalSignal?.aborted;
+    if (activeRun) activeRun.status = userAborted ? 'aborted' : terminalFailure ? 'failed' : 'completed';
+    if (!userAborted) {
       sendMessage(ws, createCompleteMessage({
         provider: 'codex', sessionId: capturedSessionId || sessionId || null,
-        actualSessionId: capturedSessionId || sessionId || null, exitCode: 0,
+        actualSessionId: capturedSessionId || thread?.id || sessionId || null,
+        exitCode: terminalFailure ? 1 : 0,
       }));
-      notifyRunStopped({
+      if (!terminalFailure) notifyRunStopped({
         userId: ws?.userId || null, provider: 'codex',
         sessionId: capturedSessionId || sessionId || null,
-        sessionName: sessionSummary, stopReason: 'question',
+        sessionName: sessionSummary, stopReason: waitingForUser ? 'question' : 'completed',
       });
     }
   }
@@ -511,7 +470,7 @@ export async function queryCodex(command, options = {}, ws) {
 export function abortCodexSession(sessionId) {
   const session = activeCodexSessions.get(sessionId);
 
-  if (!session) {
+  if (!session || session.status !== 'running') {
     return false;
   }
 

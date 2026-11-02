@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 
+import { codexHome } from '@/shared/codex-paths.js';
 import { SkillsProvider } from '@/modules/providers/shared/skills/skills.provider.js';
 import type { ProviderSkillSource } from '@/shared/types.js';
 import {
@@ -25,18 +26,16 @@ export class CodexSkillsProvider extends SkillsProvider {
     });
 
     if (repoRoot) {
-      // Codex checks repository skills at the launch folder, one folder above it,
-      // and the topmost git root; these can collapse to the same directory.
-      addUniqueProviderSkillSource(sources, seenRootDirs, {
-        scope: 'repo',
-        rootDir: path.join(path.dirname(workspacePath), '.agents', 'skills'),
-        commandPrefix: '$',
-      });
-      addUniqueProviderSkillSource(sources, seenRootDirs, {
-        scope: 'repo',
-        rootDir: path.join(repoRoot, '.agents', 'skills'),
-        commandPrefix: '$',
-      });
+      // Codex scans every ancestor, including intermediate monorepo folders.
+      let current = workspacePath;
+      while (current !== repoRoot) {
+        const parent = path.dirname(current);
+        if (parent === current || path.relative(repoRoot, parent).startsWith('..')) break;
+        addUniqueProviderSkillSource(sources, seenRootDirs, {
+          scope: 'repo', rootDir: path.join(parent, '.agents', 'skills'), commandPrefix: '$',
+        });
+        current = parent;
+      }
     }
 
     // Codex App / CLI stores the user's skill library next to its config.
@@ -45,7 +44,7 @@ export class CodexSkillsProvider extends SkillsProvider {
     // does not pick the bundled set up as user skills.
     addUniqueProviderSkillSource(sources, seenRootDirs, {
       scope: 'user',
-      rootDir: path.join(os.homedir(), '.codex', 'skills'),
+      rootDir: path.join(codexHome(), 'skills'),
       commandPrefix: '$',
     });
     addUniqueProviderSkillSource(sources, seenRootDirs, {
@@ -60,7 +59,7 @@ export class CodexSkillsProvider extends SkillsProvider {
     });
     addUniqueProviderSkillSource(sources, seenRootDirs, {
       scope: 'system',
-      rootDir: path.join(os.homedir(), '.codex', 'skills', '.system'),
+      rootDir: path.join(codexHome(), 'skills', '.system'),
       commandPrefix: '$',
     });
 
@@ -77,7 +76,7 @@ export class CodexSkillsProvider extends SkillsProvider {
   protected async getGlobalSkillSource(): Promise<ProviderSkillSource> {
     return {
       scope: 'user',
-      rootDir: path.join(os.homedir(), '.codex', 'skills'),
+      rootDir: path.join(codexHome(), 'skills'),
       commandPrefix: '$',
     };
   }

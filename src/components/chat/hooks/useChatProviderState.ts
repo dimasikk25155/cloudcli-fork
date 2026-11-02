@@ -103,8 +103,8 @@ const readStoredProvider = (): LLMProvider => {
 const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
   claude: ['default', 'bypassPermissions', 'plan'],
   cursor: ['default', 'bypassPermissions', 'plan'],
-  // No plan mode: the Codex CLI has no read-only agent to map it onto.
-  codex: ['default', 'bypassPermissions'],
+  // Codex's read-only sandbox implements plan mode, including before API load.
+  codex: ['default', 'bypassPermissions', 'plan'],
   opencode: ['default', 'bypassPermissions', 'plan'],
   // Headless `kimi -p` is always fully autonomous; there is no mode to pick.
   kimi: ['default'],
@@ -581,7 +581,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     // Before the matrix lands (first paint) fall back to engines that actually
     // carry work modes. Grok's backend sets supportsWorkMode: true; without
     // this the chip is missing on the first frame of a new Grok chat.
-    return targetProvider === 'claude' || targetProvider === 'grok';
+    return targetProvider === 'claude' || targetProvider === 'codex' || targetProvider === 'grok';
   }, [providerCapabilities]);
 
   const getEffortOptionsForModel = useCallback((

@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import TOML from '@iarna/toml';
 
 import { userDb } from '@/modules/database/index.js';
+import { codexHome } from '@/shared/codex-paths.js';
 
 export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
@@ -156,13 +157,15 @@ export function buildJailProfile(jail: UserJail, home = os.homedir(), appRoot = 
     '(allow default)',
     // Home and external disks: nothing readable or writable by default.
     `(deny file-read* file-write* (subpath ${sbString(home)}) (subpath "/Volumes"))`,
+    ...(codexHome(home) !== path.join(home, '.codex')
+      ? [`(deny file-read* file-write* (subpath ${sbString(codexHome(home))}))`] : []),
     // stat() along the path is fine (realpath, cwd); listing or reading is not.
     '(allow file-read-metadata)',
     // Engines and their toolchains.
     // Not ~/.claude.json (MCP keys) and not ~/.codex (Dima's Codex chats):
     // Claude runs without it, Codex gets the teammate's own folder below.
     `${rw} (subpath ${h('.claude')}) (subpath ${h('.grok')})`,
-    `  (literal ${h('.codex/auth.json')}) (subpath ${sbString(jailCodexHome(jail, home))})`,
+    `  (literal ${sbString(path.join(codexHome(home), 'auth.json'))}) (subpath ${sbString(jailCodexHome(jail, home))})`,
     `  (subpath ${h('.local')}) (subpath ${h('.npm')}) (subpath ${h('.cache')})`,
     `  (subpath ${h('Library/Caches')}) (subpath ${h('Library/Keychains')}))`,
     `(allow file-read* (literal ${h('.gitconfig')}) (literal ${h('.npmrc')})`,
@@ -216,13 +219,20 @@ export function prepareCodexHome(jail: UserJail, home = os.homedir(), telegramUr
   const dir = jailCodexHome(jail, home);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const authLink = path.join(dir, 'auth.json');
-  if (!fs.existsSync(authLink)) {
+  const sourceAuth = path.join(codexHome(home), 'auth.json');
+  let refreshLink = !fs.existsSync(authLink);
+  try {
+    if (fs.lstatSync(authLink).isSymbolicLink()) {
+      refreshLink = path.resolve(dir, fs.readlinkSync(authLink)) !== path.resolve(sourceAuth);
+    }
+  } catch { /* A missing link is created below; a regular user auth file stays intact. */ }
+  if (refreshLink) {
     try { fs.unlinkSync(authLink); } catch { /* no dangling link */ }
-    fs.symlinkSync(path.join(home, '.codex', 'auth.json'), authLink);
+    fs.symlinkSync(sourceAuth, authLink);
   }
   let source: Record<string, unknown> = {};
   try {
-    source = TOML.parse(fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8')) as Record<string, unknown>;
+    source = TOML.parse(fs.readFileSync(path.join(codexHome(home), 'config.toml'), 'utf8')) as Record<string, unknown>;
   } catch { /* no config of Dima's: defaults */ }
   const config: Record<string, unknown> = {};
   for (const key of CODEX_CONFIG_KEYS) {
@@ -256,6 +266,21 @@ const CODEX_CONFIG_KEYS = [
  * Calendar, Drive ride on the shared subscription).
  */
 export const JAIL_CLAUDE_ENV = { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } as const;
+
+/**
+ * Grok keeps one project's chats in `~/.grok/sessions/<url-encoded real cwd>/`.
+ * Creating that directory asks for write-mode on `~/.grok/sessions` itself.
+ * The jail denies that (it would expose every other project's chats), so the
+ * first jailed run dies with FS_PERMISSION_DENIED and leaves an empty session
+ * folder. Once the directory exists, later runs only write inside it and succeed.
+ * Make the directory here, outside the jail, before spawn. Do not chmod the
+ * parent: that is the operation the jail is there to forbid.
+ */
+export function prepareGrokSessionDir(jail: UserJail, grokHome = path.join(os.homedir(), '.grok')): string {
+  const dir = path.join(grokHome, 'sessions', encodeURIComponent(jail.root));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
 
 /** argv that starts `command args…` inside the jail. */
 export function jailCommand(jail: UserJail, command: string, args: string[]): { command: string; args: string[] } {
