@@ -15,3 +15,5 @@
 | G08 | «кликом в веб интерфейсе нажжать на твой ответ на гиперссылку» | done | Работает из ответа агента, пути с пробелами | spec § Просмотр файлов → T02 → e142b87 |
 | G09 | «если он не .md то в идеале открыть его в браузере html страницой» | done | ASSUMPTION: browser-supported formats rendered; code stays code, unsupported binary downloads, Markdown unchanged | spec § Просмотр файлов → T02 → e142b87 |
 | G10 | «хочу видеть все своими глазами либо в превью по ссылке или уже на мейн» | done | Доступное превью, проверка клика; production separate explicit release boundary | spec § Просмотр файлов → T02 → e142b87 |
+
+| G11 | «путь же битый всю дорогу ты мне показываешь, антигравити без % папка называется» | done | Decode Markdown href once at URL/file boundary, preserve literal percent filenames | spec § Кодирование ссылок → T03 → e834108 |

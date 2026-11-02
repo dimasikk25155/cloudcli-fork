@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.codex/skills/autopilot",
   "baseCommit": "e1e4d38b",
   "startedAt": "2026-11-02T03:19:42+03:00",
-  "updatedAt": "2026-11-02T05:29:06+03:00",
+  "updatedAt": "2026-11-02T05:38:59+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -66,8 +66,8 @@ window.STATE =
     }
   ],
   "requirements": {
-    "total": 10,
-    "done": 10,
+    "total": 11,
+    "done": 11,
     "inTicket": 0,
     "inSpec": 0,
     "placeholder": 0,
@@ -145,6 +145,36 @@ window.STATE =
       "commit": "e142b871"
     },
     {
+      "id": "03",
+      "title": "Ссылки с пробелами открывают файл",
+      "requirements": [
+        "G08",
+        "G11"
+      ],
+      "blockedBy": [
+        "02"
+      ],
+      "wave": 5,
+      "zone": [
+        "src/components/chat/utils/filePathDetection.ts",
+        "src/components/chat/utils/filePathDetection.test.ts",
+        "src/components/chat/view/subcomponents/Markdown.tsx",
+        "src/components/chat/view/subcomponents/Markdown.test.tsx"
+      ],
+      "review": "нет",
+      "model": "сильная",
+      "status": "done",
+      "retries": 0,
+      "repairs": 0,
+      "startedAt": "2026-11-02T05:33:32+03:00",
+      "finishedAt": "2026-11-02T05:38:59+03:00",
+      "tests": {
+        "passed": 17,
+        "failed": 0
+      },
+      "commit": "e8341086"
+    },
+    {
       "id": "F1",
       "title": "Полные идеи и корректные ошибки карточек",
       "requirements": [
@@ -192,10 +222,10 @@ window.STATE =
       "review": "да — ремонт ветки",
       "model": "сильная",
       "status": "done",
-      "retries": 0,
-      "repairs": 0,
       "startedAt": "2026-11-02T05:26:15+03:00",
       "finishedAt": "2026-11-02T05:28:05+03:00",
+      "retries": 0,
+      "repairs": 0,
       "tests": {
         "passed": 8,
         "failed": 0
@@ -204,7 +234,7 @@ window.STATE =
     }
   ],
   "tests": {
-    "passed": 1598,
+    "passed": 17,
     "failed": 0
   },
   "debt": {
@@ -249,19 +279,23 @@ window.STATE =
     "2026-11-02T05:26:15+03:00",
     "2026-11-02T05:28:05+03:00",
     "2026-11-02T05:28:28+03:00",
-    "2026-11-02T05:29:06+03:00"
+    "2026-11-02T05:29:06+03:00",
+    "2026-11-02T05:33:31+03:00",
+    "2026-11-02T05:33:32+03:00",
+    "2026-11-02T05:38:59+03:00"
   ],
-  "rev": 51,
-  "waiting": {
-    "kind": "action",
-    "since": "2026-11-02T05:29:06+03:00",
-    "note": "HTML preview e142b871+dffd551f проверен; применение dist/dist-server и безопасный restart требует отдельного согласования; browser E2E pending Edge ENOENT"
-  },
+  "rev": 57,
+  "waiting": null,
   "waits": [
     {
       "kind": "action",
       "from": "2026-11-02T03:45:05+03:00",
       "to": "2026-11-02T05:14:37+03:00"
+    },
+    {
+      "kind": "action",
+      "from": "2026-11-02T05:29:06+03:00",
+      "to": "2026-11-02T05:33:31+03:00"
     }
   ],
   "log": [
@@ -610,6 +644,43 @@ window.STATE =
       "k": "ask",
       "kind": "action",
       "note": "HTML preview e142b871+dffd551f проверен; применение dist/dist-server и безопасный restart требует отдельного согласования; browser E2E pending Edge ENOENT"
+    },
+    {
+      "t": "2026-11-02T05:33:31+03:00",
+      "k": "answered",
+      "kind": "action"
+    },
+    {
+      "t": "2026-11-02T05:33:31+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-02T05:33:31+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-02T05:33:32+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-02T05:38:59+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 17,
+        "failed": 0
+      }
     }
   ],
   "reqList": [
@@ -662,6 +733,11 @@ window.STATE =
       "id": "G10",
       "text": "«хочу видеть все своими глазами либо в превью по ссылке или уже на мейн»",
       "status": "done"
+    },
+    {
+      "id": "G11",
+      "text": "«путь же битый всю дорогу ты мне показываешь, антигравити без % папка называется»",
+      "status": "done"
     }
   ],
   "gates": {
@@ -680,7 +756,7 @@ window.STATE =
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-02T05:26:15+03:00",
+      "at": "2026-11-02T05:33:31+03:00",
       "problems": 0
     },
     "G4": {
