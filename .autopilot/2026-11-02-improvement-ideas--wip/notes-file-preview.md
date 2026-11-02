@@ -1,0 +1,3 @@
+# File preview exploration
+Markdown.tsx -> openFileInEditor(stripLineSuffix) -> MainContent.tsx openPathFromChat/pathInfo/openResolvedFile/openFileAsModal -> useEditorSidebar handleFileOpen -> CodeEditor.tsx. HTML currently code; optional eye opens srcdoc losing relative assets. Markdown defaults rendered; media preview exists; MainContent DOWNLOAD_EXTENSIONS downloads PDF/office/archive.
+Server existing files/content and path-info in server/index.js; resolver server/utils/file-reference-resolver.js allows admin external absolute paths. New preview must enforce canonical path containment and project access. Existing authenticated API helper src/utils/api.ts or API modules should be discovered narrowly. No new packages.
