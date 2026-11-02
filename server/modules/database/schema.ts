@@ -1,3 +1,13 @@
+export const WORKSPACE_RECORDS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS workspace_records (
+ id TEXT PRIMARY KEY, kind TEXT NOT NULL, owner_user_id INTEGER NOT NULL,
+ project_id TEXT, revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
+ payload TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_owner_kind ON workspace_records(owner_user_id,kind);
+CREATE INDEX IF NOT EXISTS idx_workspace_project_kind ON workspace_records(project_id,kind);
+`;
+
 const USER_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -625,4 +635,5 @@ ${IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL}
 ${LAST_SCANNED_AT_SQL}
 
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
+${WORKSPACE_RECORDS_SCHEMA_SQL}
 `;

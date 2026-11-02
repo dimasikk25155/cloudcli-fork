@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { workspaceRoutes, publicIntakeRoutes } from './modules/agent-workspace/runtime.js';
 
 // Load environment variables before other imports execute
 import './load-env.js';
@@ -262,11 +263,15 @@ app.use('/api/threads', threadsRoutes);
 // project only (server/modules/team-telegram). Bearer = the run's token.
 app.use('/api/team-mcp/telegram', teamTelegramRoutes);
 
+// Public intake authenticates with form/session capabilities, never the staff API key.
+app.use('/api/public-intake', publicIntakeRoutes);
+
 // Optional API key validation (if configured)
 app.use('/api', validateApiKey);
 
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
+app.use('/api/agent-workspace', authenticateToken, workspaceRoutes);
 
 // Projects API Routes (protected)
 app.use('/api/projects/:projectId/code-status', authenticateToken, codeStatusRoutes);

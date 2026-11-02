@@ -1,0 +1,19 @@
+import React,{useEffect,useState} from 'react';
+
+import type { DailyTask, WorkspacePanelProps, WorkspaceRecord } from '../../../../shared/agent-workspace';
+import { requestHubPanel } from '../../hub/hubPanels';
+import { workspaceApi,workspaceJson } from '../api';
+import SendToAgentButton from '../SendToAgentButton';
+export default function DailyPanel({projectId,onClose}:WorkspacePanelProps){
+ const [rows,setRows]=useState<WorkspaceRecord<DailyTask>[]>([]),[title,setTitle]=useState(''),[due,setDue]=useState(''),[priority,setPriority]=useState(0),[error,setError]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
+ const load=async()=>{try{setRows(await workspaceApi('/tasks'));setError('');}catch(e){setError(String(e));}finally{setLoading(false);}};
+ useEffect(()=>{void load();},[]);
+ const save=async()=>{setBusy(true);try{await workspaceApi('/tasks',workspaceJson('POST',{title,dueAt:due?new Date(due).toISOString():null,priority,completed:false}));setTitle('');await load();}catch(e){setError(String(e));}finally{setBusy(false);}};
+ const update=async(row:WorkspaceRecord<DailyTask>,patch:Partial<DailyTask>)=>{try{await workspaceApi('/tasks/'+row.id,workspaceJson('PATCH',{revision:row.revision,...patch}));await load();}catch(e){setError(String(e));}};
+ const active=rows.filter(r=>!r.payload.completed);const top=active.filter(r=>r.payload.priority>0).sort((a,b)=>a.payload.priority-b.payload.priority||a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id)).slice(0,3);
+ return <div className="space-y-4"><div className="flex justify-between"><h2 className="font-semibold">Мой день</h2><button onClick={()=>{onClose?.();requestHubPanel('schedules');}} className="text-sm underline">Расписания</button></div>
+ <p className="text-xs text-muted-foreground">Сроки в вашем часовом поясе: {Intl.DateTimeFormat().resolvedOptions().timeZone}</p>
+ <div className="flex flex-wrap gap-2"><input aria-label="Название задачи" className="rounded border bg-background p-2" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Личная задача"/><input aria-label="Срок" className="rounded border bg-background p-2" type="datetime-local" value={due} onChange={e=>setDue(e.target.value)}/><select aria-label="Приоритет" className="rounded border bg-background p-2" value={priority} onChange={e=>setPriority(Number(e.target.value))}><option value={0}>Без приоритета</option>{[1,2,3].map(n=><option key={n} value={n}>Приоритет {n}</option>)}</select><button disabled={busy||!title.trim()} onClick={save} className="rounded border px-3 disabled:opacity-50">Добавить</button></div>
+ {error&&<p role="alert" className="text-red-500">{error}</p>}{loading?<p>Загрузка…</p>:<><h3 className="font-medium">Три приоритета</h3>{top.length?<ol className="list-inside list-decimal">{top.map(r=><li key={r.id}>{r.payload.title}</li>)}</ol>:<p className="text-sm text-muted-foreground">Выберите приоритеты в списке задач.</p>}<h3 className="font-medium">Активные задачи ({active.length})</h3>{!active.length&&<p>Активных задач нет.</p>}{active.map(r=><div key={r.id} className="space-y-2 rounded border p-3"><div className="flex gap-2"><input type="checkbox" aria-label={'Выполнено: '+r.payload.title} checked={false} onChange={()=>void update(r,{completed:true})}/><span>{r.payload.title}</span></div>{r.payload.dueAt&&<p className="text-xs">Срок: {new Date(r.payload.dueAt).toLocaleString('ru-RU',{timeZoneName:'short'})}</p>}<select aria-label={'Приоритет: '+r.payload.title} value={r.payload.priority} onChange={e=>void update(r,{priority:Number(e.target.value)})} className="rounded border bg-background p-1">{[0,1,2,3].map(n=><option key={n} value={n}>{n?'Приоритет '+n:'Без приоритета'}</option>)}</select> <SendToAgentButton projectId={projectId} source={{kind:'daily-task',id:r.id,version:String(r.revision)}} onClose={onClose}/></div>)}</>}
+ </div>;
+}
