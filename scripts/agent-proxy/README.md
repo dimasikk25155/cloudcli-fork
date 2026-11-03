@@ -1,167 +1,147 @@
-# Pinned outbound IP for coding agents
+# One exit IP for coding agents
 
-The required provider-visible IP is **45.86.61.144** (2026-11-03). This applies
-to CLI login, model requests, SDK launches, and the browser used for OAuth.
-Do not introduce a direct fallback or a different exit address.
+The owner-selected default is **Netherlands 45.86.61.144**. On 2026-11-04 the
+owner replaced the first standby with **Finland 185.166.154.209** and required a
+single local control panel, independent of Happ and AI access. There is no
+automatic country change and no direct-provider fallback.
 
-On 2026-11-04 the owner approved **45.86.63.89** as a manually selected standby.
-The primary remains selected. Automatic failover is not enabled.
+## User control
 
-## Installed routes
+Open `~/Applications/Резервный мост ИИ.app` (Desktop shortcut).
 
-- **Mac CLI:** `127.0.0.1:12809` → a dedicated Hysteria2 client →
-  `45.86.61.144:443`. LaunchAgent `com.dimasik.neo3-agent-hysteria`.
-  Binary: `~/.local/share/neo3-agent-proxy/hysteria` (official v2.13.0,
-  darwin-arm64 SHA256 `c8c3589239ce4ecf335c07a3f6ec11b3ef8fbdfe9e5a5ea0ef8ba8ce50d2bb90`).
-  Private configuration: `~/Antigravity Project/.secrets.d/neo3-agent-hysteria.json`,
-  mode 0600. Logs: `~/.local/share/neo3-agent-proxy/hysteria.log`.
-- **VPS CLI:** `127.0.0.1:12809` → existing `/usr/local/bin/hysteria`
-  (v2.12.3) → the same endpoint. Unit `neo3-agent-hysteria.service`;
-  `/etc/neo3-agent-proxy/hysteria.json` is 0600 and supplied to the dynamic
-  service user with systemd `LoadCredential`. No external listening port.
-- TLS checks remain enabled, with SNI `mya1a.neo3.ru`.
-- **Mac browser:** Happ profile `Happ Fast QUIC`, TUN enabled, same endpoint.
-  Safari's actual IP was checked in its own temporary tab. The CLI tunnel
-  is pinned independently; changing the Happ selection cannot intentionally
-  select a different CLI exit. An underlying network block instead causes failure.
-- The old Mac Xray on `11809` is shared with WhatsApp bots and was not changed.
-  The old VPS proxy is retained for rollback; new agent wrappers do not use it.
+- **Нидерланды · основной** selects 45.86.61.144 on Mac and VPS.
+- **Финляндия · резерв** selects 185.166.154.209 on both.
+- **Проверить статус** measures actual exit IPs, shows failures and checks that
+  the active Mac network service sends browser HTTP/HTTPS through the same bridge.
 
-Mac direct QUIC initially timed out while Happ used another profile. After
-switching Happ to the supplied profile, both the browser and independent client
-connected successfully. No SSH relay is part of the final route.
+The app also checks status when opened. Finish current AI responses before a
+country change, which resets tunnel connections. No Happ action, copied key,
+terminal command or AI request is needed. The chosen profile survives restart.
+A working Internet connection and Tailscale access to the VPS are required for
+coordinated switching; an unreachable VPS is reported rather than falsely
+claiming that both machines switched.
 
-## Launchers and fail-closed checks
+## Transport
 
-The existing `neo3-agent-proxy` launcher now covers installed Claude, Codex,
-Grok, Gemini, OpenCode, Cursor (`cursor-agent` / `agent`), Kimi and Neo3's
-bundled Codex binary. On VPS it covers global commands and agents' local commands.
-The concrete inventory is the installed `installation.json`.
+- **Mac:** loopback HTTP proxy `127.0.0.1:12809`. Existing LaunchAgent
+  `com.dimasik.neo3-agent-hysteria` runs `transport.py`, which supervises a
+  standalone sing-box Hysteria2 client. It binds its outbound socket to the
+  physical Ethernet/Wi-Fi interface (`bind_interface`), never an `utun` VPN.
+  Changes of physical interface/address restart only this client. There is one
+  encrypted outbound and no direct fallback. Internet loss is retried without
+  changing the selected country.
+- **Mac browser:** the physical network service's HTTP and HTTPS proxies point
+  to `127.0.0.1:12809`. This applies to browsers and other applications respecting
+  macOS web proxy settings, not only AI domains. The setup is repeated on bridge
+  startup, physical-network changes and country selection. No PAC/direct fallback
+  is configured. Prior Wi-Fi settings are recorded locally in
+  `browser-proxy-previous.json` (both proxies were disabled, old port 12334).
+- **VPS:** existing `/usr/local/bin/hysteria` v2.12.3 and
+  `neo3-agent-hysteria.service`, loopback HTTP `12809`, DynamicUser/LoadCredential.
+  The Finland client connects to the server's existing Hysteria service; its
+  ordinary public egress must still be verified, not assumed from the host IP.
+- Primary endpoint: `45.86.61.144:443`, TLS SNI `mya1a.neo3.ru`.
+- Standby endpoint: `185.166.154.209:8443`, TLS SNI `fi.neo3.ru`. Uses the existing
+  private profile; no new VPN server, ports, users or websites were installed.
+- Both profiles verify TLS normally. No `insecure:true` or custom CA is required.
+- The shared Mac WhatsApp Xray on `11809` is unchanged.
+- Neo3 `dist`/`dist-server` and its runtime were not rebuilt or restarted.
 
-Before executing a CLI, `run.sh` fetches the external IP through the explicit
-proxy. A missing proxy, failed check, or different IP exits with code 78 before
-starting the agent. The second IP-check service also uses the same explicit
-proxy. Upper/lowercase HTTP(S)/ALL_PROXY and `NODE_USE_ENV_PROXY=1` are exported.
-Localhost and Tailscale exclusions are preserved.
+The Mac standalone binary was copied from the already installed Happ bundle,
+version **sing-box 1.12.12**, revision `54ed58499d7063136ed52dabf87d179d252425d0`.
+It now lives at `~/.local/share/neo3-agent-proxy/sing-box`: Happ is not launched,
+queried or used by the bridge. The old official Hysteria binary remains for
+explicit rollback. Do not use that old launcher when claiming VPN independence.
 
-This enforces the standard launcher path and checks the exit at startup. It is
-**not an OS firewall**: deliberately invoking an original `.neo3-direct` binary,
-unregistered executables, software that ignores proxy variables, or an existing
-process with stale environment is outside this guarantee. Never describe these
-wrappers as a machine-wide network kill switch. Future hosts must be installed
-and verified before account login. Safari relies on the selected Happ profile;
-its route must be rechecked if the VPN changes or disconnects.
+Configuration and support files:
 
-## Installation, updates, and new hosts
+- Mac support: `~/.local/share/neo3-agent-proxy/`.
+- Mac active secret: `~/Antigravity Project/.secrets.d/neo3-agent-hysteria.json`.
+- Mac private profiles: `.secrets.d/neo3-agent-profiles/{primary,reserve}.json`.
+- VPS support: `/usr/local/lib/neo3-agent-proxy/`.
+- VPS active secret: `/etc/neo3-agent-proxy/hysteria.json`.
+- VPS private profiles: `/etc/neo3-agent-proxy/profiles/{primary,reserve}.json`.
+- Private directories 0700, credential files 0600. Never commit profile values.
+- Logs: Mac support directory `hysteria.log`; VPS journal for its client service.
 
-Supply the Hysteria secret privately; never commit the URI/auth value. Configure
-server `45.86.61.144:443`, TLS SNI `mya1a.neo3.ru`, `insecure:false`, and an HTTP
-listener on `127.0.0.1:12809`. Install the appropriate service template here,
-start it, and prove the output of:
+The first standby `45.86.63.89` was removed from the switcher's choices. Its
+existing NordMax VPN and independent private import files were not altered.
+
+## Coordinated switch and interruption recovery
+
+`switch.py` automatically sets the Mac browser proxy, probes both proposed
+routes, stages persistent blocking markers, applies both serving clients,
+verifies their actual IPs, then permits new standard CLI launches. SSH control
+uses existing alias/key `vps-nl` through Tailscale `100.75.69.57`, with
+`HostKeyAlias=185.166.154.209`. Thus control does not depend on the selected VPN
+exit or the public SSH port being reachable from the local ISP.
+
+After an interruption, `switch-recovery.json`/`switch-in-progress` keep launchers
+blocked. Press the desired country again: resume the same operation or retarget
+it to the other verified bridge. Never delete the markers to bypass a failure.
+Recovery journals contain no credentials. The panel continues to show local
+status if the remote server cannot be reached. It never labels a saved expected
+IP as a successful live network check.
+
+## Launchers and guarantee boundary
+
+`run.sh` checks actual IP through the explicit proxy before launching Claude,
+Codex, Grok, Gemini, OpenCode, Cursor/agent, Kimi and Neo3's bundled Codex. Exact
+paths are recorded in `installation.json`; VPS also covers agents' local CLIs.
+Unavailable/wrong IP or an unfinished switch exits 78 before agent execution.
+Both probe endpoints use the same explicit proxy. Upper/lower HTTP(S)/ALL_PROXY,
+`NO_PROXY` for localhost/Tailscale, and `NODE_USE_ENV_PROXY=1` are exported.
+
+This is **not an OS firewall**. Deliberately executing `.neo3-direct`, new
+unregistered binaries, programs ignoring proxy settings or stale environments
+is outside this guarantee. Existing sessions are not killed by the coordinator.
+Future machines must be installed and verified before account login. System web
+proxies are per network service; the supervisor follows active physical services
+when OS permissions allow, and the dashboard reports a failed browser setup.
+A network blocking both VPN endpoints cannot be fixed by changing a local button.
+
+## Installation and updates
+
+Provision the two private profiles and the client binary appropriate to the host.
+For Mac, install standalone sing-box in the support directory and load the
+LaunchAgent template here (adjust paths for another user). For Linux, install the
+existing Hysteria client and systemd template. Keep credentials outside Git.
+
+From the repository root:
 
 ```sh
-curl --fail --proxy http://127.0.0.1:12809 --noproxy '' https://api.ipify.org
-```
-
-Then install wrappers from the repository root:
-
-```sh
-# Mac
 python3 scripts/agent-proxy/install.py --sdk-root "$PWD" \
   --proxy http://127.0.0.1:12809 --expected-ip 45.86.61.144
-python3 ~/.local/share/neo3-agent-proxy/doctor.py
-
-# VPS (support files in /usr/local/lib/neo3-agent-proxy)
-python3 /usr/local/lib/neo3-agent-proxy/install.py --engine-home /home/agents \
-  --proxy http://127.0.0.1:12809 --expected-ip 45.86.61.144
-python3 /usr/local/lib/neo3-agent-proxy/doctor.py
+sh scripts/agent-proxy/build-switcher.sh
+python3 ~/.local/share/neo3-agent-proxy/switch.py status
 ```
 
-Fresh installations default to the pinned port and IP. Existing installations
-retain their settings, so pass both flags for migration. Reinstall is idempotent;
-the existing Mac `scripts/update-engines.sh` restores wrappers after nightly
-updates. No new update schedule is installed. Run the installer after manual
-CLI/package updates on other hosts. Preserve `.neo3-direct` siblings: they are
-the current native executables or upstream symlinks, not disposable backups.
+On VPS use its installed `install.py --engine-home /home/agents`. Existing
+installations retain selected IP/port if flags are omitted. Mac's existing nightly
+engine updater restores wrappers; no new timer was installed. Reinstall wrappers
+after manual CLI/package updates elsewhere. Preserve `.neo3-direct` siblings,
+which are current native binaries/symlinks, not disposable backups.
 
-Existing processes must be restarted with preserved sessions. On 2026-11-03,
-VPS Claude/Krabik was idle and resumed with the same session ID through the
-wrapper. The idle agents' Codex daemon and its updater were restarted with the
-new proxy environment. Active work must not be interrupted or its lock removed.
-
-## Checks and verification limits
+## Verification
 
 ```sh
-python3 scripts/agent-proxy/test_proxy.py
-sh -n scripts/agent-proxy/run.sh
-plutil -lint scripts/agent-proxy/com.dimasik.neo3-agent-hysteria.plist
-launchctl print gui/$(id -u)/com.dimasik.neo3-agent-hysteria
-ssh vps-nl 'systemctl is-active neo3-agent-hysteria'
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/agent-proxy/test_switch.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/agent-proxy/test_proxy.py
+python3 ~/.local/share/neo3-agent-proxy/switch.py probe reserve
+python3 ~/.local/share/neo3-agent-proxy/switch.py status
 ```
 
-Verified: Mac CLI route, Node native fetch, Safari and VPS route all returned
-`45.86.61.144`; installed CLI version commands still run; Anthropic/OpenAI/xAI
-HTTPS endpoints are reachable. Real negative checks with an unavailable local
-port and the old, wrong-IP proxy blocked Claude before launch. Regression tests
-cover updates, idempotency, relative symlinks, wrong IP, unavailable proxy and
-rejection of non-loopback endpoints.
+The test suite covers fail-closed launches, unavailable/wrong IP, wrapper repairs,
+interrupted switch/resume/return, physical interface binding instead of VPN,
+browser service selection and live-status mismatch reporting. Real checks on
+2026-11-04 confirmed both bridges from the physical Mac network, both exits on
+VPS, and serving-client switches in both directions with Happ disconnected.
+Safari was checked through the system web proxy, not through an environment-only
+curl request. The primary is restored after verification.
 
-HTTP 401/403 proves transport reachability only. It does not prove successful
-login, account standing or inference. The newly purchased Claude account was
-not logged in by this task. Krabik's historical account error is separate from
-network routing and is not fixed by a proxy migration.
+Transport success is not proof of provider account standing, subscription limits
+or a completed login. No purchased Claude account was logged in by this task.
 
-Official Hysteria client configuration:
-https://v2.hysteria.network/docs/advanced/Full-Client-Config/
-
-## Recovery
-
-### Offline recovery app (no AI required)
-
-`~/Applications/Резервный мост ИИ.app` has a Desktop shortcut. Its source is
-`ProxySwitch.swift`; rebuild with `sh scripts/agent-proxy/build-switcher.sh`.
-It uses the installed `switch.py`, local Python and the existing `vps-nl` SSH key.
-It needs working Internet/SSH, but no AI subscription or running Neo3 UI.
-
-If the primary is unavailable:
-
-1. Finish current AI responses. In Happ double-click **NL-Hysteria2**.
-2. Open **Резервный мост ИИ**, choose **Включить резерв**, confirm.
-3. Wait for success on both Mac and VPS, then open a new AI session.
-
-To return, select **Happ Fast QUIC** in Happ, then **Вернуть основной**.
-**Проверить резерв** tests both machines without changing either active tunnel.
-**Статус** reports configured IPs and unfinished operations, not a live IP check.
-The profile-copy button is for restoring a missing Happ entry; it places a
-private credential on the local clipboard. Never send that clipboard to others.
-
-The standby reuses the existing Hysteria2 server on `45.86.63.89:8443` (NordMax
-host). No server services, websites or ports were changed. Dedicated CLI profiles
-verify TLS using its pinned self-signed certificate as an explicit CA. Happ uses
-its supported certificate fingerprint pin. Private primary/reserve client files:
-
-- Mac: `~/Antigravity Project/.secrets.d/neo3-agent-profiles/` (0700, files 0600).
-- VPS: `/etc/neo3-agent-proxy/profiles/` (0700, files 0600).
-- VPS public CA: `/usr/local/lib/neo3-agent-proxy/reserve-ca.pem` (0644), readable
-  by the existing DynamicUser. This certificate contains no private key.
-
-The coordinator checks Happ's actual exit, probes both clients, stages blocking
-markers, applies both clients, verifies their exits, then permits new launches.
-If interrupted after staging, `switch-recovery.json` and `switch-in-progress`
-keep wrappers blocked. Restore connectivity and press the SAME target button;
-the saved operation resumes. Never remove these files to bypass a failed switch.
-No credentials are stored in recovery journals. Existing processes are not
-stopped; finish their work before switching and use new sessions afterward.
-
-Verification: real standby probes on Mac and VPS returned `45.86.63.89`, including
-a restricted DynamicUser client on VPS. Six failure-path tests plus five wrapper
-tests pass. The native app's probe button was checked. A live serving-tunnel
-failover was deliberately not performed: the active primary is preserved.
-
-### Explicit removal
-
-Prefer repairing the pinned transport over reverting to another exit. The old
-proxy is retained only as an explicit, owner-approved rollback. To disable the
-new route, restore marked launchers from `.neo3-direct` and stop only the new
-Hysteria service; doing so removes the protection and requires owner approval.
-Never stop or alter the shared Mac WhatsApp Xray as part of this rollback.
+References: [Hysteria client config](https://v2.hysteria.network/docs/advanced/Full-Client-Config/),
+[sing-box Hysteria2](https://sing-box.sagernet.org/configuration/outbound/hysteria2/),
+[physical interface binding](https://sing-box.sagernet.org/configuration/shared/dial/).

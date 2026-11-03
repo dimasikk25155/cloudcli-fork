@@ -12,10 +12,13 @@ import subprocess
 import tempfile
 import time
 import uuid
+from datetime import datetime
+
+from transport import physical_network, start_client, configure_browser_proxy, browser_proxy_ready
 
 PROFILES = {
-    'primary': {'ip': '45.86.61.144', 'happ': 'Happ Fast QUIC'},
-    'reserve': {'ip': '45.86.63.89', 'happ': 'NL-Hysteria2'},
+    'primary': {'ip': '45.86.61.144', 'country': 'Нидерланды'},
+    'reserve': {'ip': '185.166.154.209', 'country': 'Финляндия'},
 }
 REMOTE_SCRIPT = '/usr/local/lib/neo3-agent-proxy/switch.py'
 
@@ -49,7 +52,7 @@ def exit_ip(proxy):
                 return result.stdout.strip()
         except subprocess.TimeoutExpired:
             pass
-    raise SwitchError('Не удалось проверить внешний IP. Проверьте интернет и выбранный профиль Happ.')
+    raise SwitchError('Мост не отвечает. Проверьте интернет или выберите другую страну.')
 
 
 class Host:
@@ -85,6 +88,21 @@ class Host:
             raise SwitchError('Профиль без проверки сертификата не разрешён.')
         return config
 
+    def live_state(self):
+        state = self.state()
+        try:
+            state['actual_ip'] = exit_ip(state['proxy'])
+            state['healthy'] = state['actual_ip'] == state['expected_ip']
+        except SwitchError:
+            state.update(actual_ip=None, healthy=False)
+        state['checked_at'] = datetime.now().astimezone().isoformat(timespec='seconds')
+        if self.mac:
+            try:
+                state['browser_proxy'] = browser_proxy_ready(physical_network()[0])
+            except Exception:
+                state['browser_proxy'] = False
+        return state
+
     def probe(self, name):
         config = self.profile(name)
         with socket.socket() as sock:
@@ -96,8 +114,11 @@ class Host:
             path = Path(directory) / 'client.json'
             atomic_write(path, json.dumps(config).encode())
             with open(Path(directory) / 'client.log', 'wb') as log:
-                proc = subprocess.Popen([self.binary, 'client', '-c', str(path),
-                    '--disable-update-check', '--log-level', 'warn'], stdout=log, stderr=log)
+                if self.mac:
+                    proc = start_client(self.root, config, port, physical_network()[0], directory, log)
+                else:
+                    proc = subprocess.Popen([self.binary, 'client', '-c', str(path),
+                        '--disable-update-check', '--log-level', 'warn'], stdout=log, stderr=log)
                 try:
                     ready = False
                     for _ in range(40):
@@ -143,9 +164,10 @@ class Host:
     def stage(self, name, token):
         self.profile(name)
         if self.journal.exists():
-            self.pending(name, token)
-        else:
-            atomic_write(self.journal, json.dumps({'token': token, 'profile': name}).encode())
+            existing = json.loads(self.journal.read_text())
+            if existing['token'] != token:
+                raise SwitchError('Уже выполняется другое переключение.')
+        atomic_write(self.journal, json.dumps({'token': token, 'profile': name}).encode())
         atomic_write(self.gate, token.encode())
         return {'staged': True}
 
@@ -191,24 +213,23 @@ def remote(action, name='primary', token='none'):
     # Every argument is a fixed enum or a generated hexadecimal token.
     command = f'python3 {REMOTE_SCRIPT} --local {action} {name} {token}'
     result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8',
+        '-o', 'HostName=100.75.69.57', '-o', 'HostKeyAlias=185.166.154.209',
         '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2', 'vps-nl', command],
         capture_output=True, text=True, timeout=65)
     try:
         data = json.loads(result.stdout)
     except ValueError:
-        raise SwitchError('Нет связи с VPS. Выберите рабочий профиль в Happ и повторите.')
+        raise SwitchError('Нет связи с VPS через Tailscale. Проверьте доступность сервера.')
     if result.returncode or not data.get('ok'):
         raise SwitchError('VPS: ' + data.get('error', 'операция не завершена.'))
     return data['result']
 
 
-def coordinate(host, name, remote_fn=remote, browser_ip=exit_ip):
+def coordinate(host, name, remote_fn=remote):
     expected = PROFILES[name]['ip']
-    if browser_ip('') != expected:
-        raise SwitchError(f"Сначала в Happ выберите «{PROFILES[name]['happ']}» двойным щелчком, затем повторите. Изменений на Mac и VPS нет.")
+    if getattr(host, 'mac', False):
+        configure_browser_proxy(physical_network()[0])
     pending = host.state()['pending']
-    if pending and pending['profile'] != name:
-        raise SwitchError('Незавершён предыдущий переход. Нажмите его кнопку ещё раз для завершения.')
     token = pending['token'] if pending else uuid.uuid4().hex
     # Probe both hosts before changing the serving configuration.
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
@@ -227,10 +248,35 @@ def coordinate(host, name, remote_fn=remote, browser_ip=exit_ip):
         host.finish(name, token)
     except Exception as error:
         raise SwitchError('Переход не завершён. Запуски ИИ на участвующих узлах заблокированы. '
-                          'Сохранён ход операции: восстановите связь и нажмите ту же кнопку повторно. '
+                          'Сохранён ход операции: восстановите связь и нажмите нужную страну повторно. '
                           + (str(error) if isinstance(error, SwitchError) else 'Ошибка выполнения.'))
     return {'ip': expected, 'profile': name, 'complete': True,
-            'message': f'Mac и VPS переключены на {expected}. Откройте новый сеанс ИИ. Профиль Happ должен оставаться выбранным.'}
+            'message': f"Подключено: {PROFILES[name]['country']} · {expected}\nMac: IP подтверждён\nVPS: IP подтверждён\nHapp не требуется. Можно продолжать работу."}
+
+
+def dashboard(host, remote_fn=remote):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        a = pool.submit(host.live_state)
+        b = pool.submit(remote_fn, 'status')
+        local = a.result()
+        try:
+            vps = b.result()
+        except (SwitchError, subprocess.SubprocessError):
+            vps = {'actual_ip': None, 'healthy': False, 'pending': None, 'unreachable': True}
+    def line(label, state):
+        if state.get('unreachable'):
+            return f'{label}: нет связи с сервером'
+        if state.get('pending') or state.get('blocked'):
+            return f'{label}: переход не завершён; повторите выбранную кнопку'
+        if not state.get('healthy'):
+            return f"{label}: мост не отвечает или IP не совпадает (получен: {state.get('actual_ip') or 'нет'})"
+        country = next((p['country'] for p in PROFILES.values() if p['ip'] == state['actual_ip']), 'неизвестно')
+        return f"{label}: {country} · {state['actual_ip']} · работает"
+    browser = ('\nБраузер: подключён к этому же мосту' if local.get('browser_proxy') else
+               '\nБраузер: прокси не настроен; нажмите нужную страну') if 'browser_proxy' in local else ''
+    return {'mac': local, 'vps': vps, 'profiles': PROFILES,
+            'message': line('Mac', local) + '\n' + line('VPS', vps) + browser
+                       + '\nПроверено: ' + datetime.now().strftime('%H:%M:%S')}
 
 
 def main():
@@ -253,7 +299,7 @@ def main():
                 except BlockingIOError:
                     raise SwitchError('Другая операция уже выполняется. Дождитесь её результата.')
             if args.local:
-                method = {'status': lambda: host.state(), 'probe': lambda: host.probe(args.profile),
+                method = {'status': lambda: host.live_state(), 'probe': lambda: host.probe(args.profile),
                     'stage': lambda: host.stage(args.profile, args.token),
                     'apply': lambda: host.apply(args.profile, args.token),
                     'check': lambda: host.check_active(args.profile),
@@ -270,10 +316,7 @@ def main():
                     result = {'mac': local_probe.result(), 'vps': vps_probe.result(),
                               'message': f"Резерв проверен с Mac и VPS: {PROFILES[args.profile]['ip']}. Текущий маршрут не изменён."}
             elif args.action == 'status':
-                result = {'mac': host.state(), 'vps': remote('status'), 'profiles': PROFILES}
-                result['message'] = ('Mac: ' + str(result['mac']['expected_ip']) + '\nVPS: '
-                    + str(result['vps']['expected_ip']) + ('\nЕсть незавершённый переход — повторите его.'
-                    if result['mac']['pending'] or result['vps']['pending'] else '\nНезавершённых переключений нет.'))
+                result = dashboard(host)
             else:
                 raise SwitchError('Операция доступна только внутреннему переключателю.')
         print(json.dumps({'ok': True, 'result': result}, ensure_ascii=False))

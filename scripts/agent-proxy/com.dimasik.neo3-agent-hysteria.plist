@@ -3,11 +3,9 @@
 <plist version="1.0"><dict>
   <key>Label</key><string>com.dimasik.neo3-agent-hysteria</string>
   <key>ProgramArguments</key><array>
-    <string>/Users/dimasik/.local/share/neo3-agent-proxy/hysteria</string>
-    <string>client</string><string>--config</string>
+    <string>/opt/homebrew/bin/python3</string>
+    <string>/Users/dimasik/.local/share/neo3-agent-proxy/transport.py</string>
     <string>/Users/dimasik/Antigravity Project/.secrets.d/neo3-agent-hysteria.json</string>
-    <string>--log-level</string><string>warn</string>
-    <string>--disable-update-check</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

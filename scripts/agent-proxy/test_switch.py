@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
+from transport import client_config, physical_network, service_for_interface
 
 spec = importlib.util.spec_from_file_location('switch', Path(__file__).with_name('switch.py'))
 switch = importlib.util.module_from_spec(spec)
@@ -29,7 +31,7 @@ class FakeHost:
         return {'ip': switch.PROFILES[name]['ip']}
 
     def stage(self, name, token):
-        if self.journal and self.journal != {'profile': name, 'token': token}:
+        if self.journal and self.journal['token'] != token:
             raise switch.SwitchError('other operation')
         self.journal = {'profile': name, 'token': token}
         self.blocked = True
@@ -64,8 +66,7 @@ class SwitchTests(unittest.TestCase):
         return method(name) if action in ['check', 'probe'] else method(name, token)
 
     def run_switch(self):
-        return switch.coordinate(self.mac, 'reserve', self.remote,
-                                 lambda proxy: switch.PROFILES['reserve']['ip'])
+        return switch.coordinate(self.mac, 'reserve', self.remote)
 
     def test_both_hosts_verified_before_unblocking(self):
         self.run_switch()
@@ -73,10 +74,10 @@ class SwitchTests(unittest.TestCase):
         self.assertFalse(self.mac.blocked or self.vps.blocked)
         self.assertIn('check', self.mac.log[:self.mac.log.index('finish')])
 
-    def test_browser_on_wrong_profile_changes_neither_host(self):
-        with self.assertRaises(switch.SwitchError):
-            switch.coordinate(self.mac, 'reserve', self.remote, lambda proxy: '192.0.2.1')
-        self.assertFalse(self.mac.log or self.vps.log)
+    def test_no_browser_or_system_ip_required(self):
+        with patch.object(switch, 'exit_ip', side_effect=AssertionError('Must not inspect browser route')):
+            self.run_switch()
+        self.assertEqual(self.mac.ip, '185.166.154.209')
 
     def test_failed_probe_changes_neither_host(self):
         self.vps.fail_probe = True
@@ -96,6 +97,48 @@ class SwitchTests(unittest.TestCase):
         self.assertFalse(self.mac.blocked or self.vps.blocked)
         self.assertEqual(self.mac.ip, self.vps.ip)
 
+    def test_interrupted_transition_can_return_to_primary(self):
+        self.mac.fail_apply = True
+        with self.assertRaises(switch.SwitchError):
+            self.run_switch()
+        self.mac.fail_apply = False
+        switch.coordinate(self.mac, 'primary', self.remote)
+        self.assertEqual(self.mac.ip, '45.86.61.144')
+        self.assertEqual(self.vps.ip, self.mac.ip)
+        self.assertFalse(self.mac.blocked or self.vps.blocked)
+
+    def test_physical_transport_has_no_direct_or_vpn_fallback(self):
+        profile = {'server': '185.166.154.209:8443', 'auth': 'test-secret',
+                   'tls': {'sni': 'fi.neo3.ru', 'insecure': False}}
+        config = client_config(profile, 12345, 'en0')
+        self.assertEqual(len(config['outbounds']), 1)
+        self.assertEqual(config['outbounds'][0]['bind_interface'], 'en0')
+        self.assertEqual(config['outbounds'][0]['type'], 'hysteria2')
+        self.assertFalse(config['outbounds'][0]['tls']['insecure'])
+        with self.assertRaises(ValueError):
+            client_config(profile, 12345, 'utun4')
+
+    def test_vpn_default_route_is_not_selected_as_physical_network(self):
+        responses = [subprocess.CompletedProcess([], 0, 'interface: utun9'),
+                     subprocess.CompletedProcess([], 0, 'Device: en0\nDevice: en5'),
+                     subprocess.CompletedProcess([], 0, '192.168.0.24\n')]
+        with patch('transport.subprocess.run', side_effect=responses):
+            self.assertEqual(physical_network(), ('en0', '192.168.0.24'))
+
+    def test_dashboard_reports_actual_mismatch_not_configured_success(self):
+        self.mac.live_state = lambda: {'expected_ip': '45.86.61.144', 'actual_ip': '192.0.2.1',
+                                      'healthy': False, 'pending': None}
+        result = switch.dashboard(self.mac, lambda action: {'expected_ip': '45.86.61.144',
+            'actual_ip': '45.86.61.144', 'healthy': True, 'pending': None})
+        self.assertIn('IP не совпадает', result['message'])
+        self.assertIn('192.0.2.1', result['message'])
+
+    def test_browser_proxy_follows_physical_service_not_vpn(self):
+        listing = '(1) Office Wi-Fi\n(Hardware Port: Wi-Fi, Device: en0)\n(2) VPN\n(Hardware Port: VPN, Device: )'
+        self.assertEqual(service_for_interface('en0', listing), 'Office Wi-Fi')
+        with self.assertRaises(RuntimeError):
+            service_for_interface('en5', listing)
+
     def test_wrapper_blocks_even_if_only_recovery_journal_survives(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -112,7 +155,7 @@ class SwitchTests(unittest.TestCase):
             root = Path(directory)
             secrets = root / 'profiles'
             secrets.mkdir()
-            profile = {'server': '45.86.63.89:8443', 'auth': 'test-secret', 'tls': {'insecure': False}}
+            profile = {'server': '185.166.154.209:8443', 'auth': 'test-secret', 'tls': {'insecure': False}}
             (secrets / 'reserve.json').write_text(json.dumps(profile))
             active = root / 'active.json'
             active.write_text('original')
