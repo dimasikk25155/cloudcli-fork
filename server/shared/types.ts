@@ -271,6 +271,8 @@ export type NormalizedMessage = {
    * the live events they missed across websocket reconnects.
    */
   seq?: number;
+  /** Server-measured duration, present only for successfully completed runs. */
+  completionDurationMs?: number;
   role?: 'user' | 'assistant';
   content?: string;
   /**

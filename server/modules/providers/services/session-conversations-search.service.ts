@@ -1,4 +1,4 @@
-import fsSync, { promises as fs } from 'node:fs';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 
@@ -6,6 +6,8 @@ import { spawn } from 'cross-spawn';
 import { rgPath } from '@vscode/ripgrep';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+
+import { extractCodexResponseUserMessage } from '../list/codex/codex-sessions.provider.js';
 
 type AnyRecord = Record<string, any>;
 type SearchableProvider = 'claude' | 'codex';
@@ -985,7 +987,9 @@ async function parseCodexSessionMatches(
       } else if (entry.type === 'response_item' && entry.payload?.type === 'message') {
         const payload = entry.payload as AnyRecord;
         if (payload.role === 'user') {
-          text = extractCodexText(payload.content);
+          // Same classifier as chat history: role=user also contains injected
+          // AGENTS, environment and plugin instructions in current Codex.
+          text = extractCodexResponseUserMessage(payload)?.message.content ?? null;
           role = 'user';
         } else if (payload.role === 'assistant') {
           text = extractCodexText(payload.content);

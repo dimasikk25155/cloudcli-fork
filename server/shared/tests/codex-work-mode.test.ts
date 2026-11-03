@@ -19,6 +19,14 @@ test('planning is enforced by the sandbox and stops before implementation', () =
   assert.match(codexRunPolicy('autopilot', 'plan').instructions, /Do not implement/);
 });
 
+test('default uses the supported request policy and retains the workspace sandbox', () => {
+  for (const mode of ['default', undefined, 'legacy-unknown']) {
+    assert.deepEqual(mapPermissionModeToCodexOptions(mode), {
+      sandboxMode: 'workspace-write', approvalPolicy: 'on-request',
+    });
+  }
+});
+
 test('auto-plan executes, while questions take priority over implementation', () => {
   assert.equal(mapPermissionModeToCodexOptions('planBypass').sandboxMode, 'danger-full-access');
   const rules = codexRunPolicy('interrogate', 'planBypass').instructions;

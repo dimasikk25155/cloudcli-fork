@@ -3,7 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { Codex } from '@openai/codex-sdk';
+import { Codex, type ModelReasoningEffort, type Usage } from '@openai/codex-sdk';
+
+import { CODEX_SDK_EFFORTS } from '@/shared/codex-work-mode.js';
 
 import { detectSecrets, replaceFindings } from '../../../shared/secret-detect.js';
 
@@ -88,15 +90,25 @@ export async function runCodexReadOnly(options: { projectPath: string; prompt: s
       workingDirectory: home, skipGitRepoCheck: true,
       sandboxMode: 'read-only', approvalPolicy: 'never',
       model: options.model,
-      modelReasoningEffort: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(options.effort ?? '')
-        ? options.effort as 'low' | 'medium' | 'high' | 'xhigh' : undefined,
+      modelReasoningEffort: CODEX_SDK_EFFORTS.includes(options.effort ?? '')
+        ? options.effort as ModelReasoningEffort : undefined,
     });
     const safePrompt = replaceFindings(options.prompt, detectSecrets(options.prompt), []);
-    const result = await thread.run(`${safePrompt}\n\n<source_snapshot>\n${snapshot}\n</source_snapshot>`, {
+    const result = await thread.runStreamed(`${safePrompt}\n\n<source_snapshot>\n${snapshot}\n</source_snapshot>`, {
       signal: AbortSignal.timeout(120_000),
     });
+    let text = '';
+    let usage: Usage | null = null;
+    let completed = false;
+    for await (const event of result.events) {
+      if (event.type === 'error') throw new Error(event.message);
+      if (event.type === 'turn.failed') throw new Error(event.error.message);
+      if (event.type === 'item.completed' && event.item.type === 'agent_message') text = event.item.text;
+      if (event.type === 'turn.completed') { completed = true; usage = event.usage; }
+    }
+    if (!completed || !text.trim()) throw new Error('Codex analysis ended without a complete response');
     // Temporary session storage is deliberately not linked from the UI.
-    return { text: result.finalResponse, sessionId: null, usage: result.usage };
+    return { text, sessionId: null, usage };
   } finally {
     await fs.rm(home, { recursive: true, force: true });
   }

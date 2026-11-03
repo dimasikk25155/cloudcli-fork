@@ -10,6 +10,7 @@ import type {
 } from '../../types/types';
 import { formatUsageLimitText, normalizeAssistantSignature } from '../../utils/chatFormatting';
 import { visibleUserText } from '../../utils/catalogBrief';
+import { formatCompletionDuration } from '../../utils/completionDuration';
 import type { Project } from '../../../../types/app';
 import { ToolRenderer, shouldHideToolResult } from '../../tools';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '../../../../shared/view/ui';
@@ -79,6 +80,10 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
 
   const formattedTime = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
   const shouldHideThinkingMessage = Boolean(message.isThinking && !showThinking);
+  const completedIn = message.type === 'assistant' && !message.isStreaming && !message.isToolUse
+    && !message.isThinking && !message.isInteractivePrompt && !message.isTaskNotification
+    && typeof message.completionDurationMs === 'number'
+    ? formatCompletionDuration(message.completionDurationMs) : null;
 
   if (shouldHideThinkingMessage) {
     return null;
@@ -387,6 +392,12 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     </div>
                   );
                 })()}
+              </div>
+            )}
+
+            {completedIn && (
+              <div className="mt-3 text-xs text-muted-foreground" data-completion-duration>
+                Выполнено за {completedIn}
               </div>
             )}
 

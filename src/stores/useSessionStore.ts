@@ -51,6 +51,7 @@ export interface NormalizedMessage {
    * REST history messages do not carry it.
    */
   seq?: number;
+  completionDurationMs?: number;
 
   // kind-specific fields (flat for simplicity)
   role?: 'user' | 'assistant';

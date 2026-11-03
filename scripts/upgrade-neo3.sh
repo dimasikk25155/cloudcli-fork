@@ -71,7 +71,7 @@ PY
 trap rollback EXIT
 echo 'Загружаю точный опубликованный код; действующий сервис продолжает работать.'
 as_app git clone --depth 1 --single-branch --branch "$REF" "$REPO" "$STAGE/app"
-ACTUAL="$(git -C "$STAGE/app" rev-parse HEAD)"
+ACTUAL="$(as_app git -C "$STAGE/app" rev-parse HEAD)"
 [[ "$ACTUAL" == "$REMOTE" ]] || fail 'Во время загрузки вышла новая версия. Повтори обновление.'
 if [[ -f "$APP_DIR/.env" ]]; then cp -p "$APP_DIR/.env" "$STAGE/app/.env"; chown "$APP_USER:$(id -gn "$APP_USER")" "$STAGE/app/.env"; fi
 # Register this installation's thread MCP; retain an explicit owner's opt-out.

@@ -13,6 +13,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const scratch = mkdtempSync(path.join(tmpdir(), 'cloudcli-test-db-'));
+// A custom production CODEX_HOME must not override the throwaway test HOME.
+// Leave it unset so tests that patch os.homedir() still control provider roots.
+const testEnv = { ...process.env };
+delete testEnv.CODEX_HOME;
 const tsxBin = path.join('node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
 const args = [
   '--tsconfig', 'server/tsconfig.json',
@@ -25,7 +29,7 @@ const child = spawn(tsxBin, args, {
   stdio: 'inherit',
   shell: process.platform === 'win32',
   env: {
-    ...process.env,
+    ...testEnv,
     // Services write ~/.cloudcli/* (sticky-push token, model cache, run
     // outcomes, ...) straight from os.homedir(); a scratch HOME keeps every
     // one of them — present and future — off the live files.

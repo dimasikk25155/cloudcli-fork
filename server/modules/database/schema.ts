@@ -625,4 +625,15 @@ ${IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL}
 ${LAST_SCANNED_AT_SQL}
 
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
+
+CREATE TABLE IF NOT EXISTS run_durations (
+    run_id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
+    answer_hash TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_run_durations_session ON run_durations(session_id);
 `;

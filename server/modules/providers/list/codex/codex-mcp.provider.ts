@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import TOML from '@iarna/toml';
 
+import { codexHome } from '@/shared/codex-paths.js';
 import { McpProvider } from '@/modules/providers/shared/mcp/mcp.provider.js';
 import type { McpScope, ProviderMcpServer, UpsertProviderMcpServerInput } from '@/shared/types.js';
 import {
@@ -41,7 +41,7 @@ export class CodexMcpProvider extends McpProvider {
 
   protected async readScopedServers(scope: McpScope, workspacePath: string): Promise<Record<string, unknown>> {
     const filePath = scope === 'user'
-      ? path.join(os.homedir(), '.codex', 'config.toml')
+      ? path.join(codexHome(), 'config.toml')
       : path.join(workspacePath, '.codex', 'config.toml');
     const config = await readTomlConfig(filePath);
     return readObjectRecord(config.mcp_servers) ?? {};
@@ -53,7 +53,7 @@ export class CodexMcpProvider extends McpProvider {
     servers: Record<string, unknown>,
   ): Promise<void> {
     const filePath = scope === 'user'
-      ? path.join(os.homedir(), '.codex', 'config.toml')
+      ? path.join(codexHome(), 'config.toml')
       : path.join(workspacePath, '.codex', 'config.toml');
     const config = await readTomlConfig(filePath);
     config.mcp_servers = servers;
@@ -91,7 +91,19 @@ export class CodexMcpProvider extends McpProvider {
       bearer_token_env_var: input.bearerTokenEnvVar,
       http_headers: input.headers ?? {},
       env_http_headers: input.envHttpHeaders ?? {},
+      ...(typeof input.toolTimeoutSec === 'number' ? { tool_timeout_sec: input.toolTimeoutSec } : {}),
     };
+  }
+
+  protected mergeServerConfig(previous: unknown, input: UpsertProviderMcpServerInput): Record<string, unknown> {
+    // The UI edits only part of Codex's schema. Keep restrictions, disabled
+    // state, approval modes and future fields it cannot represent.
+    const preserved = { ...(readObjectRecord(previous) ?? {}) };
+    const oppositeTransportKeys = input.transport === 'stdio'
+      ? ['url', 'bearer_token_env_var', 'http_headers', 'env_http_headers']
+      : ['command', 'args', 'env', 'env_vars', 'cwd'];
+    for (const key of oppositeTransportKeys) delete preserved[key];
+    return { ...preserved, ...this.buildServerConfig(input) };
   }
 
   protected normalizeServerConfig(
@@ -129,6 +141,7 @@ export class CodexMcpProvider extends McpProvider {
         headers: readStringRecord(config.http_headers),
         bearerTokenEnvVar: readOptionalString(config.bearer_token_env_var),
         envHttpHeaders: readStringRecord(config.env_http_headers),
+        ...(typeof config.tool_timeout_sec === 'number' ? { toolTimeoutSec: config.tool_timeout_sec } : {}),
       };
     }
 
