@@ -14,6 +14,17 @@ if result.returncode or status.get("status") != "verified":
     print("Release not verified; Autopilot remains unfinished. See release report.")
     sys.exit(1)
 
+with (release / "smoke.log").open("w") as log:
+    smoke = subprocess.run(["/Users/dimasik/.claude/skills/deploy-verify/bin/smoke.sh", "neo3-app"], cwd=root, stdout=log, stderr=subprocess.STDOUT)
+if smoke.returncode:
+    print("Detailed release verifier passed; registry smoke failed, inspect smoke.log.")
+    sys.exit(1)
+head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip()
+if head != status["sourceSha"] or dirty:
+    print("Release verified; newer source work preserved, Autopilot finalization left for review.")
+    sys.exit(0)
+
 def ap(*args):
     subprocess.run([sys.executable, str(root / ".autopilot/ap.py"), *args], cwd=root, check=True)
 
