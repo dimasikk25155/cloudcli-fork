@@ -49,3 +49,4 @@ export { vapidKeysDb } from '@/modules/database/repositories/vapid-keys.js';
 
 export { improvementIdeasDb } from './repositories/improvement-ideas.db.js';
 export type { IdeaRow } from './repositories/improvement-ideas.db.js';
+export { WORKSPACE_RECORDS_SCHEMA_SQL } from './schema.js';

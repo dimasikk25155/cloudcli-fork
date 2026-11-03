@@ -1,6 +1,7 @@
 import { Database } from 'better-sqlite3';
 
 import {
+  WORKSPACE_RECORDS_SCHEMA_SQL,
   ANSWER_TOKENS_TABLE_SCHEMA_SQL,
   APP_CONFIG_TABLE_SCHEMA_SQL,
   AUDIT_LOG_GUARD_SQL,
@@ -468,6 +469,7 @@ const ensureProjectsForSessionPaths = (db: Database): void => {
 };
 
 export const runMigrations = (db: Database) => {
+  db.exec(WORKSPACE_RECORDS_SCHEMA_SQL);
   try {
     const usersTableInfo = db.prepare('PRAGMA table_info(users)').all() as { name: string }[];
     const userColumnNames = usersTableInfo.map((column) => column.name);

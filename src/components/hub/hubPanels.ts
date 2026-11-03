@@ -1,6 +1,7 @@
 export const OPEN_HUB_PANEL_EVENT = 'neo3:open-hub-panel';
 
 export type HubPanelKey =
+  | 'agent-workspace'
   | 'consigliere'
   | 'mazda'
   | 'schedules'

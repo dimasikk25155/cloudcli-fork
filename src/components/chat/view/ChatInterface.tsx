@@ -265,6 +265,8 @@ function ChatInterface({
     imageErrors,
     dropNotice,
     dismissDropNotice,
+    workspaceHandoffError,
+    cancelWorkspaceHandoff,
     getRootProps,
     getInputProps,
     isDragActive,
@@ -729,6 +731,15 @@ function ChatInterface({
             </div>
           )}
 
+          {workspaceHandoffError && (
+            <div role="alert" className="m-2 rounded border border-destructive/40 p-3 text-sm">
+              <p>{workspaceHandoffError}</p>
+              <p>Можно повторить отправку или отменить привязку оставшихся материалов. Текст черновика сохранится; доступ к оставшимся источникам через инструменты выдан не будет.</p>
+              <button type="button" onClick={cancelWorkspaceHandoff} className="mt-2 rounded border px-3 py-1">
+                Отменить привязку, сохранить текст
+              </button>
+            </div>
+          )}
           <ChatComposer
           key={voiceRecoveryScope(user?.id ?? 'unavailable', selectedProject.projectId, currentSessionId || selectedSession?.id)}
           voiceRecoveryScope={voiceRecoveryScope(user?.id ?? 'unavailable', selectedProject.projectId, currentSessionId || selectedSession?.id)}

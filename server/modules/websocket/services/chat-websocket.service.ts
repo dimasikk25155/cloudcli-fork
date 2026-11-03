@@ -1,3 +1,4 @@
+import { workspaceSessionHasGrant } from '../../agent-workspace/index.js';
 import path from 'node:path';
 
 import type { WebSocket } from 'ws';
@@ -10,16 +11,16 @@ import {
   type AnswerEngine,
   type AnswerReason,
   type PendingRequestInfo,
-} from '@/modules/pending-answers/pending-answers.service.js';
-import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
-import { lastRunOptions, rememberRunOptions } from '@/modules/auto-relay/run-options.js';
+} from '@/modules/pending-answers/index.js';
+import { sessionAttention } from '@/modules/session-attention/index.js';
+import { lastRunOptions, rememberRunOptions } from '@/modules/auto-relay/index.js';
 import { IdeaError, type IdeaRunControl } from '@/modules/improvement-ideas/index.js';
-import type { AutoRelayRunControl } from '@/modules/auto-relay/auto-relay.service.js';
-import { threadTokens } from '@/modules/threads/thread-tokens.js';
+import type { AutoRelayRunControl } from '@/modules/auto-relay/index.js';
+import { threadTokens } from '@/modules/threads/index.js';
 import { beginServiceTurn } from '@/shared/service-turns.js';
 
 import { isRelayRequestText } from '../../../../shared/relay-rules.js';
-import type { ThreadRunControl } from '@/modules/threads/threads.service.js';
+import type { ThreadRunControl } from '@/modules/threads/index.js';
 import { backgroundConsoleOn, chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities, readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -462,7 +463,7 @@ function beginChatSend(
   // working on them; a chat without threads gets no token at all.
   let threadsToken: string | null = null;
   const threadsOn = (dependencies.isModOn ?? isModOn)(userId, 'modThreads');
-  if (threadsOn || sessionThreadsDb.listByParent(sessionId).length > 0) {
+  if (threadsOn || sessionThreadsDb.listByParent(sessionId).length > 0 || (userId && workspaceSessionHasGrant(Number(userId), sessionId))) {
     try {
       threadsToken = threadTokens.issue({ sessionId, userId, permissionMode: clientOptions.permissionMode });
     } catch (error) {

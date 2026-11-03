@@ -1,3 +1,5 @@
+import { bindPendingWorkspaceHandoffs, cancelPendingWorkspaceHandoffs, WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
+import { workspaceApi, workspaceJson } from '../../agent-workspace/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ChangeEvent,
@@ -310,6 +312,7 @@ export function useChatComposerState({
     }
     return '';
   });
+  const [workspaceHandoffError, setWorkspaceHandoffError] = useState<{ projectId: string; message: string } | null>(null);
   const [attachedImages, setAttachedImages] = useState<File[]>([]);
   const [uploadingImages, setUploadingImages] = useState<Map<string, number>>(new Map());
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
@@ -1154,6 +1157,17 @@ export function useChatComposerState({
           summary: sessionSummary,
         });
       }
+      try {
+        await bindPendingWorkspaceHandoffs(selectedProject.projectId!, targetSessionId, sessionStorage,
+          (grantId, sessionId) => workspaceApi('/handoff/' + encodeURIComponent(grantId) + '/bind', workspaceJson('POST', { sessionId })));
+        setWorkspaceHandoffError(null);
+      } catch (error) {
+        setWorkspaceHandoffError({
+          projectId: selectedProject.projectId!,
+          message: error instanceof Error ? error.message : 'Не удалось привязать источник к чату',
+        });
+        return;
+      }
 
       const hiddenBrief = catalogBriefRef.current;
       catalogBriefRef.current = null;
@@ -1345,6 +1359,15 @@ export function useChatComposerState({
   useEffect(() => {
     inputValueRef.current = input;
   }, [input]);
+
+  useEffect(() => {
+    const loadHandoff = (event:Event) => {
+      if ((event as CustomEvent<{projectId:string}>).detail?.projectId !== selectedProjectId) return;
+      fillInput(safeLocalStorage.getItem('draft_input_'+selectedProjectId)||'');
+    };
+    window.addEventListener(WORKSPACE_CHAT_EVENT,loadHandoff);
+    return () => window.removeEventListener(WORKSPACE_CHAT_EVENT,loadHandoff);
+  },[selectedProjectId,fillInput]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -1824,6 +1847,12 @@ export function useChatComposerState({
   );
 
   return {
+    workspaceHandoffError: workspaceHandoffError && workspaceHandoffError.projectId === selectedProject?.projectId ? workspaceHandoffError.message : null,
+    cancelWorkspaceHandoff: () => {
+      if (!selectedProject?.projectId) return;
+      cancelPendingWorkspaceHandoffs(selectedProject.projectId, sessionStorage);
+      setWorkspaceHandoffError(null);
+    },
     input,
     setInput,
     textareaRef,

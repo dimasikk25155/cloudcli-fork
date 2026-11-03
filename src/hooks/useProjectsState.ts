@@ -1,3 +1,4 @@
+import { WORKSPACE_CHAT_EVENT, selectHandoffProject } from '../components/agent-workspace/handoff';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
@@ -789,6 +790,15 @@ export function useProjectsState({
     },
     [isMobile, navigate],
   );
+
+  useEffect(() => {
+    const open = (event:Event) => {
+      const projectId=(event as CustomEvent<{projectId:string}>).detail?.projectId;
+      if (projectId) selectHandoffProject(projects,projectId,handleNewSession);
+    };
+    window.addEventListener(WORKSPACE_CHAT_EVENT,open);
+    return () => window.removeEventListener(WORKSPACE_CHAT_EVENT,open);
+  },[projects,handleNewSession]);
 
   const handleSessionDelete = useCallback(
     (sessionIdToDelete: string) => {

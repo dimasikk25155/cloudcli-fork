@@ -175,7 +175,7 @@ function isLocalModel(model: string): boolean {
 }
 
 async function defaultFetchMessages(sessionId: string): Promise<ReplyTurnMessage[]> {
-  const { sessionsService } = await import('@/modules/providers/services/sessions.service.js');
+  const { sessionsService } = await import('@/modules/providers/index.js');
   const history = await sessionsService.fetchHistory(sessionId, { limit: 60, offset: 0 });
   return history.messages as ReplyTurnMessage[];
 }
@@ -192,7 +192,7 @@ async function defaultCheckClaudeLimit(): Promise<{ blocked: boolean; notice?: s
 
 async function defaultListModels(provider: ThreadProvider): Promise<string[]> {
   try {
-    const { providerModelsService } = await import('@/modules/providers/services/provider-models.service.js');
+    const { providerModelsService } = await import('@/modules/providers/index.js');
     const result = await providerModelsService.getProviderModels(provider as LLMProvider);
     return (result.models?.OPTIONS ?? []).map((option: { value: string }) => option.value);
   } catch {
@@ -227,7 +227,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   const sleep = dependencies.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
   const pollMs = dependencies.pollMs ?? 2000;
   const broadcastUpsert = dependencies.broadcastUpsert ?? ((sessionId: string) => {
-    void import('@/modules/websocket/services/chat-run-registry.service.js')
+    void import('@/modules/websocket/index.js')
       .then(({ chatRunRegistry }) => chatRunRegistry.broadcastSessionUpsert(sessionId))
       .catch(() => {});
   });
@@ -240,7 +240,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   };
   const ensureRegistry = async (): Promise<void> => {
     if (dependencies.isProcessing || registryIsProcessing) return;
-    const { chatRunRegistry } = await import('@/modules/websocket/services/chat-run-registry.service.js');
+    const { chatRunRegistry } = await import('@/modules/websocket/index.js');
     registryIsProcessing = (sessionId) => chatRunRegistry.isProcessing(sessionId);
   };
 
@@ -430,7 +430,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
       refuse('ACCESS_DENIED', error instanceof Error ? error.message : 'Нет доступа', 403);
     }
 
-    const { sessionsService } = await import('@/modules/providers/services/sessions.service.js');
+    const { sessionsService } = await import('@/modules/providers/index.js');
     const created = sessionsService.createAppSession(provider, projectPath);
     const threadId = created.sessionId;
     const title = clip(readString(input.title) || titleFromPrompt(prompt), TITLE_MAX);
@@ -532,6 +532,11 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   }
 
   async function callTool(token: unknown, name: string, input: Record<string, unknown>): Promise<unknown> {
+    if (name === 'workspace_action') {
+      const owner = authorize(token);
+      const { callWorkspaceTool } = await import('../agent-workspace/index.js');
+      return callWorkspaceTool(owner.userId, owner.sessionId, input);
+    }
     switch (name) {
       case 'spawn_thread': return spawnThread(token, input);
       case 'thread_status': return threadStatus(token, input);

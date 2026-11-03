@@ -2,6 +2,7 @@
 
 // Load environment variables before other imports execute
 import './load-env.js';
+import { workspaceRoutes, publicIntakeRoutes } from './modules/agent-workspace/runtime.js';
 import fs, { promises as fsPromises } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -228,6 +229,13 @@ const wss = createWebSocketServer(server, {
 app.locals.wss = wss;
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
+// Only explicitly configured proxy addresses may supply the visitor IP.
+const trustedProxies = (process.env.NEO3_TRUSTED_PROXIES || '').split(',').map(value => value.trim()).filter(Boolean);
+app.set('trust proxy', trustedProxies.length ? trustedProxies : false);
+
+// Public intake authenticates with form/session capabilities, never the staff API key.
+app.use('/api/public-intake', publicIntakeRoutes);
+
 app.use(express.json({
     limit: '50mb',
     type: (req) => {
@@ -263,6 +271,7 @@ app.use('/api/threads', threadsRoutes);
 // project only (server/modules/team-telegram). Bearer = the run's token.
 app.use('/api/team-mcp/telegram', teamTelegramRoutes);
 
+
 // Optional API key validation (if configured)
 const filePreviewRoutes = createFilePreviewRoutes({ resolve: resolveProjectFilePath });
 app.use('/api/file-preview', filePreviewRoutes.assets);
@@ -271,6 +280,7 @@ app.use('/api', validateApiKey);
 
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
+app.use('/api/agent-workspace', authenticateToken, workspaceRoutes);
 
 // Projects API Routes (protected)
 app.use('/api/projects/:projectId/code-status', authenticateToken, codeStatusRoutes);

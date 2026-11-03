@@ -2,6 +2,8 @@ import express, { type Request, type Response } from 'express';
 
 import { ThreadsError, threadsService } from '@/modules/threads/threads.service.js';
 
+import { WorkspaceError } from '../agent-workspace/index.js';
+
 /**
  * `/api/threads/*` — called by the Neo3 threads MCP server (server/threads-mcp.ts)
  * from inside an engine process. No JWT: the thread token of the run is the
@@ -68,6 +70,10 @@ export function createThreadsRoutes(service: Pick<typeof threadsService, 'callTo
       const data = await service.callTool(token, String(req.params.toolName ?? ''), input);
       res.json({ success: true, data });
     } catch (error) {
+      if (error instanceof WorkspaceError) {
+        res.status(error.statusCode).json({success:false,error:error.message});
+        return;
+      }
       if (error instanceof ThreadsError) {
         res.status(error.status).json({ success: false, code: error.code, error: error.message });
         return;

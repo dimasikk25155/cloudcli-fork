@@ -1,3 +1,4 @@
+import AgentWorkspacePanel from '../../../agent-workspace/AgentWorkspacePanel';
 import { useEffect, useState } from 'react';
 import {
   Settings,
@@ -46,6 +47,7 @@ const HUB_PANELS = [
 ] as const;
 
 const FEATURE_PANELS = [
+  { key: 'agent-workspace', label: 'Рабочее пространство', shortLabel: 'Работа', icon: LayoutGrid },
   { key: 'schedules', label: 'Расписания', shortLabel: 'График', icon: Timer },
   { key: 'pipelines', label: 'Сценарии', shortLabel: 'Сцены', icon: Workflow },
   // Что происходило без тебя и во сколько это обошлось. Доступна всем, но
@@ -121,7 +123,7 @@ export default function SidebarFooter({
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const fromQuery = params.get('panel');
-    if (fromQuery === 'consigliere' || fromQuery === 'mazda' || fromQuery === 'schedules'
+    if (fromQuery === 'agent-workspace' || fromQuery === 'consigliere' || fromQuery === 'mazda' || fromQuery === 'schedules'
       || fromQuery === 'pipelines' || fromQuery === 'governance' || fromQuery === 'server'
       || fromQuery === 'krabik' || fromQuery === 'duet') {
       setOpenPanel(fromQuery);
@@ -161,6 +163,12 @@ export default function SidebarFooter({
     window.addEventListener(OPEN_HUB_PANEL_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_HUB_PANEL_EVENT, onOpen);
   }, [onShowSettings]);
+
+  useEffect(() => {
+    const close = () => setOpenPanel(null);
+    window.addEventListener('neo3:workspace-close', close);
+    return () => window.removeEventListener('neo3:workspace-close', close);
+  }, []);
 
   // One list, two shapes: the mobile icon row uses shortLabel, the desktop
   // menu uses the full label.
@@ -312,6 +320,7 @@ export default function SidebarFooter({
 
       {showNightshift && <NightshiftModal onClose={() => setShowNightshift(false)} t={t} />}
 
+      {openPanel === 'agent-workspace' && <PanelModal title="Рабочее пространство" icon={LayoutGrid} onClose={() => setOpenPanel(null)} contentClassName="md:max-w-4xl"><AgentWorkspacePanel onClose={() => setOpenPanel(null)} /></PanelModal>}
       {openPanel === 'consigliere' && (
         <PanelModal title="Канцелярия" icon={Wallet} onClose={() => setOpenPanel(null)}>
           <ConsiglierePlanner />
