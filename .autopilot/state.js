@@ -2,7 +2,7 @@ window.STATE =
 {
   "version": 2,
   "slug": "improvement-ideas",
-  "dir": "2026-11-02-improvement-ideas--wip",
+  "dir": "2026-11-02-improvement-ideas",
   "title": "Идеи улучшений и проверка выхода из плана",
   "mode": "semi",
   "depth": "normal",
@@ -13,8 +13,8 @@ window.STATE =
   "skillDir": "/Users/dimasik/.codex/skills/autopilot",
   "baseCommit": "e1e4d38b",
   "startedAt": "2026-11-02T03:19:42+03:00",
-  "updatedAt": "2026-11-03T14:43:00+03:00",
-  "finishedAt": null,
+  "updatedAt": "2026-11-03T14:44:05+03:00",
+  "finishedAt": "2026-11-03T14:44:05+03:00",
   "stages": [
     {
       "id": "preflight",
@@ -61,14 +61,15 @@ window.STATE =
     },
     {
       "id": "final",
-      "status": "active",
-      "startedAt": "2026-11-02T05:28:05+03:00"
+      "status": "done",
+      "startedAt": "2026-11-02T05:28:05+03:00",
+      "finishedAt": "2026-11-03T14:44:05+03:00"
     }
   ],
   "requirements": {
     "total": 16,
-    "done": 12,
-    "inTicket": 4,
+    "done": 16,
+    "inTicket": 0,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -228,10 +229,16 @@ window.STATE =
       ],
       "review": "да — выпуск и миграции",
       "model": "сильная",
-      "status": "review",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
-      "startedAt": "2026-11-03T14:07:36+03:00"
+      "startedAt": "2026-11-03T14:07:36+03:00",
+      "finishedAt": "2026-11-03T14:44:05+03:00",
+      "tests": {
+        "passed": 1692,
+        "failed": 0
+      },
+      "commit": "d7ec9238eb3e"
     },
     {
       "id": "F1",
@@ -384,9 +391,10 @@ window.STATE =
     "2026-11-03T14:08:34+03:00",
     "2026-11-03T14:21:13+03:00",
     "2026-11-03T14:39:01+03:00",
-    "2026-11-03T14:43:00+03:00"
+    "2026-11-03T14:43:00+03:00",
+    "2026-11-03T14:44:05+03:00"
   ],
-  "rev": 84,
+  "rev": 88,
   "waiting": null,
   "waits": [
     {
@@ -963,6 +971,35 @@ window.STATE =
       "t": "2026-11-03T14:43:00+03:00",
       "k": "answered",
       "kind": "action"
+    },
+    {
+      "t": "2026-11-03T14:44:05+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 1692,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-03T14:44:05+03:00",
+      "k": "tests",
+      "passed": 1692,
+      "failed": 0
+    },
+    {
+      "t": "2026-11-03T14:44:05+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-11-03T14:44:05+03:00",
+      "k": "finish",
+      "result": "Четыре работы объединены и применены; новый PID и точная публичная сборка проверены, внешние E2E-ограничения сохранены"
     }
   ],
   "reqList": [
@@ -1029,22 +1066,22 @@ window.STATE =
     {
       "id": "G13",
       "text": "«минимум 4 сессии сделали изменения в CLI»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G14",
       "text": "«собрать все воедино» / «правильно сведи ветки»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G15",
       "text": "«сделать полный деплой и перезагрузить»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G16",
       "text": "«Пожалуйста, не накосячь»",
-      "status": "in-ticket"
+      "status": "done"
     }
   ],
   "gates": {
@@ -1073,8 +1110,9 @@ window.STATE =
       "matched": 0
     }
   },
-  "result": null,
+  "result": "Четыре работы объединены и применены; новый PID и точная публичная сборка проверены, внешние E2E-ограничения сохранены",
   "report": [
-    "Сборки из чистого aea12a49; sourceHash оригинала и clone совпадает. Миграции дважды на отдельной SQLite-копии: исходные данные всех 30 таблиц неизменны, quick_check=ok."
+    "Сборки из чистого aea12a49; sourceHash оригинала и clone совпадает. Миграции дважды на отдельной SQLite-копии: исходные данные всех 30 таблиц неизменны, quick_check=ok.",
+    "Общий выпуск четырёх сессий проверен отдельным исполнителем: новый PID, origin/public health, точный JS, новые таблицы и маршруты. Доставка писем и полный browser E2E не заявляются."
   ]
 }
