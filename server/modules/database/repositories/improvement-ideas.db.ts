@@ -23,6 +23,22 @@ export const improvementIdeasDb = {
     return getConnection().prepare('UPDATE improvement_ideas SET status=?,updated_at=? WHERE id=? AND status=?')
       .run(to, new Date().toISOString(), id, from).changes === 1;
   },
+  transitionBatch(rows: Array<Pick<IdeaRow, 'id' | 'status'>>, to: ImprovementIdeaStatus): boolean {
+    const db = getConnection();
+    const update = db.prepare('UPDATE improvement_ideas SET status=?,updated_at=? WHERE id=? AND status=?');
+    const conflict = new Error('Idea status changed');
+    try {
+      db.transaction(() => {
+        for (const row of rows) {
+          if (update.run(to, new Date().toISOString(), row.id, row.status).changes !== 1) throw conflict;
+        }
+      })();
+      return true;
+    } catch (error) {
+      if (error === conflict) return false;
+      throw error;
+    }
+  },
   synced(userId: number, projectPath: string, relativePath: string | null, error: string | null) {
     getConnection().prepare('UPDATE improvement_ideas SET vault_path=?,vault_error=? WHERE user_id=? AND project_path=?')
       .run(relativePath, error, userId, projectPath);

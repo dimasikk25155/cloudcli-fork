@@ -21,6 +21,11 @@ export function createImprovementIdeasRouter(service: ImprovementIdeasService = 
         if (typeof req.query.sessionId !== 'string') { res.status(400).json({ error: 'Нужен чат' }); return; }
         res.json({ ideas: service.list(userId, req.query.sessionId) }); return;
       }
+      if (req.method === 'POST' && req.path === '/implement-batch') {
+        const { sessionId, ids } = req.body ?? {};
+        if (typeof sessionId !== 'string' || !sessionId.trim()) throw new IdeaError(400, 'Нужен чат');
+        res.json({ ideas: await service.implementBatch(userId, sessionId, ids) }); return;
+      }
       const match = /^\/(\d+)\/(decision|sync)$/.exec(req.path);
       if (!match || req.method !== 'POST') { next(); return; }
       const id = Number(match[1]);

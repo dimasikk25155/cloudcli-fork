@@ -83,6 +83,31 @@ export function createImprovementIdeasService(deps: {
       await syncProject(userId, row.project_path);
       return item(improvementIdeasDb.get(id)!);
     },
+    async implementBatch(userId: number, sessionId: string, ids: number[]) {
+      check(userId, sessionId);
+      if (!Array.isArray(ids) || !ids.length || ids.some(id => !Number.isSafeInteger(id) || id < 1)) {
+        throw new IdeaError(400, 'Нужен список идей');
+      }
+      // Approve exactly the client snapshot, never ideas captured after the click.
+      const rows = [...new Set(ids)].map(id => owned(userId, id));
+      if (rows.some(row => row.session_id !== sessionId)) throw new IdeaError(400, 'Все идеи должны быть из текущего чата');
+      const ready = rows.filter(row => row.status === 'proposed' || row.status === 'later');
+      if (!ready.length) return rows.map(item);
+      if (!control) throw new IdeaError(503, 'Запуск пока недоступен');
+      if (!improvementIdeasDb.transitionBatch(ready, 'starting')) throw new IdeaError(409, 'Список идей изменился. Обнови его и повтори.');
+      try {
+        const content = `Пользователь нажал «Реализовать всё» и одобрил выполнение перечисленных ниже идей текущего чата одной общей задачей. Составь общий план с учётом зависимостей, реализуй все перечисленные идеи и проверь результат. Не останавливайся после первой идеи. В итоговом ответе укажи результат по каждому пункту. Сохрани все ранее согласованные ограничения, бюджет, дату и часовой пояс; не расширяй разрешения на публикацию, оплату или удаление. Повторное подтверждение самих идей не требуется.\n\nИдеи:\n${ready.map((row, index) => `${index + 1}. Идея №${row.id}: ${row.text}`).join('\n\n')}`;
+        if (!control.start({ sessionId, userId, content })) throw new IdeaError(409, 'Чат занят или запуск отклонён. Повтори после завершения текущей работы.');
+      } catch (error) {
+        for (const row of ready) improvementIdeasDb.transition(row.id, 'starting', row.status);
+        if (error instanceof IdeaError) throw error;
+        throw new IdeaError(409, 'Не удалось начать работу. Все идеи сохранены.');
+      }
+      // A failure to record success must leave starting, never make a running batch retryable.
+      improvementIdeasDb.transitionBatch(ready.map(row => ({ id: row.id, status: 'starting' as const })), 'started');
+      await syncProject(userId, ready[0].project_path);
+      return rows.map(row => item(improvementIdeasDb.get(row.id)!));
+    },
     async decide(userId: number, id: number, action: 'implement' | 'later') {
       const row = owned(userId, id);
       if (row.status === 'started' || row.status === 'starting') return item(row);

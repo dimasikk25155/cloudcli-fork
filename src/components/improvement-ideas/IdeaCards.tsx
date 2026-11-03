@@ -10,9 +10,10 @@ import { authenticatedFetch } from '../../utils/api';
 export type IdeaCardsViewProps = {
   ideas: ImprovementIdea[]; sessionId: string; storageKey?: string;
   isProcessing: boolean; pending: number | null; error: string;
+  onImplementAll: (ids: number[]) => void;
   onAction: (id: number, action: 'implement' | 'later' | 'sync') => void;
 };
-export function IdeaCardsView({ ideas, sessionId, storageKey, isProcessing, pending, error, onAction }: IdeaCardsViewProps) {
+export function IdeaCardsView({ ideas, sessionId, storageKey, isProcessing, pending, error, onAction, onImplementAll }: IdeaCardsViewProps) {
   const [expanded, setExpanded] = useState(() => {
     try { return Boolean(storageKey && window.localStorage.getItem(storageKey) === 'open'); }
     catch { return false; }
@@ -20,6 +21,7 @@ export function IdeaCardsView({ ideas, sessionId, storageKey, isProcessing, pend
   // The API also supplies project ideas; this tray belongs strictly to the current chat.
   const currentIdeas = ideas.filter(idea => idea.sessionId === sessionId);
   const proposed = currentIdeas.filter(idea => idea.status === 'proposed');
+  const ready = currentIdeas.filter(idea => idea.status === 'proposed' || idea.status === 'later');
   const visible = [...proposed, ...currentIdeas.filter(idea => idea.status !== 'proposed')];
   if (!currentIdeas.length && !error) return null;
   const buttonClass = 'min-h-9 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
@@ -39,6 +41,12 @@ export function IdeaCardsView({ ideas, sessionId, storageKey, isProcessing, pend
       </summary>
       <div className="max-h-[30dvh] overflow-y-auto overscroll-contain border-t border-border px-3 pb-2">
         <p className="py-2 text-xs leading-relaxed text-muted-foreground">Идеи сохраняются здесь — можно вернуться к ним в конце беседы.</p>
+        {ready.length > 0 && <div className="mb-2 flex flex-wrap items-center gap-2">
+          <button type="button" disabled={isProcessing || pending !== null} onClick={() => onImplementAll(ready.map(idea => idea.id))} className={`${buttonClass} border border-border text-primary`}>
+            {pending === -1 ? 'Запускаю…' : `Реализовать всё · ${ready.length}`}
+          </button>
+          <span className="text-xs text-muted-foreground">Одной задачей, включая отложенные</span>
+        </div>}
         {error && <p role="alert" className="mb-2 text-destructive">{error}</p>}
         {visible.map(idea => <article key={idea.id} className="border-t border-border py-3">
           <p className="whitespace-pre-wrap break-words leading-relaxed">{idea.text}</p>
@@ -54,7 +62,7 @@ export function IdeaCardsView({ ideas, sessionId, storageKey, isProcessing, pend
             {idea.vaultError && <button type="button" disabled={pending !== null} onClick={() => onAction(idea.id, 'sync')} className={`${buttonClass} underline underline-offset-4`}>Повторить запись</button>}
           </div>
         </article>)}
-        {isProcessing && proposed.length > 0 && <p className="py-2 text-xs text-muted-foreground">Реализация доступна после завершения текущего ответа.</p>}
+        {isProcessing && ready.length > 0 && <p className="py-2 text-xs text-muted-foreground">Реализация доступна после завершения текущего ответа.</p>}
       </div>
     </details>
   </div>;
@@ -70,6 +78,7 @@ type IdeaRequestEvent = { scope: RequestScope } & (
   | { type: 'loaded'; ideas: ImprovementIdea[] }
   | { type: 'loadFailed' | 'actionFailed'; error: string }
   | { type: 'actionStarted'; id: number }
+  | { type: 'batchSucceeded'; ideas: ImprovementIdea[] }
   | { type: 'actionSucceeded'; idea: ImprovementIdea }
   | { type: 'actionFinished' }
 );
@@ -83,6 +92,7 @@ export function ideaRequestReducer(state: IdeaRequestState, event: IdeaRequestEv
     case 'loadFailed': return { ...state, loadError: event.error };
     case 'actionStarted': return { ...state, pending: event.id, actionError: '' };
     case 'actionSucceeded': return { ...state, ideas: state.ideas.map(idea => idea.id === event.idea.id ? event.idea : idea), revision: state.revision + 1 };
+    case 'batchSucceeded': return { ...state, ideas: state.ideas.map(idea => event.ideas.find(updated => updated.id === idea.id) ?? idea), revision: state.revision + 1 };
     case 'actionFailed': return { ...state, actionError: event.error };
     case 'actionFinished': return { ...state, pending: null };
   }
@@ -120,18 +130,20 @@ export function IdeaCards({ sessionId, isProcessing }: { sessionId: string | nul
     const timer = window.setInterval(() => void refresh(), 10_000);
     return () => { alive = false; unsubscribe(); window.clearInterval(timer); };
   }, [active, sessionId, subscribe, revision, scope]);
-  const act = useCallback(async (id: number, action: 'implement' | 'later' | 'sync') => {
-    dispatch({ type: 'actionStarted', scope, id });
+  const act = useCallback(async (id: number | number[], action: 'implement' | 'later' | 'sync') => {
+    const batch = Array.isArray(id);
+    dispatch({ type: 'actionStarted', scope, id: batch ? -1 : id });
     try {
-      const response = await authenticatedFetch(`/api/improvement-ideas/${id}/${action === 'sync' ? 'sync' : 'decision'}`, {
+      const response = await authenticatedFetch(batch ? '/api/improvement-ideas/implement-batch' : `/api/improvement-ideas/${id}/${action === 'sync' ? 'sync' : 'decision'}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: action === 'sync' ? undefined : JSON.stringify({ action }),
+        body: batch ? JSON.stringify({ sessionId, ids: id }) : action === 'sync' ? undefined : JSON.stringify({ action }),
       });
       const body = await response.json();
       if (!response.ok) throw Error(body.error || 'Действие не выполнено');
-      dispatch({ type: 'actionSucceeded', scope, idea: body.idea });
+      if (batch) dispatch({ type: 'batchSucceeded', scope, ideas: body.ideas });
+      else dispatch({ type: 'actionSucceeded', scope, idea: body.idea });
     } catch (cause) { dispatch({ type: 'actionFailed', scope, error: cause instanceof Error ? cause.message : 'Действие не выполнено' }); }
     finally { dispatch({ type: 'actionFinished', scope }); }
-  }, [scope]);
-  return active && sessionId ? <IdeaCardsView key={`${user?.id}:${sessionId}`} sessionId={sessionId} storageKey={`neo3:chat-ideas:${user?.id}:${sessionId}`} ideas={ideas} isProcessing={isProcessing} pending={pending} error={[loadError, actionError].filter(Boolean).join(' · ')} onAction={(id, action) => { void act(id, action); }} /> : null;
+  }, [scope, sessionId]);
+  return active && sessionId ? <IdeaCardsView key={`${user?.id}:${sessionId}`} sessionId={sessionId} storageKey={`neo3:chat-ideas:${user?.id}:${sessionId}`} ideas={ideas} isProcessing={isProcessing} pending={pending} error={[loadError, actionError].filter(Boolean).join(' · ')} onImplementAll={ids => { void act(ids, 'implement'); }} onAction={(id, action) => { void act(id, action); }} /> : null;
 }

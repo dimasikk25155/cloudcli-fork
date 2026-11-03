@@ -129,6 +129,88 @@ test('REST exposes cards and decisions with admin and validation boundary', asyn
     assert.equal(response.status, 200); assert.ok(((await response.json()) as { ideas: unknown[] }).ideas.length);
     assert.equal((await fetch(`${origin}/ideas?sessionId=ideas-session`, { headers: { 'x-guest': 'yes' } })).status, 403);
     assert.equal((await fetch(`${origin}/ideas/1/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'bad' }) })).status, 400);
+    const batch = await batchFixture('rest');
+    let batchStarts = 0;
+    service.setRunControl({ start: () => { batchStarts++; return true; } });
+    const postBatch = (body: unknown, headers = {}) => fetch(`${origin}/ideas/implement-batch`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+    assert.equal((await postBatch({ sessionId: batch.sessionId, ids: batch.ids }, { 'x-guest': 'yes' })).status, 403);
+    assert.equal((await postBatch({ ids: batch.ids })).status, 400);
+    assert.equal((await postBatch({ sessionId: batch.sessionId, ids: [] })).status, 400);
+    const batchResponse = await postBatch({ sessionId: batch.sessionId, ids: batch.ids });
+    assert.equal(batchResponse.status, 200);
+    assert.equal(((await batchResponse.json()) as { ideas: unknown[] }).ideas.length, 2);
+    assert.equal(batchStarts, 1);
     assert.equal((await fetch(`${origin}/ideas/999/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'implement' }) })).status, 404);
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+
+async function batchFixture(suffix: string) {
+  const sessionId = `batch-${suffix}`;
+  sessionsDb.createAppSession(sessionId, 'codex', projectPath);
+  await service.capture(sessionId, admin, [`💡 Что можно улучшить дальше: First ${suffix}.`, `💡 Что можно улучшить дальше: Second ${suffix}.`]);
+  const rows = service.list(admin, sessionId).filter(row => row.sessionId === sessionId);
+  await service.decide(admin, rows[1].id, 'later');
+  return { sessionId, rows, ids: rows.map(row => row.id) };
+}
+
+test('batch sends one combined message, includes deferred, excludes new ideas and deduplicates retries', async () => {
+  const { sessionId, rows, ids } = await batchFixture('once');
+  await service.capture(sessionId, admin, ['💡 Что можно улучшить дальше: New after snapshot.']);
+  let starts = 0;
+  service.setRunControl({ start: input => {
+    starts++; assert.equal(input.sessionId, sessionId); assert.equal(input.userId, admin);
+    for (const row of rows) assert.ok(input.content.includes(row.text));
+    assert.ok(!input.content.includes('New after snapshot'));
+    assert.match(input.content, /одной общей задачей/);
+    return true;
+  } });
+  const [result] = await Promise.all([
+    service.implementBatch(admin, sessionId, [...ids, ids[0]]),
+    service.implementBatch(admin, sessionId, ids),
+    service.decide(admin, ids[0], 'implement'),
+  ]);
+  assert.equal(starts, 1);
+  assert.equal(result.length, 2);
+  assert.ok(result.every(row => row.status === 'started'));
+  assert.equal(service.list(admin, sessionId).find(row => row.text === 'New after snapshot.')?.status, 'proposed');
+});
+
+test('rejected batch restores every original status and can retry once', async () => {
+  const { sessionId, ids } = await batchFixture('busy');
+  const before = ids.map(id => improvementIdeasDb.get(id)!.status);
+  service.setRunControl({ start: () => false });
+  await assert.rejects(service.implementBatch(admin, sessionId, ids), /занят/);
+  assert.deepEqual(ids.map(id => improvementIdeasDb.get(id)!.status), before);
+  service.setRunControl({ start: () => { throw new Error('runtime failure'); } });
+  await assert.rejects(service.implementBatch(admin, sessionId, ids), /Все идеи сохранены/);
+  assert.deepEqual(ids.map(id => improvementIdeasDb.get(id)!.status), before);
+  let starts = 0;
+  service.setRunControl({ start: () => { starts++; return true; } });
+  await service.implementBatch(admin, sessionId, ids);
+  assert.equal(starts, 1);
+});
+
+test('batch rejects mixed chats, unknown IDs, invalid input, non-admin and disabled mod before starting', async () => {
+  const a = await batchFixture('access-a'); const b = await batchFixture('access-b');
+  let starts = 0;
+  service.setRunControl({ start: () => { starts++; return true; } });
+  await assert.rejects(service.implementBatch(admin, a.sessionId, [a.ids[0], b.ids[0]]), /текущего чата/);
+  await assert.rejects(service.implementBatch(admin, a.sessionId, [a.ids[0], 999999]), /не найдена/);
+  for (const ids of [[], [0], [1.5], ['1'], null]) {
+    await assert.rejects(service.implementBatch(admin, a.sessionId, ids as number[]), /список идей/);
+  }
+  await assert.rejects(service.implementBatch(guest, a.sessionId, a.ids), /Нет доступа/);
+  enabled = false;
+  try { await assert.rejects(service.implementBatch(admin, a.sessionId, a.ids), /выключен/); }
+  finally { enabled = true; }
+  assert.equal(starts, 0);
+  assert.equal(improvementIdeasDb.get(a.ids[0])!.status, 'proposed');
+});
+
+test('batch database claim is atomic on a stale status', async () => {
+  const { ids } = await batchFixture('atomic');
+  assert.equal(improvementIdeasDb.transitionBatch(ids.map(id => ({ id, status: 'proposed' })), 'starting'), false);
+  assert.equal(improvementIdeasDb.get(ids[0])!.status, 'proposed');
+  assert.equal(improvementIdeasDb.get(ids[1])!.status, 'later');
 });
