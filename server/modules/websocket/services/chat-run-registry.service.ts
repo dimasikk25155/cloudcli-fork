@@ -1,11 +1,12 @@
 import path from 'node:path';
-import { improvementIdeas } from '@/modules/improvement-ideas/index.js';
-import { createIdeaCollector } from '@/modules/improvement-ideas/index.js';
+import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { improvementIdeas, createIdeaCollector } from '@/modules/improvement-ideas/index.js';
+import { projectsDb, sessionsDb, runDurationsDb, answerHash } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
 import { linksOfRow } from '@/modules/session-links/index.js';
-import { sessionAttention } from '@/modules/session-attention/session-attention.service.js';
+import { sessionAttention } from '@/modules/session-attention/index.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
 import { isModOn, type IsModOn, type ModUserId } from '@/shared/mods.js';
@@ -32,6 +33,9 @@ type ChatRunStatus = 'running' | 'completed';
  *   can replay exactly the events it missed via `chat.subscribe`.
  */
 type ChatRun = {
+  runId: string;
+  monotonicStart: number;
+  lastAnswer: string | null;
   appSessionId: string;
   provider: LLMProvider;
   providerSessionId: string | null;
@@ -185,8 +189,23 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     outbound.actualSessionId = run.appSessionId;
     run.status = 'completed';
     run.completedAt = Date.now();
+    if (!message.aborted && message.success !== false
+      && (message.exitCode === undefined || message.exitCode === 0) && run.lastAnswer) {
+      const durationMs = Math.max(0, Math.round(performance.now() - run.monotonicStart));
+      outbound.completionDurationMs = durationMs;
+      try {
+        runDurationsDb.save({ run_id: run.runId, session_id: run.appSessionId,
+          started_at: run.startedAt, finished_at: run.completedAt, duration_ms: durationMs,
+          answer_hash: answerHash(run.lastAnswer) });
+      } catch {
+        console.warn('[ChatRunRegistry] Could not save response duration');
+      }
+    }
     evictRunLater(run.appSessionId);
   }
+
+  if (message.kind === 'text' && message.role === 'assistant' && !message.parentToolUseId
+    && message.content?.trim()) run.lastAnswer = message.content;
 
   try {
     run.ideas.event(outbound);
@@ -312,6 +331,9 @@ export const chatRunRegistry = {
     }
 
     const run: ChatRun = {
+      runId: randomUUID(),
+      monotonicStart: performance.now(),
+      lastAnswer: null,
       appSessionId: input.appSessionId,
       provider: input.provider,
       providerSessionId: input.providerSessionId,

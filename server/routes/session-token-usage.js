@@ -7,6 +7,7 @@ import os from 'os';
 
 import Database from 'better-sqlite3';
 
+import { codexHome } from '@/shared/codex-paths.js';
 import { getOpenCodeDatabasePath } from '@/shared/utils.js';
 import { getContextWindow } from '@/shared/token-pricing.js';
 import { getSessionCostSnapshot, snapshotToComposerBudget } from '@/shared/session-usage.js';
@@ -125,7 +126,7 @@ export async function sessionTokenUsageHandler(req, res) {
 
         // Handle Codex sessions
         if (provider === 'codex') {
-            const codexSessionsDir = path.join(homeDir, '.codex', 'sessions');
+            const codexSessionsDir = path.join(codexHome(), 'sessions');
 
             // Find the session file by searching for the session ID
             const findSessionFile = async (dir) => {

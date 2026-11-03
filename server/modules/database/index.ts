@@ -1,4 +1,6 @@
 export { initializeDatabase } from '@/modules/database/init-db.js';
+export { runDurationsDb, answerHash } from './repositories/run-durations.db.js';
+export type { RunDurationRow } from './repositories/run-durations.db.js';
 export { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
 export { answerTokensDb } from '@/modules/database/repositories/answer-tokens.db.js';
 export type { AnswerTokenRow } from '@/modules/database/repositories/answer-tokens.db.js';

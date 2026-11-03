@@ -4,7 +4,7 @@ window.STATE =
   "slug": "improvement-ideas",
   "dir": "2026-11-02-improvement-ideas--wip",
   "title": "Идеи улучшений и проверка выхода из плана",
-  "mode": "full",
+  "mode": "semi",
   "depth": "normal",
   "tier": "T1",
   "briefFile": "2026-11-02-brief.md",
@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.codex/skills/autopilot",
   "baseCommit": "e1e4d38b",
   "startedAt": "2026-11-02T03:19:42+03:00",
-  "updatedAt": "2026-11-02T06:13:28+03:00",
+  "updatedAt": "2026-11-03T14:08:34+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -66,9 +66,9 @@ window.STATE =
     }
   ],
   "requirements": {
-    "total": 12,
+    "total": 16,
     "done": 12,
-    "inTicket": 0,
+    "inTicket": 4,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -204,6 +204,36 @@ window.STATE =
       "commit": "c9dbec18"
     },
     {
+      "id": "05",
+      "title": "Общий проверенный выпуск",
+      "requirements": [
+        "G13",
+        "G14",
+        "G15",
+        "G16"
+      ],
+      "blockedBy": [
+        "01",
+        "02",
+        "03",
+        "04"
+      ],
+      "wave": 8,
+      "zone": [
+        "src/",
+        "server/",
+        "shared/",
+        "scripts/",
+        "docs/combined-release-2026-11-03.md"
+      ],
+      "review": "да — выпуск и миграции",
+      "model": "сильная",
+      "status": "in-progress",
+      "retries": 0,
+      "repairs": 0,
+      "startedAt": "2026-11-03T14:07:36+03:00"
+    },
+    {
       "id": "F1",
       "title": "Полные идеи и корректные ошибки карточек",
       "requirements": [
@@ -300,8 +330,8 @@ window.STATE =
   },
   "additions": [],
   "coverage": {
-    "found": 0,
-    "fixed": 0,
+    "found": 2,
+    "fixed": 2,
     "deferred": 0,
     "items": []
   },
@@ -345,9 +375,15 @@ window.STATE =
     "2026-11-02T06:11:58+03:00",
     "2026-11-02T06:13:12+03:00",
     "2026-11-02T06:13:13+03:00",
-    "2026-11-02T06:13:28+03:00"
+    "2026-11-02T06:13:28+03:00",
+    "2026-11-03T14:06:44+03:00",
+    "2026-11-03T14:06:47+03:00",
+    "2026-11-03T14:07:34+03:00",
+    "2026-11-03T14:07:35+03:00",
+    "2026-11-03T14:07:36+03:00",
+    "2026-11-03T14:08:34+03:00"
   ],
-  "rev": 71,
+  "rev": 79,
   "waiting": null,
   "waits": [
     {
@@ -847,6 +883,47 @@ window.STATE =
       "ok": false,
       "checked": 1,
       "matched": 0
+    },
+    {
+      "t": "2026-11-03T14:06:47+03:00",
+      "k": "tickets",
+      "n": 8
+    },
+    {
+      "t": "2026-11-03T14:06:47+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": false,
+      "problems": 7
+    },
+    {
+      "t": "2026-11-03T14:07:34+03:00",
+      "k": "tickets",
+      "n": 8
+    },
+    {
+      "t": "2026-11-03T14:07:35+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-03T14:07:36+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-03T14:08:34+03:00",
+      "k": "gate",
+      "g": "G2",
+      "ok": true,
+      "found": 2,
+      "fixed": 2,
+      "deferred": 0
     }
   ],
   "reqList": [
@@ -909,6 +986,26 @@ window.STATE =
       "id": "G12",
       "text": "«постарайся сделать что сможешь» — помощник «не вернулся»",
       "status": "done"
+    },
+    {
+      "id": "G13",
+      "text": "«минимум 4 сессии сделали изменения в CLI»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "G14",
+      "text": "«собрать все воедино» / «правильно сведи ветки»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "G15",
+      "text": "«сделать полный деплой и перезагрузить»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "G16",
+      "text": "«Пожалуйста, не накосячь»",
+      "status": "in-ticket"
     }
   ],
   "gates": {
@@ -920,14 +1017,14 @@ window.STATE =
     },
     "G2": {
       "ok": true,
-      "at": "2026-11-02T05:58:28+03:00",
-      "found": 0,
-      "fixed": 0,
+      "at": "2026-11-03T14:08:34+03:00",
+      "found": 2,
+      "fixed": 2,
       "deferred": 0
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-02T06:13:28+03:00",
+      "at": "2026-11-03T14:07:35+03:00",
       "problems": 0
     },
     "G4": {

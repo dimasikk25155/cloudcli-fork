@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb, uiPreferencesDb, userDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, sessionsDb, uiPreferencesDb, userDb, runDurationsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
 
@@ -21,6 +21,36 @@ class FakeConnection {
     this.frames.push(JSON.parse(data) as Record<string, unknown>);
   }
 }
+
+test('successful runs persist one measured duration; abort, failure, and empty runs do not', async () => {
+  await withIsolatedDatabase(() => {
+    for (const [suffix, terminal] of Object.entries({
+      ok: { exitCode: 0 }, aborted: { exitCode: 0, aborted: true },
+      failed: { exitCode: 1 }, unsuccessful: { success: false }, empty: { exitCode: 0 },
+    })) {
+      const sessionId = `duration-${suffix}`;
+      sessionsDb.createAppSession(sessionId, 'codex', '/workspace/demo');
+      const connection = new FakeConnection();
+      const run = chatRunRegistry.startRun({ appSessionId: sessionId, provider: 'codex',
+        providerSessionId: null, connection, userId: null });
+      assert.ok(run);
+      run.monotonicStart -= 135000;
+      if (suffix !== 'empty') run.writer.send({ kind: 'text', role: 'assistant', content: 'Final answer' });
+      run.writer.send({ kind: 'text', role: 'assistant', content: 'Child answer', parentToolUseId: 'child' });
+      run.writer.send({ kind: 'complete', ...terminal });
+      run.writer.send({ kind: 'complete', exitCode: 0 });
+      const records = runDurationsDb.list(sessionId);
+      assert.equal(records.length, suffix === 'ok' ? 1 : 0);
+      if (suffix === 'ok') {
+        assert.ok(records[0].duration_ms >= 135000);
+        assert.ok(records[0].duration_ms < 137000);
+        // Reopening the connection models reload/restart; no in-memory timing is required.
+        closeConnection();
+        assert.deepEqual(runDurationsDb.list(sessionId), records);
+      }
+    }
+  });
+});
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;

@@ -26,3 +26,6 @@ Separate preview module owns scoped short-lived preview authorization and resour
 
 ## Реализованный контракт HTML
 POST /api/projects/:projectId/files/preview {path} -> {url,expiresAt}; GET/HEAD /api/file-preview/:token/*. Срок URL 30 минут; sandbox без allow-same-origin, forms/connect заблокированы. Читает сохранённые файлы; root-relative URL не переписываются, HTML показывает предупреждение. Коммит e142b871. 1598/1598 tests, typecheck pass, scoped lint no errors.
+
+## Согласованный общий выпуск 03.11
+Новый бриф явно разрешает собрать изменения четырёх сессий, полный deploy и restart Mac Neo3. Это заменяет прежний запрет на применение именно для этого выпуска. Исходное состояние сохраняется, изменения объединяются на release-ветке. Контракт: release-spec.md. Старые требования и нерешённые внешние E2E границы остаются.

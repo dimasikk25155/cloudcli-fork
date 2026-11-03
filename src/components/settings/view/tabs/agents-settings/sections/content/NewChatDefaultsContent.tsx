@@ -51,6 +51,7 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
   const [model, setModel] = useState<string>('');
   const [effort, setEffort] = useState<string>(MODEL_DEFAULT_EFFORT);
   const [workMode, setWorkMode] = useState<WorkMode>('autopilot');
+  const [workModeProvider, setWorkModeProvider] = useState<AgentProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,9 +59,11 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
 
     const load = async () => {
       try {
-        const [modelsResponse, preferencesResponse] = await Promise.all([
+        const [modelsResponse, preferencesResponse, capabilities] = await Promise.all([
           authenticatedFetch(`/api/providers/${agent}/models`),
           authenticatedFetch('/api/settings/provider-preferences'),
+          authenticatedFetch(`/api/providers/${agent}/capabilities`)
+            .then(response => response.ok ? response.json() : null).catch(() => null),
         ]);
         const modelsBody = (await modelsResponse.json()) as ProviderModelsResponse;
         const preferences = (await preferencesResponse.json()) as ProviderPreferencesResponse;
@@ -71,6 +74,7 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
 
         const definition = modelsBody.data?.models ?? null;
         setModelsDefinition(definition);
+        setWorkModeProvider(capabilities?.success && capabilities.data?.supportsWorkMode ? agent : null);
         const requestedModel = preferences.models?.[agent] || '';
         const nextModel = resolveChatSelection(agent, requestedModel, definition).model;
         setModel(nextModel);
@@ -184,9 +188,8 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
             </SettingsRow>
           )}
 
-          {/* Only the Claude runtime carries the work mode (it rides on the
-              system prompt), so the row would be a lie for other engines. */}
-          {agent === 'claude' && (
+          {/* Capabilities belong to the runtime, including Codex developer instructions. */}
+          {workModeProvider === agent && (
             <SettingsRow
               label={tChat('workMode.title', { defaultValue: 'Work mode' })}
               description={t('newChatDefaults.workMode.description', {

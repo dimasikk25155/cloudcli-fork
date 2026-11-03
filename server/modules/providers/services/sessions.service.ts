@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionsDb, runDurationsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import type {
@@ -11,7 +11,9 @@ import type {
   LLMProvider,
   NormalizedMessage,
 } from '@/shared/types.js';
-import { AppError } from '@/shared/utils.js';
+import { AppError, sliceTailPage } from '@/shared/utils.js';
+
+import { attachRunDurations } from './run-duration.js';
 
 type CreateAppSessionResult = {
   sessionId: string;
@@ -173,12 +175,23 @@ export const sessionsService = {
     }
 
     const provider = session.provider as LLMProvider;
+    let durations: ReturnType<typeof runDurationsDb.list> = [];
+    try { durations = runDurationsDb.list(sessionId); } catch { /* Timing must not break history. */ }
     const result = await providerRegistry.resolveProvider(provider).sessions.fetchHistory(sessionId, {
-      limit: options.limit ?? null,
-      offset: options.offset ?? 0,
+      limit: durations.length ? null : options.limit ?? null,
+      offset: durations.length ? 0 : options.offset ?? 0,
       projectPath: session.project_path ?? '',
       providerSessionId: session.provider_session_id,
     });
+
+    if (durations.length) {
+      const annotated = attachRunDurations(result.messages, durations);
+      const { page, hasMore } = sliceTailPage(annotated, options.limit ?? null, options.offset ?? 0);
+      result.messages = page;
+      result.hasMore = hasMore;
+      result.offset = options.offset ?? 0;
+      result.limit = options.limit ?? null;
+    }
 
     return {
       ...result,

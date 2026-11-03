@@ -549,7 +549,7 @@
       "modes": {
         "default": {
           "title": "По умолчанию",
-          "description": "Только доверенные команды (ls, cat, grep, git status и т.д.) выполняются автоматически. Другие команды пропускаются. Может записывать в рабочее пространство."
+          "description": "Команды и изменения файлов выполняются в песочнице проекта. Запросы дополнительных прав в текущем интерфейсе Codex не поддерживаются; такие действия могут быть отклонены."
         },
         "acceptEdits": {
           "title": "Принимать правки",
@@ -562,7 +562,7 @@
       },
       "technicalDetails": "Технические детали",
       "technicalInfo": {
-        "default": "sandboxMode=workspace-write, approvalPolicy=untrusted. Доверенные команды: cat, cd, grep, head, ls, pwd, tail, git status/log/diff/show, find (без -exec) и т.д.",
+        "default": "sandboxMode=workspace-write, approvalPolicy=on-request. CLI 0.166 больше не поддерживает untrusted. Интерактивный ответ на запрос дополнительных прав через exec недоступен.",
         "acceptEdits": "sandboxMode=workspace-write, approvalPolicy=never. Все команды автоматически выполняются в каталоге проекта.",
         "bypassPermissions": "sandboxMode=danger-full-access, approvalPolicy=never. Полный системный доступ, используйте только в доверенных средах.",
         "overrideNote": "Вы можете переопределить это для каждого сеанса, используя кнопку режима в интерфейсе чата."
@@ -607,7 +607,7 @@
     },
     "help": {
       "title": "О Codex MCP",
-      "description": "Codex поддерживает MCP серверы на основе stdio. Вы можете добавлять серверы, которые расширяют возможности Codex дополнительными инструментами и ресурсами."
+      "description": "Codex поддерживает локальные MCP-серверы через stdio и удалённые через HTTP. Добавляйте серверы, чтобы дать Codex дополнительные инструменты и ресурсы."
     },
     "managed": {
       "badge": "Управляется системой",

@@ -53,6 +53,7 @@ export interface SubagentChildTool {
 }
 
 export interface ChatMessage {
+  completionDurationMs?: number;
   type: string;
   content?: string;
   displayText?: string;

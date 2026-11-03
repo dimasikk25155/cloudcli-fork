@@ -263,6 +263,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
             content: text,
             timestamp: msg.timestamp,
             replyNumber: assistantReplyNumber,
+            completionDurationMs: count(msg.completionDurationMs),
             ...sharedMetadata,
           });
         }

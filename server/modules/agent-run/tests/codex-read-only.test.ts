@@ -51,9 +51,32 @@ test('analysis uses an isolated read-only thread and cleans it after failure', a
     assert.notEqual(scratch, dir);
     assert.equal(options.sandboxMode, 'read-only');
     assert.equal(options.approvalPolicy, 'never');
-    return { run: async () => { throw new Error('fixture failure'); } };
+    return { runStreamed: async () => { throw new Error('fixture failure'); } };
   });
   await assert.rejects(runCodexReadOnly({ projectPath: dir, prompt: 'brief' }), /fixture failure/);
   await assert.rejects(fs.access(scratch));
   assert.equal(await fs.readFile(path.join(authDir, 'auth.json'), 'utf8'), '{}');
+});
+
+test('read-only analysis rejects fatal or truncated streams and accepts explicit completion', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'analysis-stream-'));
+  const previous = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = root;
+  t.after(async () => {
+    if (previous === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = previous;
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  await fs.writeFile(path.join(root, 'auth.json'), '{}');
+  let events: object[] = [];
+  t.mock.method(Codex.prototype, 'startThread', (options: any) => {
+    assert.equal(options.modelReasoningEffort, 'persistent');
+    return { runStreamed: async () => ({ events: (async function* () { yield* events; })() }) };
+  });
+  const run = () => runCodexReadOnly({ projectPath: root, prompt: 'fixture', effort: 'persistent' });
+  events = [{ type: 'error', message: 'fatal fixture' }];
+  await assert.rejects(run(), /fatal fixture/);
+  events = [{ type: 'item.completed', item: { type: 'agent_message', text: 'partial' } }];
+  await assert.rejects(run(), /without a complete response/);
+  events.push({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } });
+  assert.equal((await run()).text, 'partial');
 });
