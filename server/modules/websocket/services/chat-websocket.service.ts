@@ -54,7 +54,7 @@ import type {
   LLMProvider,
   RealtimeClientConnection,
 } from '@/shared/types.js';
-import { createNormalizedMessage, parseIncomingJsonObject } from '@/shared/utils.js';
+import { createCompleteMessage, createNormalizedMessage, parseIncomingJsonObject } from '@/shared/utils.js';
 
 /**
  * Runtimes that build their own image reference block (`appendImagesInputTag`)
@@ -561,7 +561,23 @@ async function handleChatAbort(
   }
 
   if (!(await abortSessionRun(sessionId, dependencies, userId))) {
-    sendProtocolError(ws, 'NO_ACTIVE_RUN', `Session "${sessionId}" has no active run.`, sessionId);
+    // Stop can arrive after completion or be repeated by another tab. It is
+    // already satisfied; acknowledge only to the requester, without changing
+    // the saved result or notifying anyone that a successful run failed.
+    if (chatRunRegistry.isProcessing(sessionId)) {
+      // A new run may have started across the await. Do not stop its spinner.
+      handleChatSubscribe(ws, { sessions: [{ sessionId }] }, dependencies, userId);
+      return;
+    }
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      sendProtocolError(ws, 'SESSION_NOT_FOUND', 'Session not found.', sessionId);
+      return;
+    }
+    sendJson(ws, createCompleteMessage({
+      provider: session.provider as LLMProvider,
+      sessionId, exitCode: 0, aborted: true,
+    }));
   }
 }
 

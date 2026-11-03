@@ -102,6 +102,31 @@ function stopReply(socket: FakeSocket) {
   return socket.frames.find((frame) => frame.kind === 'background_task_stop');
 }
 
+test('Stop after completion is idempotent and acknowledges idle without an error', async () => {
+  await withIsolatedDatabase(async (fixture) => {
+    const { dependencies } = fakeDependencies();
+    const socket = new FakeSocket();
+    handleChatConnection(socket as never, { user: { userId: fixture.adminId, role: 'admin' } } as never, dependencies);
+    await socket.deliver({ type: 'chat.abort', sessionId: fixture.sessionId });
+    await socket.deliver({ type: 'chat.abort', sessionId: fixture.sessionId });
+    assert.equal(socket.frames.some(frame => frame.kind === 'protocol_error'), false);
+    const replies = socket.frames.filter(frame => frame.kind === 'complete');
+    assert.equal(replies.length, 2);
+    assert.equal(replies.every(frame => frame.aborted === true && frame.sessionId === fixture.sessionId), true);
+  });
+});
+
+test('idempotent Stop still refuses a session without project access', async () => {
+  await withIsolatedDatabase(async (fixture) => {
+    const { dependencies } = fakeDependencies();
+    const socket = new FakeSocket();
+    handleChatConnection(socket as never, { user: { userId: fixture.employeeId } } as never, dependencies);
+    await socket.deliver({ type: 'chat.abort', sessionId: fixture.sessionId });
+    assert.equal(socket.frames.find(frame => frame.kind === 'protocol_error')?.code, 'PROJECT_ACCESS_DENIED');
+    assert.equal(socket.frames.some(frame => frame.kind === 'complete'), false);
+  });
+});
+
 test('stopping a background task of a session in a project the user cannot access is refused', async () => {
   await withIsolatedDatabase(async (fixture) => {
     const { dependencies, stops } = fakeDependencies();

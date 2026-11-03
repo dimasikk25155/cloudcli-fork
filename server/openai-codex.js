@@ -353,6 +353,22 @@ export async function queryCodex(command, options = {}, ws) {
         }
       }
 
+      // exec emits transport recovery notices as errors even though the turn
+      // continues. Only recognize its explicit retry/fallback notices; a real
+      // turn.failed, unknown error, or EOF must still fail the run.
+      const notice = event.type === 'error' ? event.message
+        : event.item?.type === 'error' ? event.item.message : null;
+      const retry = typeof notice === 'string' && /^Reconnecting\.{3}\s+(\d+\/\d+)(?:\s|$)/.exec(notice);
+      const fallback = typeof notice === 'string' && notice.startsWith('Falling back from WebSockets to HTTPS transport.');
+      if (retry || fallback) {
+        sendMessage(ws, createNormalizedMessage({
+          kind: 'status', provider: 'codex', sessionId: capturedSessionId || sessionId || null,
+          text: retry ? `Codex: восстанавливаю соединение (${retry[1]})…`
+            : 'Codex: переключаю соединение на HTTPS…',
+        }));
+        continue;
+      }
+
       const helper = codexHelperPayload(event);
       if (helper) {
         const helperId = event.item?.id || event.id || JSON.stringify(helper);

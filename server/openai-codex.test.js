@@ -144,6 +144,47 @@ function fixtureStream(t, events) {
   }));
 }
 
+for (const warning of [
+  'Reconnecting... 2/5 (stream disconnected before completion: websocket closed by server before response.completed)',
+  'Falling back from WebSockets to HTTPS transport. stream disconnected before completion: websocket closed by server before response.completed',
+]) {
+  test(`transport recovery remains non-terminal: ${warning}`, async (t) => {
+    fixtureStream(t, [
+      { type: 'thread.started', thread_id: 'recovery-fixture' },
+      { type: 'error', message: warning },
+      { type: 'item.completed', item: { id: 'reply', type: 'agent_message', text: 'Recovered successfully.' } },
+      { type: 'turn.completed', usage: {} },
+    ]);
+    const rows = [];
+    await queryCodex('fixture', {}, { isWebSocketWriter: true, send: row => rows.push(row) });
+    assert.equal(rows.some(row => row.kind === 'error'), false);
+    assert.equal(rows.filter(row => row.kind === 'status' && row.text?.startsWith('Codex:')).length, 1);
+    assert.equal(rows.find(row => row.kind === 'complete').exitCode, 0);
+    assert.equal(rows.some(row => row.kind === 'text' && row.content === 'Recovered successfully.'), true);
+  });
+}
+
+test('recovery followed by EOF still fails instead of silently succeeding', async (t) => {
+  fixtureStream(t, [{ type: 'error', message: 'Reconnecting... 5/5 (connection lost)' }]);
+  const rows = [];
+  await queryCodex('fixture', {}, { isWebSocketWriter: true, send: row => rows.push(row) });
+  assert.equal(rows.filter(row => row.kind === 'error').length, 1);
+  assert.match(rows.find(row => row.kind === 'error').content, /before turn.completed/);
+  assert.equal(rows.find(row => row.kind === 'complete').exitCode, 1);
+});
+
+test('a failed turn after a recovery notice retains the actual failure', async (t) => {
+  fixtureStream(t, [
+    { type: 'item.completed', item: { type: 'error', message: 'Reconnecting... 2/5 (connection lost)' } },
+    { type: 'turn.failed', error: { message: 'Retry budget exhausted' } },
+  ]);
+  const rows = [];
+  await queryCodex('fixture', {}, { isWebSocketWriter: true, send: row => rows.push(row) });
+  assert.equal(rows.filter(row => row.kind === 'error').length, 1);
+  assert.equal(rows.find(row => row.kind === 'error').content, 'Retry budget exhausted');
+  assert.equal(rows.find(row => row.kind === 'complete').exitCode, 1);
+});
+
 test('fatal SDK error is visible and cannot finish successfully', async (t) => {
   fixtureStream(t, [{ type: 'thread.started', thread_id: 'fatal-fixture' }, { type: 'error', message: 'Connection exhausted' }]);
   const rows = [];
