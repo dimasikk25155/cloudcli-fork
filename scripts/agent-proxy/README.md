@@ -4,6 +4,9 @@ The required provider-visible IP is **45.86.61.144** (2026-11-03). This applies
 to CLI login, model requests, SDK launches, and the browser used for OAuth.
 Do not introduce a direct fallback or a different exit address.
 
+On 2026-11-04 the owner approved **45.86.63.89** as a manually selected standby.
+The primary remains selected. Automatic failover is not enabled.
+
 ## Installed routes
 
 - **Mac CLI:** `127.0.0.1:12809` → a dedicated Hysteria2 client →
@@ -112,6 +115,50 @@ Official Hysteria client configuration:
 https://v2.hysteria.network/docs/advanced/Full-Client-Config/
 
 ## Recovery
+
+### Offline recovery app (no AI required)
+
+`~/Applications/Резервный мост ИИ.app` has a Desktop shortcut. Its source is
+`ProxySwitch.swift`; rebuild with `sh scripts/agent-proxy/build-switcher.sh`.
+It uses the installed `switch.py`, local Python and the existing `vps-nl` SSH key.
+It needs working Internet/SSH, but no AI subscription or running Neo3 UI.
+
+If the primary is unavailable:
+
+1. Finish current AI responses. In Happ double-click **NL-Hysteria2**.
+2. Open **Резервный мост ИИ**, choose **Включить резерв**, confirm.
+3. Wait for success on both Mac and VPS, then open a new AI session.
+
+To return, select **Happ Fast QUIC** in Happ, then **Вернуть основной**.
+**Проверить резерв** tests both machines without changing either active tunnel.
+**Статус** reports configured IPs and unfinished operations, not a live IP check.
+The profile-copy button is for restoring a missing Happ entry; it places a
+private credential on the local clipboard. Never send that clipboard to others.
+
+The standby reuses the existing Hysteria2 server on `45.86.63.89:8443` (NordMax
+host). No server services, websites or ports were changed. Dedicated CLI profiles
+verify TLS using its pinned self-signed certificate as an explicit CA. Happ uses
+its supported certificate fingerprint pin. Private primary/reserve client files:
+
+- Mac: `~/Antigravity Project/.secrets.d/neo3-agent-profiles/` (0700, files 0600).
+- VPS: `/etc/neo3-agent-proxy/profiles/` (0700, files 0600).
+- VPS public CA: `/usr/local/lib/neo3-agent-proxy/reserve-ca.pem` (0644), readable
+  by the existing DynamicUser. This certificate contains no private key.
+
+The coordinator checks Happ's actual exit, probes both clients, stages blocking
+markers, applies both clients, verifies their exits, then permits new launches.
+If interrupted after staging, `switch-recovery.json` and `switch-in-progress`
+keep wrappers blocked. Restore connectivity and press the SAME target button;
+the saved operation resumes. Never remove these files to bypass a failed switch.
+No credentials are stored in recovery journals. Existing processes are not
+stopped; finish their work before switching and use new sessions afterward.
+
+Verification: real standby probes on Mac and VPS returned `45.86.63.89`, including
+a restricted DynamicUser client on VPS. Six failure-path tests plus five wrapper
+tests pass. The native app's probe button was checked. A live serving-tunnel
+failover was deliberately not performed: the active primary is preserved.
+
+### Explicit removal
 
 Prefer repairing the pinned transport over reverting to another exit. The old
 proxy is retained only as an explicit, owner-approved rollback. To disable the

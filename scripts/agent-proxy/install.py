@@ -36,7 +36,7 @@ expected_ip = args.expected_ip or state.get('expected_ip', '45.86.61.144')
 if expected_ip:
     ipaddress.ip_address(expected_ip)
 source = Path(__file__).resolve().parent
-for name in ('run.sh', 'install.py', 'doctor.py'):
+for name in ('run.sh', 'install.py', 'doctor.py', 'switch.py'):
     destination = prefix / name
     if source / name != destination:
         shutil.copyfile(source / name, destination)

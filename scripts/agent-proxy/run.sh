@@ -2,6 +2,10 @@
 # Only agent processes and their children inherit these settings.
 set -eu
 proxy_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -e "$proxy_dir/switch-in-progress" ] || [ -e "$proxy_dir/switch-recovery.json" ]; then
+    echo 'Agent blocked: complete the pending proxy switch in the offline switcher.' >&2
+    exit 78
+fi
 . "$proxy_dir/proxy.env"
 : "${NEO3_AGENT_PROXY_URL:?Missing agent proxy URL}"
 # A wrong or unavailable exit must stop the agent before it contacts a provider.
@@ -18,6 +22,10 @@ if [ -n "${NEO3_AGENT_EXPECTED_IP:-}" ]; then
         echo 'Agent blocked: proxy unavailable or exit IP does not match the pinned address.' >&2
         exit 78
     fi
+fi
+if [ -e "$proxy_dir/switch-in-progress" ] || [ -e "$proxy_dir/switch-recovery.json" ]; then
+    echo 'Agent blocked: proxy switch began during the connection check.' >&2
+    exit 78
 fi
 export HTTP_PROXY="$NEO3_AGENT_PROXY_URL" HTTPS_PROXY="$NEO3_AGENT_PROXY_URL" ALL_PROXY="$NEO3_AGENT_PROXY_URL"
 export http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" all_proxy="$ALL_PROXY"
