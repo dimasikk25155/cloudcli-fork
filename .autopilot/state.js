@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.codex/skills/autopilot",
   "baseCommit": "e1e4d38b",
   "startedAt": "2026-11-02T03:19:42+03:00",
-  "updatedAt": "2026-11-03T14:08:34+03:00",
+  "updatedAt": "2026-11-03T14:21:13+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -228,7 +228,7 @@ window.STATE =
       ],
       "review": "да — выпуск и миграции",
       "model": "сильная",
-      "status": "in-progress",
+      "status": "review",
       "retries": 0,
       "repairs": 0,
       "startedAt": "2026-11-03T14:07:36+03:00"
@@ -320,7 +320,7 @@ window.STATE =
     }
   ],
   "tests": {
-    "passed": 6,
+    "passed": 1692,
     "failed": 0
   },
   "debt": {
@@ -381,9 +381,10 @@ window.STATE =
     "2026-11-03T14:07:34+03:00",
     "2026-11-03T14:07:35+03:00",
     "2026-11-03T14:07:36+03:00",
-    "2026-11-03T14:08:34+03:00"
+    "2026-11-03T14:08:34+03:00",
+    "2026-11-03T14:21:13+03:00"
   ],
-  "rev": 79,
+  "rev": 82,
   "waiting": null,
   "waits": [
     {
@@ -924,6 +925,26 @@ window.STATE =
       "found": 2,
       "fixed": 2,
       "deferred": 0
+    },
+    {
+      "t": "2026-11-03T14:21:13+03:00",
+      "k": "tests",
+      "passed": 1692,
+      "failed": 0
+    },
+    {
+      "t": "2026-11-03T14:21:13+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-11-03T14:21:13+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "review"
     }
   ],
   "reqList": [
@@ -1034,5 +1055,8 @@ window.STATE =
       "matched": 0
     }
   },
-  "result": null
+  "result": null,
+  "report": [
+    "Сборки из чистого aea12a49; sourceHash оригинала и clone совпадает. Миграции дважды на отдельной SQLite-копии: исходные данные всех 30 таблиц неизменны, quick_check=ok."
+  ]
 }
