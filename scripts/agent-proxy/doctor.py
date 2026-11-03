@@ -7,9 +7,11 @@ import subprocess
 import sys
 import socket
 import time
+from urllib.parse import urlsplit
 
 root = Path(__file__).resolve().parent
 state = json.loads((root / 'installation.json').read_text())
+endpoint = urlsplit(state['proxy'])
 for target in state['targets']:
     path = Path(target)
     try:
@@ -25,15 +27,22 @@ for target in state['targets']:
 # systemd's active state can precede Xray binding its socket by a few milliseconds.
 for attempt in range(25):
     try:
-        with socket.create_connection(('127.0.0.1', 11809), timeout=0.2):
+        with socket.create_connection((endpoint.hostname, endpoint.port), timeout=0.2):
             break
     except OSError:
         if attempt == 24:
-            print('FAILED: local proxy is not listening on 127.0.0.1:11809')
+            print('FAILED: local proxy is not listening:', state['proxy'])
             sys.exit(1)
         time.sleep(0.2)
 
-hosts = ['api.openai.com', 'chatgpt.com', 'auth.openai.com', 'cli-chat-proxy.grok.com', 'auth.x.ai', 'api.x.ai']
+if state.get('expected_ip'):
+    result = subprocess.run([str(root / 'run.sh'), 'true'], capture_output=True, text=True)
+    if result.returncode:
+        print('FAILED: pinned exit IP verification')
+        sys.exit(1)
+    print('Verified exit IP:', state['expected_ip'], flush=True)
+
+hosts = ['api.openai.com', 'chatgpt.com', 'auth.openai.com', 'cli-chat-proxy.grok.com', 'auth.x.ai', 'api.x.ai', 'api.anthropic.com', 'claude.ai']
 def check(host):
     suffix = '/v1/models' if host.startswith('api.') else '/'
     p = subprocess.run(['curl', '--silent', '--show-error', '--connect-timeout', '8', '--max-time', '20', '--noproxy', '', '--proxy', state['proxy'], '--output', '/dev/null', '--write-out', '%{http_code}', 'https://' + host + suffix], capture_output=True, text=True)

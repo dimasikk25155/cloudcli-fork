@@ -1,84 +1,120 @@
-# Agent outbound proxy
+# Pinned outbound IP for coding agents
 
-Installed 2026-11-01 for Codex CLI, Grok Build, and the Codex binary bundled with
-the Mac Neo3 SDK. Existing model, effort, login, and sandbox settings are preserved.
-Running sessions are untouched; newly started engines use the wrappers immediately.
+The required provider-visible IP is **45.86.61.144** (2026-11-03). This applies
+to CLI login, model requests, SDK launches, and the browser used for OAuth.
+Do not introduce a direct fallback or a different exit address.
 
-## Routes
+## Installed routes
 
-- Mac: existing independent Xray HTTP listener `127.0.0.1:11809`, managed by
-  `ru.neo3.tyres-bot-network`. This route does not depend on the Happ window.
-  Its existing configuration was not changed.
-- VPS NL: `neo3-agent-proxy.service` runs the existing Xray binary with a separate
-  configuration, binds **only** `127.0.0.1:11809`, and exits through the VPS IP.
-  This is a localhost forward proxy, not an additional VPN or a different exit IP.
-  No ports were opened to the Internet. The service uses a dynamic unprivileged
-  user, automatic restart, and a 128 MiB memory limit.
-- Only wrapped agents and their child processes receive upper/lowercase proxy
-  variables. Localhost and Tailscale addresses bypass the proxy. The launchers
-  do not fall back to direct provider access when the local proxy is unavailable.
-  This is process configuration, not a firewall enforcing every program's traffic.
+- **Mac CLI:** `127.0.0.1:12809` → a dedicated Hysteria2 client →
+  `45.86.61.144:443`. LaunchAgent `com.dimasik.neo3-agent-hysteria`.
+  Binary: `~/.local/share/neo3-agent-proxy/hysteria` (official v2.13.0,
+  darwin-arm64 SHA256 `c8c3589239ce4ecf335c07a3f6ec11b3ef8fbdfe9e5a5ea0ef8ba8ce50d2bb90`).
+  Private configuration: `~/Antigravity Project/.secrets.d/neo3-agent-hysteria.json`,
+  mode 0600. Logs: `~/.local/share/neo3-agent-proxy/hysteria.log`.
+- **VPS CLI:** `127.0.0.1:12809` → existing `/usr/local/bin/hysteria`
+  (v2.12.3) → the same endpoint. Unit `neo3-agent-hysteria.service`;
+  `/etc/neo3-agent-proxy/hysteria.json` is 0600 and supplied to the dynamic
+  service user with systemd `LoadCredential`. No external listening port.
+- TLS checks remain enabled, with SNI `mya1a.neo3.ru`.
+- **Mac browser:** Happ profile `Happ Fast QUIC`, TUN enabled, same endpoint.
+  Safari's actual IP was checked in its own temporary tab. The CLI tunnel
+  is pinned independently; changing the Happ selection cannot intentionally
+  select a different CLI exit. An underlying network block instead causes failure.
+- The old Mac Xray on `11809` is shared with WhatsApp bots and was not changed.
+  The old VPS proxy is retained for rollback; new agent wrappers do not use it.
 
-## Installation and repair
+Mac direct QUIC initially timed out while Happ used another profile. After
+switching Happ to the supplied profile, both the browser and independent client
+connected successfully. No SSH relay is part of the final route.
 
-Mac, from the repository root:
+## Launchers and fail-closed checks
+
+The existing `neo3-agent-proxy` launcher now covers installed Claude, Codex,
+Grok, Gemini, OpenCode, Cursor (`cursor-agent` / `agent`), Kimi and Neo3's
+bundled Codex binary. On VPS it covers global commands and agents' local commands.
+The concrete inventory is the installed `installation.json`.
+
+Before executing a CLI, `run.sh` fetches the external IP through the explicit
+proxy. A missing proxy, failed check, or different IP exits with code 78 before
+starting the agent. The second IP-check service also uses the same explicit
+proxy. Upper/lowercase HTTP(S)/ALL_PROXY and `NODE_USE_ENV_PROXY=1` are exported.
+Localhost and Tailscale exclusions are preserved.
+
+This enforces the standard launcher path and checks the exit at startup. It is
+**not an OS firewall**: deliberately invoking an original `.neo3-direct` binary,
+unregistered executables, software that ignores proxy variables, or an existing
+process with stale environment is outside this guarantee. Never describe these
+wrappers as a machine-wide network kill switch. Future hosts must be installed
+and verified before account login. Safari relies on the selected Happ profile;
+its route must be rechecked if the VPN changes or disconnects.
+
+## Installation, updates, and new hosts
+
+Supply the Hysteria secret privately; never commit the URI/auth value. Configure
+server `45.86.61.144:443`, TLS SNI `mya1a.neo3.ru`, `insecure:false`, and an HTTP
+listener on `127.0.0.1:12809`. Install the appropriate service template here,
+start it, and prove the output of:
 
 ```sh
-python3 scripts/agent-proxy/install.py --sdk-root "$PWD"
+curl --fail --proxy http://127.0.0.1:12809 --noproxy '' https://api.ipify.org
+```
+
+Then install wrappers from the repository root:
+
+```sh
+# Mac
+python3 scripts/agent-proxy/install.py --sdk-root "$PWD" \
+  --proxy http://127.0.0.1:12809 --expected-ip 45.86.61.144
 python3 ~/.local/share/neo3-agent-proxy/doctor.py
+
+# VPS (support files in /usr/local/lib/neo3-agent-proxy)
+python3 /usr/local/lib/neo3-agent-proxy/install.py --engine-home /home/agents \
+  --proxy http://127.0.0.1:12809 --expected-ip 45.86.61.144
+python3 /usr/local/lib/neo3-agent-proxy/doctor.py
 ```
 
-Installed Mac support files: `~/.local/share/neo3-agent-proxy/`.
-Wrapped launch paths: `/usr/local/bin/codex`, `~/.grok/bin/grok`, and the Codex
-native binary inside this repository's `node_modules/@openai/codex-*/vendor/`.
-The `.neo3-direct` sibling is the actual upstream executable or installer symlink;
-it is required by the wrapper and must remain in place.
+Fresh installations default to the pinned port and IP. Existing installations
+retain their settings, so pass both flags for migration. Reinstall is idempotent;
+the existing Mac `scripts/update-engines.sh` restores wrappers after nightly
+updates. No new update schedule is installed. Run the installer after manual
+CLI/package updates on other hosts. Preserve `.neo3-direct` siblings: they are
+the current native executables or upstream symlinks, not disposable backups.
 
-VPS support files: `/usr/local/lib/neo3-agent-proxy/`.
-Service configuration: `/etc/neo3-agent-proxy/xray.json`.
-The VPS installer is run as root with `--engine-home /home/agents`; it wraps the
-global Codex launcher and agents' Grok launcher without copying credentials.
+Existing processes must be restarted with preserved sessions. On 2026-11-03,
+VPS Claude/Krabik was idle and resumed with the same session ID through the
+wrapper. The idle agents' Codex daemon and its updater were restarted with the
+new proxy environment. Active work must not be interrupted or its lock removed.
+
+## Checks and verification limits
 
 ```sh
-ssh vps-nl 'python3 /usr/local/lib/neo3-agent-proxy/doctor.py'
-ssh vps-nl 'systemctl status neo3-agent-proxy --no-pager'
-ssh vps-nl 'journalctl -u neo3-agent-proxy -n 20 --no-pager'
+python3 scripts/agent-proxy/test_proxy.py
+sh -n scripts/agent-proxy/run.sh
+plutil -lint scripts/agent-proxy/com.dimasik.neo3-agent-hysteria.plist
+launchctl print gui/$(id -u)/com.dimasik.neo3-agent-hysteria
+ssh vps-nl 'systemctl is-active neo3-agent-hysteria'
 ```
 
-`scripts/update-engines.sh` repairs an **already configured** Mac installation
-after its existing nightly CLI updates. It does not enable a new scheduled job.
-After manual package reinstalls or a Neo3 dependency reinstall, run the installed
-`install.py` again. It preserves its installation paths and is idempotent.
+Verified: Mac CLI route, Node native fetch, Safari and VPS route all returned
+`45.86.61.144`; installed CLI version commands still run; Anthropic/OpenAI/xAI
+HTTPS endpoints are reachable. Real negative checks with an unavailable local
+port and the old, wrong-IP proxy blocked Claude before launch. Regression tests
+cover updates, idempotency, relative symlinks, wrong IP, unavailable proxy and
+rejection of non-loopback endpoints.
 
-## Verification boundary
+HTTP 401/403 proves transport reachability only. It does not prove successful
+login, account standing or inference. The newly purchased Claude account was
+not logged in by this task. Krabik's historical account error is separate from
+network routing and is not fixed by a proxy migration.
 
-Doctor checks wrappers, proxy availability, and HTTPS access to provider hosts.
-HTTP 401/403/404 proves transport reachability only; it does not prove login or
-successful inference. Separate model-response smoke checks are required.
+Official Hysteria client configuration:
+https://v2.hysteria.network/docs/advanced/Full-Client-Config/
 
-Verified on Mac: Codex CLI `NEO3_CODEX_PROXY_OK`, Grok `NEO3_GROK_PROXY_OK`, and
-Neo3's actual Codex SDK `NEO3_SDK_PROXY_OK`, all through the configured wrappers.
-Public Neo3 health returned 200 without a restart or a dist rebuild.
+## Recovery
 
-On VPS, transport is verified. Codex has no login for root or agents. Grok's
-existing auth file is present, but a real request as agents returns `Not signed
-in`. Both engines require interactive account login before a model-response
-check can pass. Mac login material was not copied.
-
-Official Grok proxy support:
-https://docs.x.ai/build/enterprise#proxy-support
-
-## Rollback
-
-For each `targets` path in the installed `installation.json`, first verify that
-the path is still marked `# neo3-agent-proxy wrapper v1`. Restore its
-`<path>.neo3-direct` sibling to `<path>` with `os.replace` (preserves relative
-installer symlinks). Never replace a launcher which an upstream installer has
-already changed. Remove only this task's optional `/usr/local/bin/grok` symlink
-on VPS if it still points to agents' launcher. Then stop/disable only
-`neo3-agent-proxy.service` on VPS. Do not stop the shared Mac Xray service.
-
-Remove the optional proxy repair block in `scripts/update-engines.sh` if rolling
-back the Mac installation; otherwise a subsequent nightly update reinstalls it.
-No provider auth files, model settings, source/runtime builds, or other services
-need to be restored.
+Prefer repairing the pinned transport over reverting to another exit. The old
+proxy is retained only as an explicit, owner-approved rollback. To disable the
+new route, restore marked launchers from `.neo3-direct` and stop only the new
+Hysteria service; doing so removes the protection and requires owner approval.
+Never stop or alter the shared Mac WhatsApp Xray as part of this rollback.

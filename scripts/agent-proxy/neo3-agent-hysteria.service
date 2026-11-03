@@ -1,0 +1,20 @@
+[Unit]
+Description=Pinned Hysteria2 exit for coding agents
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+DynamicUser=yes
+LoadCredential=client.json:/etc/neo3-agent-proxy/hysteria.json
+ExecStart=/usr/local/bin/hysteria client --config ${CREDENTIALS_DIRECTORY}/client.json --log-level warn --disable-update-check
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
