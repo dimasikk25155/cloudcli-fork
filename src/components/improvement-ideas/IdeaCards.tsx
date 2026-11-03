@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { ChevronDown, Lightbulb } from 'lucide-react';
 
 import type { ImprovementIdea } from '../../../shared/improvement-ideas';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,38 +8,56 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { authenticatedFetch } from '../../utils/api';
 
 export type IdeaCardsViewProps = {
-  ideas: ImprovementIdea[]; isProcessing: boolean; pending: number | null; error: string;
+  ideas: ImprovementIdea[]; sessionId: string; storageKey?: string;
+  isProcessing: boolean; pending: number | null; error: string;
   onAction: (id: number, action: 'implement' | 'later' | 'sync') => void;
 };
-export function IdeaCardsView({ ideas, isProcessing, pending, error, onAction }: IdeaCardsViewProps) {
-  const [expanded, setExpanded] = useState(false);
-  const proposed = ideas.filter(idea => idea.status === 'proposed');
-  const saved = ideas.filter(idea => idea.status !== 'proposed');
-  if (!ideas.length && !error) return null;
-  const visible = [...proposed.slice(0, expanded ? undefined : 2), ...(expanded ? saved : [])];
-  return <section aria-label="Идеи улучшений" className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
-    <div className="mb-2 flex items-center justify-between gap-2">
-      <span className="font-medium">💡 Идеи улучшений · {ideas.length}</span>
-      {(saved.length > 0 || proposed.length > 2) && <button type="button" className="text-xs underline" onClick={() => setExpanded(value => !value)}>{expanded ? 'Свернуть' : 'Все, включая отложенные'}</button>}
-    </div>
-    {error && <p role="alert" className="mb-2 text-destructive">{error}</p>}
-    {visible.map(idea => <article key={idea.id} className="border-t border-border py-2 first:border-t-0">
-      <p className="whitespace-pre-wrap break-words">{idea.text}</p>
-      <div className="mt-1 text-xs text-muted-foreground">
-        {idea.projectName} · {idea.status === 'started' ? 'Запущено — результат в исходном чате' : idea.status === 'starting' ? 'Запуск не подтверждён — проверь чат' : idea.status === 'later' ? 'Отложено' : 'Предложено'}
-        {' · '}<a href={`/session/${encodeURIComponent(idea.sessionId)}`} className="underline">Исходный чат</a>
+export function IdeaCardsView({ ideas, sessionId, storageKey, isProcessing, pending, error, onAction }: IdeaCardsViewProps) {
+  const [expanded, setExpanded] = useState(() => {
+    try { return Boolean(storageKey && window.localStorage.getItem(storageKey) === 'open'); }
+    catch { return false; }
+  });
+  // The API also supplies project ideas; this tray belongs strictly to the current chat.
+  const currentIdeas = ideas.filter(idea => idea.sessionId === sessionId);
+  const proposed = currentIdeas.filter(idea => idea.status === 'proposed');
+  const visible = [...proposed, ...currentIdeas.filter(idea => idea.status !== 'proposed')];
+  if (!currentIdeas.length && !error) return null;
+  const buttonClass = 'min-h-9 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
+  return <div className="mx-auto mb-2 w-full max-w-[54.25rem] text-sm">
+    <details className="group rounded-xl border border-border bg-card" open={expanded} onToggle={event => {
+      const open = event.currentTarget.open;
+      setExpanded(open);
+      try { if (storageKey) window.localStorage.setItem(storageKey, open ? 'open' : 'closed'); }
+      catch { /* Disclosure still works when browser storage is unavailable. */ }
+    }}>
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <Lightbulb aria-hidden="true" className="h-4 w-4 shrink-0" />
+        <span className="font-medium text-foreground">Идеи этого чата</span>
+        <span className="tabular-nums">{currentIdeas.length}</span>
+        {error && <span className="ml-auto text-xs text-destructive">Ошибка</span>}
+        <ChevronDown aria-hidden="true" className="ml-auto h-4 w-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+      </summary>
+      <div className="max-h-[30dvh] overflow-y-auto overscroll-contain border-t border-border px-3 pb-2">
+        <p className="py-2 text-xs leading-relaxed text-muted-foreground">Идеи сохраняются здесь — можно вернуться к ним в конце беседы.</p>
+        {error && <p role="alert" className="mb-2 text-destructive">{error}</p>}
+        {visible.map(idea => <article key={idea.id} className="border-t border-border py-3">
+          <p className="whitespace-pre-wrap break-words leading-relaxed">{idea.text}</p>
+          {idea.status !== 'proposed' && <p className="mt-1 text-xs text-muted-foreground">
+            {idea.status === 'started' ? 'Запущено — результат в этом чате' : idea.status === 'starting' ? 'Запуск не подтверждён — проверь чат' : 'Отложено'}
+          </p>}
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            {['proposed', 'later'].includes(idea.status) && <>
+              <button type="button" disabled={isProcessing || pending !== null} onClick={() => onAction(idea.id, 'implement')} className={`${buttonClass} border border-border text-primary`}>{pending === idea.id ? 'Подожди…' : 'Реализовать'}</button>
+              {idea.status === 'proposed' && <button type="button" disabled={pending !== null} onClick={() => onAction(idea.id, 'later')} className={`${buttonClass} text-muted-foreground`}>Позже</button>}
+            </>}
+            <span className="ml-2 text-xs text-muted-foreground">{idea.vaultError || (idea.vaultPath ? 'В Obsidian' : 'Сохраняется в Obsidian…')}</span>
+            {idea.vaultError && <button type="button" disabled={pending !== null} onClick={() => onAction(idea.id, 'sync')} className={`${buttonClass} underline underline-offset-4`}>Повторить запись</button>}
+          </div>
+        </article>)}
+        {isProcessing && proposed.length > 0 && <p className="py-2 text-xs text-muted-foreground">Реализация доступна после завершения текущего ответа.</p>}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {['proposed', 'later'].includes(idea.status) && <>
-          <button type="button" disabled={isProcessing || pending !== null} onClick={() => onAction(idea.id, 'implement')} className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50">{pending === idea.id ? 'Подожди…' : 'Реализовать'}</button>
-          {idea.status === 'proposed' && <button type="button" disabled={pending !== null} onClick={() => onAction(idea.id, 'later')} className="rounded-md border border-border px-3 py-1 disabled:opacity-50">Позже</button>}
-        </>}
-        <span className="text-xs text-muted-foreground">{idea.vaultError || (idea.vaultPath ? 'Сохранено в Obsidian' : 'Сохраняется в Obsidian…')}</span>
-        {idea.vaultError && <button type="button" disabled={pending !== null} onClick={() => onAction(idea.id, 'sync')} className="text-xs underline">Повторить запись</button>}
-      </div>
-    </article>)}
-    {isProcessing && proposed.length > 0 && <p className="text-xs text-muted-foreground">Реализация доступна после завершения текущего ответа.</p>}
-  </section>;
+    </details>
+  </div>;
 }
 
 type RequestScope = object;
@@ -114,5 +133,5 @@ export function IdeaCards({ sessionId, isProcessing }: { sessionId: string | nul
     } catch (cause) { dispatch({ type: 'actionFailed', scope, error: cause instanceof Error ? cause.message : 'Действие не выполнено' }); }
     finally { dispatch({ type: 'actionFinished', scope }); }
   }, [scope]);
-  return active ? <IdeaCardsView ideas={ideas} isProcessing={isProcessing} pending={pending} error={[loadError, actionError].filter(Boolean).join(' · ')} onAction={(id, action) => { void act(id, action); }} /> : null;
+  return active && sessionId ? <IdeaCardsView key={`${user?.id}:${sessionId}`} sessionId={sessionId} storageKey={`neo3:chat-ideas:${user?.id}:${sessionId}`} ideas={ideas} isProcessing={isProcessing} pending={pending} error={[loadError, actionError].filter(Boolean).join(' · ')} onAction={(id, action) => { void act(id, action); }} /> : null;
 }
