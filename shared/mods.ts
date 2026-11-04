@@ -25,6 +25,13 @@ export const MOD_KEYS = [
   'modKrabikAgent',
   'modDuet',
   'modImprovementIdeas',
+  'modWorkbench',
+  'modSessionHub',
+  'modSideChat',
+  'modGroups',
+  'modThinkingTime',
+  'modKeepAwake',
+  'modDiagnostics',
 ] as const;
 
 export type ModKey = (typeof MOD_KEYS)[number];
@@ -37,6 +44,11 @@ export type ModDef = {
   description: string;
   /** The mod only works while this one is on (the switch is inactive otherwise). */
   requires?: ModKey;
+  /**
+   * Support per engine, one line under the card:
+   * «Claude ✓ · Codex ✓ · Grok ✓ — ограничение». Missing — no line.
+   */
+  engines?: string;
 };
 
 /** Card order on the settings screen. */
@@ -130,6 +142,56 @@ export const MODS: readonly ModDef[] = [
     description:
       'Напарник по ботам и сервисам: сам следит, пишет первым (утренний бриф, тревога при падении) '
       + 'и чинит только после твоего «Да». Вешает на ботов идеи, как их улучшить.',
+  },
+  {
+    key: 'modWorkbench',
+    title: 'Рабочий стол',
+    description:
+      'Переключатель в шапке чата: слева чат, справа большой холст с вкладками — сессия, '
+      + 'контекст и лимиты, результаты. Выключен — обычный чат.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — Grok не сообщает лимиты подписки',
+  },
+  {
+    key: 'modSessionHub',
+    title: 'Панель диалогов',
+    description:
+      'Полоса над полем ввода: сколько чатов работают, ждут и готовы во всех проектах. '
+      + 'Мастер-сессия собирает вопросы всех чатов и отправляет ответы пачкой.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — Codex отвечает на вопросы только текстом в чате',
+  },
+  {
+    key: 'modSideChat',
+    title: 'Побочный чат',
+    description:
+      '/btw и «Спросить в стороне» — вопрос в отдельном чате, не мешая основному. '
+      + 'Второй чат рядом на холсте и дерево вложенных чатов в списке слева.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
+  },
+  {
+    key: 'modGroups',
+    title: 'Группы и закрепы',
+    description: 'Группы проектов и чатов в списке слева и закреп важных чатов сверху. Можно попросить агента разложить.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
+  },
+  {
+    key: 'modThinkingTime',
+    title: 'Время размышления',
+    description: 'Под каждым ответом: «Думал N с · ответ за N с». Остаётся в истории чата.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — если движок не показал размышление, только «ответ за N с»',
+  },
+  {
+    key: 'modKeepAwake',
+    title: 'Не засыпать',
+    description: 'Пока агенты работают, Mac не уходит в сон. Нет работы 2 минуты — снова может спать.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — только на Mac',
+  },
+  {
+    key: 'modDiagnostics',
+    title: 'Диагностика',
+    description:
+      '/doctor проверяет настройку, /skill-doctor — навыки, /advisor спрашивает сильную модель. '
+      + 'Профиль настроек: изменения с предпросмотром и «Вернуть как было».',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — /advisor всегда отвечает моделью Claude',
   },
 ];
 

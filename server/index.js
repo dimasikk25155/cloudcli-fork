@@ -93,6 +93,14 @@ import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js'
 import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
 import { sessionLinksRoutes } from './modules/session-links/index.js';
 import { codeStatusRoutes } from './modules/code-status/index.js';
+// «Рабочий стол» (сборка 04.11.2026): модули смонтированы здесь один раз,
+// их роуты наполняют свои таски без правки этого файла.
+import { masterSessionRoutes } from './modules/master-session/index.js';
+import { artifactsRoutes } from './modules/artifacts/index.js';
+import { sidebarGroupsRoutes } from './modules/sidebar-groups/index.js';
+import { settingsProfileRoutes } from './modules/settings-profile/index.js';
+import { diagnosticsRoutes } from './modules/diagnostics/index.js';
+import { startKeepAwake } from './modules/keep-awake/index.js';
 import { sessionTokenUsageRoute } from './routes/session-token-usage.js';
 import { relayRoutes } from './modules/relay/index.js';
 import { autoRelayRoutes, autoRelayService } from './modules/auto-relay/index.js';
@@ -285,6 +293,8 @@ app.use('/api/agent-workspace', authenticateToken, workspaceRoutes);
 // Projects API Routes (protected)
 app.use('/api/projects/:projectId/code-status', authenticateToken, codeStatusRoutes);
 app.use('/api/projects/:projectId/files/preview', authenticateToken, filePreviewRoutes.create);
+// Артефакты проекта — до общего /api/projects, как code-status и file preview.
+app.use('/api/projects/:projectId/artifacts', authenticateToken, artifactsRoutes);
 app.use('/api/projects', authenticateToken, projectModuleRoutes);
 
 // Chat image asset upload/serving (global ~/.cloudcli/assets store, protected)
@@ -360,6 +370,12 @@ app.use('/api/sessions', authenticateToken, autoRelayRoutes);
 // Writing and dismissing are admin-only inside the router.
 app.use('/api/memory-suggestions', authenticateToken, memorySuggestionsRoutes);
 app.use('/api/improvement-ideas', authenticateToken, createImprovementIdeasRouter());
+// «Рабочий стол»: мастер-сессия, группы сайдбара, профиль настроек.
+app.use('/api/master-session', authenticateToken, masterSessionRoutes);
+app.use('/api/sidebar-groups', authenticateToken, sidebarGroupsRoutes);
+app.use('/api/settings-profile', authenticateToken, settingsProfileRoutes);
+// Диагностика: админ-проверку отчётов делает сам модуль, /advisor — всем.
+app.use('/api/diagnostics', authenticateToken, diagnosticsRoutes);
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);
@@ -1602,6 +1618,9 @@ async function startServer() {
         // Auto-relay: a finished turn of a grown chat starts the move; the end
         // of the handoff turn opens the continuation.
         sessionAttention.onChange((change) => { void autoRelayService.handleAttentionChange(change); });
+
+        // «Не засыпать»: Mac не уходит в сон, пока идут прогоны (мод modKeepAwake).
+        startKeepAwake({ sessionAttention });
 
         // "Ждут тебя": a session still marked working belongs to the previous
         // process and will never finish — show it as interrupted, not running.

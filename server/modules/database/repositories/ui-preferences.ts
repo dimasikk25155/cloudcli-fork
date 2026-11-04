@@ -38,6 +38,9 @@ const ALLOWED_KEYS = new Set([
   'voiceEnabled',
   // «Авто-перенос» включается сам в каждом новом чате (auto-relay module).
   'autoRelayNewChats',
+  // «Рабочий стол»: JSON-строка {"enabled":true,"ratio":0.5} — включён ли
+  // холст рядом с чатом и какую долю ширины он занимает.
+  'workbenchLayout',
   // Выключатели встроенных модов («Настройки → Плагины → Встроенные моды»),
   // включая прежний `subagentCrabs`. Список — в реестре `shared/mods.ts`.
   ...MOD_KEYS,

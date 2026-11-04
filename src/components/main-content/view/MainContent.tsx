@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Folder, GitBranch, BarChart3 } from 'lucide-react';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -21,6 +21,14 @@ import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import EditorSidebar from '../../code-editor/view/EditorSidebar';
 import FolderModal from '../../file-browser/FolderModal';
 import MissingFileModal, { type PathMatch } from '../../file-browser/MissingFileModal';
+import { useModEnabled } from '../../../hooks/useModEnabled';
+import {
+  WorkbenchCanvas,
+  WorkbenchLayout,
+  WorkbenchToggle,
+  useWorkbench,
+  useWorkbenchAccountSync,
+} from '../../workbench';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
 import ShellModeSwitcher from './subcomponents/ShellModeSwitcher';
@@ -74,6 +82,24 @@ function MainContent({
   const shouldShowBrowserTab = browserUseEnabled;
 
   const autopilot = useAutopilotDashboard(selectedProject?.projectId);
+
+  // «Рабочий стол»: chat on the left, the canvas on the right (desktop) or
+  // full-screen over the chat (phone). Off — the chat renders as before.
+  const workbenchOn = useModEnabled('modWorkbench');
+  const workbench = useWorkbench(selectedSession?.id ?? null);
+  useWorkbenchAccountSync();
+  const [mobileCanvasOpen, setMobileCanvasOpen] = useState(false);
+  const lastOpenSeq = useRef(workbench.openSeq);
+  useEffect(() => {
+    // A tab opened from the chat on a phone shows the canvas at once.
+    if (workbench.openSeq !== lastOpenSeq.current) {
+      lastOpenSeq.current = workbench.openSeq;
+      if (isMobile && workbenchOn) setMobileCanvasOpen(true);
+    }
+  }, [workbench.openSeq, isMobile, workbenchOn]);
+  useEffect(() => {
+    if (!isMobile || !workbenchOn || activeTab !== 'chat') setMobileCanvasOpen(false);
+  }, [isMobile, workbenchOn, activeTab]);
 
   const {
     editingFile,
@@ -224,6 +250,15 @@ function MainContent({
     );
   }
 
+  const showDesktopCanvas = workbenchOn && workbench.enabled && !isMobile && activeTab === 'chat' && !editorExpanded;
+  const workbenchToggle = workbenchOn ? (
+    <WorkbenchToggle
+      isMobile={isMobile}
+      active={isMobile ? mobileCanvasOpen : workbench.enabled}
+      onClick={() => (isMobile ? setMobileCanvasOpen(true) : workbench.setEnabled(!workbench.enabled))}
+    />
+  ) : null;
+
   return (
     <div className="flex h-full flex-col">
       <MainContentHeader
@@ -236,9 +271,16 @@ function MainContent({
         isMobile={isMobile}
         onMenuClick={onMenuClick}
         onGoHome={onGoHome}
+        workbenchToggle={workbenchToggle}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
+        <WorkbenchLayout
+          enabled={showDesktopCanvas}
+          ratio={workbench.ratio}
+          onRatioChange={workbench.setRatio}
+          canvas={<WorkbenchCanvas project={selectedProject} session={selectedSession} />}
+        >
         <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
             <ErrorBoundary showDetails>
@@ -322,8 +364,9 @@ function MainContent({
             </div>
           )}
         </div>
+        </WorkbenchLayout>
 
-        {theme === 'codex' && activeTab === 'chat' && !editingFile && (
+        {theme === 'codex' && activeTab === 'chat' && !editingFile && !showDesktopCanvas && (
           <aside className="codex-environment" aria-label="Среда проекта">
             <p className="mb-2 text-xs text-muted-foreground">Среда</p>
             <button onClick={() => setActiveTab('git')}><GitBranch size={15} />Изменения</button>
@@ -346,6 +389,16 @@ function MainContent({
           fillSpace={activeTab === 'files'}
         />
       </div>
+
+      {workbenchOn && isMobile && mobileCanvasOpen && (
+        <div className="pwa-header-safe fixed inset-0 z-40 flex flex-col bg-background" data-workbench-mobile>
+          <WorkbenchCanvas
+            project={selectedProject}
+            session={selectedSession}
+            onBack={() => setMobileCanvasOpen(false)}
+          />
+        </div>
+      )}
 
       {folderPath && (
         <FolderModal

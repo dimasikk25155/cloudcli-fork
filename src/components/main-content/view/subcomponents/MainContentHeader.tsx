@@ -20,6 +20,7 @@ export default function MainContentHeader({
   isMobile,
   onMenuClick,
   onGoHome,
+  workbenchToggle,
 }: MainContentHeaderProps) {
   const { t } = useTranslation('sidebar');
   // «Где мой код» off in «Встроенные моды»: no chip, so no code-status request.
@@ -90,6 +91,7 @@ export default function MainContentHeader({
 
         {/* RIGHT: bot health + overdue bell + tabs, pinned to the corner */}
         <div className="flex min-w-0 flex-shrink items-center gap-1.5 sm:flex-shrink-0">
+          {activeTab === 'chat' && workbenchToggle}
           {codeStatusOn && activeTab === 'chat' && <CodeStatusChip projectId={selectedProject.projectId} />}
           <BotHealthButton />
           <PlannerAttentionButton />
