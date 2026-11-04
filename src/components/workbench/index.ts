@@ -6,7 +6,15 @@ import './projectTabs';
 export { default as WorkbenchCanvas } from './WorkbenchCanvas';
 export { default as WorkbenchLayout } from './WorkbenchLayout';
 export { default as WorkbenchToggle } from './WorkbenchToggle';
-export { closeWorkbenchTab, openWorkbenchTab, useWorkbench, useWorkbenchAccountSync, workbenchStore } from './useWorkbench';
+export {
+  closeWorkbenchTab,
+  openNewWorkbenchTab,
+  openWorkbenchTab,
+  replaceWorkbenchTab,
+  useWorkbench,
+  useWorkbenchAccountSync,
+  workbenchStore,
+} from './useWorkbench';
 export type { UseWorkbench } from './useWorkbench';
 export {
   getWorkbenchTabKind,

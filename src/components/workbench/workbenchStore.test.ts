@@ -203,3 +203,70 @@ test('project tabs of the canvas (terminal, files, stats, autopilot, plugin) sur
   assert.deepEqual(reloaded.getSession('s1').tabs.map((tab) => tab.kind), ['terminal', 'files', 'stats', 'autopilot', 'plugin']);
   assert.equal(reloaded.getSession('s1').tabs[4].ref, 'web-view');
 });
+
+test('openNewTab adds an active «Новая вкладка» each time, like Cmd+T in a browser', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'files', title: 'Файлы' });
+
+  const first = store.openNewTab('s1');
+  const second = store.openNewTab('s1');
+
+  const session = store.getSession('s1');
+  assert.deepEqual(session.tabs.map((tab) => tab.kind), ['files', 'newtab', 'newtab']);
+  assert.deepEqual(session.tabs.slice(1).map((tab) => tab.title), ['Новая вкладка', 'Новая вкладка']);
+  assert.notEqual(first, second);
+  assert.deepEqual(session.tabs.slice(1).map((tab) => tab.id), [first, second]);
+  assert.match(first, /^newtab:/);
+  assert.equal(session.activeTabId, second);
+  assert.equal(store.getOpenSeq(), 3);
+  assert.equal(store.getLayout().enabled, true);
+});
+
+test('a new tab survives a reload', () => {
+  const storage = memoryStorage();
+  const id = createWorkbenchStore({ storage }).openNewTab('s1');
+
+  const reloaded = createWorkbenchStore({ storage }).getSession('s1');
+  assert.deepEqual(reloaded.tabs, [{ id, kind: 'newtab', title: 'Новая вкладка' }]);
+  assert.equal(reloaded.activeTabId, id);
+});
+
+test('replaceTab turns the new tab into the picked one in the same place', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'inspector', title: 'Сессия' });
+  const id = store.openNewTab('s1');
+  store.openTab('s1', { kind: 'stats', title: 'Статистика' });
+
+  store.replaceTab('s1', id, { kind: 'plugin', title: 'Погода', ref: 'weather' });
+
+  const session = store.getSession('s1');
+  assert.deepEqual(session.tabs, [
+    { id: 'inspector', kind: 'inspector', title: 'Сессия' },
+    { id: 'plugin:weather', kind: 'plugin', title: 'Погода', ref: 'weather' },
+    { id: 'stats', kind: 'stats', title: 'Статистика' },
+  ]);
+  assert.equal(session.activeTabId, 'plugin:weather');
+});
+
+test('replaceTab with a tab that is already open closes the new tab and shows the open one', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'terminal', title: 'Терминал' });
+  store.openTab('s1', { kind: 'files', title: 'Файлы' });
+  const id = store.openNewTab('s1');
+
+  store.replaceTab('s1', id, { kind: 'terminal', title: 'Терминал' });
+
+  const session = store.getSession('s1');
+  assert.deepEqual(session.tabs.map((tab) => tab.id), ['terminal', 'files']);
+  assert.equal(session.activeTabId, 'terminal');
+});
+
+test('replaceTab of a tab that is gone changes nothing', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'files', title: 'Файлы' });
+  const before = store.getSession('s1');
+
+  store.replaceTab('s1', 'newtab:missing', { kind: 'stats', title: 'Статистика' });
+
+  assert.equal(store.getSession('s1'), before);
+});

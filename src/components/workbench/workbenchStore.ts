@@ -8,7 +8,14 @@
  * `neo3.workbench.tabs.<sessionId>` (a new chat without an id uses `draft`).
  * `ratio` is the canvas share of the width, clamped so neither side vanishes.
  */
-import { workbenchTabId, type WorkbenchTab, type WorkbenchTabInput, type WorkbenchTabKind } from './workbenchTabs';
+import {
+  NEW_TAB_KIND,
+  NEW_TAB_TITLE,
+  workbenchTabId,
+  type WorkbenchTab,
+  type WorkbenchTabInput,
+  type WorkbenchTabKind,
+} from './workbenchTabs';
 
 export type WorkbenchLayout = { enabled: boolean; ratio: number };
 export type WorkbenchSessionState = { tabs: WorkbenchTab[]; activeTabId: string | null };
@@ -33,7 +40,7 @@ export const DEFAULT_LAYOUT: Readonly<WorkbenchLayout> = { enabled: false, ratio
 
 const TAB_KINDS: ReadonlySet<string> = new Set<WorkbenchTabKind>([
   'inspector', 'limits', 'artifacts', 'artifact', 'btw', 'chat', 'advisor', 'report',
-  'terminal', 'files', 'stats', 'autopilot', 'plugin',
+  'terminal', 'files', 'stats', 'autopilot', 'plugin', NEW_TAB_KIND,
 ]);
 const EMPTY_SESSION: WorkbenchSessionState = Object.freeze({ tabs: [], activeTabId: null }) as WorkbenchSessionState;
 
@@ -167,6 +174,43 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
         activeTabId: id,
       });
       if (!layout.enabled) setLayout({ ...layout, enabled: true });
+    },
+    /**
+     * «+»: a new «Новая вкладка» at the end, active — every press adds one.
+     * Its id `newtab:<n>` takes the first number free in this chat.
+     */
+    openNewTab(sessionId: string | null | undefined): string {
+      const current = getSession(sessionId);
+      const taken = new Set(current.tabs.map((tab) => tab.id));
+      let n = 1;
+      while (taken.has(`${NEW_TAB_KIND}:${n}`)) n += 1;
+      const id = `${NEW_TAB_KIND}:${n}`;
+      openSeq += 1;
+      setSession(sessionId, {
+        tabs: [...current.tabs, { id, kind: NEW_TAB_KIND, title: NEW_TAB_TITLE }],
+        activeTabId: id,
+      });
+      if (!layout.enabled) setLayout({ ...layout, enabled: true });
+      return id;
+    },
+    /**
+     * The new tab becomes what was picked in it, in the same place. A tab that
+     * is already open is not duplicated: this one closes, that one is shown.
+     */
+    replaceTab(sessionId: string | null | undefined, tabId: string, input: WorkbenchTabInput) {
+      const current = getSession(sessionId);
+      const index = current.tabs.findIndex((tab) => tab.id === tabId);
+      if (index < 0) return;
+      const id = workbenchTabId(input);
+      if (id !== tabId && current.tabs.some((tab) => tab.id === id)) {
+        setSession(sessionId, { tabs: current.tabs.filter((tab) => tab.id !== tabId), activeTabId: id });
+        return;
+      }
+      const next: WorkbenchTab = { id, kind: input.kind, title: input.title };
+      if (input.ref) next.ref = input.ref;
+      const tabs = current.tabs.slice();
+      tabs[index] = next;
+      setSession(sessionId, { tabs, activeTabId: id });
     },
     closeTab(sessionId: string | null | undefined, tabId: string) {
       const current = getSession(sessionId);

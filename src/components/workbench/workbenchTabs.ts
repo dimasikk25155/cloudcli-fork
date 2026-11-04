@@ -23,7 +23,16 @@ export type WorkbenchTabKind =
   | 'files'
   | 'stats'
   | 'autopilot'
-  | 'plugin';
+  | 'plugin'
+  | 'newtab';
+
+/** «Новая вкладка» of the «+» button: a launcher that turns into the picked tab. */
+export const NEW_TAB_KIND = 'newtab' satisfies WorkbenchTabKind;
+export const NEW_TAB_TITLE = 'Новая вкладка';
+
+export function isNewTabKind(kind: string): kind is typeof NEW_TAB_KIND {
+  return kind === NEW_TAB_KIND;
+}
 
 export interface WorkbenchTab {
   id: string;

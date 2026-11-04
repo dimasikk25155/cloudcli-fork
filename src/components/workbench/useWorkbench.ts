@@ -47,6 +47,16 @@ export function openWorkbenchTab(sessionId: string | null, tab: WorkbenchTabInpu
   workbenchStore.openTab(sessionId, tab);
 }
 
+/** «+»: a new «Новая вкладка»; returns its id. */
+export function openNewWorkbenchTab(sessionId: string | null): string {
+  return workbenchStore.openNewTab(sessionId);
+}
+
+/** What was picked in «Новая вкладка» takes its place (an already open tab is shown instead). */
+export function replaceWorkbenchTab(sessionId: string | null, tabId: string, tab: WorkbenchTabInput): void {
+  workbenchStore.replaceTab(sessionId, tabId, tab);
+}
+
 export function closeWorkbenchTab(sessionId: string | null, tabId: string): void {
   workbenchStore.closeTab(sessionId, tabId);
 }
