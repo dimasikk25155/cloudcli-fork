@@ -156,7 +156,23 @@ export type SessionEstablishedContext = {
   summary?: string | null;
 };
 
+/**
+ * A chat rendered inside a canvas tab («Второй чат», «Побочный чат») next to
+ * the main one. It does only its own chat: no page-wide sounds, title marks,
+ * connection watchdog, global engine choice or route changes.
+ */
+export type ChatEmbedding = {
+  /** Session of the canvas this tab lives on — `/btw`, `/advisor` open their tabs there. */
+  hostSessionId: string | null;
+  /** Instead of navigating: point this tab at another chat (relay, thread, child). */
+  onRetarget: (sessionId: string) => void;
+  /** The tab is the visible one and the canvas is on screen. */
+  isVisible: boolean;
+};
+
 export interface ChatInterfaceProps {
+  /** Set for a chat inside a canvas tab; absent — the main chat, unchanged. */
+  embedded?: ChatEmbedding;
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   ws: WebSocket | null;

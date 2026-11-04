@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Folder, GitBranch, BarChart3 } from 'lucide-react';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -162,6 +162,14 @@ function MainContent({
   const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
   // The canvas «Файлы» tab opens plain files; a diff only comes from git views.
   const canvasFileOpen = useCallback((filePath: string) => handleFileOpen(filePath), [handleFileOpen]);
+  // «Второй чат» and «Побочный чат» run a real ChatInterface: same processing
+  // map and callbacks as the chat on the left.
+  const canvasChatRuntime = useMemo(() => ({
+    processingSessions,
+    onSessionProcessing,
+    onSessionIdle,
+    onSessionEstablished,
+  }), [processingSessions, onSessionProcessing, onSessionIdle, onSessionEstablished]);
 
   // Ссылка из чата может оказаться папкой или вообще ничем, и для каждого случая
   // нужно своё окно. Раньше открывался редактор на всё подряд и показывал
@@ -321,7 +329,14 @@ function MainContent({
           enabled={showDesktopCanvas}
           ratio={workbench.ratio}
           onRatioChange={workbench.setRatio}
-          canvas={<WorkbenchCanvas project={selectedProject} session={selectedSession} onFileOpen={canvasFileOpen} />}
+          canvas={(
+            <WorkbenchCanvas
+              project={selectedProject}
+              session={selectedSession}
+              onFileOpen={canvasFileOpen}
+              chatRuntime={canvasChatRuntime}
+            />
+          )}
         >
         <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
@@ -444,6 +459,7 @@ function MainContent({
             onBack={() => setMobileCanvasOpen(false)}
             visible={mobileCanvasOpen}
             onFileOpen={canvasFileOpen}
+            chatRuntime={canvasChatRuntime}
           />
         </div>
       )}

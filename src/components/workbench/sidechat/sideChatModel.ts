@@ -2,78 +2,66 @@
  * Side chat (`btw`) and second chat (`chat`) tabs of the canvas: the rules the
  * pane follows, kept out of React so they are tested on their own.
  *
- * Both kinds show one chat (`tab.ref` = its session id) with its own feed,
- * input and status; whatever is typed there goes to that chat only.
+ * Both kinds show one chat (`tab.ref` = its session id) in the same
+ * ChatInterface as the main chat (prop `embedded`).
  */
+import type { LLMProvider, ProjectSession } from '../../../types/app';
 import { stripAgentOnlyBlocks } from '../../../../shared/agent-only-blocks';
-import { isInjectedUserText } from '../../../../shared/reply-turn';
 
-export type SideChatTabRef = { kind: string; ref?: string };
-
-/** Engine options a follow-up repeats (the chat's own model/effort/mode). */
+/** Engine a side chat was created with (from the `/btw` answer). */
 export type SideChatEngine = {
+  provider?: string | null;
   model?: string | null;
   effort?: string | null;
   permissionMode?: string | null;
 };
-
-export type ChatSendFrame = {
-  type: 'chat.send';
-  sessionId: string;
-  content: string;
-  options: Record<string, unknown>;
-};
-
-/** `chat.send` for the chat of this tab — null when no chat is picked or nothing is typed. */
-export function chatSendFrame(tab: SideChatTabRef, text: string, engine: SideChatEngine | null): ChatSendFrame | null {
-  const sessionId = tab.ref?.trim();
-  const content = text.trim();
-  if (!sessionId || !content) return null;
-  const options: Record<string, unknown> = { sessionSummary: content.slice(0, 120) };
-  if (engine?.model) options.model = engine.model;
-  if (engine?.effort) options.effort = engine.effort;
-  if (engine?.permissionMode) options.permissionMode = engine.permissionMode;
-  return { type: 'chat.send', sessionId, content, options };
-}
 
 /** The canvas tab of a side chat: one per child, opened on the parent's canvas. */
 export function sideChatTabFor(child: { sessionId: string; title: string }): { kind: 'btw'; ref: string; title: string } {
   return { kind: 'btw', ref: child.sessionId, title: child.title };
 }
 
-export type SideChatRow = {
-  id: string;
-  role: 'user' | 'assistant' | 'tool' | 'error';
-  text: string;
-};
+type PaneSessionSource = Pick<ProjectSession, 'id'> & Partial<ProjectSession>;
 
-type FeedMessage = {
-  id?: string;
-  kind?: string;
-  role?: string;
-  content?: unknown;
-  toolName?: string;
-};
+/**
+ * The session the chat pane opens: the project's own record when the list has
+ * it, otherwise one built from the id, the engine and the project — a fresh
+ * `/btw` chat reaches the list only with the next `session_upserted`, and
+ * without a session the first send would start yet another new chat.
+ */
+export function paneSession(
+  sessions: PaneSessionSource[],
+  sessionId: string,
+  engine: SideChatEngine | null,
+  project: { projectId: string },
+  title: string,
+): ProjectSession {
+  const match = sessions.find((candidate) => String(candidate.id) === sessionId);
+  const provider = (match?.__provider ?? match?.provider ?? engine?.provider ?? 'claude') as LLMProvider;
+  if (match) {
+    return { ...match, id: sessionId, __provider: provider, __projectId: match.__projectId ?? project.projectId };
+  }
+  return {
+    id: sessionId,
+    __provider: provider,
+    __projectId: project.projectId,
+    summary: title,
+    ...(engine?.model ? { model: engine.model } : {}),
+    ...(engine?.effort ? { effort: engine.effort } : {}),
+  };
+}
 
-/** Transcript → the pane's rows: typed text (hidden blocks cut), answers, tool names, errors. */
-export function feedRows(messages: FeedMessage[]): SideChatRow[] {
-  const rows: SideChatRow[] = [];
-  messages.forEach((message, index) => {
-    const id = message.id || `row-${index}`;
-    const content = typeof message.content === 'string' ? message.content : '';
-    if (message.kind === 'text' && message.role === 'user') {
-      if (isInjectedUserText(content)) return;
-      const text = stripAgentOnlyBlocks(content);
-      if (text) rows.push({ id, role: 'user', text });
-    } else if (message.kind === 'text' && message.role === 'assistant') {
-      if (content.trim()) rows.push({ id, role: 'assistant', text: content.trim() });
-    } else if (message.kind === 'tool_use') {
-      rows.push({ id, role: 'tool', text: message.toolName || 'Инструмент' });
-    } else if (message.kind === 'error' && content.trim()) {
-      rows.push({ id, role: 'error', text: content.trim() });
-    }
-  });
-  return rows;
+/** Fields of the session the chat reacts to; activity timestamps are not among them. */
+const SESSION_VIEW_FIELDS = ['id', '__provider', '__projectId', 'summary', 'name', 'title', 'model', 'effort', 'createdAt', 'created_at'] as const;
+
+/**
+ * Same chat as far as the pane is concerned? The project list is rebuilt on
+ * every sidebar event; handing ChatInterface a new object each time re-ran its
+ * session effects (a fresh `chat.subscribe` per event).
+ */
+export function sameSessionView(a: ProjectSession, b: ProjectSession): boolean {
+  return SESSION_VIEW_FIELDS.every((field) => a[field] === b[field])
+    && JSON.stringify(a.links ?? null) === JSON.stringify(b.links ?? null);
 }
 
 type PickerSession = {
@@ -109,25 +97,12 @@ export function chatPickerChoices(sessions: PickerSession[], canvasSessionId: st
 }
 
 /**
- * Drafts, scroll and engine options of the panes, by tab id — outside the
- * component: the canvas renders only the active tab, so switching tabs
- * unmounts the pane and must not lose what was typed.
+ * Engine options of side chats, by session id — the chat list of the project
+ * may not know a fresh `/btw` chat yet, so its engine comes from here.
  */
 export function createSideChatStore() {
-  const drafts = new Map<string, string>();
-  const scrolls = new Map<string, number>();
   const engines = new Map<string, SideChatEngine>();
   return {
-    getDraft: (key: string): string => drafts.get(key) ?? '',
-    setDraft: (key: string, text: string): void => {
-      if (text) drafts.set(key, text);
-      else drafts.delete(key);
-    },
-    getScroll: (key: string): number | null => scrolls.get(key) ?? null,
-    setScroll: (key: string, top: number): void => {
-      scrolls.set(key, top);
-    },
-    /** Engine options of a chat (by session id), e.g. from the side-chat answer. */
     getEngine: (sessionId: string): SideChatEngine | null => engines.get(sessionId) ?? null,
     setEngine: (sessionId: string, engine: SideChatEngine): void => {
       engines.set(sessionId, engine);

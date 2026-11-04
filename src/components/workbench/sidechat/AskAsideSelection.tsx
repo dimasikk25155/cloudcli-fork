@@ -17,6 +17,8 @@ type AskAsideSelectionProps = {
   containerRef: RefObject<HTMLElement>;
   /** The chat on screen; null for a chat not started yet (nothing to ask aside of). */
   parentSessionId: string | null;
+  /** Canvas the new tab opens on when it is not the parent's (a chat inside a canvas tab). */
+  canvasSessionId?: string | null;
 };
 
 const QUOTE_MAX = 4000;
@@ -45,7 +47,7 @@ function selectionInside(container: HTMLElement): { text: string; anchor: Anchor
   };
 }
 
-export default function AskAsideSelection({ containerRef, parentSessionId }: AskAsideSelectionProps) {
+export default function AskAsideSelection({ containerRef, parentSessionId, canvasSessionId }: AskAsideSelectionProps) {
   const sideChatOn = useModEnabled('modSideChat');
   const workbenchOn = useModEnabled('modWorkbench');
   const [picked, setPicked] = useState<{ text: string; anchor: Anchor } | null>(null);
@@ -104,7 +106,7 @@ export default function AskAsideSelection({ containerRef, parentSessionId }: Ask
     try {
       const created = await askAside(parentSessionId, { question: text, quote: picked.text });
       if (workbenchOn) {
-        openSideChatTab(parentSessionId, created);
+        openSideChatTab(canvasSessionId === undefined ? parentSessionId : canvasSessionId, created);
         close();
       } else {
         setBusy(false);

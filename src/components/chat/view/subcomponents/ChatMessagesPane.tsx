@@ -68,6 +68,10 @@ interface ChatMessagesPaneProps {
   showRawParameters?: boolean;
   showThinking?: boolean;
   selectedProject: Project;
+  /** A chat inside a canvas tab: a plain "empty" line instead of the engine picker. */
+  isEmbedded?: boolean;
+  /** Canvas «Спросить в стороне» opens its tab on (undefined = this chat's own). */
+  canvasSessionId?: string | null;
 }
 
 function ChatMessagesPane({
@@ -118,6 +122,8 @@ function ChatMessagesPane({
   showRawParameters,
   showThinking,
   selectedProject,
+  isEmbedded = false,
+  canvasSessionId,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   // Thinking stays on the composer badge — a stack of "Thought for a few
@@ -180,7 +186,7 @@ function ChatMessagesPane({
       }`}
     >
       {/* «Спросить в стороне» on selected message text (modSideChat). */}
-      <AskAsideSelection containerRef={scrollContainerRef} parentSessionId={currentSessionId} />
+      <AskAsideSelection containerRef={scrollContainerRef} parentSessionId={currentSessionId} canvasSessionId={canvasSessionId} />
       <div className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4">
       {(isLoadingSessionMessages || isProcessing) && chatMessages.length === 0 ? (
         <div className="mt-8 text-center text-gray-500 dark:text-gray-400">
@@ -189,6 +195,9 @@ function ChatMessagesPane({
             <p>{t('session.loading.sessionMessages')}</p>
           </div>
         </div>
+      ) : chatMessages.length === 0 && isEmbedded ? (
+        // The engine picker writes page-wide choices; the chat here already has its engine.
+        <p className="mt-8 text-center text-sm text-muted-foreground">Здесь пока пусто — напиши первое сообщение.</p>
       ) : chatMessages.length === 0 ? (
         <ProviderSelectionEmptyState
           selectedSession={selectedSession}

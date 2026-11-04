@@ -140,6 +140,12 @@ type ProviderCapabilitiesApiResponse = {
 interface UseChatProviderStateArgs {
   selectedSession: ProjectSession | null;
   selectedProject: Project | null;
+  /**
+   * A chat inside a canvas tab: follows its session's engine without writing
+   * the page-wide `selected-provider`, and ignores the composer draft event
+   * (it belongs to the main chat).
+   */
+  isEmbedded?: boolean;
 }
 
 type ProviderModelsApiResponse = {
@@ -172,7 +178,7 @@ type ChangeActiveEffortApiResponse = {
   };
 };
 
-export function useChatProviderState({ selectedSession, selectedProject: _selectedProject }: UseChatProviderStateArgs) {
+export function useChatProviderState({ selectedSession, selectedProject: _selectedProject, isEmbedded = false }: UseChatProviderStateArgs) {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   // Per chat, exactly like permissionMode: one conversation can run on
   // briefings while another is left to get on with it. New chats start from
@@ -721,8 +727,10 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
 
     setProvider(selectedSession.__provider);
-    localStorage.setItem('selected-provider', selectedSession.__provider);
-  }, [storedProvider, selectedSession]);
+    if (!isEmbedded) {
+      localStorage.setItem('selected-provider', selectedSession.__provider);
+    }
+  }, [storedProvider, selectedSession, isEmbedded]);
 
   // Permission prompts belong to a session, not to the transient provider
   // selection that is synchronized after navigation.
@@ -799,6 +807,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   // Catalog briefs (empty-chat job buttons) put text in the composer AND
   // switch this chat to interrogate, so the first move is questions, not a draft.
   useEffect(() => {
+    if (isEmbedded) return undefined;
     const onDraft = (event: Event) => {
       const mode = (event as CustomEvent<ComposerDraftDetail>).detail?.workMode;
       if (!mode || !WORK_MODES.includes(mode)) {
@@ -808,7 +817,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     };
     window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
     return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
-  }, [selectWorkMode]);
+  }, [selectWorkMode, isEmbedded]);
 
   // Called once, exactly when a brand-new chat's session id becomes real
   // (see ChatInterface's onSessionEstablished). Whatever mode is active

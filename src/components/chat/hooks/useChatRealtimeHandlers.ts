@@ -13,6 +13,7 @@ import type { SessionStore, NormalizedMessage } from '../../../stores/useSession
 import { classifyIdleAck, CONNECTION_LOST_MESSAGE } from '../utils/idleAck';
 import { resetSessionSteps, stepsFor } from '../utils/stepTimer';
 import { backgroundTasksStore } from '../view/subcomponents/BackgroundTasksStore';
+import { shouldHandleSubscribedAck, type StreamBuffers } from '../utils/streamBuffers';
 
 const isActionablePermissionRequest = (request: { toolName?: unknown } | null | undefined): boolean => {
   return request?.toolName !== 'ExitPlanMode' && request?.toolName !== 'exit_plan_mode';
@@ -31,8 +32,14 @@ interface UseChatRealtimeHandlersArgs {
   refreshTokenUsage?: () => Promise<void> | void;
   pendingPermissionRequests: PendingPermissionRequest[];
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
-  streamTimerRef: MutableRefObject<number | null>;
-  accumulatedStreamRef: MutableRefObject<string>;
+  /** Live stream text per session (see utils/streamBuffers). */
+  streamBuffers: StreamBuffers;
+  /**
+   * A chat inside a canvas tab: no page-wide sounds or title marks, and the
+   * processing map is touched only for its own session — the main chat
+   * already does it for every session.
+   */
+  isEmbedded?: boolean;
   /**
    * Highest live `seq` observed per session. Essential for reconnect catch-up:
    * `chat.subscribe` sends this value as `lastSeq` so the server replays only
@@ -70,12 +77,12 @@ export function useChatRealtimeHandlers({
   refreshTokenUsage,
   pendingPermissionRequests,
   setPendingPermissionRequests,
-  streamTimerRef,
-  accumulatedStreamRef,
+  streamBuffers,
+  isEmbedded = false,
   lastSeqRef,
   statusCheckSentAtRef,
-  onSessionProcessing,
-  onSessionIdle,
+  onSessionProcessing: markProcessing,
+  onSessionIdle: markIdle,
   onWebSocketReconnect,
   sessionStore,
 }: UseChatRealtimeHandlersArgs) {
@@ -103,6 +110,14 @@ export function useChatRealtimeHandlers({
 
       const activeViewSessionId = activeViewSessionIdRef.current;
       const sid = (typeof msg.sessionId === 'string' && msg.sessionId) || activeViewSessionId;
+      // The embedded chat marks only its own session; the main one marks all.
+      const ownsProcessingOf = (sessionId: string | null | undefined) => !isEmbedded || sessionId === activeViewSessionId;
+      const onSessionProcessing: MarkSessionProcessing | undefined = markProcessing && ((sessionId, activity) => {
+        if (ownsProcessingOf(sessionId)) markProcessing(sessionId, activity);
+      });
+      const onSessionIdle: MarkSessionIdle | undefined = markIdle && ((sessionId, opts) => (
+        ownsProcessingOf(sessionId) ? markIdle(sessionId, opts) : 'already_idle'
+      ));
 
       // Record replay progress for every sequenced live event.
       if (sid && typeof msg.seq === 'number') {
@@ -119,8 +134,9 @@ export function useChatRealtimeHandlers({
 
         case 'chat_subscribed': {
           // Ack for chat.subscribe: authoritative processing state plus any
-          // pending tool-permission prompts for the run.
-          if (!sid) return;
+          // pending tool-permission prompts for the run. Every chat on the
+          // page hears every ack: act only on the subscribes this one sent.
+          if (!sid || !shouldHandleSubscribedAck(statusCheckSentAtRef.current, sid)) return;
 
           if (msg.isProcessing) {
             onSessionProcessing?.(sid);
@@ -170,7 +186,7 @@ export function useChatRealtimeHandlers({
             pendingPermissionRequestsRef.current = nextPendingPermissionRequests;
             setPendingPermissionRequests(nextPendingPermissionRequests);
 
-            if (hasPendingActionablePermissionRequests && !hadActionablePermissionRequests) {
+            if (hasPendingActionablePermissionRequests && !hadActionablePermissionRequests && !isEmbedded) {
               void playNotificationSound();
             }
           }
@@ -237,14 +253,10 @@ export function useChatRealtimeHandlers({
       if (msg.kind === 'stream_delta') {
         const text = (msg.content as string) || '';
         if (!text) return;
-        accumulatedStreamRef.current += text;
-        if (!streamTimerRef.current) {
-          streamTimerRef.current = window.setTimeout(() => {
-            streamTimerRef.current = null;
-            if (sid) {
-              sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-            }
-          }, 100);
+        if (sid) {
+          streamBuffers.append(sid, text, (sessionId, textSoFar) => {
+            sessionStore.updateStreaming(sessionId, textSoFar, provider);
+          });
         }
         // Also route to store for non-active sessions
         if (sid && sid !== activeViewSessionId) {
@@ -254,17 +266,13 @@ export function useChatRealtimeHandlers({
       }
 
       if (msg.kind === 'stream_end') {
-        if (streamTimerRef.current) {
-          clearTimeout(streamTimerRef.current);
-          streamTimerRef.current = null;
-        }
         if (sid) {
-          if (accumulatedStreamRef.current) {
-            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
+          const streamed = streamBuffers.take(sid);
+          if (streamed) {
+            sessionStore.updateStreaming(sid, streamed, provider);
           }
           sessionStore.finalizeStreaming(sid);
         }
-        accumulatedStreamRef.current = '';
         return;
       }
 
@@ -276,16 +284,12 @@ export function useChatRealtimeHandlers({
       // --- UI side effects for specific kinds ---
       switch (msg.kind) {
         case 'complete': {
-          // Flush any remaining streaming state
-          if (streamTimerRef.current) {
-            clearTimeout(streamTimerRef.current);
-            streamTimerRef.current = null;
-          }
-          if (sid && accumulatedStreamRef.current) {
-            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
+          // Flush this session's remaining stream; other chats keep theirs.
+          const streamed = sid ? streamBuffers.take(sid) : '';
+          if (sid && streamed) {
+            sessionStore.updateStreaming(sid, streamed, provider);
             sessionStore.finalizeStreaming(sid);
           }
-          accumulatedStreamRef.current = '';
           // «Думал N с · ответ за N с» right as the turn ends, not after a re-read.
           if (sid && !msg.aborted && typeof msg.completionDurationMs === 'number') {
             sessionStore.recordAnswerTiming(sid, {
@@ -328,7 +332,7 @@ export function useChatRealtimeHandlers({
           }
 
           // Celebrate only successful runs (failed runs end with success: false).
-          if (msg.success !== false) {
+          if (msg.success !== false && !isEmbedded) {
             showCompletionTitleIndicator();
             void playChatCompletionSound();
           }
@@ -356,7 +360,7 @@ export function useChatRealtimeHandlers({
 
         case 'permission_request': {
           if (!msg.requestId) break;
-          if (isActionablePermissionRequest({ toolName: msg.toolName })) {
+          if (isActionablePermissionRequest({ toolName: msg.toolName }) && !isEmbedded) {
             void playNotificationSound();
           }
 
@@ -468,12 +472,12 @@ export function useChatRealtimeHandlers({
     refreshTokenUsage,
     pendingPermissionRequests,
     setPendingPermissionRequests,
-    streamTimerRef,
-    accumulatedStreamRef,
+    streamBuffers,
+    isEmbedded,
     lastSeqRef,
     statusCheckSentAtRef,
-    onSessionProcessing,
-    onSessionIdle,
+    markProcessing,
+    markIdle,
     onWebSocketReconnect,
     sessionStore,
   ]);

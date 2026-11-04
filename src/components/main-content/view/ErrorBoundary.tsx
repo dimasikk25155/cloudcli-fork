@@ -14,6 +14,8 @@ type ErrorBoundaryProps = {
   showDetails?: boolean;
   onRetry?: () => void;
   resetKeys?: unknown[];
+  /** Own fallback instead of the default card (e.g. a chat inside a canvas tab). */
+  renderFallback?: (props: FallbackProps) => ReactNode;
 };
 
 function formatError(error: unknown): string {
@@ -75,6 +77,7 @@ function ErrorBoundary({
   showDetails = false,
   onRetry = undefined,
   resetKeys = undefined,
+  renderFallback: customFallback = undefined,
 }: ErrorBoundaryProps) {
   const [componentStack, setComponentStack] = useState<string | null>(null);
 
@@ -90,15 +93,15 @@ function ErrorBoundary({
   }, [onRetry]);
 
   const renderFallback = useCallback(
-    ({ error, resetErrorBoundary }: FallbackProps) => (
+    ({ error, resetErrorBoundary }: FallbackProps) => (customFallback ? customFallback({ error, resetErrorBoundary }) : (
       <ErrorFallback
         error={error}
         resetErrorBoundary={resetErrorBoundary}
         showDetails={showDetails}
         componentStack={componentStack}
       />
-    ),
-    [showDetails, componentStack]
+    )),
+    [showDetails, componentStack, customFallback]
   );
 
   return (
