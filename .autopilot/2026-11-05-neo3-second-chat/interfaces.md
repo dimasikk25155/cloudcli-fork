@@ -98,3 +98,15 @@ MainContent передаёт его в оба монтажа `WorkbenchCanvas` (
 
 ## Что построили таски
 (дописывается после каждого таска)
+
+### T01 (готово)
+- `ChatInterfaceProps.embedded?: ChatEmbedding {hostSessionId, onRetarget, isVisible}`; `WorkbenchRenderContext.chatRuntime?: WorkbenchChatRuntime` + проп `WorkbenchCanvas.chatRuntime`.
+- `src/components/chat/utils/streamBuffers.ts`: `createStreamBuffers({schedule?,cancel?,delayMs?}) → {append, take, reset}`, `shouldHandleSubscribedAck(sentAt, sid)`.
+- `src/components/chat/utils/chatInstance.ts`: `draftStorageKey`, `isEscapeForInstance`; `menuPosition.ts`: `clampMenuLeft`.
+- `sideChatModel.ts`: `paneSession`, `sameSessionView`; `SideChatEngine.provider`; `openSideChatTab(canvasSessionId|null, created)`.
+- Флаги: `useChatProviderState({isEmbedded})`, `useChatComposerState({embedded})`, `useChatRealtimeHandlers({streamBuffers, isEmbedded})`, `useConnectionWatchdog({enabled})`, `ErrorBoundary.renderFallback`, `ChatMessagesPane.isEmbedded/canvasSessionId`.
+- `context.closeTab` закрывает свою вкладку, а не активную (иначе скрытый keepMounted-чат закрыл бы чужую).
+
+### F1 (готово)
+- `workspaceHandoffsFor(embedded)`; `createPointerOwner()`/`chatPointerOwner`, `CHAT_ROOT_SELECTOR`, корень основного `data-chat-root="main"`; `isEscapeForInstance(target, root, embedded, pointer?)`; `whenPageVisible(doc, onVisible)`.
+- `workbenchStore.replaceTab(sid, tabId, input, {keepActive?})`, `WorkbenchRenderContext.replaceTab(tab)`; `retargetTitle`, `settledTabTitle`, `PENDING_CHAT_TITLE`.
