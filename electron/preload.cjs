@@ -21,6 +21,15 @@ function onDesktopStateUpdated(callback) {
 }
 
 if (isCloudCliAppOrigin(window.location)) {
+  // Тема Neo3 → цвет окна (см. electron/windowTheme.js). Только сообщение,
+  // ответа нет: страница не получает доступа к главному процессу.
+  contextBridge.exposeInMainWorld('neo3Desktop', {
+    notifyThemeChanged: (theme) => {
+      if (!theme || typeof theme !== 'object') return;
+      ipcRenderer.send('neo3:theme-changed', { isDark: theme.isDark, background: theme.background });
+    },
+  });
+
   contextBridge.exposeInMainWorld('cloudcliDesktopNotifications', {
     getState: () => ipcRenderer.invoke('cloudcli-desktop:get-state'),
     update: (settings) => ipcRenderer.invoke('cloudcli-desktop:update-desktop-notifications', settings),

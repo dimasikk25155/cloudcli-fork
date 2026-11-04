@@ -20,6 +20,9 @@ import { describe, it } from 'node:test';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const contextSource = readFileSync(path.join(here, 'ThemeContext.jsx'), 'utf8');
 const cssSource = readFileSync(path.join(here, '..', 'index.css'), 'utf8');
+const backgroundSource = readFileSync(path.join(here, '..', 'components', 'branding', 'ThemeBackground.tsx'), 'utf8');
+const appContentSource = readFileSync(path.join(here, '..', 'components', 'app', 'AppContent.tsx'), 'utf8');
+const indexHtmlSource = readFileSync(path.join(here, '..', '..', 'index.html'), 'utf8');
 
 /** Достаёт список строковых литералов из экспортируемого массива по имени. */
 function readStringArray(name: string): string[] {
@@ -95,4 +98,106 @@ describe('реестр тем', () => {
     assert.match(match[0], /ids\[\(idx \+ 1\) % ids\.length\]/);
     assert.doesNotMatch(match[0], /LIVE_WALLPAPER_OFF|'off'|LIVE_WALLPAPER_AUTO|'auto'/);
   });
+
+  it('«Светлая Claude» зарегистрирована светлой и плоской', () => {
+    assert.ok(themes.includes('claudeLight'), 'claudeLight нет в THEMES');
+    assert.match(contextSource, /^\s{2}claudeLight: 'Светлая Claude',$/m);
+    assert.ok(lightThemes.includes('claudeLight'), 'claudeLight должна быть в LIGHT_THEMES');
+    const flat = backgroundSource.match(/FLAT_THEMES = new Set\(\[([^\]]*)\]\)/);
+    assert.ok(flat, 'не нашёл FLAT_THEMES');
+    assert.match(flat[1], /'claudeLight'/, 'claudeLight должна быть плоской: без картинки и шейдера');
+    // Плоская тема без картинки: фон-компонент для неё не рендерится вовсе.
+    const gate = appContentSource.match(/\{\(([^\n]*?customBackgroundUrl)\) && \(/);
+    assert.ok(gate, 'не нашёл условие фона в AppContent');
+    assert.match(gate[1], /'claudeLight'/);
+  });
+
+  it('скрипт до первой отрисовки знает те же светлые темы', () => {
+    // Тема ставится в index.html ДО загрузки бандла, иначе светлая тема
+    // мигает тёмным. Список светлых там продублирован — он обязан совпадать.
+    const boot = indexHtmlSource.match(/var LIGHT_THEMES = \[([^\]]*)\]/);
+    assert.ok(boot, 'в index.html нет inline-скрипта темы с LIGHT_THEMES');
+    const bootLight = [...boot[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1]);
+    assert.deepEqual([...bootLight].sort(), [...lightThemes].sort());
+    assert.match(indexHtmlSource, /localStorage\.getItem\('appTheme'\)/);
+  });
 });
+
+/** Токены одного блока `[data-theme='…'] { … }` из index.css. */
+function readThemeTokens(theme: string): Record<string, string> {
+  const start = cssSource.indexOf(`[data-theme='${theme}'] {`);
+  assert.ok(start >= 0, `нет блока темы ${theme}`);
+  const body = cssSource.slice(start, cssSource.indexOf('\n}', start));
+  const tokens: Record<string, string> = {};
+  for (const match of body.matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);/gm)) {
+    tokens[match[1]] = match[2].trim();
+  }
+  return tokens;
+}
+
+/** WCAG 2.x: относительная яркость и контраст по тройке HSL из токена. */
+function hslToRgb(triplet: string): [number, number, number] {
+  const match = triplet.match(/^(-?[\d.]+)\s+([\d.]+)%\s+([\d.]+)%$/);
+  assert.ok(match, `не тройка HSL: ${triplet}`);
+  const h = Number(match[1]) / 360;
+  const s = Number(match[2]) / 100;
+  const l = Number(match[3]) / 100;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channel = (t: number) => {
+    const x = t < 0 ? t + 1 : t > 1 ? t - 1 : t;
+    if (x < 1 / 6) return p + (q - p) * 6 * x;
+    if (x < 1 / 2) return q;
+    if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6;
+    return p;
+  };
+  return [channel(h + 1 / 3), channel(h), channel(h - 1 / 3)].map((c) => c * 255) as [number, number, number];
+}
+function luminance(triplet: string): number {
+  const [r, g, b] = hslToRgb(triplet).map((c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+describe('«Светлая Claude»: палитра и контраст', () => {
+  const tokens = readThemeTokens('claudeLight');
+  const sidebar = tokens['--sidebar'];
+
+  it('цвета как у светлого приложения Claude', () => {
+    // Ориентиры из брифа: фон слоновая кость ~#FAF9F5 = 48 33% 97%, текст ~#141413.
+    assert.equal(tokens['--background'], '48 33% 97%');
+    assert.equal(tokens['--card'], '0 0% 100%');
+    assert.equal(tokens['--foreground'], '60 3% 8%');
+    assert.ok(sidebar, 'нет токена --sidebar (сайдбар чуть темнее фона)');
+    assert.ok(luminance(sidebar) < luminance(tokens['--background']), 'сайдбар должен быть темнее фона');
+    // Заливка акцента — фирменная терракота #D97757 = 15 63% 60%.
+    assert.equal(tokens['--accent-fill'], '15 63% 60%');
+  });
+
+  it('основной, вторичный текст и ссылки держат ≥4.5:1 на всех поверхностях', () => {
+    const surfaces = { background: tokens['--background'], card: tokens['--card'], sidebar, muted: tokens['--muted'] };
+    const texts = {
+      foreground: tokens['--foreground'],
+      'muted-foreground': tokens['--muted-foreground'],
+      'primary (ссылки и текст акцента)': tokens['--primary'],
+    };
+    for (const [textName, text] of Object.entries(texts)) {
+      for (const [surfaceName, surface] of Object.entries(surfaces)) {
+        const ratio = contrast(text, surface);
+        assert.ok(ratio >= 4.5, `${textName} на ${surfaceName}: ${ratio.toFixed(2)}:1 < 4.5:1`);
+      }
+    }
+  });
+
+  it('подпись на кнопке акцента читается (≥4.5:1)', () => {
+    const ratio = contrast(tokens['--primary-foreground'], tokens['--primary']);
+    assert.ok(ratio >= 4.5, `primary-foreground на primary: ${ratio.toFixed(2)}:1`);
+  });
+});
+

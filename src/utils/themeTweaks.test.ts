@@ -24,7 +24,7 @@ const themeVars = new Map<string, string>();
   getPropertyValue: (name: string) => props.get(name) ?? themeVars.get(name) ?? '',
 })) as unknown as typeof getComputedStyle;
 
-const { applyTweaks, parseTweakMap, readThemeDefaults, tweaksToCss } = await import('./themeTweaks.js');
+const { applyTweaks, parseTweakMap, readThemeDefaults, tweaksToCss, hslTripletToHex, FONT_STACKS } = await import('./themeTweaks.js');
 
 describe('themeTweaks', () => {
   beforeEach(() => {
@@ -181,3 +181,28 @@ describe('themeTweaks', () => {
     });
   });
 });
+
+describe('цвет темы для браузера и окна', () => {
+  it('переводит тройку HSL токена в hex', () => {
+    assert.equal(hslTripletToHex('0 0% 100%'), '#ffffff');
+    assert.equal(hslTripletToHex('0 0% 0%'), '#000000');
+    assert.equal(hslTripletToHex('0 100% 50%'), '#ff0000');
+    assert.equal(hslTripletToHex('120 100% 25%'), '#008000');
+    // Ориентир «слоновой кости» из брифа: #FAF9F5.
+    assert.equal(hslTripletToHex(' 48 33% 97% '), '#faf9f5');
+  });
+
+  it('мусор не превращает в цвет', () => {
+    assert.equal(hslTripletToHex(''), null);
+    assert.equal(hslTripletToHex('red'), null);
+    assert.equal(hslTripletToHex('48 33% 97% / 0.5'), null);
+    assert.equal(hslTripletToHex(undefined as unknown as string), null);
+  });
+
+  it('засечный Source Serif 4 доступен в подстройке шрифтов', () => {
+    const stack = FONT_STACKS.find((entry) => entry.id === 'sourceSerif');
+    assert.ok(stack, 'нет шрифта sourceSerif');
+    assert.match(stack.value, /^'Source Serif 4'/);
+  });
+});
+

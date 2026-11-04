@@ -39,6 +39,7 @@ export class DesktopWindowManager {
     getRemoteEnvironmentMenuItems,
     getCloudState,
     getLocalState,
+    getInitialBackground,
     actions,
     tabs,
   }) {
@@ -52,6 +53,7 @@ export class DesktopWindowManager {
     this.getRemoteEnvironmentMenuItems = getRemoteEnvironmentMenuItems;
     this.getCloudState = getCloudState;
     this.getLocalState = getLocalState;
+    this.getInitialBackground = getInitialBackground;
     this.actions = actions;
     this.tabs = tabs;
 
@@ -76,6 +78,23 @@ export class DesktopWindowManager {
   getTrayImage() {
     const image = nativeImage.createFromPath(this.getWindowIconPath());
     return image.resize({ width: 18, height: 18 });
+  }
+
+  /** Перекраска окна под тему Neo3 (`neo3:theme-changed` из preload). */
+  applyWindowTheme({ isDark, background }) {
+    const window = this.mainWindow;
+    if (!window || window.isDestroyed()) return;
+    try {
+      window.setBackgroundColor(background);
+      if (process.platform !== 'darwin' && typeof window.setTitleBarOverlay === 'function') {
+        window.setTitleBarOverlay({
+          color: isDark ? '#111111' : background,
+          symbolColor: isDark ? '#a1a1a1' : '#5b6470',
+        });
+      }
+    } catch {
+      // Окно закрывается — перекрашивать нечего.
+    }
   }
 
   getContentViewBounds() {
@@ -714,7 +733,9 @@ export class DesktopWindowManager {
       minWidth: 1024,
       minHeight: 720,
       show: false,
-      backgroundColor: '#0f172a',
+      // Фон темы, сохранённый с прошлого запуска (иначе прежний тёмный):
+      // под светлой темой окно не вспыхивает тёмным до загрузки страницы.
+      backgroundColor: this.getInitialBackground?.() || '#0f172a',
       title: this.appName,
       icon: this.getWindowIconPath(),
       titleBarStyle: 'hidden',

@@ -6,12 +6,14 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 
+import { useTheme } from '../../../contexts/ThemeContext';
 import type { Project } from '../../../types/app';
 import { copyTextToClipboard } from '../../../utils/clipboard';
 import {
   TERMINAL_INIT_DELAY_MS,
   TERMINAL_OPTIONS,
   TERMINAL_RESIZE_DELAY_MS,
+  terminalThemeFor,
 } from '../constants/constants';
 import {
   installMobileTerminalSelection,
@@ -89,10 +91,23 @@ export function useShellTerminal({
   const mobileSelectionRef = useRef<MobileTerminalSelectionManager | null>(null);
   const selectedProjectKey = selectedProject?.fullPath || selectedProject?.path || '';
   const hasSelectedProject = Boolean(selectedProject);
+  // Палитра следует теме приложения. Ref — чтобы смена темы перекрашивала
+  // живой терминал, а не пересоздавала его (сессия в pty осталась бы без экрана).
+  const { isDarkMode } = useTheme();
+  const isDarkModeRef = useRef<boolean>(isDarkMode);
+  isDarkModeRef.current = isDarkMode;
 
   useEffect(() => {
     ensureXtermFocusStyles();
   }, []);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || !isInitialized) {
+      return;
+    }
+    terminal.options.theme = terminalThemeFor(isDarkMode);
+  }, [isDarkMode, isInitialized, terminalRef]);
 
   const clearTerminalScreen = useCallback(() => {
     if (!terminalRef.current) {
@@ -124,7 +139,10 @@ export function useShellTerminal({
       return;
     }
 
-    const nextTerminal = new Terminal(TERMINAL_OPTIONS);
+    const nextTerminal = new Terminal({
+      ...TERMINAL_OPTIONS,
+      theme: terminalThemeFor(isDarkModeRef.current),
+    });
     terminalRef.current = nextTerminal;
 
     const nextFitAddon = new FitAddon();
