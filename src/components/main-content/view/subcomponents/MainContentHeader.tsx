@@ -21,6 +21,7 @@ export default function MainContentHeader({
   onMenuClick,
   onGoHome,
   workbenchToggle,
+  workbenchOn = false,
 }: MainContentHeaderProps) {
   const { t } = useTranslation('sidebar');
   // «Где мой код» off in «Встроенные моды»: no chip, so no code-status request.
@@ -66,7 +67,7 @@ export default function MainContentHeader({
         <div className={`flex flex-1 items-center gap-2 ${isMobile ? (onGoHome ? 'min-w-[4.5rem]' : 'min-w-8') : 'min-w-0'}`}>
           {isMobile && <MobileMenuButton onMenuClick={onMenuClick} />}
           {isMobile && homeButton}
-          <div className="min-w-0 md:hidden">
+          <div className="min-w-0 flex-1 md:hidden">
             <MainContentTitle
               activeTab={activeTab}
               selectedProject={selectedProject}
@@ -90,11 +91,12 @@ export default function MainContentHeader({
         </div>
 
         {/* RIGHT: bot health + overdue bell + tabs, pinned to the corner */}
-        <div className="flex min-w-0 flex-shrink items-center gap-1.5 sm:flex-shrink-0">
-          {activeTab === 'chat' && workbenchToggle}
+        <div className={`flex items-center gap-1.5 ${workbenchOn ? 'flex-shrink-0' : 'min-w-0 flex-shrink sm:flex-shrink-0'}`}>
+          {(workbenchOn || activeTab === 'chat') && workbenchToggle}
           {codeStatusOn && activeTab === 'chat' && <CodeStatusChip projectId={selectedProject.projectId} />}
           <BotHealthButton />
           <PlannerAttentionButton />
+          {!workbenchOn && (
           <div className="relative min-w-0 overflow-hidden">
             {canScrollLeft && (
               <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background to-transparent" />
@@ -115,6 +117,7 @@ export default function MainContentHeader({
               <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background to-transparent" />
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

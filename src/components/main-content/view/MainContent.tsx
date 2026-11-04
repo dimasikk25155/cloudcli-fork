@@ -26,12 +26,14 @@ import {
   WorkbenchCanvas,
   WorkbenchLayout,
   WorkbenchToggle,
+  openWorkbenchTab,
   useWorkbench,
   useWorkbenchAccountSync,
 } from '../../workbench';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
 import ShellModeSwitcher from './subcomponents/ShellModeSwitcher';
+import { resolveActiveTab } from './subcomponents/mainContentTabs';
 import MainContentStateView from './subcomponents/MainContentStateView';
 import ErrorBoundary from './ErrorBoundary';
 
@@ -51,7 +53,7 @@ function MainContent({
   selectedSession,
   projects = [],
   onProjectSelect,
-  activeTab,
+  activeTab: rawActiveTab,
   setActiveTab,
   ws,
   sendMessage,
@@ -72,6 +74,11 @@ function MainContent({
   onStartNewChat,
 }: MainContentProps) {
   const { theme } = useTheme();
+  // «Рабочий стол»: chat on the left, the canvas on the right (desktop) or
+  // full-screen over the chat (phone). Off — the chat renders as before.
+  const workbenchOn = useModEnabled('modWorkbench');
+  // With the workbench on the chat is the only main view; terminal, files, … are canvas tabs.
+  const activeTab = resolveActiveTab(workbenchOn, rawActiveTab);
   const { preferences } = useUiPreferences();
   const { showRawParameters, showThinking, sendByCtrlEnter, sendByDoubleEnter } = preferences;
 
@@ -83,12 +90,20 @@ function MainContent({
 
   const autopilot = useAutopilotDashboard(selectedProject?.projectId);
 
-  // «Рабочий стол»: chat on the left, the canvas on the right (desktop) or
-  // full-screen over the chat (phone). Off — the chat renders as before.
-  const workbenchOn = useModEnabled('modWorkbench');
   const workbench = useWorkbench(selectedSession?.id ?? null);
   useWorkbenchAccountSync();
   const [mobileCanvasOpen, setMobileCanvasOpen] = useState(false);
+  // Once opened the phone canvas stays in the DOM (hidden), so a live terminal is not cut off by «Назад».
+  const [mobileCanvasMounted, setMobileCanvasMounted] = useState(false);
+  useEffect(() => {
+    if (rawActiveTab !== 'chat' && workbenchOn) setActiveTab('chat');
+  }, [rawActiveTab, workbenchOn, setActiveTab]);
+  useEffect(() => {
+    if (mobileCanvasOpen) setMobileCanvasMounted(true);
+  }, [mobileCanvasOpen]);
+  useEffect(() => {
+    if (!isMobile || !workbenchOn) setMobileCanvasMounted(false);
+  }, [isMobile, workbenchOn]);
   const lastOpenSeq = useRef(workbench.openSeq);
   useEffect(() => {
     // A tab opened from the chat on a phone shows the canvas at once.
@@ -121,6 +136,8 @@ function MainContent({
   // Resolves bare/partial file references (e.g. links inside chat messages) to
   // real project files before opening them in the in-app editor.
   const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
+  // The canvas «Файлы» tab opens plain files; a diff only comes from git views.
+  const canvasFileOpen = useCallback((filePath: string) => handleFileOpen(filePath), [handleFileOpen]);
 
   // Ссылка из чата может оказаться папкой или вообще ничем, и для каждого случая
   // нужно своё окно. Раньше открывался редактор на всё подряд и показывал
@@ -222,7 +239,7 @@ function MainContent({
 
   usePaletteOpsRegister({
     openFile: (filePath: string) => {
-      setActiveTab('files');
+      if (!workbenchOn) setActiveTab('files');
       handleFileOpen(filePath);
     },
     // Opens links clicked inside chat messages as a centered modal (same as
@@ -272,6 +289,7 @@ function MainContent({
         onMenuClick={onMenuClick}
         onGoHome={onGoHome}
         workbenchToggle={workbenchToggle}
+        workbenchOn={workbenchOn}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -279,7 +297,7 @@ function MainContent({
           enabled={showDesktopCanvas}
           ratio={workbench.ratio}
           onRatioChange={workbench.setRatio}
-          canvas={<WorkbenchCanvas project={selectedProject} session={selectedSession} />}
+          canvas={<WorkbenchCanvas project={selectedProject} session={selectedSession} onFileOpen={canvasFileOpen} />}
         >
         <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
@@ -369,9 +387,9 @@ function MainContent({
         {theme === 'codex' && activeTab === 'chat' && !editingFile && !showDesktopCanvas && (
           <aside className="codex-environment" aria-label="Среда проекта">
             <p className="mb-2 text-xs text-muted-foreground">Среда</p>
-            <button onClick={() => setActiveTab('git')}><GitBranch size={15} />Изменения</button>
-            <button onClick={() => setActiveTab('files')} title={selectedProject.path}><Folder size={15} /><span className="truncate">{String(selectedProject.displayName || selectedProject.name || 'Проект')}</span></button>
-            <button onClick={() => setActiveTab('stats')}><BarChart3 size={15} />Статистика проекта</button>
+            {!workbenchOn && <button onClick={() => setActiveTab('git')}><GitBranch size={15} />Изменения</button>}
+            <button onClick={() => (workbenchOn ? openWorkbenchTab(selectedSession?.id ?? null, { kind: 'files', title: 'Файлы' }) : setActiveTab('files'))} title={selectedProject.path}><Folder size={15} /><span className="truncate">{String(selectedProject.displayName || selectedProject.name || 'Проект')}</span></button>
+            <button onClick={() => (workbenchOn ? openWorkbenchTab(selectedSession?.id ?? null, { kind: 'stats', title: 'Статистика' }) : setActiveTab('stats'))}><BarChart3 size={15} />Статистика проекта</button>
           </aside>
         )}
         <EditorSidebar
@@ -390,12 +408,18 @@ function MainContent({
         />
       </div>
 
-      {workbenchOn && isMobile && mobileCanvasOpen && (
-        <div className="pwa-header-safe fixed inset-0 z-40 flex flex-col bg-background" data-workbench-mobile>
+      {workbenchOn && isMobile && (mobileCanvasOpen || mobileCanvasMounted) && (
+        <div
+          className={`pwa-header-safe fixed inset-0 z-40 flex flex-col bg-background ${mobileCanvasOpen ? '' : 'pointer-events-none invisible'}`}
+          data-workbench-mobile
+          aria-hidden={mobileCanvasOpen ? undefined : true}
+        >
           <WorkbenchCanvas
             project={selectedProject}
             session={selectedSession}
             onBack={() => setMobileCanvasOpen(false)}
+            visible={mobileCanvasOpen}
+            onFileOpen={canvasFileOpen}
           />
         </div>
       )}

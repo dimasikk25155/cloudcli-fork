@@ -1,18 +1,32 @@
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, LayoutDashboard, Plus, X } from 'lucide-react';
 
 import type { Project, ProjectSession } from '../../types/app';
 
+import { useAuth } from '../auth/context/AuthContext';
+import { useAutopilotDashboard } from '../autopilot/useAutopilotDashboard';
+import { listPluginTabs } from '../main-content/view/subcomponents/mainContentTabs';
+import { localizePluginName } from '../plugins/utils/pluginDisplayName';
+import { usePlugins } from '../../contexts/PluginsContext';
+
 import './builtinTabs';
+import './projectTabs';
 import { closeWorkbenchTab, openWorkbenchTab, useWorkbench } from './useWorkbench';
+import {
+  buildWorkbenchMenu,
+  markVisitedKeepMounted,
+  planCanvasPanes,
+  type WorkbenchMenuEntry,
+} from './workbenchCanvasModel';
 import {
   getWorkbenchTabKind,
   listWorkbenchTabKinds,
   subscribeWorkbenchTabKinds,
   workbenchTabKindsVersion,
   type WorkbenchRenderContext,
-  type WorkbenchTabInput,
   type WorkbenchTabKind,
+  type WorkbenchTabInput,
 } from './workbenchTabs';
 
 type WorkbenchCanvasProps = {
@@ -20,22 +34,24 @@ type WorkbenchCanvasProps = {
   session: ProjectSession | null;
   /** Phone: the canvas covers the chat and «Назад» returns to it. */
   onBack?: () => void;
+  /** False while the canvas is kept in the DOM but not on screen (phone overlay closed): terminals keep their size. */
+  visible?: boolean;
+  /** Opens a project file in the editor — for the «Файлы» tab. */
+  onFileOpen?: (filePath: string, diff?: unknown) => void;
 };
 
-/** Empty-canvas shortcuts, in this order, for the kinds that are registered. */
-const EMPTY_SHORTCUTS: Array<{ kind: WorkbenchTabKind; label: string }> = [
-  { kind: 'inspector', label: 'Открыть инспектор' },
-  { kind: 'limits', label: 'Контекст и лимиты' },
-  { kind: 'artifacts', label: 'Результаты' },
-];
-
 /** Tab strip + the active tab's body; the empty canvas says what lands here. */
-export default function WorkbenchCanvas({ project, session, onBack }: WorkbenchCanvasProps) {
+export default function WorkbenchCanvas({ project, session, onBack, visible = true, onFileOpen }: WorkbenchCanvasProps) {
   const sessionId = session?.id ?? null;
   const { tabs, activeTabId, setActive } = useWorkbench(sessionId);
   // Re-render when a later feature registers its kind.
   useSyncExternalStore(subscribeWorkbenchTabKinds, workbenchTabKindsVersion, workbenchTabKindsVersion);
+  const { t } = useTranslation();
+  const { plugins } = usePlugins();
+  const { terminalDisabled } = useAuth();
+  const autopilot = useAutopilotDashboard(project.projectId);
   const [menuOpen, setMenuOpen] = useState(false);
+  const visitedRef = useRef<Set<string>>(new Set());
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -49,7 +65,10 @@ export default function WorkbenchCanvas({ project, session, onBack }: WorkbenchC
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const open = (tab: WorkbenchTabInput) => openWorkbenchTab(sessionId, tab);
-  const context: WorkbenchRenderContext = useMemo(() => ({
+  const isKeepMounted = (kind: WorkbenchTabKind) => Boolean(getWorkbenchTabKind(kind)?.keepMounted);
+  visitedRef.current = markVisitedKeepMounted(visitedRef.current, tabs, activeTabId, isKeepMounted);
+  const panes = planCanvasPanes({ tabs, activeTabId, visited: visitedRef.current, isKeepMounted });
+  const contextFor = (isActive: boolean): WorkbenchRenderContext => ({
     sessionId,
     project,
     session,
@@ -57,10 +76,19 @@ export default function WorkbenchCanvas({ project, session, onBack }: WorkbenchC
     closeTab: () => {
       if (activeTabId) closeWorkbenchTab(sessionId, activeTabId);
     },
-  }), [sessionId, project, session, activeTabId]);
+    isActive: isActive && visible,
+    onFileOpen,
+  });
 
-  const menuKinds = listWorkbenchTabKinds().filter(([, def]) => def.inMenu);
-  const activeDef = activeTab ? getWorkbenchTabKind(activeTab.kind) : undefined;
+  const menuEntries = buildWorkbenchMenu(
+    listWorkbenchTabKinds(),
+    { autopilotAvailable: autopilot.available, terminalDisabled },
+    listPluginTabs(plugins, (name, displayName) => localizePluginName(name, displayName, t)).map((tab) => ({
+      name: tab.pluginName,
+      label: tab.label,
+    })),
+  );
+  const openEntry = (entry: WorkbenchMenuEntry) => open({ kind: entry.kind, title: entry.title, ref: entry.ref });
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background" data-workbench-canvas>
@@ -121,19 +149,19 @@ export default function WorkbenchCanvas({ project, session, onBack }: WorkbenchC
           </button>
           {menuOpen && (
             <div className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-border bg-popover p-1 shadow-lg" role="menu">
-              {menuKinds.map(([kind, def]) => (
+              {menuEntries.map((entry) => (
                 <button
-                  key={kind}
+                  key={entry.key}
                   type="button"
                   role="menuitem"
                   onClick={() => {
                     setMenuOpen(false);
-                    open({ kind, title: def.defaultTitle });
+                    openEntry(entry);
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-accent"
                 >
-                  {def.icon}
-                  {def.defaultTitle}
+                  {entry.icon}
+                  <span className="min-w-0 truncate">{entry.title}</span>
                 </button>
               ))}
             </div>
@@ -141,33 +169,41 @@ export default function WorkbenchCanvas({ project, session, onBack }: WorkbenchC
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" role="tabpanel">
-        {activeTab && activeDef ? (
-          <React.Fragment key={activeTab.id}>{activeDef.render(activeTab, context)}</React.Fragment>
-        ) : activeTab ? (
-          <p className="p-6 text-sm text-muted-foreground">Эта вкладка недоступна в этой версии Neo3.</p>
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center" data-workbench-empty>
+      {/* Hidden panes use `invisible`, not `display: none`: a terminal measured at 0×0 would shrink its PTY. */}
+      <div className="relative min-h-0 flex-1" role="tabpanel">
+        {panes.map(({ tab, hidden }) => {
+          const def = getWorkbenchTabKind(tab.kind);
+          return (
+            <div
+              key={tab.id}
+              className={`absolute inset-0 overflow-y-auto ${hidden ? 'pointer-events-none invisible' : ''}`}
+              aria-hidden={hidden || undefined}
+              data-workbench-pane={tab.id}
+            >
+              {def ? def.render(tab, contextFor(!hidden)) : (
+                <p className="p-6 text-sm text-muted-foreground">Эта вкладка недоступна в этой версии Neo3.</p>
+              )}
+            </div>
+          );
+        })}
+        {!activeTab && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto p-6 text-center" data-workbench-empty>
             <LayoutDashboard className="h-8 w-8 text-muted-foreground/60" aria-hidden />
             <p className="max-w-sm text-sm text-muted-foreground">
               Здесь появятся результаты, побочные чаты и второй чат
             </p>
             <div className="flex flex-wrap justify-center gap-2">
-              {EMPTY_SHORTCUTS.map(({ kind, label }) => {
-                const def = getWorkbenchTabKind(kind);
-                if (!def) return null;
-                return (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => open({ kind, title: def.defaultTitle })}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                  >
-                    {def.icon}
-                    {label}
-                  </button>
-                );
-              })}
+              {menuEntries.map((entry) => (
+                <button
+                  key={entry.key}
+                  type="button"
+                  onClick={() => openEntry(entry)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+                >
+                  {entry.icon}
+                  {entry.title}
+                </button>
+              ))}
             </div>
           </div>
         )}

@@ -10,7 +10,20 @@ import type { ReactNode } from 'react';
 
 import type { Project, ProjectSession } from '../../types/app';
 
-export type WorkbenchTabKind = 'inspector' | 'limits' | 'artifacts' | 'artifact' | 'btw' | 'chat' | 'advisor' | 'report';
+export type WorkbenchTabKind =
+  | 'inspector'
+  | 'limits'
+  | 'artifacts'
+  | 'artifact'
+  | 'btw'
+  | 'chat'
+  | 'advisor'
+  | 'report'
+  | 'terminal'
+  | 'files'
+  | 'stats'
+  | 'autopilot'
+  | 'plugin';
 
 export interface WorkbenchTab {
   id: string;
@@ -31,6 +44,18 @@ export type WorkbenchRenderContext = {
   /** Opens (or focuses) another tab of the same canvas. */
   openTab: (tab: WorkbenchTabInput) => void;
   closeTab: () => void;
+  /** This tab is the visible one and the canvas itself is on screen. */
+  isActive: boolean;
+  /** Opens a project file in the editor (the «Файлы» tab uses it). */
+  onFileOpen?: (filePath: string, diff?: unknown) => void;
+};
+
+/** What decides whether a kind is offered in the «+» menu. */
+export type WorkbenchMenuContext = {
+  /** The project has an autopilot dashboard. */
+  autopilotAvailable: boolean;
+  /** The account may not use the terminal. */
+  terminalDisabled: boolean;
 };
 
 export type WorkbenchTabKindDef = {
@@ -39,6 +64,10 @@ export type WorkbenchTabKindDef = {
   defaultTitle: string;
   /** Shown in the canvas «+» menu (kinds that need a ref, e.g. one artifact, are not). */
   inMenu?: boolean;
+  /** Once opened, the tab stays mounted (hidden) while another tab is active — a live terminal must not reconnect. */
+  keepMounted?: boolean;
+  /** False hides the menu item (e.g. autopilot in a project that never ran it). */
+  available?: (context: WorkbenchMenuContext) => boolean;
 };
 
 const kinds = new Map<WorkbenchTabKind, WorkbenchTabKindDef>();

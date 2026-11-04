@@ -48,6 +48,8 @@ export type MainContentHeaderProps = {
   onGoHome?: () => void;
   /** «Рабочий стол» switch, shown on the chat tab (mod `modWorkbench`). */
   workbenchToggle?: ReactNode;
+  /** Workbench on: no tab switcher in the header, the chat is the only main view. */
+  workbenchOn?: boolean;
 };
 
 export type MainContentStateViewProps = {

@@ -59,6 +59,27 @@ export function tabShowsLabel(tab: TabDefinition, compactLabels: boolean): boole
   return tab.id === 'autopilot';
 }
 
+/** Tabs of enabled plugins — the one source for the header switcher and the workbench «+» menu. */
+export function listPluginTabs(
+  plugins: PluginLike[],
+  localize: (name: string, displayName: string) => string,
+): PluginTab[] {
+  return plugins
+    .filter((plugin) => plugin.enabled && plugin.name !== BUILTIN_STATS_PLUGIN)
+    .map((plugin) => ({
+      kind: 'plugin' as const,
+      id: `plugin:${plugin.name}` as AppTab,
+      label: localize(plugin.name, plugin.displayName),
+      pluginName: plugin.name,
+      iconFile: plugin.icon,
+    }));
+}
+
+/** With the workbench on, the chat is the only main view: terminal, files, … live in the canvas. */
+export function resolveActiveTab(workbenchOn: boolean, activeTab: AppTab): AppTab {
+  return workbenchOn ? 'chat' : activeTab;
+}
+
 export function assembleMainTabs({
   terminalDisabled,
   shouldShowAutopilotTab,
@@ -71,15 +92,7 @@ export function assembleMainTabs({
   localize: (name: string, displayName: string) => string;
 }): TabDefinition[] {
   const builtInTabs = BASE_TABS.filter((tab) => !(terminalDisabled && tab.id === 'shell'));
-  const pluginTabs: PluginTab[] = plugins
-    .filter((plugin) => plugin.enabled && plugin.name !== BUILTIN_STATS_PLUGIN)
-    .map((plugin) => ({
-      kind: 'plugin' as const,
-      id: `plugin:${plugin.name}` as AppTab,
-      label: localize(plugin.name, plugin.displayName),
-      pluginName: plugin.name,
-      iconFile: plugin.icon,
-    }));
+  const pluginTabs = listPluginTabs(plugins, localize);
 
   return [
     ...builtInTabs,
