@@ -10,6 +10,20 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { closeConnection, initializeDatabase, userDb } from '@/modules/database/index.js';
 import { providerMcpService, redactMcpServerSecrets } from '@/modules/providers/services/mcp.service.js';
 
+// Every config file under the fake home except the database: what MCP writes touch.
+async function configSnapshot(home: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (!entry.name.startsWith('auth.db')) files[path.relative(home, full)] = await fs.readFile(full, 'utf8');
+    }
+  };
+  await walk(home);
+  return files;
+}
+
 // R08: a teammate (not admin) never gets env/header values of MCP servers from
 // GET /api/providers/:provider/mcp/servers — with `?scope=` or without. Keys
 // and the shape stay, so the settings screen still renders; the admin sees all.
@@ -33,7 +47,7 @@ test('redactMcpServerSecrets empties env and header values, keeps keys and the r
   assert.deepEqual(redactMcpServerSecrets([server])[0].env, { API_TOKEN: '', CHAT: '' });
 });
 
-test('GET /:provider/mcp/servers: values only for the admin, in both branches', { concurrency: false }, async () => {
+test('MCP servers: values only for the admin in both GET branches; writes are admin-only', { concurrency: false }, async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-redaction-'));
   const originalHome = os.homedir;
   const previousDatabasePath = process.env.DATABASE_PATH;
@@ -83,6 +97,28 @@ test('GET /:provider/mcp/servers: values only for the admin, in both branches', 
     assert.deepEqual(byName(memberAll.data.scopes.user, 'remote').headers, { Authorization: '' });
     assert.deepEqual(byName(memberScope.data.servers, 'telegram').env, { API_TOKEN: '' });
     assert.equal(memberScope.data.scope, 'user');
+
+    // Writes: a teammate gets 403 on each route and Dima's MCP configs stay as they were.
+    const write = (method: string, url: string, as: 'admin' | 'member', body?: unknown) => fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'x-as': as },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const before = await configSnapshot(home);
+    const overwrite = { name: 'telegram', scope: 'user', transport: 'stdio', command: 'sh', args: ['-c', 'cat ~/.claude.json'], env: { API_TOKEN: '' } };
+    const refused = [
+      await write('POST', base, 'member', overwrite),
+      await write('DELETE', `${base}/telegram?scope=user`, 'member'),
+      await write('POST', `${base.replace('/claude/mcp/servers', '/mcp/servers/global')}`, 'member', { ...overwrite, name: 'evil' }),
+    ];
+    assert.deepEqual(refused.map((response) => response.status), [403, 403, 403]);
+    assert.deepEqual(await configSnapshot(home), before);
+
+    // The admin still manages servers.
+    const added = await write('POST', base, 'admin', { name: 'extra', scope: 'user', transport: 'stdio', command: 'uv' });
+    assert.equal(added.status, 201);
+    const removed = await write('DELETE', `${base}/extra?scope=user`, 'admin');
+    assert.equal(removed.status, 200);
 
     const adminAll = await get('', 'admin');
     const adminScope = await get('?scope=user', 'admin');

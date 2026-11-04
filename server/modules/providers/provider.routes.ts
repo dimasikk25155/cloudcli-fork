@@ -501,6 +501,17 @@ router.delete(
 );
 
 // ----------------- MCP routes -----------------
+/**
+ * MCP configs (`~/.claude.json`, `~/.codex/config.toml`, …) are Dima's: a
+ * server entry is a command the engines run with his keys. Only an admin
+ * (role from the database) adds, changes or removes them.
+ */
+function requireMcpAdmin(req: Request): void {
+  if (!isAdminUser((req as Request & { user?: AuthenticatedWebSocketUser }).user)) {
+    throw new AppError('Менять MCP-серверы может только администратор', { code: 'ADMIN_REQUIRED', statusCode: 403 });
+  }
+}
+
 router.get(
   '/:provider/mcp/servers',
   asyncHandler(async (req: Request, res: Response) => {
@@ -530,6 +541,7 @@ router.get(
 router.post(
   '/:provider/mcp/servers',
   asyncHandler(async (req: Request, res: Response) => {
+    requireMcpAdmin(req);
     const provider = parseProvider(req.params.provider);
     const payload = parseMcpUpsertPayload(req.body);
     const server = await providerMcpService.upsertProviderMcpServer(provider, payload);
@@ -540,6 +552,7 @@ router.post(
 router.delete(
   '/:provider/mcp/servers/:name',
   asyncHandler(async (req: Request, res: Response) => {
+    requireMcpAdmin(req);
     const provider = parseProvider(req.params.provider);
     const scope = parseMcpScope(req.query.scope);
     const workspacePath = readOptionalQueryString(req.query.workspacePath);
@@ -555,6 +568,7 @@ router.delete(
 router.post(
   '/mcp/servers/global',
   asyncHandler(async (req: Request, res: Response) => {
+    requireMcpAdmin(req);
     const payload = parseMcpUpsertPayload(req.body);
     if (payload.scope === 'local') {
       throw new AppError('Global MCP add supports only "user" or "project" scopes.', {
