@@ -30,7 +30,8 @@ export type BridgeToParent = { nonce: string } & (
   | { type: 'textCommitted'; id: string; text: string }
   | { type: 'textCancelled'; id: string }
   | { type: 'snapshot'; id: string; dataUrl: string | null }
-  | { type: 'scroll'; x: number; y: number });
+  | { type: 'scroll'; x: number; y: number }
+  | { type: 'zoomWheel'; deltaY: number }); // Cmd/Ctrl+колесо над страницей — масштаб холста
 
 const MAX_ITEMS = 5000;
 const MAX_TEXT = 100_000;
@@ -80,6 +81,7 @@ const KEYS: Record<BridgeToParent['type'], readonly string[]> = {
   textCancelled: ['id'],
   snapshot: ['id', 'dataUrl'],
   scroll: ['x', 'y'],
+  zoomWheel: ['deltaY'],
 };
 
 /**
@@ -135,6 +137,8 @@ export function validateBridgeMessage(raw: unknown, nonce: string): BridgeToPare
     }
     case 'scroll':
       return isNumber(m.x) && isNumber(m.y) ? { nonce, type: kind, x: m.x, y: m.y } : null;
+    case 'zoomWheel':
+      return isNumber(m.deltaY) ? { nonce, type: kind, deltaY: m.deltaY } : null;
     default:
       return null;
   }

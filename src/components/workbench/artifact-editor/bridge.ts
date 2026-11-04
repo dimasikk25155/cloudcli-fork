@@ -327,6 +327,13 @@ function bridgeRuntime(nonce: string, applyOp: ApplyFn, pickFrames: PickFrames):
       queueRects();
     });
   }, { passive: true });
+  // Cmd/Ctrl+wheel (a trackpad pinch too) zooms the canvas, not the page.
+  window.addEventListener('wheel', (event: WheelEvent) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+    if (isFinite(delta) && delta !== 0) send({ type: 'zoomWheel', deltaY: round(delta) });
+  }, { passive: false });
   window.addEventListener('resize', queueRects);
   if (typeof ResizeObserver === 'function') new ResizeObserver(queueRects).observe(document.documentElement);
   if (typeof MutationObserver === 'function') {

@@ -15,6 +15,8 @@ export type ComposerDraftDetail = {
   hiddenBrief?: string;
   /** Submit as soon as the composer has the text (job buttons). */
   autoSend?: boolean;
+  /** Pictures to attach like a paste (snapshot of a region for «Попросить агента»). */
+  images?: File[];
 };
 
 export function sendToComposer(
@@ -27,4 +29,11 @@ export function sendToComposer(
       detail: { text, ...extras },
     }),
   );
+}
+
+/** Attachable pictures of a draft: real non-empty files only. */
+export function composerDraftImages(detail: Partial<ComposerDraftDetail> | null | undefined): File[] {
+  const images = detail?.images;
+  if (!Array.isArray(images) || typeof File === 'undefined') return [];
+  return images.filter((file): file is File => file instanceof File && file.size > 0);
 }

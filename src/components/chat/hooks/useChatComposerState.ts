@@ -17,7 +17,7 @@ import { useDropzone } from 'react-dropzone';
 import { authenticatedFetch } from '../../../utils/api';
 import { useAuth } from '../../auth';
 import { useModEnabled } from '../../../hooks/useModEnabled';
-import { COMPOSER_DRAFT_EVENT, type ComposerDraftDetail } from '../../../utils/composerDraft';
+import { COMPOSER_DRAFT_EVENT, composerDraftImages, type ComposerDraftDetail } from '../../../utils/composerDraft';
 import { wrapCatalogBrief } from '../utils/catalogBrief';
 import {
   pictureCaptions,
@@ -1493,6 +1493,15 @@ export function useChatComposerState({
       setInput(text);
       textareaRef.current?.focus();
 
+      // «Попросить агента»: снимок участка — вложение, как вставленная картинка.
+      const images = composerDraftImages(detail);
+      if (images.length > 0) {
+        handleImageFiles(images);
+        // autoSend reads the ref before the re-render: mirror the accepted files now.
+        const accepted = images.filter((file) => file.size <= MAX_ATTACHMENT_BYTES);
+        attachedImagesRef.current = [...attachedImagesRef.current, ...accepted].slice(0, MAX_ATTACHED_FILES);
+      }
+
       if (detail.autoSend) {
         window.setTimeout(() => {
           handleSubmitRef.current?.(createFakeSubmitEvent());
@@ -1502,7 +1511,7 @@ export function useChatComposerState({
 
     window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
     return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
-  }, [setInput]);
+  }, [handleImageFiles, setInput]);
 
   // Persist the queued draft under its session's key. Must be defined BEFORE
   // the swap effect below: on a session switch there is one commit where

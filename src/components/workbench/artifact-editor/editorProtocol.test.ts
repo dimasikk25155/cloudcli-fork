@@ -76,3 +76,10 @@ test('createBridgeNonce: a fresh random hex key every time', () => {
   assert.match(a, /^[0-9a-f]{32}$/);
   assert.notEqual(a, b);
 });
+
+test('zoomWheel (Cmd/Ctrl+wheel inside the page) carries only a finite deltaY', () => {
+  assert.deepEqual(validateBridgeMessage({ nonce: NONCE, type: 'zoomWheel', deltaY: -120 }, NONCE), { nonce: NONCE, type: 'zoomWheel', deltaY: -120 });
+  assert.equal(validateBridgeMessage({ nonce: NONCE, type: 'zoomWheel', deltaY: '1' }, NONCE), null);
+  assert.equal(validateBridgeMessage({ nonce: NONCE, type: 'zoomWheel', deltaY: Number.NaN }, NONCE), null);
+  assert.equal(validateBridgeMessage({ nonce: NONCE, type: 'zoomWheel', deltaY: 1, x: 2 }, NONCE), null);
+});

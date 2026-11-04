@@ -24,6 +24,14 @@ export interface ArtifactEditorApi {
   frames: string[];
   zoom: number;
   setZoom(zoom: number): void;
+  /** The page in the canvas has loaded and answers (snapshots, scroll). */
+  ready: boolean;
+  /** There are edits not saved to the file yet. */
+  dirty: boolean;
+  /** The page size the bridge measured, in a viewport `viewportWidth` CSS px wide; null — not loaded. */
+  contentSize: { width: number; height: number; viewportWidth: number } | null;
+  /** The visible canvas, screen px. */
+  stageSize: { width: number; height: number };
   /** Applies operations as one undoable action. */
   apply(ops: EditorOp[]): void;
   select(ids: string[]): void;

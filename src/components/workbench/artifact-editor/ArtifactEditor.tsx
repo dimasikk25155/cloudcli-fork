@@ -50,6 +50,7 @@ import PropertiesPanel from './PropertiesPanel';
 import SelectionOverlay, { type SelectedBox } from './SelectionOverlay';
 import type { Rect } from './snap';
 import { useEditorBridge } from './useEditorBridge';
+import { clampZoom, wheelZoom } from './zoomModel';
 
 const btn = 'inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50';
 const btnOn = 'inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary/10 px-2.5 py-1 text-xs text-foreground';
@@ -75,7 +76,8 @@ export interface ArtifactEditorProps {
   leftRail?: ReactNode;
 }
 
-type Ready = { width: number; height: number; frames: string[] };
+/** `viewportWidth` — the iframe's CSS width when the bridge measured the page. */
+type Ready = { width: number; height: number; frames: string[]; viewportWidth: number };
 type RectItem = { id: string; rect: Rect; parentLayout: ParentLayout; editableText: boolean };
 
 const isSvgGraphic = (element: Element) => element.namespaceURI === SVG_NS && element.parentElement?.namespaceURI === SVG_NS;
@@ -96,7 +98,7 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
   const [session, setSession] = useState<EditorSession | null>(stored?.session ?? null);
   const [baseVersionN, setBaseVersionN] = useState(stored?.baseVersionN ?? artifact.artifact.latestVersion);
   const [selection, setSelection] = useState<string[]>(stored?.selection ?? []);
-  const [zoom, setZoomState] = useState(stored?.zoom ?? 1);
+  const [zoom, setZoomState] = useState(() => clampZoom(stored?.zoom ?? 1));
   const [snap, setSnap] = useState(stored?.snap ?? true);
   const [revision, setRevision] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -131,6 +133,8 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
   const discarded = useRef(false);
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const snapshots = useRef(new Map<string, Array<(url: string | null) => void>>());
 
   const doc = session?.doc ?? null;
@@ -238,7 +242,7 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
           reloadPreview();
           return;
         }
-        setReady({ width: message.width, height: message.height, frames: message.frames });
+        setReady({ width: message.width, height: message.height, frames: message.frames, viewportWidth: (stageRef.current?.clientWidth ?? 0) / zoomRef.current });
         post({ type: 'setZoomHint', zoom });
         post({ type: 'select', ids: selectionRef.current });
         break;
@@ -281,6 +285,9 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
       case 'scroll':
         setScroll({ x: message.x, y: message.y });
         setHover(null);
+        break;
+      case 'zoomWheel':
+        setZoom(wheelZoom(zoomRef.current, message.deltaY));
         break;
       default:
         break;
@@ -555,10 +562,24 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
   };
 
   const setZoom = useCallback((value: number) => {
-    const next = Math.min(4, Math.max(0.25, value));
+    const next = clampZoom(value);
+    zoomRef.current = next;
     setZoomState(next);
     post({ type: 'setZoomHint', zoom: next });
   }, [post]);
+
+  // Cmd/Ctrl+wheel over the canvas outside the page (the page itself sends `zoomWheel`).
+  useEffect(() => {
+    const element = stageRef.current;
+    if (!element) return undefined;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setZoom(wheelZoom(zoomRef.current, event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY));
+    };
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => element.removeEventListener('wheel', onWheel);
+  }, [session, setZoom]);
 
   // ---------- Derived ----------
   const fonts = useMemo(() => {
@@ -595,6 +616,10 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
     frames,
     zoom,
     setZoom,
+    ready: ready !== null,
+    dirty,
+    contentSize: ready ? { width: ready.width, height: ready.height, viewportWidth: ready.viewportWidth } : null,
+    stageSize: { width: stage.w, height: stage.h },
     apply: (ops) => commit(ops),
     select: (ids) => setSelection(ids.filter((id) => findEditorElement(doc, id))),
     scrollTo: (id) => post({ type: 'scrollTo', id }),
@@ -614,7 +639,7 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
   } : null),
   // `commit` reads the latest doc/history through closures recreated each render; `revision` keeps it fresh.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [artifact, doc, frames, kind, post, projectId, revision, selection, sessionId, setZoom, zoom]);
+  [artifact, dirty, doc, frames, kind, post, projectId, ready, revision, selection, sessionId, setZoom, stage, zoom]);
 
   // ---------- Render ----------
   const title = artifact.artifact.title;

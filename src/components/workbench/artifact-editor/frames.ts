@@ -68,3 +68,14 @@ export function frameCandidates(doc: Document): FrameCandidate[] {
 export function findFrames(doc: Document): string[] {
   return pickFrameSet(frameCandidates(doc));
 }
+
+/**
+ * A thumbnail at `from` dropped before the one at `before` (0…length; length —
+ * at the end) → the new frame order; null — nothing moves.
+ */
+export function frameDropOrder(order: string[], from: number, before: number): string[] | null {
+  if (!Number.isInteger(from) || from < 0 || from >= order.length || !Number.isInteger(before)) return null;
+  const target = Math.max(0, Math.min(before, order.length));
+  if (target === from || target === from + 1) return null;
+  return moveFrame(order, from, target > from ? target - 1 : target);
+}
