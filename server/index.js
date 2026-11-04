@@ -94,11 +94,11 @@ import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
 import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
-import { sessionLinksRoutes } from './modules/session-links/index.js';
+import { sessionLinksRoutes, btwService } from './modules/session-links/index.js';
 import { codeStatusRoutes } from './modules/code-status/index.js';
 // «Рабочий стол» (сборка 04.11.2026): модули смонтированы здесь один раз,
 // их роуты наполняют свои таски без правки этого файла.
-import { masterSessionRoutes } from './modules/master-session/index.js';
+import { masterSessionRoutes, setMasterSessionRunControl } from './modules/master-session/index.js';
 import { artifactsRoutes } from './modules/artifacts/index.js';
 import { sidebarGroupsRoutes } from './modules/sidebar-groups/index.js';
 import { settingsProfileRoutes } from './modules/settings-profile/index.js';
@@ -216,6 +216,10 @@ threadsService.setRunControl(createThreadRunControl(chatDependencies));
 // through the same chat gateway — registry, indicator, Stop.
 autoRelayService.setRunControl(createAutoRelayRunControl(chatDependencies));
 improvementIdeas.setRunControl(createIdeaRunControl(chatDependencies));
+// Side chat (/btw) starts its run through the same gateway.
+btwService.setRunControl(createAutoRelayRunControl(chatDependencies));
+// Master session sends text answers through the threads run control.
+setMasterSessionRunControl(createThreadRunControl(chatDependencies));
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {

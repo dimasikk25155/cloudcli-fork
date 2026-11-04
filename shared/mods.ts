@@ -113,7 +113,7 @@ export const MODS: readonly ModDef[] = [
     title: 'Пульт фона',
     description:
       'Таймер текущего шага работает и в Codex. «Фон: N» доступен для Claude и Grok, '
-      + 'остановка отдельной фоновой задачи — только для Claude.',
+      + 'остановка отдельной фоновой задачи — у Claude, Codex и Grok (когда Neo3 нашёл процесс задачи).',
     engines: 'Claude ✓ · Codex ✓ · Grok ✓ — у Codex и Grok «Стоп» есть, когда Neo3 нашёл процесс задачи; страж циклов — только Claude',
   },
   {
