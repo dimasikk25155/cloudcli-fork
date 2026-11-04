@@ -46,6 +46,11 @@ const ALLOWED_KEYS = new Set([
   ...MOD_KEYS,
 ]);
 
+/** Whether a key may be stored at all (the allow-list stays private to this file). */
+export function isUiPreferenceKey(key: string): boolean {
+  return ALLOWED_KEYS.has(key);
+}
+
 function isPreferenceValue(value: unknown): value is UiPreferenceValue {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
@@ -93,6 +98,25 @@ export const uiPreferencesDb = {
          preferences_json = excluded.preferences_json,
          updated_at = CURRENT_TIMESTAMP`
     ).run(userId, JSON.stringify(next));
+
+    return next;
+  },
+
+  /** Drops the given keys (back to "never set"); keys outside the allow-list are ignored. */
+  removeUiPreferenceKeys(userId: number, keys: string[]): UiPreferences {
+    const current = uiPreferencesDb.getUiPreferences(userId);
+    const next: UiPreferences = { ...current };
+    for (const key of keys) delete next[key];
+
+    getConnection()
+      .prepare(
+        `INSERT INTO user_ui_preferences (user_id, preferences_json, updated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id) DO UPDATE SET
+           preferences_json = excluded.preferences_json,
+           updated_at = CURRENT_TIMESTAMP`
+      )
+      .run(userId, JSON.stringify(next));
 
     return next;
   },

@@ -4,13 +4,24 @@ import type { WorkspaceSource } from '../../../shared/agent-workspace.js';
 import type { MailDraftInput } from '../../../shared/agent-mail.js';
 import { createMailService, type MailOptions } from '../agent-mail/index.js';
 import { getArtifactsService, type ArtifactsService } from '../artifacts/index.js';
+import { getSettingsProfileService, type SettingsProfileService } from '../settings-profile/index.js';
+import { getSidebarGroupsService, type SidebarGroupsService } from '../sidebar-groups/index.js';
 import { createDocumentsService } from '../managed-documents/index.js';
 import { createTeamService } from '../workspace-team/index.js';
 
 import type { WorkspaceDependencies } from './dependencies.js';
 import { requireWorkspaceProject, createDailyService } from './service.js';
 import { WorkspaceError } from './store.js';
-export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService };
+export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService };
+/** Same for the services that throw AppError synchronously (groups, settings profile). */
+const sync = <T>(run: () => T): T => {
+    try {
+        return run();
+    }
+    catch (error) {
+        return asWorkspaceError(error);
+    }
+};
 /** Artifact refusals (AppError) keep their status for the agent, like every workspace refusal. */
 const asWorkspaceError = (error: unknown): never => {
     if (error instanceof AppError) throw new WorkspaceError(error.message, error.statusCode);
@@ -18,12 +29,15 @@ const asWorkspaceError = (error: unknown): never => {
 };
 /**
  * Narrow agent surface: no approval, transport, mailbox enumeration or syncing.
+ * `group.*` / `pin.set` only arrange the sidebar (no deletes); `settings.propose` only suggests.
  * `artifact.publish` only shows a file of the chat project in the Neo3 canvas
  * (the source is this chat); nothing leaves the machine.
  */
 export function createWorkspaceTools(deps: WorkspaceDependencies, options: WorkspaceToolsOptions = {}) {
     const documents = createDocumentsService(deps), team = createTeamService(deps), daily = createDailyService(deps);
     const artifacts = () => options.artifacts ?? getArtifactsService();
+    const groups = () => options.groups ?? getSidebarGroupsService();
+    const profile = () => options.profile ?? getSettingsProfileService();
     return {
         call(userId: number, sessionId: string, input: Record<string, unknown>): unknown {
             const projectId = deps.sessionProject?.(userId, sessionId);
@@ -78,6 +92,15 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
                     return artifacts().publish(userId, projectId, { path: data.path, title: data.title, sessionId }).catch(asWorkspaceError);
                 case 'artifact.list':
                     return artifacts().list(userId, projectId).catch(asWorkspaceError);
+                // Groups: ordering only. No delete of groups, chats or projects exists here.
+                case 'group.list': return sync(() => groups().list(userId));
+                case 'group.create': return sync(() => groups().create(userId, { name: data.name }));
+                case 'group.rename': return sync(() => groups().update(userId, data.id ?? id, { name: data.name }));
+                case 'group.add': return sync(() => groups().addItem(userId, data.id ?? id, data.itemType, data.itemId));
+                case 'group.remove': return sync(() => groups().removeItem(userId, data.id ?? id, data.itemType, data.itemId));
+                case 'pin.set': return sync(() => groups().setPin(userId, data.sessionId ?? sessionId, data.pinned !== false));
+                // A suggestion only: the person applies it in «Настройки → Профиль настроек».
+                case 'settings.propose': return sync(() => profile().propose(userId, sessionId, { changes: data.changes, reason: data.reason }));
                 default: throw new WorkspaceError('Операция недоступна агенту: отправку, согласование и публикацию выполняет человек в интерфейсе', 403);
             }
         },

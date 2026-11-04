@@ -6,6 +6,7 @@ import type { SessionActivityMap } from '../../../../hooks/useSessionProtection'
 import type { SessionWithProvider } from '../../types/types';
 import { APP_NAME } from '../../../../constants/branding';
 import { partitionCodexInboxProjects } from '../../utils/utils';
+import GroupedProjectList from '../../groups/GroupedProjectList';
 import { setPageBaseTitle } from '../../../../utils/pageTitleNotification';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
@@ -173,7 +174,9 @@ export default function SidebarProjectList({
         ? state
         : (
           <>
-            {workspaceProjects.map(renderProject)}
+            {isJournalView || isRecentView
+              ? workspaceProjects.map(renderProject)
+              : <GroupedProjectList projects={workspaceProjects} renderProject={renderProject} />}
             {codexInboxProjects.length > 0 && (
               <div className="mx-3 mt-3 mb-1 flex items-center gap-1.5 px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 <SessionProviderLogo provider="codex" className="h-3 w-3 flex-shrink-0" />

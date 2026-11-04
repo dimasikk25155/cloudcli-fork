@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import Database from 'better-sqlite3';
 
+import { AppError } from '@/shared/utils.js';
+
 import { createWorkspaceStore } from '../store.js';
 import type { WorkspaceDependencies } from '../dependencies.js';
 import { createWorkspaceTools } from '../tools.js';
@@ -128,5 +130,55 @@ test('artifact.publish / artifact.list: the agent publishes a file of its chat p
     finally {
         db.close();
         await rm(root, { recursive: true, force: true });
+    }
+});
+test('group.* / pin.set only arrange; delete actions and unknown actions stay 403; a mod-off refusal keeps its 409', () => {
+    const { db, deps } = fixture();
+    try {
+        const calls: string[] = [];
+        const groups = {
+            list: () => { calls.push('list'); return { groups: [], pins: [] }; },
+            create: (_u: number, i: { name?: unknown }) => { calls.push(`create:${String(i.name)}`); return { groups: [], pins: [] }; },
+            update: (_u: number, g: unknown, i: { name?: unknown }) => { calls.push(`rename:${String(g)}:${String(i.name)}`); return { groups: [], pins: [] }; },
+            addItem: (_u: number, g: unknown, t: unknown, i: unknown) => { calls.push(`add:${String(g)}:${String(t)}:${String(i)}`); return { groups: [], pins: [] }; },
+            removeItem: (_u: number, g: unknown, t: unknown, i: unknown) => { calls.push(`remove:${String(g)}:${String(t)}:${String(i)}`); return { groups: [], pins: [] }; },
+            setPin: (_u: number, s: unknown, p: unknown) => { calls.push(`pin:${String(s)}:${String(p)}`); return { groups: [], pins: [] }; },
+            remove: () => { calls.push('DELETE'); throw new Error('the agent must never reach group deletion'); },
+        } as unknown as import('../../sidebar-groups/index.js').SidebarGroupsService;
+        const tools = createWorkspaceTools(deps, { groups });
+        tools.call(1, 'session', { action: 'group.list' });
+        tools.call(1, 'session', { action: 'group.create', data: { name: 'Клиенты' } });
+        tools.call(1, 'session', { action: 'group.rename', data: { id: 'g1', name: 'Новые' } });
+        tools.call(1, 'session', { action: 'group.add', data: { id: 'g1', itemType: 'project', itemId: 'p' } });
+        tools.call(1, 'session', { action: 'group.remove', data: { id: 'g1', itemType: 'project', itemId: 'p' } });
+        tools.call(1, 'session', { action: 'pin.set', data: { sessionId: 's1', pinned: false } });
+        tools.call(1, 'session', { action: 'pin.set', data: { pinned: true } });
+        assert.deepEqual(calls, ['list', 'create:Клиенты', 'rename:g1:Новые', 'add:g1:project:p', 'remove:g1:project:p', 'pin:s1:false', 'pin:session:true']);
+        for (const action of ['group.delete', 'group.destroy', 'project.delete', 'session.delete', 'settings.apply'])
+            assert.throws(() => tools.call(1, 'session', { action }), (error: { statusCode?: number }) => error.statusCode === 403);
+        assert.equal(calls.includes('DELETE'), false);
+        const refused = createWorkspaceTools(deps, { groups: { list: () => { throw new AppError('off', { code: 'MOD_OFF', statusCode: 409 }); } } as unknown as import('../../sidebar-groups/index.js').SidebarGroupsService });
+        assert.throws(() => refused.call(1, 'session', { action: 'group.list' }), (error: { statusCode?: number }) => error.statusCode === 409);
+    }
+    finally {
+        db.close();
+    }
+});
+test('settings.propose stores a suggestion through the profile service and changes nothing', async () => {
+    const { db, deps } = fixture();
+    try {
+        const { createSettingsProfileService } = await import('../../settings-profile/index.js');
+        const prefs: Record<string, string | number | boolean> = { theme: 'ember' };
+        const profile = createSettingsProfileService({ store: deps.store, prefs: { get: () => ({ ...prefs }), update: () => undefined, remove: () => undefined }, isAllowedKey: key => key === 'theme', isModOn: () => true });
+        const tools = createWorkspaceTools(deps, { profile });
+        const proposal = tools.call(1, 'session', { action: 'settings.propose', data: { changes: { theme: 'glass', token: 'x' }, reason: 'Светлая тема' } }) as { status: string; preview: { changes: unknown[]; dropped: string[] } };
+        assert.equal(proposal.status, 'pending');
+        assert.equal(proposal.preview.changes.length, 1);
+        assert.deepEqual(proposal.preview.dropped, ['token']);
+        assert.equal(prefs.theme, 'ember');
+        assert.throws(() => tools.call(1, 'session', { action: 'settings.propose', data: { changes: { token: 'x' } } }), (error: { statusCode?: number }) => error.statusCode === 400);
+    }
+    finally {
+        db.close();
     }
 });

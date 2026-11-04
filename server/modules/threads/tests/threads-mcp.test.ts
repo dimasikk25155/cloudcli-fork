@@ -236,3 +236,19 @@ test('workspace_action offers artifact.publish and artifact.list and forwards th
     });
   });
 });
+
+test('workspace_action lists the sidebar-order and settings.propose actions, and never a delete', async () => {
+  await withFakeNeo3(() => ({ status: 200, body: { success: true, data: { groups: [] } } }), async (apiUrl, recorded) => {
+    await withClient({ NEO3_THREADS_TOKEN: 'f'.repeat(64), NEO3_THREADS_API_URL: apiUrl }, async (client) => {
+      const list = await client.request('tools/list');
+      const tools = (list.result as { tools: Array<{ name: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }> }).tools;
+      const actions = tools.find((tool) => tool.name === 'workspace_action')!.inputSchema.properties.action.enum ?? [];
+      for (const action of ['group.list', 'group.create', 'group.rename', 'group.add', 'group.remove', 'pin.set', 'settings.propose']) {
+        assert.ok(actions.includes(action), action);
+      }
+      assert.deepEqual(actions.filter((action) => /delete|destroy|apply/.test(action)), []);
+      await client.request('tools/call', { name: 'workspace_action', arguments: { action: 'group.create', data: { name: 'Клиенты' } } });
+      assert.deepEqual(recorded[0].body, { action: 'group.create', data: { name: 'Клиенты' } });
+    });
+  });
+});

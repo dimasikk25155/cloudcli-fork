@@ -2,5 +2,5 @@ export { WS_OPEN_STATE, connectedClients } from './services/websocket-state.serv
 export { createWebSocketServer } from './services/websocket-server.service.js';
 export { chatRunRegistry } from './services/chat-run-registry.service.js';
 export { createIdeaRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl } from './services/chat-websocket.service.js';
-export { notifyUiPreferencesChanged } from './services/user-events.service.js';
+export { notifyUiPreferencesChanged, notifySidebarGroupsChanged } from './services/user-events.service.js';
 export { broadcastProjectEvent } from './services/project-access.service.js';

@@ -241,7 +241,14 @@ export type GatewayEventKind =
    * clients re-read `GET /api/settings/ui-preferences`. Not a chat row.
    * Mirrored in `src/types/app.ts` `GatewayEventKind`.
    */
-  | 'ui_preferences_changed';
+  | 'ui_preferences_changed'
+  /**
+   * The user's sidebar groups or pins changed on some device. Content-free
+   * (`{kind}`), sent only to that user's sockets; clients re-read
+   * `GET /api/sidebar-groups`. Not a chat row.
+   * Mirrored in `src/types/app.ts` `GatewayEventKind`.
+   */
+  | 'sidebar_groups_changed';
 
 /**
  * Complete set of `kind` values emitted to websocket clients.
