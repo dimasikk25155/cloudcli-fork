@@ -6,7 +6,7 @@ import { assertCanLinkNewChild, linkSession, relatedSessionIds } from '@/modules
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
-import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
+import { mcpServerNamesByScope, providerMcpService } from '@/modules/providers/services/mcp.service.js';
 import { autoRelayService } from '@/modules/auto-relay/auto-relay.service.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
@@ -514,6 +514,11 @@ router.get(
     }
 
     const groupedServers = await providerMcpService.listProviderMcpServers(provider, { workspacePath });
+    // `?fields=names` — read-only panels get names only, never env/header values.
+    if (req.query.fields === 'names') {
+      res.json(createApiSuccessResponse({ provider, scopes: mcpServerNamesByScope(groupedServers) }));
+      return;
+    }
     res.json(createApiSuccessResponse({ provider, scopes: groupedServers }));
   }),
 );

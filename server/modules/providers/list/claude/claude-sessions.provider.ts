@@ -480,6 +480,11 @@ export class ClaudeSessionsProvider implements IProviderSessions {
     if (!raw) {
       return [];
     }
+    // The CLI's copy of the API request (role user/system, no timestamp) —
+    // not a turn; rendering it duplicated the prompt as a bubble stamped «now».
+    if (raw.type === 'api-request-blob') {
+      return [];
+    }
 
     if (raw.type === 'content_block_delta' && raw.delta?.text) {
       return [createNormalizedMessage({ kind: 'stream_delta', content: raw.delta.text, sessionId, provider: PROVIDER })];

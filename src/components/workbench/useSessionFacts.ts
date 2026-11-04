@@ -172,7 +172,7 @@ export function useMcpNames(provider: string | null, projectPath: string | null)
     setNames(null);
     if (!provider) return undefined;
     let cancelled = false;
-    const params = new URLSearchParams();
+    const params = new URLSearchParams({ fields: 'names' });
     if (projectPath) params.set('workspacePath', projectPath);
     authenticatedFetch(`/api/providers/${encodeURIComponent(provider)}/mcp/servers?${params.toString()}`)
       .then(async (response: Response) => {
