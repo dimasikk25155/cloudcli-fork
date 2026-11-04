@@ -10,6 +10,8 @@ import { listPluginTabs } from '../main-content/view/subcomponents/mainContentTa
 import { localizePluginName } from '../plugins/utils/pluginDisplayName';
 import { usePlugins } from '../../contexts/PluginsContext';
 
+import { confirmDiscardUnsaved } from './artifact-editor/editorStore';
+import { pendingArtifactPath } from './artifacts/artifactModel';
 import './builtinTabs';
 import './projectTabs';
 import { closeWorkbenchTab, openWorkbenchTab, useWorkbench } from './useWorkbench';
@@ -25,9 +27,20 @@ import {
   subscribeWorkbenchTabKinds,
   workbenchTabKindsVersion,
   type WorkbenchRenderContext,
+  type WorkbenchTab,
   type WorkbenchTabKind,
   type WorkbenchTabInput,
 } from './workbenchTabs';
+
+/**
+ * Closing an artifact tab with unsaved «Правка» edits asks first — also when
+ * the editor is not on screen (the edits live in `editorStore`).
+ */
+function mayCloseTab(tab: WorkbenchTab): boolean {
+  if (tab.kind !== 'artifact' || !tab.ref || typeof window === 'undefined') return true;
+  const filePath = pendingArtifactPath(tab.ref);
+  return confirmDiscardUnsaved(filePath ? { path: filePath } : { artifactId: tab.ref }, (text) => window.confirm(text));
+}
 
 type WorkbenchCanvasProps = {
   project: Project;
@@ -65,6 +78,9 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const open = (tab: WorkbenchTabInput) => openWorkbenchTab(sessionId, tab);
+  const close = (tab: WorkbenchTab) => {
+    if (mayCloseTab(tab)) closeWorkbenchTab(sessionId, tab.id);
+  };
   const isKeepMounted = (kind: WorkbenchTabKind) => Boolean(getWorkbenchTabKind(kind)?.keepMounted);
   visitedRef.current = markVisitedKeepMounted(visitedRef.current, tabs, activeTabId, isKeepMounted);
   const panes = planCanvasPanes({ tabs, activeTabId, visited: visitedRef.current, isKeepMounted });
@@ -74,7 +90,7 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
     session,
     openTab: (tab) => openWorkbenchTab(sessionId, tab),
     closeTab: () => {
-      if (activeTabId) closeWorkbenchTab(sessionId, activeTabId);
+      if (activeTab) close(activeTab);
     },
     isActive: isActive && visible,
     onFileOpen,
@@ -126,7 +142,7 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
                 </button>
                 <button
                   type="button"
-                  onClick={() => closeWorkbenchTab(sessionId, tab.id)}
+                  onClick={() => close(tab)}
                   aria-label={`Закрыть «${tab.title || def?.defaultTitle || 'вкладку'}»`}
                   className="mr-1 grid h-5 w-5 flex-shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
                 >

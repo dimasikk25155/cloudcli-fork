@@ -217,7 +217,9 @@ function bridgeRuntime(nonce: string, applyOp: ApplyFn, pickFrames: PickFrames):
     target.removeAttribute(ATTR);
     for (let i = 0; i < source.children.length && i < target.children.length; i += 1) inlineStyles(source.children[i], target.children[i], budget);
   };
-  // PNG of an element: HTML — a styled clone in SVG foreignObject; SVG — the outer svg cropped to the element.
+  // PNG of an element: HTML — a styled clone in SVG foreignObject; SVG — the outer svg whose viewBox is the element's box.
+  // The image is always exactly the element (width × height CSS px) and drawn whole: drawImage(image, 0, 0, w, h)
+  // — a source rectangle of an SVG image is read in device pixels by WebKit on DPR 2 and cut the picture.
   const snapshot = (id: unknown) => {
     if (typeof id !== 'string') return;
     let finished = false;
@@ -236,18 +238,27 @@ function bridgeRuntime(nonce: string, applyOp: ApplyFn, pickFrames: PickFrames):
       const width = Math.max(1, Math.ceil(box.width));
       const height = Math.max(1, Math.ceil(box.height));
       let markup: string;
-      let crop = { x: 0, y: 0, w: width, h: height };
       const graphic = el as SVGGraphicsElement;
       if (el.namespaceURI === SVG && graphic.ownerSVGElement) {
         let root = graphic.ownerSVGElement;
         while (root.ownerSVGElement) root = root.ownerSVGElement;
-        const outer = root.getBoundingClientRect();
+        // Client px → user units of the outer svg (its viewBox, aspect ratio and position included).
+        const ctm = root.getScreenCTM();
+        if (!ctm) {
+          finish(null);
+          return;
+        }
+        const inverse = ctm.inverse();
+        const a = new DOMPoint(box.left, box.top).matrixTransform(inverse);
+        const b = new DOMPoint(box.left + width, box.top + height).matrixTransform(inverse);
         const copy = root.cloneNode(true) as Element;
-        copy.setAttribute('width', String(Math.ceil(outer.width)));
-        copy.setAttribute('height', String(Math.ceil(outer.height)));
         copy.setAttribute('xmlns', SVG);
+        copy.setAttribute('viewBox', [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1].join(' '));
+        copy.setAttribute('preserveAspectRatio', 'none');
+        copy.setAttribute('width', String(width));
+        copy.setAttribute('height', String(height));
+        copy.setAttribute('style', (copy.getAttribute('style') || '') + ';margin:0;padding:0;border:0;translate:none;transform:none;width:' + width + 'px;height:' + height + 'px;');
         markup = new XMLSerializer().serializeToString(copy);
-        crop = { x: box.left - outer.left, y: box.top - outer.top, w: width, h: height };
       } else {
         const copy = el.cloneNode(true) as Element;
         inlineStyles(el, copy, { left: 3000 });
@@ -261,14 +272,14 @@ function bridgeRuntime(nonce: string, applyOp: ApplyFn, pickFrames: PickFrames):
         try {
           const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1, zoomHint));
           const canvas = document.createElement('canvas');
-          canvas.width = Math.min(4096, Math.round(crop.w * scale));
-          canvas.height = Math.min(4096, Math.round(crop.h * scale));
+          canvas.width = Math.min(4096, Math.round(width * scale));
+          canvas.height = Math.min(4096, Math.round(height * scale));
           const context = canvas.getContext('2d');
           if (!context) {
             finish(null);
             return;
           }
-          context.drawImage(image, crop.x, crop.y, crop.w, crop.h, 0, 0, canvas.width, canvas.height);
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
           finish(canvas.toDataURL('image/png'));
         } catch {
           // a tainted canvas (external pictures) — no snapshot

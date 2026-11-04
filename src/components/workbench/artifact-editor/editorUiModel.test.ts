@@ -21,6 +21,8 @@ import {
   pxNumber,
   readInlineStyle,
   unionRect,
+  acceptsTextEnd,
+  isNarrowEditor,
 } from './editorUiModel';
 
 const idOf = (op: EditorOp) => ('id' in op ? op.id : op.ids.join(','));
@@ -223,4 +225,18 @@ test('panel reads a declaration of the style attribute (the last one wins; quote
   assert.equal(readInlineStyle(style, 'background'), 'url("a;b.png")');
   assert.equal(readInlineStyle(style, 'margin-top'), null);
   assert.equal(readInlineStyle(null, 'color'), null);
+});
+
+test('a text edit result counts only for the element being edited now: the page cannot invent one', () => {
+  assert.equal(acceptsTextEnd('7', '7'), true);
+  assert.equal(acceptsTextEnd('7', '8'), false, 'another element');
+  assert.equal(acceptsTextEnd(null, '7'), false, 'nothing is being edited');
+});
+
+test('a canvas narrower than 640 px folds the side rail and the properties panel', () => {
+  assert.equal(isNarrowEditor(390), true);
+  assert.equal(isNarrowEditor(639), true);
+  assert.equal(isNarrowEditor(640), false);
+  assert.equal(isNarrowEditor(1200), false);
+  assert.equal(isNarrowEditor(0), false, 'not measured yet');
 });

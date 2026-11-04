@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { promises as nodeFs } from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,7 +9,8 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 
 import { createWorkspaceStore } from '@/modules/agent-workspace/index.js';
-import { createArtifactsService, type ArtifactsFs } from '@/modules/artifacts/index.js';
+import { createArtifactsService, type ArtifactsDependencies, type ArtifactsFs } from '@/modules/artifacts/index.js';
+import { createFilePreviewService } from '@/modules/file-preview/index.js';
 import type { IsModOn } from '@/shared/mods.js';
 
 // «Правка артефактов»: saving an edited document as a new version without
@@ -17,7 +19,7 @@ import type { IsModOn } from '@/shared/mods.js';
 
 type Grant = { root: string; relPath: string; html: string; userId: number; projectId: string };
 
-async function fixture(options: { off?: string[]; limits?: { text: number; binary: number }; fs?: (real: ArtifactsFs) => ArtifactsFs } = {}) {
+async function fixture(options: { off?: string[]; limits?: { text: number; binary: number }; fs?: (real: ArtifactsFs) => ArtifactsFs; documentGrant?: ArtifactsDependencies['documentGrant'] } = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'artifacts-edit-')));
   const project = path.join(root, 'project');
   const outside = path.join(root, 'outside');
@@ -35,10 +37,10 @@ async function fixture(options: { off?: string[]; limits?: { text: number; binar
     fs: options.fs ? options.fs(nodeFs) : undefined,
     snapshotRoot: () => path.join(root, 'snapshots'),
     limits: options.limits,
-    documentGrant: (input) => {
+    documentGrant: options.documentGrant ?? ((input) => {
       grants.push(input);
       return { token: `t${grants.length}`, url: `/api/file-preview/t${grants.length}/${input.relPath}` };
-    },
+    }),
   });
   const close = async () => {
     db.close();
@@ -197,6 +199,142 @@ test('editorPreview hands the copy to a document grant at the real path of the f
     await assert.rejects(service.editorPreview(2, 'p', deck.id, { html: '<p>' }), rejectsWith(403));
     await assert.rejects(service.editorPreview(1, 'p', deck.id, { html: null }), rejectsWith(400));
     assert.equal(grants.length, 1);
+  } finally {
+    await close();
+  }
+});
+
+/**
+ * A file system whose next write-side call on the target (open or writeFile)
+ * first runs the pending swap: the file is replaced after every check and
+ * right before the bytes go to disk.
+ */
+function swapBeforeWrite(state: { target: string | null; swap: (() => Promise<void>) | null }) {
+  return (real: ArtifactsFs): ArtifactsFs => {
+    const maybeSwap = async (file: unknown) => {
+      const pending = state.swap;
+      if (pending && String(file) === state.target) {
+        state.swap = null;
+        await pending();
+      }
+    };
+    return {
+      ...real,
+      open: (async (...args: Parameters<typeof real.open>) => {
+        await maybeSwap(args[0]);
+        return real.open(...args);
+      }) as typeof real.open,
+      writeFile: (async (...args: Parameters<typeof real.writeFile>) => {
+        await maybeSwap(args[0]);
+        return real.writeFile(...args);
+      }) as typeof real.writeFile,
+    };
+  };
+}
+
+test('saveEdit and restore: the file swapped right before the write (a link outside or another file) — 400, nothing is written anywhere', async () => {
+  const state: { target: string | null; swap: (() => Promise<void>) | null } = { target: null, swap: null };
+  const { service, project, outside, close } = await fixture({ fs: swapBeforeWrite(state) });
+  try {
+    const page = path.join(project, 'page.html');
+    const outsidePage = path.join(outside, 'x.html');
+    state.target = page;
+    await writeFile(page, '<p>a</p>');
+    await writeFile(outsidePage, '<p>outside</p>');
+    const { artifact } = await service.publish(1, 'p', { path: 'page.html' });
+    const toLink = async () => {
+      await unlink(page);
+      await symlink(outsidePage, page);
+    };
+    const toOtherFile = async () => {
+      await writeFile(path.join(project, 'other.tmp'), '<p>другой файл</p>');
+      await rename(path.join(project, 'other.tmp'), page);
+    };
+    const reset = async (text: string) => {
+      await unlink(page);
+      await writeFile(page, text);
+    };
+
+    state.swap = toLink;
+    await assert.rejects(service.saveEdit(1, 'p', artifact.id, { content: '<p>b</p>', baseVersionN: 1 }), rejectsWith(400));
+    assert.equal(await readFile(outsidePage, 'utf8'), '<p>outside</p>', 'saveEdit wrote through the swapped link');
+
+    await reset('<p>a</p>');
+    state.swap = toOtherFile;
+    await assert.rejects(service.saveEdit(1, 'p', artifact.id, { content: '<p>b</p>', baseVersionN: 1 }), rejectsWith(400));
+    assert.equal(await readFile(page, 'utf8'), '<p>другой файл</p>', 'saveEdit wrote into a file it did not check');
+    assert.deepEqual((await service.detail(1, 'p', artifact.id)).versions.map((v) => v.n), [1]);
+
+    await reset('<p>c</p>');
+    state.swap = toLink;
+    await assert.rejects(service.restore(1, 'p', artifact.id, 1), rejectsWith(400));
+    assert.equal(await readFile(outsidePage, 'utf8'), '<p>outside</p>', 'restore wrote through the swapped link');
+
+    await reset('<p>c</p>');
+    state.swap = toOtherFile;
+    await assert.rejects(service.restore(1, 'p', artifact.id, 1), rejectsWith(400));
+    assert.equal(await readFile(page, 'utf8'), '<p>другой файл</p>', 'restore wrote into a file it did not check');
+
+    // Without a swap both still write.
+    await reset('<p>a</p>');
+    const latest = (await service.refresh(1, 'p', artifact.id)).artifact.latestVersion;
+    const saved = await service.saveEdit(1, 'p', artifact.id, { content: '<p>моя</p>', baseVersionN: latest });
+    assert.equal(saved.versions.at(-1)?.source, 'edit');
+    assert.equal(await readFile(page, 'utf8'), '<p>моя</p>');
+    await service.restore(1, 'p', artifact.id, 1);
+    assert.equal(await readFile(page, 'utf8'), '<p>a</p>');
+    // A deleted file is written back as a new file in its folder.
+    await unlink(page);
+    await service.restore(1, 'p', artifact.id, 1);
+    assert.equal(await readFile(page, 'utf8'), '<p>a</p>');
+  } finally {
+    await close();
+  }
+});
+
+test('two saves from the same version at once: one passes, the other gets 409; the file and the snapshot of the new version match its sha', async () => {
+  const { service, project, close } = await fixture();
+  try {
+    await writeFile(path.join(project, 'page.html'), '<h1>v1</h1>');
+    const { artifact } = await service.publish(1, 'p', { path: 'page.html' });
+    const results = await Promise.allSettled([
+      service.saveEdit(1, 'p', artifact.id, { content: '<h1>первая</h1>', baseVersionN: 1 }),
+      service.saveEdit(1, 'p', artifact.id, { content: '<h1>вторая правка</h1>', baseVersionN: 1 }),
+    ]);
+    const refused = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1, JSON.stringify(results.map((r) => r.status)));
+    assert.equal(refused.length, 1);
+    assert.equal(refused[0].reason?.statusCode, 409, String(refused[0].reason));
+    assert.equal(refused[0].reason?.code, 'ARTIFACT_EDIT_CONFLICT');
+    const detail = await service.detail(1, 'p', artifact.id);
+    assert.deepEqual(detail.versions.map((v) => [v.n, v.source]), [[1, 'publish'], [2, 'edit']]);
+    const sha = createHash('sha256').update(await readFile(path.join(project, 'page.html'))).digest('hex');
+    const snapshot = (await service.versionContent(1, 'p', artifact.id, 2)).data;
+    assert.equal(detail.versions[1].sha256, sha, 'the version sha is the file on disk');
+    assert.equal(createHash('sha256').update(snapshot).digest('hex'), sha, 'the snapshot is the file on disk');
+  } finally {
+    await close();
+  }
+});
+
+test('editorPreview of a page in a dot folder (.autopilot/…) — a 4xx with its own code and a Russian message, not 500', async () => {
+  const previews = createFilePreviewService();
+  const { service, project, close } = await fixture({ documentGrant: (input) => previews.createDocumentGrant(input) });
+  try {
+    await mkdir(path.join(project, '.autopilot', 'run'), { recursive: true });
+    await writeFile(path.join(project, '.autopilot', 'run', 'report.html'), '<h1>отчёт</h1>');
+    const { artifact } = await service.publish(1, 'p', { path: '.autopilot/run/report.html' });
+    await assert.rejects(service.editorPreview(1, 'p', artifact.id, { html: '<h1>отчёт</h1>' }), (error: { statusCode?: number; code?: string; message?: string }) => {
+      assert.ok(error.statusCode !== undefined && error.statusCode >= 400 && error.statusCode < 500, `status ${error.statusCode}`);
+      assert.equal(error.code, 'ARTIFACT_EDIT_HIDDEN_FOLDER');
+      assert.match(error.message ?? '', /[а-яё]/i);
+      return true;
+    });
+    // An ordinary folder still goes through the same grant table.
+    await mkdir(path.join(project, 'site'));
+    await writeFile(path.join(project, 'site', 'page.html'), '<p>a</p>');
+    const page = (await service.publish(1, 'p', { path: 'site/page.html' })).artifact;
+    assert.match((await service.editorPreview(1, 'p', page.id, { html: '<p>a</p>' })).url, /^\/api\/file-preview\/[0-9a-f]+\/site\/page\.html$/);
   } finally {
     await close();
   }

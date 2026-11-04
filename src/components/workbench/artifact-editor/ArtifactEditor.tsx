@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, Loader2, Magnet, Redo2, Save, Undo2 } from 'lucide-react';
+import { ArrowLeft, GalleryVerticalEnd, Loader2, Magnet, Redo2, Save, SlidersHorizontal, Undo2 } from 'lucide-react';
 
 import type { ArtifactDetail } from '../../../../shared/artifacts';
 import { ArtifactsApiError, artifactsApi } from '../artifacts/artifactsApi';
@@ -36,9 +36,11 @@ import { createBridgeNonce, type BridgeToParent, type ParentLayout } from './edi
 import { findEditorElement } from './editorDom';
 import { clearEditorState, getEditorState, setEditorState, type EditorSession } from './editorStore';
 import {
+  acceptsTextEnd,
   createEditorHistory,
   editorDocKind,
   fontFamiliesIn,
+  isNarrowEditor,
   isReorderNoop,
   pickSelection,
   pruneSelection,
@@ -111,9 +113,18 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
   const [hover, setHover] = useState<{ id: string | null; rect: Rect } | null>(null);
   const [rects, setRects] = useState<RectItem[]>([]);
   const [siblings, setSiblings] = useState<{ id: string; items: SiblingBox[] } | null>(null);
-  const [editingText, setEditingText] = useState<string | null>(null);
+  const [editingText, setEditingTextState] = useState<string | null>(null);
+  /** The element the parent itself put into text editing (read by the bridge handler without waiting for a render). */
+  const editingTextRef = useRef<string | null>(null);
+  const setEditingText = useCallback((id: string | null) => {
+    editingTextRef.current = id;
+    setEditingTextState(id);
+  }, []);
   const [passthrough, setPassthrough] = useState(false);
   const [stage, setStage] = useState({ w: 0, h: 0 });
+  /** Width of the whole editor: below 640 px the rail and the panel fold behind toolbar buttons. */
+  const [editorWidth, setEditorWidth] = useState(0);
+  const [drawer, setDrawer] = useState<'slides' | 'props' | null>(null);
 
   const [notice, setNotice] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
@@ -174,8 +185,10 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
       zoom,
       snap,
       session,
+      path: artifact.artifact.path,
+      absPath: artifact.file.absPath,
     });
-  }, [artifactId, baseVersionN, revision, selection, session, snap, zoom]);
+  }, [artifact.artifact.path, artifact.file.absPath, artifactId, baseVersionN, revision, selection, session, snap, zoom]);
 
   // ---------- Preview copy with the bridge ----------
   useEffect(() => {
@@ -202,7 +215,7 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
     return () => {
       cancelled = true;
     };
-  }, [artifactId, kind, previewKey, projectId, session]);
+  }, [artifactId, kind, previewKey, projectId, session, setEditingText]);
 
   const reloadPreview = useCallback(() => setPreviewKey((key) => key + 1), []);
 
@@ -216,20 +229,21 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
   }, [session]);
 
   useEffect(() => {
+    const element = rootRef.current;
+    if (!element || typeof ResizeObserver !== 'function') return undefined;
+    const observer = new ResizeObserver(() => setEditorWidth(element.clientWidth));
+    observer.observe(element);
+    setEditorWidth(element.clientWidth);
+    return () => observer.disconnect();
+  }, [session]);
+
+  useEffect(() => {
     if (!hint) return undefined;
     const timer = window.setTimeout(() => setHint(null), 5000);
     return () => window.clearTimeout(timer);
   }, [hint]);
 
-  useEffect(() => {
-    if (!dirty) return undefined;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  // Page reload with unsaved edits asks — the guard lives in `editorStore` (works with the editor unmounted too).
 
   const focusRoot = () => rootRef.current?.focus({ preventScroll: true });
 
@@ -266,6 +280,8 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
         setSiblings({ id: message.id, items: message.items });
         break;
       case 'textCommitted': {
+        // Only the element we opened for typing: a page script cannot invent a text edit.
+        if (!acceptsTextEnd(editingTextRef.current, message.id)) break;
         setEditingText(null);
         const element = doc ? findEditorElement(doc, message.id) : null;
         if (element && element.textContent !== message.text) commit([{ type: 'text', id: message.id, text: message.text }]);
@@ -273,6 +289,7 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
         break;
       }
       case 'textCancelled':
+        if (!acceptsTextEnd(editingTextRef.current, message.id)) break;
         setEditingText(null);
         focusRoot();
         break;
@@ -660,6 +677,24 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
   }
 
   const view = { zoom, scrollX: scroll.x, scrollY: scroll.y };
+  const narrow = isNarrowEditor(editorWidth);
+  const openDrawer = narrow ? drawer : null;
+  const toggleDrawer = (which: 'slides' | 'props') => setDrawer((current) => (current === which ? null : which));
+  const properties = (
+    <PropertiesPanel
+      kind={kind}
+      doc={doc}
+      revision={revision}
+      selection={selection}
+      fonts={fonts}
+      onOps={commit}
+      onSelect={setSelection}
+      onEditText={editText}
+      onDuplicate={duplicate}
+      onRemove={(ids) => remove(ids)}
+      drawer={narrow}
+    />
+  );
   const frameStyle: React.CSSProperties = zoom === 1
     ? { width: '100%', height: '100%' }
     : { width: stage.w / zoom, height: stage.h / zoom, transform: `scale(${zoom})`, transformOrigin: '0 0' };
@@ -684,6 +719,16 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
             <Magnet className="h-3.5 w-3.5" aria-hidden />Привязка
           </button>
           {toolbarExtras}
+          {narrow && leftRail && (
+            <button type="button" className={openDrawer === 'slides' ? btnOn : btn} onClick={() => toggleDrawer('slides')} aria-pressed={openDrawer === 'slides'} aria-label="Слайды">
+              <GalleryVerticalEnd className="h-3.5 w-3.5" aria-hidden />Слайды
+            </button>
+          )}
+          {narrow && (
+            <button type="button" className={openDrawer === 'props' ? btnOn : btn} onClick={() => toggleDrawer('props')} aria-pressed={openDrawer === 'props'} aria-label="Свойства">
+              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />Свойства
+            </button>
+          )}
           <span className="ml-auto text-xs text-muted-foreground" role="status">
             {dirty ? 'Есть несохранённые правки' : history.canUndo ? 'Всё сохранено' : 'Правок пока нет'}
           </span>
@@ -720,8 +765,8 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
           </p>
         )}
 
-        <div className="flex min-h-0 flex-1">
-          {leftRail}
+        <div className="relative flex min-h-0 flex-1">
+          {!narrow && leftRail}
           <div ref={stageRef} className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-muted/30" data-editor-stage>
             {preview ? (
               <iframe
@@ -754,18 +799,14 @@ export default function ArtifactEditor({ projectId, artifact, sessionId, onSaved
               />
             )}
           </div>
-          <PropertiesPanel
-            kind={kind}
-            doc={doc}
-            revision={revision}
-            selection={selection}
-            fonts={fonts}
-            onOps={commit}
-            onSelect={setSelection}
-            onEditText={editText}
-            onDuplicate={duplicate}
-            onRemove={(ids) => remove(ids)}
-          />
+          {!narrow && properties}
+          {/* Narrow canvas (phone): the rail and the panel open over the page, the page keeps the full width. */}
+          {openDrawer === 'slides' && leftRail && (
+            <div className="absolute inset-y-0 left-0 z-30 flex max-w-[85%] bg-card shadow-xl" data-editor-drawer="slides">{leftRail}</div>
+          )}
+          {openDrawer === 'props' && (
+            <div className="absolute inset-y-0 right-0 z-30 flex w-72 max-w-[85%] bg-card shadow-xl" data-editor-drawer="props">{properties}</div>
+          )}
         </div>
       </div>
     </ArtifactEditorContext.Provider>

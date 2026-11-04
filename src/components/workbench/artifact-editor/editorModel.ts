@@ -31,7 +31,7 @@ export type RestorableAttr = 'style' | 'transform' | 'width' | 'height';
 export type EditorOp =
   | { type: 'translate'; id: string; dx: number; dy: number } // HTML — CSS `translate` (не трогает transform страницы); SVG — transform="translate(…) …"
   | { type: 'reorder'; id: string; beforeId: string | null } // среди соседей того же родителя; null = после последнего соседа с id
-  | { type: 'resize'; id: string; width: number; height: number } // px, минимум 4
+  | { type: 'resize'; id: string; width: number; height: number } // px внешней рамки (HTML: + box-sizing: border-box), минимум 4
   | { type: 'text'; id: string; text: string } // только элементы, где все дети — текст
   | { type: 'style'; id: string; prop: StyleProp; value: string | null } // null = убрать свойство
   | { type: 'hide'; id: string; hidden: boolean }
@@ -441,6 +441,9 @@ export function applyOpToDocument(doc: Document, op: EditorOp): boolean {
         }
         setProp(el, 'width', width + 'px');
         setProp(el, 'height', height + 'px');
+        // The handle drags the outer frame (padding and border included): the size is of that frame.
+        // The inverse puts the whole style attribute back, so undo takes this away too.
+        setProp(el, 'box-sizing', 'border-box');
         return true;
       }
       case 'text': {

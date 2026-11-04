@@ -319,3 +319,18 @@ export function readInlineStyle(style: string | null, prop: string): string | nu
   take(text.length);
   return found;
 }
+
+/**
+ * «Текст готов/отменён» from the page counts only for the element the parent
+ * itself put into text editing: a page script cannot invent a text edit.
+ */
+export function acceptsTextEnd(editingText: string | null, messageId: string): boolean {
+  return editingText !== null && editingText === messageId;
+}
+
+/** Below this canvas width the slide rail and the properties panel fold behind buttons. */
+export const EDITOR_NARROW_PX = 640;
+
+export function isNarrowEditor(width: number): boolean {
+  return width > 0 && width < EDITOR_NARROW_PX;
+}

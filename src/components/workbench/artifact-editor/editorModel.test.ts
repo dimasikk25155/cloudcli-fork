@@ -103,7 +103,7 @@ test('applyOpToDocument is self-contained: a function rebuilt from its source (a
   assert.equal(apply({ type: 'style', id: '7', prop: 'font-size', value: null }), true);
   assert.equal(page.values.get('style'), 'margin:0;');
   assert.equal(apply({ type: 'resize', id: '7', width: 2, height: 30.456 }), true);
-  assert.equal(page.values.get('style'), 'margin:0; width: 4px; height: 30.46px;', 'minimum side is 4 px');
+  assert.equal(page.values.get('style'), 'margin:0; width: 4px; height: 30.46px; box-sizing: border-box;', 'minimum side is 4 px');
   assert.equal(apply({ type: 'text', id: '7', text: 'новый' }), true);
   assert.equal(page.text(), 'новый');
   assert.equal(apply({ type: 'attrs', id: '7', attrs: { style: 'color:red;margin:0' } }), true);

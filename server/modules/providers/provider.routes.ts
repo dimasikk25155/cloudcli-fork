@@ -22,7 +22,7 @@ import type {
   ProviderSkillCreateInput,
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
-import { isAdminUser } from '@/shared/project-access.js';
+import { isAdminUser, projectAccessFor } from '@/shared/project-access.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
 const router = express.Router();
@@ -468,6 +468,18 @@ router.post(
   }),
 );
 
+/**
+ * Skills (`~/.claude/skills`, …) and MCP configs (`~/.claude.json`,
+ * `~/.codex/config.toml`, …) are Dima's: a skill is instructions every engine
+ * follows, an MCP entry a command the engines run with his keys. Only an admin
+ * (role from the database) adds, changes or removes them.
+ */
+function requireAdmin(req: Request, message: string): void {
+  if (!isAdminUser((req as Request & { user?: AuthenticatedWebSocketUser }).user)) {
+    throw new AppError(message, { code: 'ADMIN_REQUIRED', statusCode: 403 });
+  }
+}
+
 // ----------------- Skills routes -----------------
 router.get(
   '/:provider/skills',
@@ -482,6 +494,7 @@ router.get(
 router.post(
   '/:provider/skills',
   asyncHandler(async (req: Request, res: Response) => {
+    requireAdmin(req, 'Добавлять навыки может только администратор');
     const provider = parseProvider(req.params.provider);
     const input = parseProviderSkillCreatePayload(req.body);
     const skills = await providerSkillsService.addProviderSkills(provider, input);
@@ -492,6 +505,7 @@ router.post(
 router.delete(
   '/:provider/skills/:directoryName',
   asyncHandler(async (req: Request, res: Response) => {
+    requireAdmin(req, 'Удалять навыки может только администратор');
     const provider = parseProvider(req.params.provider);
     const result = await providerSkillsService.removeProviderSkill(provider, {
       directoryName: readPathParam(req.params.directoryName, 'directoryName'),
@@ -501,16 +515,24 @@ router.delete(
 );
 
 // ----------------- MCP routes -----------------
-/**
- * MCP configs (`~/.claude.json`, `~/.codex/config.toml`, …) are Dima's: a
- * server entry is a command the engines run with his keys. Only an admin
- * (role from the database) adds, changes or removes them.
- */
 function requireMcpAdmin(req: Request): void {
-  if (!isAdminUser((req as Request & { user?: AuthenticatedWebSocketUser }).user)) {
-    throw new AppError('Менять MCP-серверы может только администратор', { code: 'ADMIN_REQUIRED', statusCode: 403 });
+  requireAdmin(req, 'Менять MCP-серверы может только администратор');
+}
+
+/**
+ * A teammate reads project MCP configs only of a project granted to him: the
+ * `workspacePath` must be a known project's folder that `projectAccessFor`
+ * lets him open (403 otherwise).
+ */
+function assertWorkspaceAccess(user: AuthenticatedWebSocketUser | undefined, workspacePath: string): void {
+  const projectId = projectsDb.getProjectPath(workspacePath)?.project_id ?? null;
+  if (!projectId || !projectAccessFor(user)(projectId)) {
+    throw new AppError('Нет доступа к этому проекту', { code: 'PROJECT_ACCESS_DENIED', statusCode: 403 });
   }
 }
+
+/** Without a project the server's own folder stands in: its project/local servers are not a teammate's. */
+const SERVER_FOLDER_SCOPES: ReadonlySet<McpScope> = new Set(['project', 'local']);
 
 router.get(
   '/:provider/mcp/servers',
@@ -518,17 +540,27 @@ router.get(
     const provider = parseProvider(req.params.provider);
     const workspacePath = readOptionalQueryString(req.query.workspacePath);
     const scope = parseMcpScope(req.query.scope);
-    // Teammates see servers and keys, never env/header values (role from the database).
-    const isAdmin = isAdminUser((req as Request & { user?: AuthenticatedWebSocketUser }).user);
+    // Teammates see servers and keys, never env/header/argument values (role from the database).
+    const user = (req as Request & { user?: AuthenticatedWebSocketUser }).user;
+    const isAdmin = isAdminUser(user);
+    if (!isAdmin && workspacePath) assertWorkspaceAccess(user, workspacePath);
+    const foreignFolder = !isAdmin && !workspacePath;
     const visible = <T,>(value: T): T => (isAdmin ? value : redactMcpServerSecrets(value));
 
     if (scope) {
-      const servers = await providerMcpService.listProviderMcpServersForScope(provider, scope, { workspacePath });
+      const servers = foreignFolder && SERVER_FOLDER_SCOPES.has(scope)
+        ? []
+        : await providerMcpService.listProviderMcpServersForScope(provider, scope, { workspacePath });
       res.json(createApiSuccessResponse({ provider, scope, servers: visible(servers) }));
       return;
     }
 
     const groupedServers = await providerMcpService.listProviderMcpServers(provider, { workspacePath });
+    if (foreignFolder) {
+      for (const hidden of SERVER_FOLDER_SCOPES) {
+        if (hidden in groupedServers) groupedServers[hidden] = [];
+      }
+    }
     // `?fields=names` — read-only panels get names only, never env/header values.
     if (req.query.fields === 'names') {
       res.json(createApiSuccessResponse({ provider, scopes: mcpServerNamesByScope(groupedServers) }));

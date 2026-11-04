@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { promises as nodeFs } from 'node:fs';
+import { constants as fsConstants, promises as nodeFs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -39,7 +39,7 @@ const MAX_QUOTE_CHARS = 2000;
 const MAX_TITLE_CHARS = 200;
 
 /** The part of node:fs/promises the service uses (a seam for tests). */
-export type ArtifactsFs = Pick<typeof nodeFs, 'realpath' | 'stat' | 'readFile' | 'writeFile' | 'mkdir'>;
+export type ArtifactsFs = Pick<typeof nodeFs, 'realpath' | 'stat' | 'readFile' | 'writeFile' | 'mkdir' | 'open'>;
 
 export type ArtifactsDependencies = {
   store: WorkspaceStore;
@@ -94,6 +94,17 @@ function isPrivateRealPath(realRoot: string, realPath: string): boolean {
 }
 
 const isPrivatePathError = (error: unknown) => error instanceof AppError && error.code === PRIVATE_PATH_CODE;
+
+/** The file at the checked path was replaced (a link, another file) between the check and the write. */
+function failSwapped(): never {
+  fail('Файл подменили во время записи — ничего не записано. Открой артефакт заново', 'ARTIFACT_FILE_SWAPPED', 400);
+}
+
+/** Errors of opening a path that changed under us: a link (O_NOFOLLOW), a missing file or folder. */
+const SWAP_ERRNO: ReadonlySet<string> = new Set(['ELOOP', 'ENOENT', 'ENOTDIR', 'EISDIR', 'EEXIST', 'EMLINK']);
+
+/** A path segment the file preview never serves: a dot folder (`.autopilot`, `.claude`, …). */
+const HIDDEN_SEGMENT = /^\./;
 
 /** Documents the «Правка» mode edits: HTML pages, slides and SVG pictures. */
 const EDITABLE_PATH = /\.(?:html?|svg)$/i;
@@ -333,19 +344,134 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
    * root, not through a private segment, still a page (a link swapped onto
    * package.json is not one). Called again immediately before the write.
    */
-  async function verifiedRealPath(projectRoot: string, absPath: string): Promise<{ real: string; realRoot: string }> {
+  async function verifiedRealPath(projectRoot: string, absPath: string, page = true): Promise<{ real: string; realRoot: string }> {
     const real = await fs.realpath(absPath);
     const realRoot = await fs.realpath(path.resolve(projectRoot));
     if (!isInside(realRoot, real)) fail('Файл лежит вне проекта', 'ARTIFACT_PATH_OUTSIDE_PROJECT', 400);
     if (isPrivateRealPath(realRoot, real)) failPrivate();
-    if (!EDITABLE_PATH.test(real)) fail('Ссылка ведёт не на страницу', 'ARTIFACT_EDIT_UNSUPPORTED', 400);
+    if (page && !EDITABLE_PATH.test(real)) fail('Ссылка ведёт не на страницу', 'ARTIFACT_EDIT_UNSUPPORTED', 400);
     return { real, realRoot };
+  }
+
+  /**
+   * Writes over the checked file: opened without following a link and without
+   * truncation, the opened file must be the one `stat` saw at the checked real
+   * path (same device and inode) — only then truncate and write. Any mismatch
+   * is a 400 and nothing is written.
+   */
+  async function writeOverChecked(real: string, data: Buffer): Promise<void> {
+    const checked = await fs.stat(real);
+    if (!checked.isFile()) failSwapped();
+    let handle: Awaited<ReturnType<ArtifactsFs['open']>>;
+    try {
+      handle = await fs.open(real, fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW);
+    } catch (error) {
+      if (SWAP_ERRNO.has((error as NodeJS.ErrnoException)?.code ?? '')) failSwapped();
+      throw error;
+    }
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.dev !== checked.dev || opened.ino !== checked.ino) failSwapped();
+      await handle.truncate(0);
+      await handle.write(data, 0, data.length, 0);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /** A deleted file written back: a new file (never a link) in its checked real folder. */
+  async function writeNewChecked(realParent: string, name: string, data: Buffer): Promise<void> {
+    let handle: Awaited<ReturnType<ArtifactsFs['open']>>;
+    try {
+      handle = await fs.open(path.join(realParent, name), fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o644);
+    } catch (error) {
+      if (SWAP_ERRNO.has((error as NodeJS.ErrnoException)?.code ?? '')) failSwapped();
+      throw error;
+    }
+    try {
+      await handle.write(data, 0, data.length, 0);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /**
+   * One version-making action of an artifact at a time (save, restore, refresh,
+   * publication): two saves from the same version cannot both pass the check.
+   */
+  const queues = new Map<string, Promise<unknown>>();
+  function serialized<T>(artifactId: string, task: () => Promise<T>): Promise<T> {
+    const previous = queues.get(artifactId) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    const tail = run.then(() => undefined, () => undefined);
+    queues.set(artifactId, tail);
+    void tail.then(() => {
+      if (queues.get(artifactId) === tail) queues.delete(artifactId);
+    });
+    return run;
   }
 
   async function existingFile(projectRoot: string, artifact: WorkspaceRecord<ArtifactPayload>) {
     const resolved = await resolvePath(projectRoot, artifact.payload.path);
     if (!resolved.exists) fail(`Файл не найден: ${resolved.relPath}`, 'ARTIFACT_FILE_NOT_FOUND', 404);
     return resolved;
+  }
+
+  async function restoreNow(userId: number, projectId: string, root: string, id: string, n: number): Promise<ArtifactDetail> {
+    const artifact = getArtifact(projectId, id);
+    const version = versionsOf(projectId, artifact.id).find((record) => record.payload.n === n);
+    if (!version) fail('Версия не найдена', 'ARTIFACT_VERSION_NOT_FOUND', 404);
+    if (!version.payload.snapshotFile) {
+      fail('Эту версию нельзя восстановить: её содержимое не сохранено (файл был слишком большим)', 'ARTIFACT_SNAPSHOT_MISSING', 409);
+    }
+    const data = await fs.readFile(snapshotPath(artifact.id, version.payload.snapshotFile));
+    // The same path rule as publication; a deleted file is written back only into an existing folder inside the project.
+    const resolved = await resolvePath(root, artifact.payload.path);
+    if (resolved.exists) {
+      const { real } = await verifiedRealPath(root, resolved.absPath, false);
+      await writeOverChecked(real, data);
+    } else {
+      let parent: string;
+      try {
+        parent = await fs.realpath(path.dirname(resolved.absPath));
+      } catch {
+        fail('Папки файла больше нет', 'ARTIFACT_FILE_NOT_FOUND', 404);
+      }
+      const realRoot = await fs.realpath(path.resolve(root));
+      if (!isInside(realRoot, parent)) fail('Файл лежит вне проекта', 'ARTIFACT_PATH_OUTSIDE_PROJECT', 400);
+      if (isPrivateRealPath(realRoot, parent)) failPrivate();
+      await writeNewChecked(parent, path.basename(resolved.absPath), data);
+    }
+    const updated = await addVersion(userId, projectId, artifact, { sha256: version.payload.sha256, size: data.length, data }, 'restore', {
+      snapshotFile: version.payload.snapshotFile,
+      restoredFrom: version.payload.n,
+    });
+    return detailOf(root, projectId, updated);
+  }
+
+  async function saveEditNow(userId: number, projectId: string, root: string, id: string, input: SaveEditInput): Promise<ArtifactDetail> {
+    // Read again inside the queue: the previous save may have moved the latest version on.
+    const { artifact, data } = editableArtifact(userId, projectId, id, input.content);
+    const baseVersionN = Number(input.baseVersionN);
+    if (!Number.isSafeInteger(baseVersionN) || baseVersionN < 1) fail('Не указана версия, с которой начата правка', 'ARTIFACT_EDIT_INVALID', 400);
+    const resolved = await existingFile(root, artifact);
+    await verifiedRealPath(root, resolved.absPath);
+    const current = await readCurrent(root, resolved.absPath);
+    const base = versionsOf(projectId, artifact.id).find((record) => record.payload.n === baseVersionN);
+    if (!base || baseVersionN !== artifact.payload.latestVersion || base.payload.sha256 !== current.sha256) {
+      const latest = (await snapshotIfChanged(userId, projectId, root, artifact)).artifact.payload.latestVersion;
+      throw new AppError('Файл изменился, пока ты правил', { code: 'ARTIFACT_EDIT_CONFLICT', statusCode: 409, details: { latestVersion: latest } });
+    }
+    // The link could be swapped while the content was compared: the write goes to the path checked right now,
+    // and only into the very file checked there (no link followed, same inode).
+    const { real } = await verifiedRealPath(root, resolved.absPath);
+    await writeOverChecked(real, data);
+    const updated = await addVersion(userId, projectId, artifact, {
+      sha256: createHash('sha256').update(data).digest('hex'),
+      size: data.length,
+      data,
+    }, 'edit');
+    return detailOf(root, projectId, updated);
   }
 
   return {
@@ -393,7 +519,8 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
           messageId: existing.payload.sessionId ? existing.payload.messageId : messageId,
         });
       }
-      const result = await snapshotIfChanged(userId, projectId, root, artifact);
+      const published = artifact;
+      const result = await serialized(published.id, () => snapshotIfChanged(userId, projectId, root, store.get<ArtifactPayload>(published.id) ?? published));
       return { ...(await detailOf(root, projectId, result.artifact)), changed: result.changed, created: !existing };
     },
 
@@ -404,7 +531,8 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
 
     async refresh(userId: number, projectId: string, id: string): Promise<ArtifactDetail & { changed: boolean }> {
       const root = guard(userId, projectId);
-      const result = await snapshotIfChanged(userId, projectId, root, getArtifact(projectId, id));
+      getArtifact(projectId, id);
+      const result = await serialized(id, () => snapshotIfChanged(userId, projectId, root, getArtifact(projectId, id)));
       return { ...(await detailOf(root, projectId, result.artifact)), changed: result.changed };
     },
 
@@ -427,30 +555,8 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
 
     async restore(userId: number, projectId: string, id: string, n: number): Promise<ArtifactDetail> {
       const root = guard(userId, projectId);
-      const artifact = getArtifact(projectId, id);
-      const version = versionsOf(projectId, artifact.id).find((record) => record.payload.n === n);
-      if (!version) fail('Версия не найдена', 'ARTIFACT_VERSION_NOT_FOUND', 404);
-      if (!version.payload.snapshotFile) {
-        fail('Эту версию нельзя восстановить: её содержимое не сохранено (файл был слишком большим)', 'ARTIFACT_SNAPSHOT_MISSING', 409);
-      }
-      const data = await fs.readFile(snapshotPath(artifact.id, version.payload.snapshotFile));
-      // The same path rule as publication; a deleted file is written back only into an existing folder inside the project.
-      const resolved = await resolvePath(root, artifact.payload.path);
-      if (!resolved.exists) {
-        let parent: string;
-        try {
-          parent = await fs.realpath(path.dirname(resolved.absPath));
-        } catch {
-          fail('Папки файла больше нет', 'ARTIFACT_FILE_NOT_FOUND', 404);
-        }
-        if (!isInside(await fs.realpath(root), parent)) fail('Файл лежит вне проекта', 'ARTIFACT_PATH_OUTSIDE_PROJECT', 400);
-      }
-      await fs.writeFile(resolved.absPath, data);
-      const updated = await addVersion(userId, projectId, artifact, { sha256: version.payload.sha256, size: data.length, data }, 'restore', {
-        snapshotFile: version.payload.snapshotFile,
-        restoredFrom: version.payload.n,
-      });
-      return detailOf(root, projectId, updated);
+      getArtifact(projectId, id);
+      return serialized(id, () => restoreNow(userId, projectId, root, id, n));
     },
 
     /**
@@ -458,30 +564,14 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
      * and adds a version `edit`. Refused with 409 ARTIFACT_EDIT_CONFLICT (details
      * `{latestVersion}`) when the edit did not start from the latest version or
      * the file on disk no longer matches that version (the agent changed it) —
-     * the agent's change becomes a version, the file is not touched.
+     * the agent's change becomes a version, the file is not touched. Saves of one
+     * artifact run one after another: of two saves from the same version the
+     * second gets the conflict.
      */
     async saveEdit(userId: number, projectId: string, id: string, input: SaveEditInput): Promise<ArtifactDetail> {
       const root = guard(userId, projectId);
-      const { artifact, data } = editableArtifact(userId, projectId, id, input.content);
-      const baseVersionN = Number(input.baseVersionN);
-      if (!Number.isSafeInteger(baseVersionN) || baseVersionN < 1) fail('Не указана версия, с которой начата правка', 'ARTIFACT_EDIT_INVALID', 400);
-      const resolved = await existingFile(root, artifact);
-      await verifiedRealPath(root, resolved.absPath);
-      const current = await readCurrent(root, resolved.absPath);
-      const base = versionsOf(projectId, artifact.id).find((record) => record.payload.n === baseVersionN);
-      if (!base || baseVersionN !== artifact.payload.latestVersion || base.payload.sha256 !== current.sha256) {
-        const latest = (await snapshotIfChanged(userId, projectId, root, artifact)).artifact.payload.latestVersion;
-        throw new AppError('Файл изменился, пока ты правил', { code: 'ARTIFACT_EDIT_CONFLICT', statusCode: 409, details: { latestVersion: latest } });
-      }
-      // The link could be swapped while the content was compared: the write goes to the path checked right now.
-      const { real } = await verifiedRealPath(root, resolved.absPath);
-      await fs.writeFile(real, data);
-      const updated = await addVersion(userId, projectId, artifact, {
-        sha256: createHash('sha256').update(data).digest('hex'),
-        size: data.length,
-        data,
-      }, 'edit');
-      return detailOf(root, projectId, updated);
+      editableArtifact(userId, projectId, id, input.content);
+      return serialized(id, () => saveEditNow(userId, projectId, root, id, input));
     },
 
     /**
@@ -495,7 +585,22 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
       const resolved = await existingFile(root, artifact);
       const { real, realRoot } = await verifiedRealPath(root, resolved.absPath);
       if (!deps.documentGrant) fail('Превью правки недоступно', 'ARTIFACT_EDIT_PREVIEW_UNAVAILABLE', 503);
-      const grant = deps.documentGrant({ root: realRoot, relPath: toPosix(path.relative(realRoot, real)), html: input.html as string, userId, projectId });
+      const relPath = toPosix(path.relative(realRoot, real));
+      // The file preview serves nothing from dot folders (.git, .env, …): the page could not load there.
+      if (relPath.split('/').some((segment) => HIDDEN_SEGMENT.test(segment))) {
+        fail('Править вручную нельзя файл из скрытой папки (имя начинается с точки). Скопируй его в обычную папку проекта или попроси агента', 'ARTIFACT_EDIT_HIDDEN_FOLDER', 400);
+      }
+      let grant: { url: string };
+      try {
+        grant = deps.documentGrant({ root: realRoot, relPath, html: input.html as string, userId, projectId });
+      } catch (error) {
+        // The preview's own refusal (PreviewError {status, message}) stays a refusal, not a 500.
+        const status = (error as { status?: unknown })?.status;
+        if (typeof status === 'number' && status >= 400 && status < 500) {
+          fail(error instanceof Error && error.message ? error.message : 'Эту страницу нельзя показать в правке', 'ARTIFACT_EDIT_PREVIEW_DENIED', status);
+        }
+        throw error;
+      }
       return { url: grant.url };
     },
 

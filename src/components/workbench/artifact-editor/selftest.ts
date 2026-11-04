@@ -123,7 +123,7 @@ const CASES: Array<[string, () => void]> = [
   }],
   ['операции HTML: сдвиг, размер, текст, цвет, скрыть, слой, порядок', () => {
     includes(edited(PAGE, 'html', [{ type: 'translate', id: '2', dx: 10, dy: 5 }]), '<h1 id="title" style="translate: 10px 5px;">Заголовок</h1>', 'сдвиг');
-    includes(edited(PAGE, 'html', [{ type: 'resize', id: '3', width: 120, height: 40 }]), '<p style="width: 120px; height: 40px;">Первый абзац</p>', 'размер');
+    includes(edited(PAGE, 'html', [{ type: 'resize', id: '3', width: 120, height: 40 }]), '<p style="width: 120px; height: 40px; box-sizing: border-box;">Первый абзац</p>', 'размер');
     includes(edited(PAGE, 'html', [{ type: 'text', id: '3', text: 'Новый <текст>' }]), '<p>Новый &lt;текст&gt;</p>', 'текст');
     includes(edited(PAGE, 'html', [{ type: 'style', id: '1', prop: 'color', value: '#ff0000' }]), '<main class="card" style="padding:8px; color: #ff0000;">', 'цвет');
     includes(edited(PAGE, 'html', [{ type: 'style', id: '1', prop: 'color', value: '#ff0000' }, { type: 'style', id: '1', prop: 'color', value: null }]), '<main class="card" style="padding:8px;">', 'убрать цвет');
@@ -242,6 +242,28 @@ const CASES: Array<[string, () => void]> = [
     includes(out, '<h1 id="title">Новый заголовок</h1>', 'заголовок');
     includes(out, '<p style="color: red;">Первый абзац</p>', 'абзац');
     includes(out, '<p>Вставил агент</p>', 'правка агента');
+  }],
+  ['размер у элемента с padding и рамкой: итоговая рамка = протянутая (±1 px), отмена снимает', () => {
+    // A page of its own (the app's CSS makes everything border-box, a user's page does not):
+    // the bridge's frame is getBoundingClientRect, the ghost — the size dragged to.
+    const host = document.createElement('iframe');
+    host.setAttribute('style', 'position:absolute;left:-10000px;top:0;width:600px;height:400px;border:0');
+    document.body.appendChild(host);
+    try {
+      const page = host.contentDocument;
+      expect(page?.body, 'нет документа для проверки');
+      page.body.innerHTML = `<div ${NEO3_ID_ATTR}="pad" style="padding:20px;border:3px solid #000;width:50px;height:30px">x</div>`;
+      const el = page.body.firstElementChild as HTMLElement;
+      const before = el.getAttribute('style');
+      const entry = createStackEntry(page, { type: 'resize', id: 'pad', width: 200, height: 100 });
+      expect(entry && applyOpToDocument(page, { type: 'resize', id: 'pad', width: 200, height: 100 }), 'размер не применился');
+      const box = el.getBoundingClientRect();
+      expect(Math.abs(box.width - 200) <= 1 && Math.abs(box.height - 100) <= 1, `рамка ${box.width}×${box.height}, ждали 200×100`);
+      expect(applyOpToDocument(page, entry.inverse), 'отмена размера не применилась');
+      expect(el.getAttribute('style') === before, `после отмены стиль другой: ${el.getAttribute('style')}`);
+    } finally {
+      host.remove();
+    }
   }],
   ['CSS-путь для агента', () => {
     const { doc } = instrumentSource(PAGE, 'html');

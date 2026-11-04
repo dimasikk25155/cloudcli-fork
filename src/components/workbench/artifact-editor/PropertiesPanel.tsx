@@ -88,14 +88,17 @@ export default function PropertiesPanel(props: {
   onEditText: (id: string) => void;
   onDuplicate: (ids: string[]) => void;
   onRemove: (ids: string[]) => void;
+  /** Narrow canvas: the panel is a drawer over the page, full width of its holder. */
+  drawer?: boolean;
 }) {
   const { doc, selection } = props;
+  const width = props.drawer ? 'w-full' : 'w-64 max-w-[40%]';
   const primaryId = selection.at(-1) ?? null;
   const element = primaryId ? findEditorElement(doc, primaryId) : null;
 
   if (!primaryId || !element) {
     return (
-      <aside className="flex w-64 max-w-[40%] flex-shrink-0 flex-col gap-2 overflow-y-auto border-l border-border/70 bg-card/50 p-3 text-xs text-muted-foreground" aria-label="Свойства">
+      <aside className={`flex ${width} flex-shrink-0 flex-col gap-2 overflow-y-auto border-l border-border/70 bg-card/50 p-3 text-xs text-muted-foreground`} aria-label="Свойства">
         <p className="font-medium text-foreground">Ничего не выделено</p>
         <p>Наведи на элемент и кликни. Shift — добавить к выделению.</p>
         <p>Тяни рамку — сдвинуть (в строке или сетке — поменять порядок). Ручки — размер.</p>
@@ -155,7 +158,7 @@ export default function PropertiesPanel(props: {
   const opacity = Number.parseFloat(value('opacity'));
 
   return (
-    <aside className="flex w-64 max-w-[40%] flex-shrink-0 flex-col gap-3 overflow-y-auto border-l border-border/70 bg-card/50 p-3 text-sm" aria-label="Свойства">
+    <aside className={`flex ${width} flex-shrink-0 flex-col gap-3 overflow-y-auto border-l border-border/70 bg-card/50 p-3 text-sm`} aria-label="Свойства">
       <div className="space-y-1">
         <p className="font-medium text-foreground">{many ? `Выделено: ${selection.length}` : `<${tag}>`}</p>
         {many && <p className={label}>Значения — у последнего выделенного; правка — у всех.</p>}

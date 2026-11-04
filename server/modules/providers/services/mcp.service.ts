@@ -20,10 +20,26 @@ export function mcpServerNamesByScope(
 
 const SECRET_VALUE_FIELDS: ReadonlySet<string> = new Set(['env', 'headers']);
 
+/** `https://user:key@host/path?token=…#…` → `https://host/path`; not a URL → `''`. */
+function redactUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Copy of MCP server data (one server, a list, grouped by scope) with every
- * `env`/`headers` value replaced by `''`. Keys and the shape stay, so the
- * settings screen renders the same; only an admin gets the real values.
+ * `env`/`headers` value replaced by `''`, every `args` value replaced by `''`
+ * (`--token <key>` is common) and the query, fragment and userinfo cut from
+ * `url`. Keys, the number of arguments and the shape stay, so the settings
+ * screen renders the same; only an admin gets the real values.
  */
 export function redactMcpServerSecrets<T>(value: T): T {
   const walk = (node: unknown): unknown => {
@@ -33,6 +49,10 @@ export function redactMcpServerSecrets<T>(value: T): T {
     for (const [key, entry] of Object.entries(node as Record<string, unknown>)) {
       if (SECRET_VALUE_FIELDS.has(key) && entry && typeof entry === 'object' && !Array.isArray(entry)) {
         copy[key] = Object.fromEntries(Object.keys(entry as Record<string, unknown>).map((name) => [name, '']));
+      } else if (key === 'args' && Array.isArray(entry)) {
+        copy[key] = entry.map(() => '');
+      } else if (key === 'url' && typeof entry === 'string') {
+        copy[key] = redactUrl(entry);
       } else {
         copy[key] = walk(entry);
       }
