@@ -45,11 +45,11 @@ const threadsOff = (process.env.NEO3_THREADS_OFF || '').trim() === '1';
 const tools: ToolDefinition[] = [
   {
     name: 'workspace_action',
-    description: 'Work in this chat project only. Read handed-off mail, prepare reply drafts, create/revise documents, search opted-in knowledge and prepare assignments/tasks. Never sends, approves or publishes. Mail needs an explicit handoff bound to this chat. data contains action fields; id and revision identify an existing record.',
+    description: 'Work in this chat project only. Read handed-off mail, prepare reply drafts, create/revise documents, search opted-in knowledge and prepare assignments/tasks. Never sends, approves or publishes outside Neo3. Mail needs an explicit handoff bound to this chat. data contains action fields; id and revision identify an existing record. artifact.publish {data:{path, title?}} shows a project file (HTML infographic/slides/dashboard, Markdown, PDF, image, Jev report.html) large in the Neo3 canvas with versions and the user\'s comments, source = this chat; path is inside the project (relative to it or absolute). artifact.list lists published artifacts of the project. Sidebar order (never deletes anything): group.list; group.create {data:{name}}; group.rename {data:{id,name}}; group.add / group.remove {data:{id,itemType:\'project\'|\'session\',itemId}}; pin.set {data:{sessionId?,pinned}}. settings.propose {data:{changes:{key:value},reason}} only suggests interface/theme/mod settings: the person reviews and applies it in Settings.',
     inputSchema: {
       type:'object',
       properties:{
-        action:{type:'string',enum:['document.list','document.read','document.create','document.revise','knowledge.search','assignment.list','assignment.read','assignment.create','assignment.update','project.users','task.create','mail.read','mail.draft']},
+        action:{type:'string',enum:['document.list','document.read','document.create','document.revise','knowledge.search','assignment.list','assignment.read','assignment.create','assignment.update','project.users','task.create','mail.read','mail.draft','artifact.publish','artifact.list','group.list','group.create','group.rename','group.add','group.remove','pin.set','settings.propose']},
         id:{type:'string'},revision:{type:'number'},data:{type:'object'},
       },
       required:['action'],

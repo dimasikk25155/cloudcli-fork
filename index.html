@@ -15,7 +15,8 @@
            Geologica      → ember     (тёплый техно-гротеск)
            Barlow + Condensed → gt    (узкий гротеск, заголовки капсом)
            Work Sans      → editorial (спокойный редакционный гротеск)
-           Outfit         → glass     (мягкая геометрия) -->
+           Outfit         → glass     (мягкая геометрия)
+           Source Serif 4 → claudeLight (засечные заголовки, SIL OFL, с кириллицей) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -23,7 +24,7 @@
       rel="stylesheet"
     />
     <link
-      href="https://fonts.googleapis.com/css2?family=Geologica:wght@300..800&family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=Work+Sans:wght@400;500;600&family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Geologica:wght@300..800&family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=Work+Sans:wght@400;500;600&family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap"
       rel="stylesheet"
     />
 
@@ -45,6 +46,35 @@
     
     <!-- Prevent zoom on iOS -->
     <meta name="format-detection" content="telephone=no" />
+
+    <!-- Тема до первой отрисовки. Без этого страница рисуется без data-theme
+         и класса dark, пока не загрузится бандл, и светлая тема мигает тёмным
+         (а тёмная — светлым). Список светлых тем — копия LIGHT_THEMES из
+         src/contexts/ThemeContext.jsx (совпадение проверяет theme-registry.test.ts),
+         цвет фона — тот, что ThemeContext сохранил из токена темы. -->
+    <script>
+      (function () {
+        var LIGHT_THEMES = ['editorial', 'glass', 'claudeLight'];
+        try {
+          var root = document.documentElement;
+          var theme = localStorage.getItem('appTheme') || localStorage.getItem('shaderVariant') || 'ember';
+          var dark = LIGHT_THEMES.indexOf(theme) === -1;
+          root.setAttribute('data-theme', theme);
+          root.classList.toggle('dark', dark);
+          var color = localStorage.getItem('appThemeColor');
+          if (!/^#[0-9a-f]{6}$/i.test(color || '')) {
+            color = dark ? '#141414' : '#faf9f5';
+          }
+          root.style.backgroundColor = color;
+          var themeColor = document.querySelector('meta[name="theme-color"]');
+          if (themeColor) themeColor.setAttribute('content', color);
+          var statusBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+          if (statusBar) statusBar.setAttribute('content', dark ? 'black-translucent' : 'default');
+        } catch (error) {
+          // Нет доступа к localStorage (приватный режим) — тему поставит приложение.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

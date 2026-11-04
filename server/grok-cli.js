@@ -30,6 +30,8 @@ import {
 } from './shared/grok-question.js';
 import { sessionsDb } from './modules/database/index.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
+import { carriesUnshownThinking } from './modules/providers/services/run-duration.js';
+import { findDescendantProcess, markStoppableTasks, stopEngineTask, taskProcessMatcher } from './shared/process-tree.js';
 import {
   composeGrokSessionTitle,
   isPlaceholderGrokSessionTitle,
@@ -54,12 +56,53 @@ const spawnFunction = crossSpawn;
 const activeGrokProcesses = new Map();
 
 // «Фон: N» of each live Grok process (background commands and monitors), by
-// Grok session id. Read-only for Neo3: only Grok itself can stop them.
+// Grok session id. Grok cannot stop one from outside; Neo3 stops a command
+// by its own process under the Grok process (stopGrokTask).
 const grokBackgroundTasks = new Map();
+// The last list sent per tracker, with each row's «Стоп» flag.
+const grokPublishedTasks = new WeakMap();
 
 /** Background commands of a live Grok run (empty once its process is gone). */
 function getGrokBackgroundTasks(sessionId) {
-  return grokBackgroundTasks.get(sessionId)?.list() ?? [];
+  const tracker = grokBackgroundTasks.get(sessionId);
+  if (!tracker) return [];
+  return grokPublishedTasks.get(tracker) ?? tracker.list();
+}
+
+/** Is this background task's command a live process under the Grok process? */
+async function grokTaskProcessFound(sessionId, tracker, taskId) {
+  const child = activeGrokProcesses.get(sessionId);
+  const task = { command: tracker?.commandOf(taskId) ?? null, pid: tracker?.pidOf(taskId) ?? null };
+  if (!child?.pid || child.aborted || (!task.command && !task.pid)) return false;
+  return Boolean(await findDescendantProcess(child.pid, taskProcessMatcher(task)));
+}
+
+/** Is a pid still there (signal 0)? A permission error means it exists. */
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+/**
+ * «Стоп» of one Grok background command or monitor: its own process tree
+ * under the live Grok process is stopped; Grok goes on and reports it ended.
+ * @returns {Promise<{ok: boolean, reason?: 'turn_ended'|'not_running'|'failed'|'unsupported'}>}
+ */
+async function stopGrokTask(sessionId, taskId) {
+  const child = activeGrokProcesses.get(sessionId);
+  const tracker = grokBackgroundTasks.get(sessionId);
+  const running = Boolean(child?.pid) && !child.aborted;
+  return stopEngineTask({
+    running,
+    hasTask: Boolean(tracker?.has(taskId)),
+    rootPid: running ? child.pid : null,
+    command: tracker?.commandOf(taskId) ?? null,
+    pid: tracker?.pidOf(taskId) ?? null,
+  });
 }
 
 const GROK_INSTALL_HINT = 'Grok Build CLI is not installed. Install it: curl -fsSL https://x.ai/cli/install.sh | bash';
@@ -896,18 +939,33 @@ async function spawnGrok(command, options = {}, ws) {
     let backgroundTracker = null;
     let backgroundParseFailureLogged = false;
 
-    const publishBackgroundTasks = (tasks) => {
+    let backgroundPublishSeq = 0;
+    const sendBackgroundTasks = (tracker, tasks) => {
+      if (tracker) grokPublishedTasks.set(tracker, tasks);
       try {
         ws.send(createNormalizedMessage({ kind: 'background_tasks', tasks, sessionId: resolvedSessionId, provider: 'grok' }));
       } catch {
         /* socket may be mid-reconnect */
       }
     };
+    // Each row gets its own «Стоп» flag: only a command whose process is found.
+    // The list goes out at once (no «Стоп» yet), then again if a process was found.
+    const publishBackgroundTasks = (tasks) => {
+      const tracker = backgroundTracker;
+      const seq = ++backgroundPublishSeq;
+      sendBackgroundTasks(tracker, tasks.map((task) => ({ ...task, stoppable: false })));
+      if (tasks.length === 0) return;
+      void markStoppableTasks(tasks, (task) => grokTaskProcessFound(processKey, tracker, task.taskId))
+        .then((marked) => {
+          if (seq === backgroundPublishSeq && marked.some((task) => task.stoppable)) sendBackgroundTasks(tracker, marked);
+        })
+        .catch(() => {});
+    };
     // The process is gone, and its background commands with it.
     const releaseBackgroundTasks = (tracker) => {
       if (!tracker) return;
       if (grokBackgroundTasks.get(processKey) === tracker) grokBackgroundTasks.delete(processKey);
-      if (tracker.list().length > 0) publishBackgroundTasks([]);
+      if (tracker.list().length > 0 || (grokPublishedTasks.get(tracker)?.length ?? 0) > 0) publishBackgroundTasks([]);
     };
 
     const emitGrokContextBudget = (existing = null) => {
@@ -1046,7 +1104,9 @@ async function spawnGrok(command, options = {}, ws) {
         // «Фон: N»: background commands Grok started or finished in this line.
         // A parsing slip must never touch the run.
         try {
-          const tasks = backgroundTracker?.apply(response);
+          // The live stream never says a background task ended: its pid does.
+          const pruned = backgroundTracker?.pruneExited(pidAlive);
+          const tasks = backgroundTracker?.apply(response) ?? pruned;
           if (tasks) publishBackgroundTasks(tasks);
         } catch (error) {
           // Once per run and without the line itself (it may hold anything).
@@ -1062,6 +1122,13 @@ async function spawnGrok(command, options = {}, ws) {
           meter?.addMessage(response);
         } catch { /* ignore */ }
         const normalized = sessionsService.normalizeMessage('grok', response, resolvedSessionId);
+        // «Время размышления»: a thinking block without text still marks
+        // the moment the model finished thinking (before the line's events).
+        if (!pausedForQuestion && carriesUnshownThinking(response, normalized)) {
+          ws.send(createNormalizedMessage({ kind: 'thinking', content: '', sessionId: resolvedSessionId, provider: 'grok',
+            ...(typeof response.parent_tool_use_id === 'string' && response.parent_tool_use_id
+              ? { parentToolUseId: response.parent_tool_use_id } : {}) }));
+        }
         let sentBudget = false;
         for (const msg of normalized) {
           if (pausedForQuestion) {
@@ -1683,6 +1750,7 @@ export {
   spawnGrok,
   abortGrokSession,
   getGrokBackgroundTasks,
+  stopGrokTask,
   isGrokSessionActive,
   getActiveGrokSessions,
 };

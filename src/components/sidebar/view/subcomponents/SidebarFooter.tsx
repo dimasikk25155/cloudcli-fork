@@ -35,6 +35,7 @@ import PixelCrab from '../../../crabs/PixelCrab';
 import KrabikPanel from '../../../krabik/KrabikPanel';
 import DuetPanel from '../../../duet/DuetPanel';
 import { useModEnabled } from '../../../../hooks/useModEnabled';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 // Entry points for the unattended-work features. Labels are Russian in place:
 // these panels ship ahead of their translation namespaces. The Telegram bot
@@ -66,10 +67,10 @@ const KRABIK_PANEL = { key: 'krabik', label: 'Агент крабик', shortLab
 // «Дуэт» — напарник по ботам и сервисам (мод modDuet), только админу.
 const DUET_PANEL = { key: 'duet', label: 'Дуэт', shortLabel: 'Дуэт', icon: Music2 } as const;
 
-/** Значок Крабика в меню: пиксельный краб на тёмной плитке того же размера, что AppIcon sm. */
-function KrabikMenuIcon() {
+/** Значок Крабика в меню: пиксельный краб на плитке того же размера, что AppIcon sm. */
+function KrabikMenuIcon({ light = false }: { light?: boolean }) {
   return (
-    <span className="neo3-squircle inline-flex h-7 w-7 items-center justify-center overflow-hidden" style={{ background: '#3B1F12' }} aria-hidden>
+    <span className="neo3-squircle inline-flex h-7 w-7 items-center justify-center overflow-hidden" style={{ background: light ? '#F6E1D3' : '#3B1F12' }} aria-hidden>
       <PixelCrab tint="sonnet" state="done" scale={1.25} className="[&>span:last-child]:hidden" />
     </span>
   );
@@ -86,6 +87,15 @@ const APP_ICON: Record<string, { background: string; foreground: string; glyph: 
   duet: { background: '#0F4C45', foreground: '#D7FBF3', glyph: 'music' },
   settings: { background: '#3A3A3A', foreground: '#F3F3F0', glyph: 'settings' },
 };
+
+/**
+ * В светлых темах тёмные плитки меню выглядели дырами в бумаге. Светлый
+ * вариант — та же пара цветов наоборот: пастельный фон из светлого тона
+ * значка и глиф из тёмного (контраст пары тот же, что был у тёмной).
+ */
+const tileColors = (app: (typeof APP_ICON)[string], light: boolean) => (
+  light ? { ...app, background: app.foreground, foreground: app.background } : app
+);
 
 type FeaturePanelKey =
   | (typeof HUB_PANELS)[number]['key']
@@ -116,6 +126,8 @@ export default function SidebarFooter({
   const isOwner = !IS_PLATFORM && user?.role === 'admin';
   const krabikOn = useModEnabled('modKrabikAgent');
   const duetOn = useModEnabled('modDuet');
+  const { isDarkMode } = useTheme();
+  const lightTiles = !isDarkMode;
   const panels = isOwner
     ? [...HUB_PANELS, ...FEATURE_PANELS, SERVER_PANEL, ...(duetOn ? [DUET_PANEL] : []), ...(krabikOn ? [KRABIK_PANEL] : [])]
     : [...HUB_PANELS, ...FEATURE_PANELS];
@@ -240,7 +252,7 @@ export default function SidebarFooter({
         {menuOpen && (
           <div className="mt-1 space-y-1">
             {actions.map(({ key, label, icon: Icon, onClick }) => {
-              const app = APP_ICON[key];
+              const app = APP_ICON[key] ? tileColors(APP_ICON[key], lightTiles) : undefined;
               return (
               <button
                 key={key}
@@ -249,7 +261,7 @@ export default function SidebarFooter({
               >
                 <span className="relative">
                   {key === 'krabik' ? (
-                    <KrabikMenuIcon />
+                    <KrabikMenuIcon light={lightTiles} />
                   ) : app ? (
                     <AppIcon
                       background={app.background}
@@ -285,7 +297,7 @@ export default function SidebarFooter({
           under the icons so the row stays readable without a spoiler. */}
       <div className="flex items-stretch gap-1.5 px-3 pb-3 pt-2 md:hidden">
         {actions.map(({ key, label, shortLabel, icon: Icon, onClick }) => {
-          const app = APP_ICON[key];
+          const app = APP_ICON[key] ? tileColors(APP_ICON[key], lightTiles) : undefined;
           return (
           <button
             key={key}
@@ -296,7 +308,7 @@ export default function SidebarFooter({
           >
             <span className="relative">
               {key === 'krabik' ? (
-                <KrabikMenuIcon />
+                <KrabikMenuIcon light={lightTiles} />
               ) : app ? (
                 <AppIcon
                   background={app.background}

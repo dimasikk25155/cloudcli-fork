@@ -151,6 +151,11 @@ export function BuiltInModsSection() {
                 <div className="min-w-0">
                   <div className="text-sm font-semibold leading-none text-foreground">{mod.title}</div>
                   <p className="mt-1 text-sm leading-snug text-muted-foreground">{mod.description}</p>
+                  {mod.engines && (
+                    <p className="mt-1 text-xs leading-snug text-muted-foreground" data-mod-engines>
+                      {mod.engines}
+                    </p>
+                  )}
                   {blocked && parent && (
                     <p className="mt-1 text-xs leading-snug text-muted-foreground">
                       работает вместе с «{parent.title}»

@@ -9,7 +9,7 @@ import { createIsModOn, isModOn } from '@/shared/mods.js';
 
 import { MODS, MOD_KEYS, modDefault } from '../../../shared/mods.js';
 
-// The fifteen keys written out by hand; `subagentCrabs` keeps its old name.
+// The twenty-two keys written out by hand; `subagentCrabs` keeps its old name.
 const EXPECTED_KEYS = [
   'modAttention',
   'modAnswerButtons',
@@ -26,15 +26,44 @@ const EXPECTED_KEYS = [
   'modKrabikAgent',
   'modDuet',
   'modImprovementIdeas',
+  'modWorkbench',
+  'modSessionHub',
+  'modSideChat',
+  'modGroups',
+  'modThinkingTime',
+  'modKeepAwake',
+  'modDiagnostics',
 ];
 
-test('the mod registry lists exactly the fifteen mods, each with a title and a description', () => {
+// Mods of the workbench build (04.11.2026): each card says how it works in every engine.
+const WORKBENCH_BUILD_KEYS = [
+  'modWorkbench',
+  'modSessionHub',
+  'modSideChat',
+  'modGroups',
+  'modThinkingTime',
+  'modKeepAwake',
+  'modDiagnostics',
+];
+
+test('the mod registry lists exactly the twenty-two mods, each with a title and a description', () => {
   assert.deepEqual([...MOD_KEYS].sort(), [...EXPECTED_KEYS].sort());
-  assert.equal(MODS.length, 15);
+  assert.equal(MODS.length, 22);
   for (const mod of MODS) {
     assert.ok(mod.title.trim().length > 0, `${mod.key} has a title`);
     assert.ok(mod.description.trim().length > 0, `${mod.key} has a description`);
     assert.equal(modDefault(mod.key), true, `${mod.key} is on by default`);
+  }
+});
+
+test('every mod of the workbench build names its support in Claude, Codex and Grok', () => {
+  for (const key of WORKBENCH_BUILD_KEYS) {
+    const mod = MODS.find((candidate) => candidate.key === key);
+    assert.ok(mod, `${key} has a card`);
+    const engines = mod.engines ?? '';
+    for (const engine of ['Claude', 'Codex', 'Grok']) {
+      assert.ok(engines.includes(engine), `${key}: the engines line mentions ${engine}`);
+    }
   }
 });
 

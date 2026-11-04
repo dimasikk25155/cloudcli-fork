@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { backgroundTasksStore, stopStateLabel } from './BackgroundTasksStore.js';
+import { backgroundTasksStore, canStopTask, stopStateLabel } from './BackgroundTasksStore.js';
 
 const task = { taskId: 'b1', kind: 'bash', description: 'sleep 120', startedAt: 1_000 };
 
@@ -37,4 +37,21 @@ test('«Стоп» is the server\'s call: the frame\'s stoppable flag is kept, w
   backgroundTasksStore.setTasks('s-none', [task], {});
   assert.equal(backgroundTasksStore.get('s-none').stoppable, false);
   for (const id of ['s-grok', 's-claude', 's-other', 's-none']) backgroundTasksStore.clear(id);
+});
+
+test('Codex/Grok rows: «Стоп» only where the server found the task\'s process', () => {
+  backgroundTasksStore.setTasks('s-codex', [{ ...task, stoppable: true }, { ...task, taskId: 'b2', stoppable: false }],
+    { stoppable: true, provider: 'codex' });
+  const session = backgroundTasksStore.get('s-codex');
+  assert.deepEqual(session.tasks.map((row) => canStopTask(session, row)), [true, false]);
+  // Without the engine's stop nothing is stoppable, whatever a row says.
+  backgroundTasksStore.setTasks('s-codex', [{ ...task, stoppable: true }], { stoppable: false, provider: 'codex' });
+  const off = backgroundTasksStore.get('s-codex');
+  assert.equal(canStopTask(off, off.tasks[0]), false);
+  // Claude rows carry no flag: the frame decides.
+  backgroundTasksStore.setTasks('s-claude', [task], { stoppable: true, provider: 'claude' });
+  const claude = backgroundTasksStore.get('s-claude');
+  assert.equal(canStopTask(claude, claude.tasks[0]), true);
+  backgroundTasksStore.clear('s-codex');
+  backgroundTasksStore.clear('s-claude');
 });

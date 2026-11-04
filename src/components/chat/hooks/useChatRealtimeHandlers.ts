@@ -206,11 +206,13 @@ export function useChatRealtimeHandlers({
         // stored as a message they broke the history merge (no id), so a
         // session opened from «Ждут тебя» rendered empty.
         // «Авто-перенос» status — owned by useAutoRelay; settings saved on
-        // another device (`ui_preferences_changed`) — owned by useUiPreferencesSync.
+        // another device (`ui_preferences_changed`) — owned by useUiPreferencesSync;
+        // sidebar groups changed on another device — owned by useSidebarGroupsSync.
         case 'attention_changed':
         case 'memory_suggestions_changed':
         case 'auto_relay':
         case 'ui_preferences_changed':
+        case 'sidebar_groups_changed':
           return;
 
         // «Фон: N» — status frames, never chat rows.
@@ -284,6 +286,13 @@ export function useChatRealtimeHandlers({
             sessionStore.finalizeStreaming(sid);
           }
           accumulatedStreamRef.current = '';
+          // «Думал N с · ответ за N с» right as the turn ends, not after a re-read.
+          if (sid && !msg.aborted && typeof msg.completionDurationMs === 'number') {
+            sessionStore.recordAnswerTiming(sid, {
+              completionDurationMs: msg.completionDurationMs,
+              ...(typeof msg.thinkingDurationMs === 'number' ? { thinkingDurationMs: msg.thinkingDurationMs } : {}),
+            });
+          }
           if (sid) {
             resetSessionSteps(sid);
             backgroundTasksStore.clear(sid);

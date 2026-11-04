@@ -46,7 +46,7 @@ const PHOTO_THEMES = new Set([
  * шейдер за ними эту работу ломают. Без этого списка любая новая тема
  * молча проваливалась бы в WebGL-фон из ветки по умолчанию.
  */
-const FLAT_THEMES = new Set(['codex', 'gt', 'editorial', 'glass']);
+const FLAT_THEMES = new Set(['codex', 'gt', 'editorial', 'glass', 'claudeLight']);
 
 /**
  * Темы с живыми обоями — зацикленный ролик вместо фотографии.

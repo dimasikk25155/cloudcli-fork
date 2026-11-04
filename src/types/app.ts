@@ -38,7 +38,13 @@ export type GatewayEventKind =
    * clients re-read `GET /api/settings/ui-preferences`. Not a chat row.
    * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
    */
-  | 'ui_preferences_changed';
+  | 'ui_preferences_changed'
+  /**
+   * Sidebar groups or pins changed on some device. Content-free (`{kind}`);
+   * clients re-read `GET /api/sidebar-groups`. Not a chat row.
+   * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
+   */
+  | 'sidebar_groups_changed';
 
 export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini' | 'grok';
 

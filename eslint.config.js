@@ -180,6 +180,7 @@ export default tseslint.config(
             "server/shared/mods.ts", // isModOn: the one server read of the built-in mod switches; every mod checks it where its work starts
             "server/shared/threads-env.ts", // threadsApiUrl / thread env: Neo3's own address for engines (threads, team Telegram)
             "server/shared/user-jail.ts", // project jail for non-admin users: the Seatbelt fence every engine and terminal of a teammate runs in
+            "server/shared/process-tree.ts", // ps-based process tree of an engine: «Стоп» of one Codex/Grok background command
           ], // classify shared utility files so modules can depend on them explicitly
           mode: "file",
         },

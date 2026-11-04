@@ -2,6 +2,21 @@ import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import type { LLMProvider, McpScope, ProviderMcpServer, UpsertProviderMcpServerInput } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
+/**
+ * Names-only view of grouped MCP servers: what a read-only panel (session
+ * inspector) needs, without env/header/argument values.
+ */
+export function mcpServerNamesByScope(
+  grouped: Record<McpScope, ProviderMcpServer[]>,
+): Record<McpScope, Array<{ name: string }>> {
+  const result = {} as Record<McpScope, Array<{ name: string }>>;
+  for (const [scope, servers] of Object.entries(grouped) as Array<[McpScope, ProviderMcpServer[]]>) {
+    result[scope] = (Array.isArray(servers) ? servers : [])
+      .filter((server) => typeof server?.name === 'string' && server.name)
+      .map((server) => ({ name: server.name }));
+  }
+  return result;
+}
 
 export const providerMcpService = {
   /**

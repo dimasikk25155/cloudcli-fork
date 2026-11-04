@@ -20,7 +20,35 @@ export function attachRunDurations(messages: NormalizedMessage[], runs: RunDurat
     if (matches[0]?.message.provider === 'grok'
       && (matches.length !== 1 || runs.filter(other => other.answer_hash === run.answer_hash).length !== 1)) continue;
     const match = matches.at(-1);
-    if (match) result[match.index] = { ...match.message, completionDurationMs: run.duration_ms };
+    if (match) {
+      result[match.index] = {
+        ...match.message,
+        completionDurationMs: run.duration_ms,
+        ...(typeof run.thinking_ms === 'number' && Number.isFinite(run.thinking_ms) && run.thinking_ms >= 0
+          ? { thinkingDurationMs: run.thinking_ms } : {}),
+      };
+    }
   }
   return result;
+}
+
+const THINKING_BLOCK_TYPES = new Set(['thinking', 'redacted_thinking']);
+
+/**
+ * «Время размышления» for engines that hide the thinking text: Claude Code
+ * sends its thinking blocks with an empty text (signature only), and the
+ * adapters drop empty thinking. The run registry still has to see the moment
+ * the model finished thinking, so the runtime sends an empty `thinking` event
+ * (the chat drops empty thinking rows) when a raw assistant line carried a
+ * thinking block that the normalized events do not show.
+ */
+export function carriesUnshownThinking(raw: unknown, normalized: Array<{ kind?: string }>): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const line = raw as { type?: unknown; message?: { content?: unknown } };
+  if (normalized.some((message) => message.kind === 'thinking')) return false;
+  // Grok: a reasoning line whose summary is empty (encrypted content only).
+  if (line.type === 'reasoning') return true;
+  if (line.type !== 'assistant' || !Array.isArray(line.message?.content)) return false;
+  return line.message.content.some((part) => Boolean(part) && typeof part === 'object'
+    && THINKING_BLOCK_TYPES.has(String((part as { type?: unknown }).type)));
 }

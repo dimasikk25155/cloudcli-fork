@@ -38,11 +38,13 @@ export type {
   SessionAttentionListRow,
   SessionAttentionRow,
 } from '@/modules/database/repositories/session-attention.db.js';
+export { sidebarGroupsDb } from '@/modules/database/repositories/sidebar-groups.db.js';
+export type { SidebarGroupRow, SidebarGroupItemRow } from '@/modules/database/repositories/sidebar-groups.db.js';
 export { telegramDb } from '@/modules/database/repositories/telegram.db.js';
 export type { TelegramBindingRow } from '@/modules/database/repositories/telegram.db.js';
 export { sessionThreadsDb, threadTokensDb } from '@/modules/database/repositories/threads.db.js';
 export type { SessionThreadRow, ThreadTokenRow } from '@/modules/database/repositories/threads.db.js';
-export { uiPreferencesDb } from '@/modules/database/repositories/ui-preferences.js';
+export { uiPreferencesDb, isUiPreferenceKey } from '@/modules/database/repositories/ui-preferences.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 export { userProjectAccessDb } from '@/modules/database/repositories/user-project-access.js';
 export { vapidKeysDb } from '@/modules/database/repositories/vapid-keys.js';

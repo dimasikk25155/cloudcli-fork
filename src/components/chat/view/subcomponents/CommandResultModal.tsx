@@ -33,10 +33,14 @@ import type { LLMProvider, ProviderModelsCacheInfo, ProviderModelsDefinition } f
 import type {
   CommandModalPayload,
   CostCommandData,
+  DoctorCommandData,
   HelpCommandData,
   ModelCommandData,
+  SkillDoctorCommandData,
   StatusCommandData,
 } from '../../hooks/useChatComposerState';
+
+import { DoctorContent, SkillDoctorContent } from './DiagnosticsReportContent';
 
 type CommandResultModalProps = {
   payload: CommandModalPayload | null;
@@ -798,6 +802,18 @@ export default function CommandResultModal({
       subtitle: 'Version, provider, runtime, and environment details in one place.',
       icon: Activity,
     },
+    doctor: {
+      eyebrow: 'Диагностика',
+      title: 'Проверка настройки',
+      subtitle: 'Движки, MCP, туннель Ollama, диск, база и служба Neo3. Ключи не показываются.',
+      icon: BadgeCheck,
+    },
+    'skill-doctor': {
+      eyebrow: 'Диагностика',
+      title: 'Проверка навыков',
+      subtitle: 'Навыки Claude и Codex: дубли, пустые описания, битые ссылки, конфликты имён.',
+      icon: Package,
+    },
   } as const;
 
   const activeMeta = kind ? modalMeta[kind] : null;
@@ -860,6 +876,8 @@ export default function CommandResultModal({
           )}
           {payload?.kind === 'cost' && <CostContent data={payload.data as CostCommandData} />}
           {payload?.kind === 'status' && <StatusContent data={payload.data as StatusCommandData} />}
+          {payload?.kind === 'doctor' && <DoctorContent data={payload.data as DoctorCommandData} />}
+          {payload?.kind === 'skill-doctor' && <SkillDoctorContent data={payload.data as SkillDoctorCommandData} />}
         </div>
 
         <div className="flex shrink-0 flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">

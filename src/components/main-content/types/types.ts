@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
 import type { AppTab, Project, ProjectSession } from '../../../types/app';
 import type {
@@ -46,6 +46,8 @@ export type MainContentHeaderProps = {
   isMobile: boolean;
   onMenuClick: () => void;
   onGoHome?: () => void;
+  /** «Рабочий стол» switch, shown on the chat tab (mod `modWorkbench`). */
+  workbenchToggle?: ReactNode;
 };
 
 export type MainContentStateViewProps = {

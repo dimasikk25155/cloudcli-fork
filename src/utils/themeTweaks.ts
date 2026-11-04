@@ -58,11 +58,44 @@ export const FONT_STACKS = [
     value: 'Merriweather, Georgia, Cambria, "Times New Roman", serif',
   },
   {
+    // Свободный засечный (SIL OFL) с кириллицей — заголовки «Светлой Claude».
+    id: 'sourceSerif',
+    label: 'Source Serif 4',
+    value: "'Source Serif 4', Georgia, Cambria, 'Times New Roman', serif",
+  },
+  {
     id: 'mono',
     label: 'JetBrains Mono',
     value: "'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono', ui-monospace, monospace",
   },
 ] as const;
+
+/**
+ * Тройка HSL токена темы (`"48 33% 97%"`, как её хранит index.css) → `#rrggbb`.
+ * Нужна там, куда CSS-переменную не передать: `meta theme-color`, фон окна
+ * Electron до загрузки страницы. Альфа и любой другой формат → `null`.
+ */
+export const hslTripletToHex = (triplet: string): string | null => {
+  if (typeof triplet !== 'string') return null;
+  const match = triplet.trim().match(/^(-?\d+(?:\.\d+)?)(?:deg)?\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/);
+  if (!match) return null;
+  const h = (((Number(match[1]) % 360) + 360) % 360) / 360;
+  const s = Math.min(100, Number(match[2])) / 100;
+  const l = Math.min(100, Number(match[3])) / 100;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channel = (offset: number) => {
+    let t = h + offset;
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    let value = p;
+    if (t < 1 / 6) value = p + (q - p) * 6 * t;
+    else if (t < 1 / 2) value = q;
+    else if (t < 2 / 3) value = p + (q - p) * (2 / 3 - t) * 6;
+    return Math.round(value * 255).toString(16).padStart(2, '0');
+  };
+  return `#${channel(1 / 3)}${channel(0)}${channel(-1 / 3)}`;
+};
 
 /** Выпадашки: ключ настройки → какой шрифтовой токен он подменяет. */
 export const FONT_SLOTS = [

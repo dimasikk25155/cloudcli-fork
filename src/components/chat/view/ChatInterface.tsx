@@ -47,6 +47,7 @@ const COMPOSER_MODEL_GROUP_LABELS: Partial<Record<Provider, string>> = {
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import PinnedUserMessage from './subcomponents/PinnedUserMessage';
 import ThreadsBar from '../../threads/ThreadsBar';
+import SessionHubBar from '../../session-hub/SessionHubBar';
 import CrabSquadBand from '../../crabs/CrabSquadBand';
 import { IdeaCards } from '../../improvement-ideas/IdeaCards';
 import { currentSessionLinks } from '../../threads/threadsBarModel';
@@ -858,6 +859,7 @@ function ChatInterface({
           memorySessionId={chipsSessionId}
           relayBand={(
             <>
+              <SessionHubBar onOpenSession={(sessionId) => onNavigateToSession?.(sessionId)} />
               <IdeaCards sessionId={chipsSessionId} isProcessing={isProcessing} />
               <CrabSquadBand chatMessages={chatMessages} sessionId={chipsSessionId} isRunActive={isProcessing} />
               {relayOn && <RelayBand relay={relay} autoRelay={autoRelay} onOpenChat={followMovedChat} />}

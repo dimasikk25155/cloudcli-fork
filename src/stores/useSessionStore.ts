@@ -11,6 +11,9 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { authenticatedFetch } from '../utils/api';
 import type { LLMProvider } from '../types/app';
+import { applyLiveAnswerTimings } from '../components/chat/utils/completionDuration';
+import type { AnswerTiming, LiveAnswerTiming } from '../components/chat/utils/completionDuration';
+
 import {
   computeMerged,
   dropStopHookUserMessages,
@@ -52,6 +55,7 @@ export interface NormalizedMessage {
    */
   seq?: number;
   completionDurationMs?: number;
+  thinkingDurationMs?: number;
 
   // kind-specific fields (flat for simplicity)
   role?: 'user' | 'assistant';
@@ -119,6 +123,13 @@ export interface SessionSlot {
    */
   _fetchSeq: number;
   _appliedFetchSeq: number;
+  /**
+   * «Время размышления»: timings of turns that ended live (`complete` frame),
+   * put on their answers until the history re-read carries its own.
+   */
+  answerTimings: LiveAnswerTiming[];
+  /** @internal Cache-invalidation ref for answerTimings */
+  _lastTimingsRef: LiveAnswerTiming[];
   status: SessionStatus;
   fetchedAt: number;
   total: number;
@@ -144,6 +155,8 @@ function createEmptySlot(): SessionSlot {
     tokenUsage: null,
     _fetchSeq: 0,
     _appliedFetchSeq: 0,
+    answerTimings: [],
+    _lastTimingsRef: [],
   };
 }
 
@@ -152,12 +165,14 @@ function createEmptySlot(): SessionSlot {
  * (by reference). Returns true if merged was recomputed.
  */
 function recomputeMergedIfNeeded(slot: SessionSlot): boolean {
-  if (slot.serverMessages === slot._lastServerRef && slot.realtimeMessages === slot._lastRealtimeRef) {
+  if (slot.serverMessages === slot._lastServerRef && slot.realtimeMessages === slot._lastRealtimeRef
+    && slot.answerTimings === slot._lastTimingsRef) {
     return false;
   }
   slot._lastServerRef = slot.serverMessages;
   slot._lastRealtimeRef = slot.realtimeMessages;
-  slot.merged = computeMerged(slot.serverMessages, slot.realtimeMessages);
+  slot._lastTimingsRef = slot.answerTimings;
+  slot.merged = applyLiveAnswerTimings(computeMerged(slot.serverMessages, slot.realtimeMessages), slot.answerTimings);
   return true;
 }
 
@@ -166,6 +181,8 @@ function recomputeMergedIfNeeded(slot: SessionSlot): boolean {
 const STALE_THRESHOLD_MS = 30_000;
 
 const MAX_REALTIME_MESSAGES = 500;
+
+const MAX_LIVE_ANSWER_TIMINGS = 50;
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
@@ -512,6 +529,22 @@ export function useSessionStore() {
   }, [notify]);
 
   /**
+   * «Время размышления»: the live `complete` frame's timing goes on the turn's
+   * last answer right away. Returns false when the session shows no answer.
+   */
+  const recordAnswerTiming = useCallback((sessionId: string, timing: AnswerTiming) => {
+    const slot = storeRef.current.get(sessionId);
+    if (!slot || typeof timing.completionDurationMs !== 'number') return false;
+    const answer = [...slot.merged].reverse().find((message) => message.kind === 'text'
+      && message.role === 'assistant' && !message.parentToolUseId && message.content?.trim());
+    if (!answer?.content) return false;
+    slot.answerTimings = [...slot.answerTimings, { answer: answer.content, ...timing }].slice(-MAX_LIVE_ANSWER_TIMINGS);
+    recomputeMergedIfNeeded(slot);
+    notify(sessionId);
+    return true;
+  }, [notify]);
+
+  /**
    * Get merged messages for a session (for rendering).
    */
   const getMessages = useCallback((sessionId: string): NormalizedMessage[] => {
@@ -539,13 +572,14 @@ export function useSessionStore() {
     updateStreaming,
     finalizeStreaming,
     clearRealtime,
+    recordAnswerTiming,
     getMessages,
     getSessionSlot,
   }), [
     getSlot, has, fetchFromServer, fetchMore,
     appendRealtime, appendRealtimeBatch, refreshFromServer,
     setActiveSession, setStatus, isStale, updateStreaming, finalizeStreaming,
-    clearRealtime, getMessages, getSessionSlot,
+    clearRealtime, recordAnswerTiming, getMessages, getSessionSlot,
   ]);
 }
 

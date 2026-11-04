@@ -19,6 +19,7 @@ import SettingsRow from '../SettingsRow';
 import SettingsSection from '../SettingsSection';
 import SettingsToggle from '../SettingsToggle';
 
+import SettingsProfileSection from './profile/SettingsProfileSection';
 import ThemeTweakPanel from './ThemeTweakPanel';
 
 type AppearanceSettingsTabProps = {
@@ -304,6 +305,8 @@ export default function AppearanceSettingsTab({
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
+
+      <SettingsProfileSection />
     </div>
   );
 }

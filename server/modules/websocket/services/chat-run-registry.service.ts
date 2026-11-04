@@ -35,6 +35,15 @@ type ChatRunStatus = 'running' | 'completed';
 type ChatRun = {
   runId: string;
   monotonicStart: number;
+  /** Monotonic clock of the run (`performance.now` outside tests). */
+  now: () => number;
+  /**
+   * «Время размышления»: when the previous main-thread event passed, the
+   * thinking summed so far, and whether the turn showed any thinking at all.
+   */
+  lastEventAt: number;
+  thinkingMs: number;
+  sawThinking: boolean;
   lastAnswer: string | null;
   appSessionId: string;
   provider: LLMProvider;
@@ -152,6 +161,25 @@ export function backgroundConsoleOn(userId: ModUserId, using: IsModOn = isModOn)
   return using(userId, 'modBackgroundConsole');
 }
 
+/**
+ * Thinking of one turn, measured the same way for every engine: none of them
+ * stamps its events, so the interval «previous event → thinking event» is the
+ * time the model spent thinking before it said so. Consecutive thinking
+ * events (Grok streams chunks) extend the interval; the turn sums them.
+ * Codex reports reasoning only on `item.completed`, which this covers — the
+ * interval starts at whatever came before. Helpers' (crabs') events are
+ * their own work and neither count nor cut the main thread's interval.
+ */
+function recordTurnTiming(run: ChatRun, message: NormalizedMessage): void {
+  if (message.parentToolUseId) return;
+  const at = run.now();
+  if (message.kind === 'thinking') {
+    run.thinkingMs += Math.max(0, at - run.lastEventAt);
+    run.sawThinking = true;
+  }
+  run.lastEventAt = at;
+}
+
 function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): NormalizedMessage | null {
   // Nothing escapes a finished run — this is what makes Stop mean stop.
   // Cancelling a run is not instantaneous: `interrupt()` is advisory (the CLI
@@ -172,6 +200,7 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   }
 
   run.lastSeq += 1;
+  recordTurnTiming(run, message);
 
   const outbound: NormalizedMessage = {
     ...message,
@@ -191,12 +220,14 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     run.completedAt = Date.now();
     if (!message.aborted && message.success !== false
       && (message.exitCode === undefined || message.exitCode === 0) && run.lastAnswer) {
-      const durationMs = Math.max(0, Math.round(performance.now() - run.monotonicStart));
+      const durationMs = Math.max(0, Math.round(run.now() - run.monotonicStart));
       outbound.completionDurationMs = durationMs;
+      const thinkingMs = run.sawThinking ? Math.min(durationMs, Math.round(run.thinkingMs)) : null;
+      if (thinkingMs !== null) outbound.thinkingDurationMs = thinkingMs;
       try {
         runDurationsDb.save({ run_id: run.runId, session_id: run.appSessionId,
           started_at: run.startedAt, finished_at: run.completedAt, duration_ms: durationMs,
-          answer_hash: answerHash(run.lastAnswer) });
+          answer_hash: answerHash(run.lastAnswer), thinking_ms: thinkingMs });
       } catch {
         console.warn('[ChatRunRegistry] Could not save response duration');
       }
@@ -324,15 +355,23 @@ export const chatRunRegistry = {
     projectId?: string | null;
     /** Decided by the gateway from stopTaskFns; absent = no «Стоп». */
     canStopTasks?: boolean;
+    /** Monotonic clock (ms); tests pass a fake one. */
+    now?: () => number;
   }): ChatRun | null {
     const existing = runs.get(input.appSessionId);
     if (existing && existing.status === 'running') {
       return null;
     }
 
+    const now = input.now ?? (() => performance.now());
+    const monotonicStart = now();
     const run: ChatRun = {
       runId: randomUUID(),
-      monotonicStart: performance.now(),
+      monotonicStart,
+      now,
+      lastEventAt: monotonicStart,
+      thinkingMs: 0,
+      sawThinking: false,
       lastAnswer: null,
       appSessionId: input.appSessionId,
       provider: input.provider,

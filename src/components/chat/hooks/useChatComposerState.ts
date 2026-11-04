@@ -61,6 +61,9 @@ import { runSecretGuard } from '../utils/secretGuard';
 import { askSecretGuard } from '../view/subcomponents/SecretGuardDialog';
 import { stashSecretRequest } from '../utils/secretStash';
 import { resetSessionSteps } from '../utils/stepTimer';
+import { askAdvisor } from '../../workbench/advisor/advisorApi';
+import { askAside, openSideChatTab } from '../../workbench/sidechat/sideChatApi';
+import { openWorkbenchTab } from '../../workbench/useWorkbench';
 
 import { useFileMentions } from './useFileMentions';
 import { useInputHistory } from './useInputHistory';
@@ -213,11 +216,30 @@ export type HelpCommandData = {
   }>;
 };
 
-export type CommandModalKind = 'help' | 'models' | 'cost' | 'status';
+export type DoctorCommandData = {
+  report?: {
+    checks: Array<{ id: string; title: string; status: 'ok' | 'warn' | 'fail' | 'unknown'; detail: string }>;
+  };
+};
+
+export type SkillDoctorCommandData = {
+  report?: {
+    skills: Array<{ dir: string; name: string; source: string; hasDescription: boolean }>;
+    issues: Array<{ kind: string; skill: string; detail: string }>;
+  };
+};
+
+export type CommandModalKind = 'help' | 'models' | 'cost' | 'status' | 'doctor' | 'skill-doctor';
 
 export type CommandModalPayload = {
   kind: CommandModalKind;
-  data: HelpCommandData | ModelCommandData | CostCommandData | StatusCommandData;
+  data:
+    | HelpCommandData
+    | ModelCommandData
+    | CostCommandData
+    | StatusCommandData
+    | DoctorCommandData
+    | SkillDoctorCommandData;
 };
 
 const createFakeSubmitEvent = () => {
@@ -339,6 +361,7 @@ export function useChatComposerState({
   const isAdmin = user?.role === 'admin';
   const secretGuardOn = useModEnabled('modSecretGuard');
   const screenshotsOn = useModEnabled('modScreenshots');
+  const workbenchOn = useModEnabled('modWorkbench');
   // What the last paste carried, for the duplicate-paste guard in handlePaste.
   const lastPasteRef = useRef<PasteRecord | null>(null);
   const inputValueRef = useRef(input);
@@ -447,11 +470,73 @@ export function useChatComposerState({
           onShowSettings?.();
           break;
 
+        // /btw <вопрос>: a side chat next to this one; this chat's run goes on.
+        case 'btw': {
+          const question = String(data?.question ?? '').trim();
+          const note = (content: string) => addMessage({ type: 'assistant', content, timestamp: Date.now() });
+          if (!question) {
+            note('Напиши вопрос после /btw — например: /btw зачем здесь этот индекс?');
+            break;
+          }
+          if (!currentSessionId) {
+            note('Побочный вопрос задаётся к начатому чату — сначала отправь здесь первое сообщение.');
+            break;
+          }
+          const parentSessionId = currentSessionId;
+          void askAside(parentSessionId, { question })
+            .then((created) => {
+              if (workbenchOn) {
+                openSideChatTab(parentSessionId, created);
+              } else {
+                note(`Побочный чат «${created.title}» создан — он в списке слева, под этим чатом.`);
+              }
+            })
+            .catch((error: unknown) => {
+              note(`Побочный чат не создан: ${error instanceof Error ? error.message : 'ошибка'}`);
+            });
+          break;
+        }
+
+        // /doctor and /skill-doctor: read-only reports for the admin.
+        case 'doctor':
+        case 'skill-doctor':
+          setCommandModalPayload({
+            kind: action,
+            data: (data || {}) as DoctorCommandData | SkillDoctorCommandData,
+          });
+          break;
+
+        // /advisor <question>: one call to a stronger model; the answer opens in the canvas.
+        case 'advisor': {
+          const question = String(data?.question ?? '').trim();
+          const note = (content: string) => addMessage({ type: 'assistant', content, timestamp: Date.now() });
+          if (!question) {
+            note('Напиши вопрос после /advisor — например: /advisor стоит ли делить этот модуль?');
+            break;
+          }
+          if (!currentSessionId) {
+            note('Советник смотрит последние сообщения чата — сначала отправь здесь первое сообщение.');
+            break;
+          }
+          const sessionId = currentSessionId;
+          if (workbenchOn) {
+            openWorkbenchTab(sessionId, { kind: 'advisor', ref: sessionId, title: 'Советник' });
+          } else {
+            note('Спрашиваю советника…');
+          }
+          void askAdvisor(sessionId, question).then((outcome) => {
+            if (!workbenchOn) {
+              note(outcome.ok ? `Советник: ${outcome.answer}` : outcome.error);
+            }
+          });
+          break;
+        }
+
         default:
           console.warn('Unknown built-in command action:', action);
       }
     },
-    [onFileOpen, onShowSettings, addMessage],
+    [onFileOpen, onShowSettings, addMessage, currentSessionId, workbenchOn],
   );
 
   const closeCommandModal = useCallback(() => {

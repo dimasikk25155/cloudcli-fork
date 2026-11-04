@@ -48,7 +48,7 @@ function isSelfOrAncestor(sessionId: string, candidateId: string): boolean {
 
 /**
  * Links an existing chat to its parent. Refused (AppError, nothing stored) when:
- * relation is not relay/thread (400 SESSION_LINK_INVALID_RELATION); either chat
+ * relation is not relay/thread/btw (400 SESSION_LINK_INVALID_RELATION); either chat
  * is missing (404 SESSION_NOT_FOUND / PARENT_SESSION_NOT_FOUND); the user may not
  * see either chat (403 SESSION_ACCESS_DENIED / PARENT_SESSION_ACCESS_DENIED); the
  * chats live in different projects (400 SESSION_LINK_OTHER_PROJECT); the link
@@ -86,7 +86,7 @@ function checkParent({ parentSessionId, relation, user, projectPath }: {
   projectPath: string | null;
 }): SessionRelation {
   if (!isSessionRelation(relation)) {
-    refused('Вид связи должен быть relay или thread', 'SESSION_LINK_INVALID_RELATION', 400);
+    refused('Вид связи должен быть relay, thread или btw', 'SESSION_LINK_INVALID_RELATION', 400);
   }
   const parent = sessionLinksDb.getRow(parentSessionId);
   if (!parent) refused('Родительский чат не найден', 'PARENT_SESSION_NOT_FOUND', 404);

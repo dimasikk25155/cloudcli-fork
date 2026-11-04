@@ -525,6 +525,32 @@ CREATE TABLE IF NOT EXISTS memory_suggestions (
 CREATE INDEX IF NOT EXISTS idx_memory_suggestions_status ON memory_suggestions(status);
 `;
 
+export const SIDEBAR_GROUPS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS sidebar_groups (
+ id TEXT PRIMARY KEY NOT NULL,
+ user_id INTEGER NOT NULL,
+ name TEXT NOT NULL,
+ position INTEGER NOT NULL DEFAULT 0,
+ collapsed INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sidebar_groups_user ON sidebar_groups(user_id);
+CREATE TABLE IF NOT EXISTS sidebar_group_items (
+ group_id TEXT NOT NULL,
+ item_type TEXT NOT NULL CHECK (item_type IN ('project','session')),
+ item_id TEXT NOT NULL,
+ position INTEGER NOT NULL DEFAULT 0,
+ PRIMARY KEY (group_id, item_type, item_id),
+ FOREIGN KEY (group_id) REFERENCES sidebar_groups(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS session_pins (
+ user_id INTEGER NOT NULL,
+ session_id TEXT NOT NULL,
+ pinned_at TEXT NOT NULL,
+ PRIMARY KEY (user_id, session_id)
+);
+`;
+
 export const IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS improvement_ideas (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -631,6 +657,7 @@ ${SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL}
 
 ${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
 ${IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL}
+${SIDEBAR_GROUPS_TABLE_SCHEMA_SQL}
 
 ${LAST_SCANNED_AT_SQL}
 
@@ -643,6 +670,7 @@ CREATE TABLE IF NOT EXISTS run_durations (
     finished_at INTEGER NOT NULL,
     duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
     answer_hash TEXT NOT NULL,
+    thinking_ms INTEGER DEFAULT NULL CHECK (thinking_ms IS NULL OR thinking_ms >= 0),
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_run_durations_session ON run_durations(session_id);

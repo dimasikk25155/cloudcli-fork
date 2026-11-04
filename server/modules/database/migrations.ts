@@ -14,6 +14,7 @@ import {
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL,
+  SIDEBAR_GROUPS_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_TABLE_SCHEMA_SQL,
   SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL,
   SESSION_THREADS_TABLE_SCHEMA_SQL,
@@ -582,6 +583,15 @@ export const runMigrations = (db: Database) => {
     // Vault-note suggestions (memory-suggestions).
     db.exec(MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL);
     db.exec(IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL);
+    // Sidebar groups and chat pins (sidebar-groups module).
+    db.exec(SIDEBAR_GROUPS_TABLE_SCHEMA_SQL);
+
+    // «Время размышления»: time the model spent thinking in a run. Older
+    // run_durations tables only gain the column here (NULL = not measured).
+    if (tableExists(db, 'run_durations')) {
+      const runDurationColumnNames = getTableInfo(db, 'run_durations').map((column) => column.name);
+      addColumnToTableIfNotExists(db, 'run_durations', runDurationColumnNames, 'thinking_ms', 'INTEGER DEFAULT NULL');
+    }
 
     db.exec(LAST_SCANNED_AT_SQL);
     console.log('Database migrations completed successfully');

@@ -1,0 +1,15 @@
+{"at": 26340, "event": {"kind": "thinking", "role": "assistant", "content": "", "provider": "claude"}}
+{"at": 26640, "event": {"kind": "text", "role": "assistant", "content": "Сначала посмотрю, что лежит в папке.", "provider": "claude"}}
+{"at": 33290, "event": {"kind": "tool_use", "toolName": "Bash", "toolId": "toolu_01", "toolInput": {"command": "ls"}, "provider": "claude"}}
+{"at": 33300, "event": {"kind": "status", "text": "token_budget", "tokenBudget": {"used": 21000}, "provider": "claude"}}
+{"at": 33680, "event": {"kind": "tool_result", "toolId": "toolu_01", "content": "README.md", "provider": "claude"}}
+{"at": 37490, "event": {"kind": "thinking", "role": "assistant", "content": "", "provider": "claude"}}
+{"at": 37490, "event": {"kind": "text", "role": "assistant", "content": "Открою README.", "provider": "claude"}}
+{"at": 38830, "event": {"kind": "tool_use", "toolName": "Read", "toolId": "toolu_02", "toolInput": {"file_path": "README.md"}, "provider": "claude"}}
+{"at": 39330, "event": {"kind": "tool_result", "toolId": "toolu_02", "content": "# Demo", "provider": "claude"}}
+{"at": 41750, "event": {"kind": "thinking", "role": "assistant", "content": "", "provider": "claude"}}
+{"at": 42920, "event": {"kind": "tool_use", "toolName": "Grep", "toolId": "toolu_03", "toolInput": {"pattern": "TODO"}, "provider": "claude"}}
+{"at": 43250, "event": {"kind": "tool_result", "toolId": "toolu_03", "content": "", "provider": "claude"}}
+{"at": 46600, "event": {"kind": "thinking", "role": "assistant", "content": "", "provider": "claude"}}
+{"at": 47340, "event": {"kind": "text", "role": "assistant", "content": "Готово: в проекте один README, задач TODO нет.", "provider": "claude"}}
+{"at": 47400, "event": {"kind": "complete", "exitCode": 0, "provider": "claude"}}

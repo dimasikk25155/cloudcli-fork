@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 
 import { authenticatedFetch } from '../utils/api';
-import { applyTweaks, parseTweakMap } from '../utils/themeTweaks';
+import { applyTweaks, hslTripletToHex, parseTweakMap } from '../utils/themeTweaks';
 
 const ThemeContext = createContext();
 
@@ -24,6 +24,7 @@ export const THEMES = [
   'editorial',
   'kineticType',
   'claude',
+  'claudeLight',
   'neonCity',
   'synthwaveDrive',
   'nebulaFlow',
@@ -53,6 +54,7 @@ export const THEME_LABELS = {
   editorial: 'Бежевая светлая',
   kineticType: 'Лаймовая',
   claude: 'Терракотовая',
+  claudeLight: 'Светлая Claude',
   neonCity: 'Голубая',
   synthwaveDrive: 'Розовая',
   nebulaFlow: 'Мятная',
@@ -65,7 +67,25 @@ export const THEME_LABELS = {
 // Themes that are light (bright) rather than dark. Each theme decides whether
 // the global `dark` class is applied — there is no separate user dark/light
 // toggle. `default` and anything not listed here is treated as dark.
-export const LIGHT_THEMES = ['editorial', 'glass'];
+// Копия списка живёт в inline-скрипте index.html (тема до первой отрисовки);
+// их совпадение сторожит theme-registry.test.ts.
+export const LIGHT_THEMES = ['editorial', 'glass', 'claudeLight'];
+
+// Цвет хрома браузера и окна, пока тема не прочиталась из CSS.
+const FALLBACK_CHROME_COLOR = { dark: '#141414', light: '#eef2f9' };
+
+/**
+ * Фон темы в hex — из её же токена `--background`, чтобы `meta theme-color`,
+ * фон до первой отрисовки и окно Electron совпадали с тем, что нарисует CSS.
+ */
+const readThemeChromeColor = (dark) => {
+  try {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue('--background');
+    return hslTripletToHex(raw) || (dark ? FALLBACK_CHROME_COLOR.dark : FALLBACK_CHROME_COLOR.light);
+  } catch {
+    return dark ? FALLBACK_CHROME_COLOR.dark : FALLBACK_CHROME_COLOR.light;
+  }
+};
 
 // Несколько картинок на одну тему: тема задаёт цвета/шрифты/панели, а фон
 // внутри неё выбирается отдельно. Первый вариант в списке — дефолтный, его
@@ -374,9 +394,19 @@ export const ThemeProvider = ({ children }) => {
       statusBarMeta.setAttribute('content', dark ? 'black-translucent' : 'default');
     }
 
+    // Цвет берётся из темы: inline-скрипт index.html на следующем старте
+    // красит им страницу до загрузки CSS, Electron — окно до загрузки страницы.
+    const chromeColor = readThemeChromeColor(dark);
+    localStorage.setItem('appThemeColor', chromeColor);
+    root.style.backgroundColor = chromeColor;
     const themeColorMeta = document.querySelector('meta[name="theme-color"]');
     if (themeColorMeta) {
-      themeColorMeta.setAttribute('content', dark ? '#141414' : '#eef2f9');
+      themeColorMeta.setAttribute('content', chromeColor);
+    }
+    try {
+      window.neo3Desktop?.notifyThemeChanged?.({ isDark: dark, background: chromeColor });
+    } catch {
+      // Мост Electron есть только в настольном приложении; в браузере — тишина.
     }
     // themeTweaks в зависимостях: без него ползунок применялся бы только при
     // следующей смене темы, то есть «ничего не происходит».

@@ -30,6 +30,13 @@ import { GROK_SUBAGENT_TOOL } from './grok-subagents.js';
  *
  * Both the live envelope (assistant `tool_use` / user `tool_result` blocks)
  * and `chat_history.jsonl` lines (`tool_calls` / `tool_result` rows) are read.
+ *
+ * Live stream of Grok 1.0.70 (captured 04.11 in an isolated HOME): the start
+ * result is JSON — {"type":"BackgroundTaskStarted","task_id","task_type",
+ * "status":"running","command","pid"} — and NO completion notice reaches the
+ * stream (Grok tells the model internally). So a live task also ends when its
+ * `pid` is gone (`pruneExited`, run by the runtime), and JSON reports of
+ * Grok's own tools with a final `status` close it as well.
  */
 
 type ToolCall = { name: string; input: Record<string, unknown> };
@@ -158,9 +165,50 @@ function saysEnded(text: string, id: string): boolean {
   return false;
 }
 
-/** A started background task in a tool result: (id, type) or null. */
-function startedTask(call: ToolCall | undefined, text: string): { taskId: string; taskType?: string } | null {
+/** The tool result as JSON (live Grok answers in JSON), or null. */
+function parseJson(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+/** Every `{task_id, status}` pair in a JSON report, at any depth. */
+function jsonStatuses(value: unknown, found: Array<{ taskId: string; status: string }> = [], depth = 0): Array<{ taskId: string; status: string }> {
+  if (depth > 4 || !value || typeof value !== 'object') return found;
+  if (Array.isArray(value)) {
+    for (const item of value) jsonStatuses(item, found, depth + 1);
+    return found;
+  }
+  const item = value as Record<string, unknown>;
+  if (typeof item.task_id === 'string' && typeof item.status === 'string') found.push({ taskId: item.task_id, status: item.status });
+  for (const child of Object.values(item)) {
+    if (child && typeof child === 'object') jsonStatuses(child, found, depth + 1);
+  }
+  return found;
+}
+
+type Started = { taskId: string; taskType?: string; pid?: number; command?: string };
+
+/** A started background task in a tool result, or null. */
+function startedTask(call: ToolCall | undefined, text: string): Started | null {
   if (call?.name === GROK_SUBAGENT_TOOL) return null;
+  const json = record(parseJson(text));
+  if (json?.type === 'BackgroundTaskStarted' && typeof json.task_id === 'string' && json.task_id) {
+    const taskType = typeof json.task_type === 'string' ? json.task_type : undefined;
+    if (typeof json.status === 'string' && json.status.toLowerCase() !== 'running') return null;
+    if (taskType && taskType !== 'bash' && taskType !== 'monitor') return null;
+    if (call && !TERMINAL_TOOLS.has(call.name) && call.name !== MONITOR_TOOL) return null;
+    return {
+      taskId: json.task_id,
+      taskType: taskType ?? (call?.name === MONITOR_TOOL ? 'monitor' : 'bash'),
+      ...(Number.isInteger(json.pid) && (json.pid as number) > 0 ? { pid: json.pid as number } : {}),
+      ...(typeof json.command === 'string' && json.command.trim() ? { command: json.command } : {}),
+    };
+  }
   if (call?.name === MONITOR_TOOL) {
     const monitor = /Monitor started \(task ([^\s,)]+)/i.exec(text);
     if (monitor) return { taskId: monitor[1], taskType: 'monitor' };
@@ -186,10 +234,29 @@ function descriptionOf(call: ToolCall | undefined, text: string): string {
   return summary ? clip(summary) : '';
 }
 
-export function createGrokBackgroundTaskTracker(options: { now?: () => number } = {}): BackgroundTaskTracker {
+export type GrokBackgroundTaskTracker = BackgroundTaskTracker & {
+  /** The command a running task was started with, for finding its process («Стоп»). */
+  commandOf(taskId: string): string | null;
+  /** The pid Grok reported for the task (live stream), or null. */
+  pidOf(taskId: string): number | null;
+  /** Drops tasks whose reported pid is gone; the new list when it changed, else null. */
+  pruneExited(isAlive: (pid: number) => boolean): BackgroundTask[] | null;
+};
+
+export function createGrokBackgroundTaskTracker(options: { now?: () => number } = {}): GrokBackgroundTaskTracker {
   const now = options.now ?? Date.now;
   const calls = new Map<string, ToolCall>();
+  const started = new Map<string, { pid?: number; command?: string }>();
   let tasks: BackgroundTask[] = [];
+  const drop = (keep: (task: BackgroundTask) => boolean): boolean => {
+    const before = tasks.length;
+    tasks = tasks.filter((task) => {
+      if (keep(task)) return true;
+      started.delete(task.taskId);
+      return false;
+    });
+    return tasks.length !== before;
+  };
 
   const list = (): BackgroundTask[] => tasks.map((task) => ({ ...task }));
 
@@ -207,31 +274,28 @@ export function createGrokBackgroundTaskTracker(options: { now?: () => number } 
         if (event.kind === 'result' && call && KILL_TOOLS.has(call.name)) {
           const target = typeof call.input.task_id === 'string' ? call.input.task_id : null;
           if (target && /^(?:killed|already_exited)\b|not found/i.test(text.trim())) {
-            const before = tasks.length;
-            tasks = tasks.filter((task) => task.taskId !== target);
-            changed ||= tasks.length !== before;
+            changed = drop((task) => task.taskId !== target) || changed;
           }
         }
 
         const fromGrok = event.kind === 'text' ? event.synthetic : Boolean(call && REPORT_TOOLS.has(call.name));
         if (fromGrok && tasks.length > 0) {
-          const left = tasks.filter((task) => !saysEnded(text, task.taskId));
-          if (left.length !== tasks.length) {
-            tasks = left;
-            changed = true;
-          }
+          const finals = new Set(jsonStatuses(parseJson(text))
+            .filter((entry) => entry.status.toLowerCase() !== 'running').map((entry) => entry.taskId));
+          changed = drop((task) => !saysEnded(text, task.taskId) && !finals.has(task.taskId)) || changed;
         }
 
         if (event.kind === 'result') {
-          const started = startedTask(call, text);
-          if (started && !tasks.some((task) => task.taskId === started.taskId)) {
+          const start = startedTask(call, text);
+          if (start && !tasks.some((task) => task.taskId === start.taskId)) {
             tasks = [...tasks, {
-              taskId: started.taskId,
-              kind: kindOf(started.taskType),
+              taskId: start.taskId,
+              kind: kindOf(start.taskType),
               description: descriptionOf(call, text),
               startedAt: now(),
               toolUseId: event.id,
             }];
+            started.set(start.taskId, { pid: start.pid, command: start.command });
             changed = true;
           }
         }
@@ -240,5 +304,25 @@ export function createGrokBackgroundTaskTracker(options: { now?: () => number } 
     },
     list,
     has: (taskId) => tasks.some((task) => task.taskId === taskId),
+    commandOf: (taskId) => {
+      const task = tasks.find((item) => item.taskId === taskId);
+      if (!task) return null;
+      const command = started.get(taskId)?.command
+        ?? (task.toolUseId ? calls.get(task.toolUseId)?.input.command : undefined);
+      return typeof command === 'string' && command.trim() ? command : null;
+    },
+    pidOf: (taskId) => (tasks.some((task) => task.taskId === taskId) ? started.get(taskId)?.pid ?? null : null),
+    pruneExited(isAlive) {
+      const changed = drop((task) => {
+        const pid = started.get(task.taskId)?.pid;
+        if (!pid) return true;
+        try {
+          return isAlive(pid);
+        } catch {
+          return true;
+        }
+      });
+      return changed ? list() : null;
+    },
   };
 }

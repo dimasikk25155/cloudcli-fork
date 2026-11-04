@@ -5,6 +5,7 @@ import { useDeviceSettings } from '../../../hooks/useDeviceSettings';
 import { useVersionCheck } from '../../../hooks/useVersionCheck';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useModEnabled } from '../../../hooks/useModEnabled';
+import { useSidebarGroupsSync } from '../groups/useSidebarGroups';
 import { useSidebarController } from '../hooks/useSidebarController';
 import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
 import type { LLMProvider } from '../../../types/app';
@@ -48,6 +49,7 @@ function Sidebar({
   const { preferences, setPreference } = useUiPreferences();
   const { sidebarVisible } = preferences;
   const paletteOps = usePaletteOps();
+  useSidebarGroupsSync();
 
   const {
     isSidebarCollapsed,

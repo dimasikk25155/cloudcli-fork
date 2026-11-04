@@ -8,6 +8,12 @@ import { DesktopWindowManager } from './desktopWindow.js';
 import { DesktopNotificationsController } from './desktopNotifications.js';
 import { LocalServerController } from './localServer.js';
 import { TabsController } from './tabs.js';
+import {
+  THEME_CHANGED_CHANNEL,
+  initialWindowBackground,
+  normalizeThemeChange,
+  writeWindowTheme,
+} from './windowTheme.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -59,6 +65,10 @@ function getStorePath() {
 
 function getSettingsPath() {
   return path.join(app.getPath('userData'), 'desktop-settings.json');
+}
+
+function getWindowThemePath() {
+  return path.join(app.getPath('userData'), 'window-theme.json');
 }
 
 function getDesktopNotificationsSettingsPath() {
@@ -775,6 +785,13 @@ function registerIpcHandlers() {
   ipcMain.handle('cloudcli-desktop:switch-tab', async (_event, tabId) => desktopWindow.switchDesktopTab(tabId));
   ipcMain.handle('cloudcli-desktop:close-tab', async (_event, tabId) => desktopWindow.closeDesktopTab(tabId));
   ipcMain.handle('cloudcli-desktop:update-setting', async (_event, key, value) => updateDesktopSetting(key, value));
+  // Тема Neo3 сменилась: перекрасить окно и запомнить цвет для следующего старта.
+  ipcMain.on(THEME_CHANGED_CHANNEL, (_event, payload) => {
+    const theme = normalizeThemeChange(payload);
+    if (!theme) return;
+    desktopWindow?.applyWindowTheme(theme);
+    writeWindowTheme(getWindowThemePath(), theme);
+  });
 }
 
 function registerAppEvents() {
@@ -835,6 +852,7 @@ async function createDesktopWindow() {
     getRemoteEnvironmentMenuItems,
     getCloudState,
     getLocalState,
+    getInitialBackground: () => initialWindowBackground(getWindowThemePath()),
     tabs,
     actions: {
       copyDiagnostics,

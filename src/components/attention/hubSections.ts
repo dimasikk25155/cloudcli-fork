@@ -5,9 +5,11 @@ import DuetHubList from '../duet/DuetHubList';
 import { pendingDecisions } from '../duet/duetModel';
 import { useDuetState } from '../duet/useDuetState';
 import { useModEnabled } from '../../hooks/useModEnabled';
+import MasterSessionSection from '../session-hub/MasterSessionSection';
 
 import MemorySuggestionsHubList from './memory/MemorySuggestionsHubList';
 import { useMemorySuggestions } from './memory/useMemorySuggestions';
+import { useAttention } from './useAttention';
 import type { AttentionHubSection } from './view/AttentionHubView';
 
 export type AttentionHubSectionsContext = {
@@ -22,6 +24,7 @@ export type AttentionHubSectionsContext = {
  *
  * - «Заметки в вольт» (task 07): proposed vault notes, admins only.
  * - «Дуэт»: решения напарника по ботам (перезапустить / починить / не следить), admins only.
+ * - «Мастер-сессия» (мод «Панель диалогов»): ответы на все ждущие вопросы пачкой.
  */
 export function useAttentionHubSections(context: AttentionHubSectionsContext = {}): AttentionHubSection[] {
   const memory = useMemorySuggestions();
@@ -30,6 +33,21 @@ export function useAttentionHubSections(context: AttentionHubSectionsContext = {
   const duet = useDuetState(user?.role === 'admin' && duetOn, 'hub');
   const sections: AttentionHubSection[] = [];
   const duetDecisions = pendingDecisions(duet.state);
+  const sessionHubOn = useModEnabled('modSessionHub');
+  const { items } = useAttention();
+  const waiting = items.filter((entry) => entry.state === 'waiting');
+
+  if (sessionHubOn && waiting.length > 0) {
+    sections.push({
+      id: 'master-session',
+      title: 'Мастер-сессия',
+      count: waiting.length,
+      render: () => createElement(MasterSessionSection, {
+        onOpenSession: context.openSession ? (sessionId: string) => void context.openSession?.(sessionId) : undefined,
+        refreshKey: waiting.map((entry) => `${entry.sessionId}@${entry.updatedAt}`).join('|'),
+      }),
+    });
+  }
 
   if (duetDecisions.length > 0) {
     sections.push({

@@ -148,15 +148,15 @@ export const createSessionViewModel = (
 
 /** One clickable link caption under a sidebar card; several targets open as a list. */
 export type SessionLinkLine = {
-  key: 'parent' | 'relay' | 'threads';
+  key: 'parent' | 'relay' | 'threads' | 'btw';
   text: string;
   targets: SessionLinkRef[];
 };
 
 /**
- * Captions for a chat's links (relay = continuation, thread):
- * child — «↳ продолжение: <родитель>» / «↳ тред от: <родитель>»;
- * parent — «→ продолжен в: <новейшее продолжение>» and «треды: N».
+ * Captions for a chat's links (relay = continuation, thread, btw = side chat):
+ * child — «↳ продолжение / тред от / побочный от: <родитель>»;
+ * parent — «→ продолжен в: <новейшее продолжение>», «треды: N», «побочные: N».
  * `unnamedLabel` stands in for a linked chat without a name.
  */
 export const getSessionLinkLines = (links: SessionLinks | undefined, unnamedLabel: string): SessionLinkLine[] => {
@@ -168,7 +168,9 @@ export const getSessionLinkLines = (links: SessionLinks | undefined, unnamedLabe
   const lines: SessionLinkLine[] = [];
 
   if (links.parent) {
-    const prefix = links.parent.relation === 'thread' ? '↳ тред от' : '↳ продолжение';
+    const prefix = links.parent.relation === 'thread'
+      ? '↳ тред от'
+      : links.parent.relation === 'btw' ? '↳ побочный от' : '↳ продолжение';
     lines.push({ key: 'parent', text: `${prefix}: ${nameOf(links.parent)}`, targets: [links.parent] });
   }
 
@@ -182,6 +184,11 @@ export const getSessionLinkLines = (links: SessionLinks | undefined, unnamedLabe
   const threads = children.filter((child) => child.relation === 'thread');
   if (threads.length > 0) {
     lines.push({ key: 'threads', text: `треды: ${threads.length}`, targets: threads });
+  }
+
+  const sideChats = children.filter((child) => child.relation === 'btw');
+  if (sideChats.length > 0) {
+    lines.push({ key: 'btw', text: `побочные: ${sideChats.length}`, targets: sideChats });
   }
 
   return lines;

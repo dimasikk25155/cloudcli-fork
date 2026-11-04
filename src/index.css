@@ -360,7 +360,8 @@
   [data-theme='ember'] .sidebar-root,
   [data-theme='gt'] .sidebar-root,
   [data-theme='editorial'] .sidebar-root,
-  [data-theme='glass'] .sidebar-root {
+  [data-theme='glass'] .sidebar-root,
+  [data-theme='claudeLight'] .sidebar-root {
     background-color: transparent;
   }
 
@@ -1424,6 +1425,241 @@
 [data-theme='claude'] .app-sidebar .new-session-btn:hover {
   background-color: hsl(var(--accent) / 0.6);
   color: hsl(var(--foreground));
+}
+
+/* =========================================================================
+   THEME: Светлая Claude (claudeLight — LIGHT)
+
+   Светлый рабочий экран приложения Claude: слоновая кость вместо белого
+   листа, сайдбар на ступень темнее, белые карточки, тонкие тёплые границы,
+   почти чёрный тёплый текст и терракотовый акцент. Плоская: без картинки,
+   шейдера и материала (FLAT_THEMES + условие фона в AppContent.tsx).
+   Устройство хвостов — как у тёмной `claude` выше: композер-«пилюля»,
+   плоский сайдбар без плашек, панель композера текстом.
+
+   Акцент разведён на два токена. `--accent-fill` = фирменная терракота
+   #D97757 — только заливки без текста (кнопка отправки, фокус, кольцо).
+   `--primary` затемнён до 41% светлоты: им набираются ссылки, активные
+   пункты и подписи кнопок, и он держит ≥4.5:1 и на фоне, и на сайдбаре,
+   и под белой подписью (#D97757 давал 3.1:1). Контраст считает
+   theme-registry.test.ts. Фирменные шрифты Anthropic не используются:
+   заголовки — свободный Source Serif 4, интерфейс — системный гротеск.
+   ========================================================================= */
+[data-theme='claudeLight'] {
+  --background: 48 33% 97%;
+  --foreground: 60 3% 8%;
+  --card: 0 0% 100%;
+  --card-foreground: 60 3% 8%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 60 3% 8%;
+  --primary: 16 60% 41%;
+  --primary-foreground: 0 0% 100%;
+  --accent-fill: 15 63% 60%;
+  --secondary: 48 25% 92%;
+  --secondary-foreground: 60 3% 8%;
+  --muted: 48 25% 92%;
+  --muted-foreground: 48 3% 36%;
+  --accent: 48 20% 89%;
+  --accent-foreground: 60 3% 8%;
+  --sidebar: 48 25% 92%;
+  --sidebar-active: 48 18% 86%;
+
+  --destructive: 0 65% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 145 55% 28%;
+  --success-foreground: 0 0% 100%;
+  --warning: 34 85% 36%;
+  --warning-foreground: 0 0% 100%;
+  --info: 215 65% 42%;
+  --info-foreground: 0 0% 100%;
+
+  --border: 50 21% 87%;
+  --input: 48 14% 84%;
+  --ring: 15 63% 60%;
+  --radius: 0.625rem;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-chat: var(--font-ui);
+  --font-sidebar: var(--font-ui);
+  --font-display: 'Source Serif 4', Georgia, Cambria, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --tracking-ui: normal;
+
+  /* Тени мягкие и тёплые: карточка приподнята едва-едва, как в приложении. */
+  --shadow-1: 0 1px 2px hsl(40 20% 20% / 0.05);
+  --shadow-2: 0 2px 10px hsl(40 20% 20% / 0.06);
+  --shadow-3: 0 12px 32px hsl(40 20% 20% / 0.1);
+
+  --shell-bg: hsl(48 33% 97%);
+  --shell-material: none;
+  --shell-grain: none;
+  --shell-grain-opacity: 0;
+  --panel-tint: 48 25% 92%;
+  --panel-alpha: 1;
+  --panel-bg: hsl(var(--sidebar));
+  --panel-blur: none;
+  --panel-border: hsl(50 21% 87%);
+
+  --nav-glass-bg: 48 33% 97% / 0.92;
+  --nav-glass-blur: 12px;
+  --nav-glass-saturate: 1;
+  --nav-tab-glow: 15 63% 60% / 0;
+  --nav-tab-ring: 50 21% 82% / 0.9;
+  --nav-float-shadow: 40 20% 20% / 0.06;
+  --nav-float-ring: 50 21% 85% / 0.8;
+  --nav-divider-color: 50 21% 87% / 0.9;
+  --nav-input-bg: 0 0% 100% / 0.9;
+  --nav-input-focus-ring: 15 63% 60% / 0.25;
+}
+
+/* Сайдбар — своя ступень тона, граница тёплым волоском. */
+[data-theme='claudeLight'] .app-sidebar {
+  background-color: hsl(var(--sidebar));
+  border-right-color: hsl(var(--border));
+}
+[data-theme='claudeLight'] .app-sidebar .bg-background\/80 {
+  background-color: transparent;
+}
+
+/* Плоский сайдбар как в приложении: строки текстом, без карточек и рамок. */
+[data-theme='claudeLight'] .app-sidebar .sidebar-logo {
+  display: none;
+}
+[data-theme='claudeLight'] .app-sidebar h1 {
+  font-size: 1.0625rem;
+}
+[data-theme='claudeLight'] .app-sidebar .bg-card {
+  background-color: transparent;
+}
+[data-theme='claudeLight'] .app-sidebar [class*='border-border'],
+[data-theme='claudeLight'] .app-sidebar [class*='border-success'],
+[data-theme='claudeLight'] .app-sidebar [class*='border-primary'],
+[data-theme='claudeLight'] .app-sidebar [class*='border-warning'] {
+  border-color: transparent;
+}
+/* Выбранный чат — тихая ступень тона, не терракотовая плашка. */
+[data-theme='claudeLight'] .app-sidebar [class*='bg-primary/5'] {
+  background-color: hsl(var(--sidebar-active));
+}
+[data-theme='claudeLight'] .app-sidebar [class*='bg-warning'] {
+  background-color: transparent;
+}
+[data-theme='claudeLight'] .app-sidebar .lucide-star {
+  color: hsl(var(--muted-foreground));
+}
+/* Поиск по проектам — белое поле на ступени сайдбара. */
+[data-theme='claudeLight'] .app-sidebar input {
+  background-color: hsl(var(--card));
+}
+[data-theme='claudeLight'] .app-sidebar .new-session-btn {
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+}
+[data-theme='claudeLight'] .app-sidebar .new-session-btn:hover {
+  background-color: hsl(var(--sidebar-active));
+  color: hsl(var(--foreground));
+}
+[data-theme='claudeLight'] .sidebar-footer-item:hover {
+  background-color: hsl(var(--sidebar-active));
+}
+
+/* Композер — белая «пилюля» с мягкой тенью, без разделителя над панелью. */
+[data-theme='claudeLight'] [data-slot='prompt-input'] {
+  border-radius: 1.5rem;
+  border-color: hsl(var(--input));
+  background-color: hsl(var(--card));
+  box-shadow: 0 2px 12px hsl(40 20% 20% / 0.06);
+}
+[data-theme='claudeLight'] [data-slot='prompt-input'].rounded-t-none {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+[data-theme='claudeLight'] [data-slot='prompt-input-footer'] {
+  border-top-color: transparent;
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+[data-theme='claudeLight'] [data-slot='prompt-input']:focus-within {
+  border-color: hsl(48 10% 72%);
+  box-shadow: 0 2px 16px hsl(40 20% 20% / 0.09);
+}
+[data-theme='claudeLight'] [data-slot='prompt-input-textarea'] {
+  padding: 1rem 1.25rem 0.5rem;
+}
+/* Панель композера — текст, а не ряд обведённых плашек. */
+[data-theme='claudeLight'] .composer-chip {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+}
+[data-theme='claudeLight'] .composer-chip:hover {
+  background-color: hsl(var(--accent));
+}
+[data-theme='claudeLight'] .composer-chip-effort {
+  color: hsl(var(--muted-foreground));
+}
+[data-theme='claudeLight'] .composer-chip-model .composer-chip-chevron {
+  display: none;
+}
+[data-theme='claudeLight'] .composer-chip-icon {
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+}
+/* Отправка — терракотовый круг: единственная крупная заливка акцентом. */
+[data-theme='claudeLight'] .composer-submit {
+  border-radius: 9999px;
+  width: 2.5rem;
+  background-color: hsl(var(--accent-fill));
+  color: hsl(0 0% 100%);
+}
+[data-theme='claudeLight'] .composer-submit:hover:not(:disabled) {
+  background-color: hsl(15 58% 54%);
+}
+
+/* Лента: пузырь пользователя — ступень тона без тени, ответ — на фоне. */
+[data-theme='claudeLight'] .chat-message.user .bg-muted {
+  background-color: hsl(var(--secondary));
+  border-radius: 1.125rem;
+  box-shadow: none;
+}
+[data-theme='claudeLight'] .chat-message a,
+[data-theme='claudeLight'] a.text-blue-600 {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary) / 0.35);
+  text-underline-offset: 2px;
+}
+[data-theme='claudeLight'] .chat-message a:hover,
+[data-theme='claudeLight'] a.text-blue-600:hover {
+  text-decoration-color: hsl(var(--primary));
+}
+
+/* Засечные заголовки — главный различитель светлого Claude. */
+[data-theme='claudeLight'] h1,
+[data-theme='claudeLight'] h2,
+[data-theme='claudeLight'] h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* Заголовки в сайдбаре и мелкие подписи капсом (секции настроек, хаба) —
+   служебные, засечный капс в 11px читается как опечатка. */
+[data-theme='claudeLight'] .app-sidebar h1,
+[data-theme='claudeLight'] .app-sidebar h2,
+[data-theme='claudeLight'] .app-sidebar h3,
+[data-theme='claudeLight'] h1.uppercase,
+[data-theme='claudeLight'] h2.uppercase,
+[data-theme='claudeLight'] h3.uppercase,
+[data-theme='claudeLight'] h4.uppercase {
+  font-family: var(--font-ui);
+  letter-spacing: 0.04em;
+}
+
+/* Переключатель вкладок в шапке: активная — белая карточка. */
+[data-theme='claudeLight'] .nav-tab-active {
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  box-shadow: 0 0 0 1px hsl(var(--border)), var(--shadow-1);
 }
 
 /* =========================================================================
