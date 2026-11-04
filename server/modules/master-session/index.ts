@@ -8,6 +8,8 @@ import { createMasterSessionRouter } from './master-session.routes.js';
 import { getMasterSessionService } from './master-session.runtime.js';
 
 export { createMasterSessionService } from './master-session.service.js';
+export { createWorkspaceMasterSendLedger, MASTER_SEND_KIND } from './master-session.ledger.js';
+export type { MasterSendLedger } from './master-session.ledger.js';
 export type {
   MasterAnswer,
   MasterAnswerInput,

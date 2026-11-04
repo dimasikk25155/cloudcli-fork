@@ -40,6 +40,7 @@ test('plain Russian labels for statuses and version sources', () => {
   assert.equal(versionSourceLabel({ source: 'publish' }), 'публикация');
   assert.equal(versionSourceLabel({ source: 'change' }), 'изменение файла');
   assert.equal(versionSourceLabel({ source: 'restore', restoredFrom: 2 }), 'восстановлена версия 2');
+  assert.equal(versionSourceLabel({ source: 'edit' }), 'Правка вручную');
 });
 
 test('line diff marks removed and added lines and keeps the common ones', () => {

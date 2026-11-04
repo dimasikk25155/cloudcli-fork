@@ -19,6 +19,8 @@ import type { AttentionItem, AttentionReason, AttentionUser } from '@/modules/se
 import { isModOn as defaultIsModOn, modOffError, type IsModOn } from '@/shared/mods.js';
 import { AppError } from '@/shared/utils.js';
 
+import type { MasterSendLedger } from './master-session.ledger.js';
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -82,6 +84,8 @@ export type MasterSessionDependencies = {
   sessionProjectPath: (sessionId: string) => string | null;
   isModOn?: IsModOn;
   now?: () => number;
+  /** Итоги доставок, переживающие рестарт (`createWorkspaceMasterSendLedger`); нет — только память процесса. */
+  ledger?: MasterSendLedger;
 };
 
 // ---------------------------------------------------------------------------
@@ -240,11 +244,32 @@ export function createMasterSessionService(dependencies: MasterSessionDependenci
     return dependencies.attention.listForUser(user).filter((entry) => entry.state === 'waiting');
   }
 
+  const ledger = dependencies.ledger ?? null;
+
   function prune(): void {
+    ledger?.prune(now());
     const cutoff = now() - BATCH_TTL_MS;
     for (const [key, entry] of delivered) {
       if (entry.at < cutoff || delivered.size > MAX_REMEMBERED) delivered.delete(key);
       else break;
+    }
+  }
+
+  function readLedger(key: string): MasterSendResult | null {
+    try {
+      return ledger?.get(key) ?? null;
+    } catch (error) {
+      console.error('[MasterSession] send ledger not read', { error: (error as Error)?.message });
+      return null;
+    }
+  }
+
+  function writeLedger(key: string, result: MasterSendResult, at: number): void {
+    try {
+      ledger?.put(key, result, at);
+    } catch (error) {
+      // Память процесса остаётся; после рестарта повтор доставит ещё раз.
+      console.error('[MasterSession] send ledger not written', { error: (error as Error)?.message });
     }
   }
 
@@ -367,11 +392,19 @@ export function createMasterSessionService(dependencies: MasterSessionDependenci
         const key = `${userId}:${batchId}:${item.sessionId}`;
         let entry = delivered.get(key);
         if (!entry) {
-          entry = { at: now(), result: deliverOne(user, userId, item) };
+          // Ушло до рестарта — вернуть тот итог, ничего не доставляя.
+          const remembered = readLedger(key);
+          if (remembered) {
+            results.push(remembered);
+            continue;
+          }
+          const at = now();
+          entry = { at, result: deliverOne(user, userId, item) };
           delivered.set(key, entry);
           // Не дошло из-за сбоя — повтор того же нажатия может попробовать снова.
           void entry.result.then((result) => {
             if (result.status === 'failed' && result.reason !== 'forbidden') delivered.delete(key);
+            else writeLedger(key, result, at);
           }, () => delivered.delete(key));
         }
         try {

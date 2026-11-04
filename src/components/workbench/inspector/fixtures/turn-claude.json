@@ -1,0 +1,73 @@
+[
+  {
+    "type": "user",
+    "content": "Поправь шапку",
+    "timestamp": 1
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 2,
+    "isToolUse": true,
+    "toolName": "Edit",
+    "toolInput": "{\n  \"file_path\": \"/home/user/project/src/old.ts\",\n  \"old_string\": \"a\",\n  \"new_string\": \"b\"\n}"
+  },
+  {
+    "type": "user",
+    "content": "Теперь подвал и заметки",
+    "timestamp": 3
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 4,
+    "isToolUse": true,
+    "toolName": "Read",
+    "toolInput": "{\n  \"file_path\": \"/home/user/project/src/footer.tsx\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 5,
+    "isToolUse": true,
+    "toolName": "Edit",
+    "toolInput": "{\n  \"file_path\": \"/home/user/project/src/footer.tsx\",\n  \"old_string\": \"a\",\n  \"new_string\": \"b\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 6,
+    "isToolUse": true,
+    "toolName": "MultiEdit",
+    "toolInput": "{\n  \"file_path\": \"/home/user/project/src/footer.tsx\",\n  \"edits\": [\n    {\n      \"old_string\": \"c\",\n      \"new_string\": \"d\"\n    }\n  ]\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 7,
+    "isToolUse": true,
+    "toolName": "Write",
+    "toolInput": "{\n  \"file_path\": \"/home/user/project/docs/notes.md\",\n  \"content\": \"x\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 8,
+    "isToolUse": true,
+    "toolName": "NotebookEdit",
+    "toolInput": "{\n  \"notebook_path\": \"/home/user/project/analysis.ipynb\",\n  \"new_source\": \"print(1)\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 9,
+    "isToolUse": true,
+    "toolName": "Bash",
+    "toolInput": "{\n  \"command\": \"npm test\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "Готово.",
+    "timestamp": 10
+  }
+]

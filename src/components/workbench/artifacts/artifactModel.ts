@@ -64,6 +64,7 @@ export function commentStatusLabel(status: ArtifactCommentStatus): string {
 export function versionSourceLabel(version: { source: ArtifactVersionSource; restoredFrom?: number }): string {
   if (version.source === 'publish') return 'публикация';
   if (version.source === 'change') return 'изменение файла';
+  if (version.source === 'edit') return 'Правка вручную';
   return version.restoredFrom ? `восстановлена версия ${version.restoredFrom}` : 'восстановление';
 }
 

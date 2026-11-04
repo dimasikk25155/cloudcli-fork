@@ -4,7 +4,8 @@
  * engine/model/effort (the session row + this browser's effort choice + the
  * provider catalog), context occupancy (`…/token-usage` and live
  * `token_budget` frames), subscription limits (`/api/usage/limits`) and MCP
- * names (`/api/providers/:provider/mcp/servers`, names only).
+ * names (`/api/providers/:provider/mcp/servers`, names only), files changed
+ * in the last turn (the tail of `/api/providers/sessions/:id/messages`).
  */
 import { useEffect, useState } from 'react';
 
@@ -12,10 +13,16 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import type { ServerEvent } from '../../contexts/WebSocketContext';
 import type { ProjectSession, ProviderModelOption, ProviderModelsDefinition } from '../../types/app';
 import { authenticatedFetch } from '../../utils/api';
+import type { NormalizedMessage } from '../../stores/useSessionStore';
+import { normalizedToChatMessages } from '../chat/hooks/useChatMessages';
 import { mergeContextBudget } from '../chat/utils/contextBudget';
+
+import { turnFileChanges } from './inspector/inspectorModel';
 
 const TOKEN_USAGE_POLL_MS = 20_000;
 const LIMITS_POLL_MS = 60_000;
+/** A turn rarely spans more rows; the tail is enough to find its user message. */
+const TURN_TAIL_LIMIT = 300;
 
 export type SessionEngine = {
   provider: string | null;
@@ -195,4 +202,41 @@ export function useMcpNames(provider: string | null, projectPath: string | null)
   }, [provider, projectPath]);
 
   return names;
+}
+
+/**
+ * Files the agent changed in the chat's last turn; null — not known (new chat,
+ * no access, offline). `refreshKey` reloads it (the attention status of the chat
+ * changes when a turn starts and ends).
+ */
+export function useTurnFileChanges(sessionId: string | null, refreshKey: string | null): string[] | null {
+  const [files, setFiles] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setFiles(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({ limit: String(TURN_TAIL_LIMIT), offset: '0' });
+    authenticatedFetch(`/api/providers/sessions/${encodeURIComponent(sessionId)}/messages?${params.toString()}`)
+      .then(async (response: Response) => {
+        if (!response.ok) return null;
+        const body = (await response.json()) as { data?: { messages?: unknown }; messages?: unknown } | null;
+        const messages = body?.data?.messages ?? body?.messages;
+        if (!Array.isArray(messages)) return null;
+        return turnFileChanges(normalizedToChatMessages(messages as NormalizedMessage[]));
+      })
+      .then((next) => {
+        if (!cancelled) setFiles(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFiles(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, refreshKey]);
+
+  return files;
 }

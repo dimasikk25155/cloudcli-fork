@@ -19,6 +19,7 @@ import { openWorkbenchTab } from '../useWorkbench';
 import type { WorkbenchRenderContext } from '../workbenchTabs';
 
 import { commentStatusLabel, commentsWithRect, formatBytes, sendTarget, versionSourceLabel, type FractionRect } from './artifactModel';
+import { getCommentDraft, setCommentDraft } from './artifactDrafts';
 import { artifactsApi } from './artifactsApi';
 import { lineDiff } from './lineDiff';
 import RegionLayer from './RegionLayer';
@@ -40,13 +41,18 @@ export default function ArtifactView({ artifactId, context }: { artifactId: stri
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedN, setSelectedN] = useState<number | null>(null);
   const [compareN, setCompareN] = useState<number | null>(null);
-  const [panel, setPanel] = useState<Panel>(null);
+  // An unfinished comment outlives the view: the canvas unmounts inactive tabs.
+  const [panel, setPanel] = useState<Panel>(() => (getCommentDraft(artifactId) ? 'comments' : null));
   const [regionMode, setRegionMode] = useState(false);
-  const [draftAnchor, setDraftAnchor] = useState<ArtifactAnchor | null>(null);
-  const [draftText, setDraftText] = useState('');
+  const [draftAnchor, setDraftAnchor] = useState<ArtifactAnchor | null>(() => getCommentDraft(artifactId)?.anchor ?? null);
+  const [draftText, setDraftText] = useState(() => getCommentDraft(artifactId)?.text ?? '');
   const [selection, setSelection] = useState('');
   const [confirmRestore, setConfirmRestore] = useState<number | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setCommentDraft(artifactId, draftAnchor ? { anchor: draftAnchor, text: draftText } : null);
+  }, [artifactId, draftAnchor, draftText]);
 
   const apply = useCallback((next: ArtifactDetail) => {
     setDetail(next);

@@ -1,0 +1,23 @@
+[
+  {
+    "type": "user",
+    "content": "Удали лишнее",
+    "timestamp": 1
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 2,
+    "isToolUse": true,
+    "toolName": "FileChanges",
+    "toolInput": "[\n  {\n    \"path\": \"/home/user/project/src/a.ts\",\n    \"kind\": \"update\"\n  },\n  {\n    \"path\": \"/home/user/project/src/dead.ts\",\n    \"kind\": \"delete\"\n  }\n]"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 3,
+    "isToolUse": true,
+    "toolName": "FileChanges",
+    "toolInput": "[\n  {\n    \"path\": \"/home/user/project/src/a.ts\",\n    \"kind\": \"update\"\n  }\n]"
+  }
+]

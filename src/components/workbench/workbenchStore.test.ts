@@ -145,3 +145,61 @@ test('tab kinds are registered by later features', () => {
   assert.equal(kind?.render, render);
   assert.equal(getWorkbenchTabKind('btw'), undefined);
 });
+
+test('moveDraftTabs: tabs of a new chat move to the session it became', () => {
+  const storage = memoryStorage();
+  const store = createWorkbenchStore({ storage });
+  store.openTab(null, { kind: 'inspector', title: 'Сессия' });
+  store.openTab(null, { kind: 'limits', title: 'Контекст и лимиты' });
+  const draft = store.getSession(null);
+
+  store.moveDraftTabs('s-new');
+
+  assert.deepEqual(store.getSession('s-new').tabs, draft.tabs);
+  assert.equal(store.getSession('s-new').activeTabId, draft.activeTabId);
+  assert.deepEqual(store.getSession(null), { tabs: [], activeTabId: null });
+  // Survives a reload: both keys are written.
+  const reloaded = createWorkbenchStore({ storage });
+  assert.equal(reloaded.getSession('s-new').tabs.length, 2);
+  assert.equal(reloaded.getSession(null).tabs.length, 0);
+});
+
+test('moveDraftTabs: a session with its own tabs gets the draft ones merged without duplicates', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'inspector', title: 'Сессия' });
+  store.openTab(null, { kind: 'inspector', title: 'Сессия' });
+  store.openTab(null, { kind: 'artifact', title: 'Макет', ref: 'a1' });
+
+  store.moveDraftTabs('s1');
+
+  const kinds = store.getSession('s1').tabs.map((tab) => tab.kind);
+  assert.deepEqual(kinds, ['inspector', 'artifact']);
+  assert.equal(store.getSession('s1').activeTabId, store.getSession('s1').tabs[1].id);
+  assert.equal(store.getSession(null).tabs.length, 0);
+});
+
+test('moveDraftTabs: an empty draft leaves the session as it was', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'inspector', title: 'Сессия' });
+  store.openTab('s1', { kind: 'limits', title: 'Контекст и лимиты' });
+  store.setActive('s1', store.getSession('s1').tabs[0].id);
+  const before = store.getSession('s1');
+
+  store.moveDraftTabs('s1');
+
+  assert.deepEqual(store.getSession('s1'), before);
+});
+
+test('project tabs of the canvas (terminal, files, stats, autopilot, plugin) survive a reload', () => {
+  const storage = memoryStorage();
+  const store = createWorkbenchStore({ storage });
+  store.openTab('s1', { kind: 'terminal', title: 'Терминал' });
+  store.openTab('s1', { kind: 'files', title: 'Файлы' });
+  store.openTab('s1', { kind: 'stats', title: 'Статистика' });
+  store.openTab('s1', { kind: 'autopilot', title: 'Автопилот' });
+  store.openTab('s1', { kind: 'plugin', title: 'Плагин', ref: 'web-view' });
+
+  const reloaded = createWorkbenchStore({ storage });
+  assert.deepEqual(reloaded.getSession('s1').tabs.map((tab) => tab.kind), ['terminal', 'files', 'stats', 'autopilot', 'plugin']);
+  assert.equal(reloaded.getSession('s1').tabs[4].ref, 'web-view');
+});

@@ -24,7 +24,8 @@
     "grok": "Grok"
   },
   "toolGroup": {
-    "mixedLabel": "Инструменты"
+    "mixedLabel": "Инструменты",
+    "steps": "Шаги помощника: {{count}}"
   },
   "tools": {
     "settings": "Настройки инструмента",

@@ -5,26 +5,18 @@ import type { ServerEvent } from '../../contexts/WebSocketContext';
 import type { GatewayEventKind } from '../../types/app';
 import { authenticatedFetch } from '../../utils/api';
 
-import { readAutoRelayStatus, shouldFollowMove, type AutoRelayStatus } from './autoRelayModel';
+import {
+  createAutoRelayStatusStore,
+  createMoveFollower,
+  readAutoRelayStatus,
+  type AutoRelayStatus,
+  type MoveFollower,
+} from './autoRelayModel';
 
 const AUTO_RELAY_FRAME: GatewayEventKind = 'auto_relay';
 
-const statuses = new Map<string, AutoRelayStatus>();
-const listeners = new Set<() => void>();
-
-function publish(status: AutoRelayStatus): AutoRelayStatus | undefined {
-  const previous = statuses.get(status.sessionId);
-  statuses.set(status.sessionId, status);
-  listeners.forEach((listener) => listener());
-  return previous;
-}
-
-function subscribeStatuses(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
+// Shared by every subscriber of the page; «what was before» is per subscriber.
+const statuses = createAutoRelayStatusStore();
 
 async function fetchStatus(sessionId: string): Promise<AutoRelayStatus | null> {
   const response = await authenticatedFetch(`/api/sessions/${encodeURIComponent(sessionId)}/auto-relay`);
@@ -78,10 +70,13 @@ export type AutoRelayControl = {
 export function useAutoRelay(sessionId: string | null, onMoved: (childSessionId: string) => void): AutoRelayControl {
   const { subscribe } = useWebSocket();
   const status = useSyncExternalStore(
-    subscribeStatuses,
+    statuses.subscribe,
     () => (sessionId ? statuses.get(sessionId) ?? null : null),
     () => null,
   );
+  const followerRef = useRef<MoveFollower | null>(null);
+  if (!followerRef.current) followerRef.current = createMoveFollower(statuses);
+  const follower = followerRef.current;
 
   const openRef = useRef(sessionId);
   openRef.current = sessionId;
@@ -91,12 +86,12 @@ export function useAutoRelay(sessionId: string | null, onMoved: (childSessionId:
   const refresh = useCallback((id: string) => {
     void fetchStatus(id)
       .then((next) => {
-        if (next) publish(next);
+        if (next) follower.note(next);
       })
       .catch((error: unknown) => {
         console.warn('[AutoRelay] status not loaded', error);
       });
-  }, []);
+  }, [follower]);
 
   useEffect(() => {
     if (sessionId) refresh(sessionId);
@@ -110,32 +105,31 @@ export function useAutoRelay(sessionId: string | null, onMoved: (childSessionId:
     if (event.kind !== AUTO_RELAY_FRAME) return;
     const next = readAutoRelayStatus(event.status);
     if (!next) return;
-    const previous = publish(next);
-    const childId = shouldFollowMove(previous, next, openRef.current);
+    const childId = follower.frame(next, openRef.current);
     if (childId) onMovedRef.current(childId);
-  }), [subscribe, refresh]);
+  }), [subscribe, refresh, follower]);
 
   const setEnabled = useCallback((enabled: boolean) => {
     if (!sessionId) return;
     const current = statuses.get(sessionId);
     if (current) {
-      publish({ ...current, enabled, ...(current.state === 'failed' ? { state: null, error: null } : {}) });
+      follower.note({ ...current, enabled, ...(current.state === 'failed' ? { state: null, error: null } : {}) });
     }
     void putEnabled(sessionId, enabled)
       .then((next) => {
-        if (next) publish(next);
+        if (next) follower.note(next);
       })
       .catch((error: unknown) => {
         console.warn('[AutoRelay] switch failed', error);
         refresh(sessionId);
       });
-  }, [sessionId, refresh]);
+  }, [sessionId, refresh, follower]);
 
   const startNow = useCallback(async () => {
     if (!sessionId) return;
     const next = await postStart(sessionId);
-    if (next) publish(next);
-  }, [sessionId]);
+    if (next) follower.note(next);
+  }, [sessionId, follower]);
 
   return { status, setEnabled, startNow };
 }

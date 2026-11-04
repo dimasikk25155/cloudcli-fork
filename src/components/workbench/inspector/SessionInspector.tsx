@@ -5,7 +5,7 @@ import { useModEnabled } from '../../../hooks/useModEnabled';
 import { normalizeProviderLimits } from '../../../utils/providerLimits';
 import { useAttentionItem } from '../../attention/useAttention';
 import { useCodeStatus } from '../../code-status/useCodeStatus';
-import { useMcpNames, useSessionEngine, useSessionTokenUsage } from '../useSessionFacts';
+import { useMcpNames, useSessionEngine, useSessionTokenUsage, useTurnFileChanges } from '../useSessionFacts';
 import { getWorkbenchTabKind, type WorkbenchRenderContext } from '../workbenchTabs';
 
 import { buildInspectorRows, UNKNOWN } from './inspectorModel';
@@ -22,6 +22,7 @@ export default function SessionInspector({ context }: { context: WorkbenchRender
   const projectPath = project.fullPath || (typeof project.path === 'string' ? project.path : '') || null;
   const mcpNames = useMcpNames(engine.provider, projectPath);
   const attention = useAttentionItem(sessionId);
+  const turnFiles = useTurnFileChanges(sessionId, attention ? `${attention.state}@${attention.updatedAt}` : null);
 
   const rows = buildInspectorRows({
     projectPath,
@@ -32,6 +33,8 @@ export default function SessionInspector({ context }: { context: WorkbenchRender
     attention: attention ? { state: attention.state, reason: attention.reason } : null,
     context: normalizeProviderLimits(engine.provider, { tokenUsage: usage, contextWindow: engine.contextWindow }).context,
     mcpNames,
+    // Paths inside the project read shorter relative to it.
+    turnFiles: turnFiles?.map((file) => (projectPath && file.startsWith(`${projectPath}/`) ? file.slice(projectPath.length + 1) : file)) ?? null,
   });
   const artifactsKind = getWorkbenchTabKind('artifacts');
 

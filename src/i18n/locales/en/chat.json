@@ -24,7 +24,8 @@
     "opencode": "OpenCode"
   },
   "toolGroup": {
-    "mixedLabel": "Tools"
+    "mixedLabel": "Tools",
+    "steps": "Assistant steps: {{count}}"
   },
   "tools": {
     "settings": "Tool Settings",

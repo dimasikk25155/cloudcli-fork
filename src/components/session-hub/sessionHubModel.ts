@@ -74,3 +74,11 @@ export function sessionHubGroups(items: readonly AttentionItem[]): SessionHubGro
 export function canMarkRead(entry: AttentionItem): boolean {
   return isSeenable(entry) && entry.unread;
 }
+
+/**
+ * «Прочитать всё» видно, только когда есть что пометить. Сервер по
+ * `{all:true}` метит то же, что и `canMarkRead`: открытые запросы остаются.
+ */
+export function canMarkAllRead(items: readonly AttentionItem[]): boolean {
+  return items.some(canMarkRead);
+}

@@ -1,9 +1,11 @@
+import { createWorkspaceStore } from '@/modules/agent-workspace/index.js';
 import { lastRunOptions } from '@/modules/auto-relay/index.js';
-import { sessionsDb } from '@/modules/database/index.js';
+import { getConnection, sessionsDb } from '@/modules/database/index.js';
 import { pendingAnswers } from '@/modules/pending-answers/index.js';
 import { sessionAttention } from '@/modules/session-attention/index.js';
 import type { ThreadRunControl } from '@/modules/threads/index.js';
 
+import { createWorkspaceMasterSendLedger } from './master-session.ledger.js';
 import { createMasterSessionService, type MasterSessionService } from './master-session.service.js';
 
 /**
@@ -64,5 +66,7 @@ export function getMasterSessionService(): MasterSessionService {
     },
     drafts: draftWithClaude,
     sessionProjectPath: (sessionId) => sessionsDb.getSessionById(sessionId)?.project_path ?? null,
+    // Сервис создаётся по первому запросу — база к этому времени открыта.
+    ledger: createWorkspaceMasterSendLedger(createWorkspaceStore(getConnection())),
   });
 }

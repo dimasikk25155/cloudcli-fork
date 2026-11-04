@@ -1,0 +1,47 @@
+[
+  {
+    "type": "user",
+    "content": "Обнови тексты",
+    "timestamp": 1
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 2,
+    "isToolUse": true,
+    "toolName": "read_file",
+    "toolInput": "{\n  \"target_file\": \"/home/user/project/lines.json\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 3,
+    "isToolUse": true,
+    "toolName": "search_replace",
+    "toolInput": "{\n  \"file_path\": \"/home/user/project/lines.json\",\n  \"old_string\": \"a\",\n  \"new_string\": \"b\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 4,
+    "isToolUse": true,
+    "toolName": "search_replace",
+    "toolInput": "{\n  \"file_path\": \"/home/user/project/lines.json\",\n  \"old_string\": \"c\",\n  \"new_string\": \"d\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 5,
+    "isToolUse": true,
+    "toolName": "write",
+    "toolInput": "{\n  \"file_path\": \"/home/user/project/README.md\",\n  \"content\": \"x\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 6,
+    "isToolUse": true,
+    "toolName": "run_terminal_command",
+    "toolInput": "{\n  \"command\": \"pnpm test\"\n}"
+  }
+]

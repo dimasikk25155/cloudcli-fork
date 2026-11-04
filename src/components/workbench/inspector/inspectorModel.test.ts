@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { UNKNOWN, buildInspectorRows, type InspectorInput } from './inspectorModel.js';
+import { UNKNOWN, buildInspectorRows, turnFileChanges, type InspectorInput } from './inspectorModel.js';
 
 const value = (rows: ReturnType<typeof buildInspectorRows>, id: string) => rows.find((row) => row.id === id);
 
@@ -35,7 +36,7 @@ test('a Claude chat with everything known', () => {
   assert.equal(value(rows, 'status')?.value, 'Ждёт ответа');
   assert.equal(value(rows, 'context')?.value, '25% · 250 000 из 1 000 000 токенов');
   assert.equal(value(rows, 'mcp')?.value, 'telegram, ollama');
-  assert.deepEqual(value(rows, 'changes')?.items, ['src/a.ts', 'src/b.ts']);
+  assert.equal(value(rows, 'changes')?.value, 'Незакоммиченных: 2');
 });
 
 test('Codex and Grok get the same rows; their own engine name', () => {
@@ -58,7 +59,7 @@ test('what the engine or Neo3 did not report is «неизвестно», never 
     context: { usedPct: null, used: null, window: null },
     mcpNames: null,
   });
-  for (const id of ['folder', 'branch', 'model', 'status', 'context', 'mcp', 'changes']) {
+  for (const id of ['folder', 'branch', 'model', 'status', 'context', 'mcp', 'turn', 'changes']) {
     assert.equal(value(rows, id)?.value, UNKNOWN, id);
   }
   assert.equal(value(rows, 'branch')?.detail, undefined);
@@ -83,4 +84,50 @@ test('a clean tree and no MCP are said plainly', () => {
   assert.equal(value(rows, 'changes')?.value, 'Нет незакоммиченных файлов');
   assert.equal(value(rows, 'mcp')?.value, 'Не подключены');
   assert.equal(value(rows, 'effort')?.value, 'по умолчанию модели');
+});
+
+// R07: «Изменения хода» — the files the agent changed since the last user message.
+const fixture = (name: string) =>
+  JSON.parse(readFileSync(new URL(`./fixtures/turn-${name}.json`, import.meta.url), 'utf8'));
+const P = '/home/user/project';
+
+test('turn changes: Claude Edit, Write, MultiEdit, NotebookEdit since the last user message', () => {
+  assert.deepEqual(turnFileChanges(fixture('claude')), [
+    `${P}/src/footer.tsx`,
+    `${P}/docs/notes.md`,
+    `${P}/analysis.ipynb`,
+  ]);
+});
+
+test('turn changes: Codex FileChanges in both shapes, a rename counts both paths', () => {
+  assert.deepEqual(turnFileChanges(fixture('codex-history')), [
+    `${P}/src/a.ts`,
+    `${P}/src/b.ts`,
+    `${P}/src/old-name.ts`,
+    `${P}/src/new-name.ts`,
+  ]);
+  assert.deepEqual(turnFileChanges(fixture('codex-live')), [`${P}/src/a.ts`, `${P}/src/dead.ts`]);
+});
+
+test('turn changes: Grok search_replace and write', () => {
+  assert.deepEqual(turnFileChanges(fixture('grok')), [`${P}/lines.json`, `${P}/README.md`]);
+});
+
+test('turn changes: nothing yet after a fresh user message; unreadable input is skipped', () => {
+  const messages = [...fixture('claude'), { type: 'user', content: 'Ещё', timestamp: 11 }];
+  assert.deepEqual(turnFileChanges(messages), []);
+  assert.deepEqual(turnFileChanges([
+    { type: 'assistant', timestamp: 1, isToolUse: true, toolName: 'Edit', toolInput: '{not json' },
+    { type: 'assistant', timestamp: 2, isToolUse: true, toolName: 'Write', toolInput: { file_path: '/x.md' } },
+  ] as any), ['/x.md']);
+});
+
+test('inspector: «Изменения хода» lists the turn, the uncommitted count is its own row', () => {
+  const rows = buildInspectorRows({ ...full, turnFiles: ['src/footer.tsx'] });
+  assert.equal(value(rows, 'turn')?.label, 'Изменения хода');
+  assert.deepEqual(value(rows, 'turn')?.items, ['src/footer.tsx']);
+  assert.equal(value(rows, 'changes')?.value, 'Незакоммиченных: 2');
+  assert.equal(value(rows, 'changes')?.items, undefined);
+  assert.equal(value(buildInspectorRows({ ...full, turnFiles: [] }), 'turn')?.value, 'В этом ходе файлы не менялись');
+  assert.equal(value(buildInspectorRows({ ...full, turnFiles: null }), 'turn')?.value, UNKNOWN);
 });

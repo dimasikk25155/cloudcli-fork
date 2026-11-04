@@ -33,6 +33,7 @@ export const DEFAULT_LAYOUT: Readonly<WorkbenchLayout> = { enabled: false, ratio
 
 const TAB_KINDS: ReadonlySet<string> = new Set<WorkbenchTabKind>([
   'inspector', 'limits', 'artifacts', 'artifact', 'btw', 'chat', 'advisor', 'report',
+  'terminal', 'files', 'stats', 'autopilot', 'plugin',
 ]);
 const EMPTY_SESSION: WorkbenchSessionState = Object.freeze({ tabs: [], activeTabId: null }) as WorkbenchSessionState;
 
@@ -176,6 +177,21 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
         ? (tabs[index] ?? tabs[index - 1])?.id ?? null
         : current.activeTabId;
       setSession(sessionId, { tabs, activeTabId });
+    },
+    /**
+     * A new chat just got its id: the tabs opened while it had none (`draft`)
+     * move to it. A session with tabs of its own gets them merged without
+     * duplicates; the draft's active tab stays active. `draft` is emptied.
+     */
+    moveDraftTabs(toSessionId: string) {
+      if (!toSessionId || toSessionId === WORKBENCH_DRAFT_SESSION) return;
+      const draft = getSession(WORKBENCH_DRAFT_SESSION);
+      if (draft.tabs.length === 0) return;
+      const target = getSession(toSessionId);
+      const known = new Set(target.tabs.map((tab) => tab.id));
+      const tabs = [...target.tabs, ...draft.tabs.filter((tab) => !known.has(tab.id))];
+      setSession(toSessionId, { tabs, activeTabId: draft.activeTabId ?? target.activeTabId ?? tabs[0]?.id ?? null });
+      setSession(WORKBENCH_DRAFT_SESSION, { tabs: [], activeTabId: null });
     },
     setActive(sessionId: string | null | undefined, tabId: string) {
       const current = getSession(sessionId);

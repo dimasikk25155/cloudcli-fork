@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, Check, MessagesSquare, X } from 'lucide-react';
+import { Bot, Check, CheckCheck, MessagesSquare, X } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
 import { Dialog, DialogContent, DialogTitle } from '../../shared/view/ui';
@@ -10,7 +10,7 @@ import { describeAttention } from '../attention/utils/attentionModel';
 import { knownProvider } from '../attention/utils/provider';
 
 import MasterSessionSection from './MasterSessionSection';
-import { canMarkRead, sessionHubGroups, type SessionHubGroupKey } from './sessionHubModel';
+import { canMarkAllRead, canMarkRead, sessionHubGroups, type SessionHubGroupKey } from './sessionHubModel';
 
 const AGE_TICK_MS = 30_000;
 
@@ -72,6 +72,18 @@ export default function SessionHubPanel({ onClose, onOpenSession, getProviderLab
             <MessagesSquare className="h-4 w-4 flex-shrink-0 text-primary" aria-hidden />
             <h2 className="truncate text-sm font-semibold">Диалоги</h2>
           </div>
+          <div className="flex flex-shrink-0 items-center gap-1">
+            {canMarkAllRead(items) && (
+              <button
+                type="button"
+                onClick={() => void markSeen({ all: true })}
+                className="inline-flex min-h-[32px] items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Снять отметку «новое» со всех чатов. Открытые вопросы остаются."
+              >
+                <CheckCheck className="h-3.5 w-3.5" aria-hidden />
+                Прочитать всё
+              </button>
+            )}
           <button
             type="button"
             className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg hover:bg-accent"
@@ -80,6 +92,7 @@ export default function SessionHubPanel({ onClose, onOpenSession, getProviderLab
           >
             <X className="h-4 w-4 text-muted-foreground" aria-hidden />
           </button>
+          </div>
         </div>
 
         <div className="flex flex-shrink-0 gap-1 border-b border-border px-3 py-2" role="tablist">

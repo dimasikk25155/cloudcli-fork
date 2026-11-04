@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import type { AttentionItem } from '../attention/types';
 
-import { canMarkRead, sessionHubBar, sessionHubGroups } from './sessionHubModel';
+import { canMarkAllRead, canMarkRead, sessionHubBar, sessionHubGroups } from './sessionHubModel';
 
 // Полоса «работают N · ждут N · готово N» и списки боковой панели — по
 // статусам «Ждут тебя» всех движков (история 19).
@@ -66,4 +66,16 @@ test('«прочитано» only for unread finished chats and soft questions, 
   assert.equal(canMarkRead(byId.get('claude-run')!), false);
   assert.equal(canMarkRead(byId.get('grok-ask')!), false);
   assert.equal(canMarkRead(item('soft', { state: 'waiting', reason: 'text_question', unread: true })), true);
+});
+
+test('«Прочитать всё» is offered only while something can be marked read', () => {
+  assert.equal(canMarkAllRead(ITEMS), true);
+  // Only working chats, open requests and already-read ones — nothing to mark.
+  const nothing = [
+    item('run', { state: 'working', unread: true }),
+    item('ask', { state: 'waiting', reason: 'ask', detail: { requestId: 'r1' }, unread: true }),
+    item('read', { state: 'done', unread: false }),
+  ];
+  assert.equal(canMarkAllRead(nothing), false);
+  assert.equal(canMarkAllRead([]), false);
 });

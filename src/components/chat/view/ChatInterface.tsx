@@ -51,6 +51,7 @@ import SessionHubBar from '../../session-hub/SessionHubBar';
 import CrabSquadBand from '../../crabs/CrabSquadBand';
 import { IdeaCards } from '../../improvement-ideas/IdeaCards';
 import { currentSessionLinks } from '../../threads/threadsBarModel';
+import { workbenchStore } from '../../workbench/useWorkbench';
 import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
 
@@ -230,6 +231,7 @@ function ChatInterface({
     // Same story for the model and thinking level picked on the empty screen:
     // in-chat picks are session-scoped now, so they need a session to land on.
     void commitSessionModelAndEffort(sessionId);
+    workbenchStore.moveDraftTabs(sessionId); // canvas tabs of the new chat follow it
     onSessionEstablished?.(sessionId, context);
     onNavigateToSession?.(sessionId);
   }, [setCurrentSessionId, commitPermissionModeToSession, commitWorkModeToSession, commitSessionModelAndEffort, onSessionEstablished, onNavigateToSession]);

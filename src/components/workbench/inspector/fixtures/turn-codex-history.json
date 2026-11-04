@@ -1,0 +1,23 @@
+[
+  {
+    "type": "user",
+    "content": "Переименуй модуль",
+    "timestamp": 1
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 2,
+    "isToolUse": true,
+    "toolName": "FileChanges",
+    "toolInput": "{\n  \"changes\": [\n    {\n      \"kind\": \"update\",\n      \"path\": \"/home/user/project/src/a.ts\"\n    },\n    {\n      \"kind\": \"add\",\n      \"path\": \"/home/user/project/src/b.ts\"\n    },\n    {\n      \"kind\": \"update\",\n      \"path\": \"/home/user/project/src/old-name.ts\",\n      \"moveTo\": \"/home/user/project/src/new-name.ts\"\n    }\n  ],\n  \"patch\": \"*** Begin Patch\\n...\"\n}"
+  },
+  {
+    "type": "assistant",
+    "content": "",
+    "timestamp": 3,
+    "isToolUse": true,
+    "toolName": "Bash",
+    "toolInput": "{\n  \"command\": \"git status\"\n}"
+  }
+]

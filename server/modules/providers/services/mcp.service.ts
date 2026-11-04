@@ -18,6 +18,30 @@ export function mcpServerNamesByScope(
   return result;
 }
 
+const SECRET_VALUE_FIELDS: ReadonlySet<string> = new Set(['env', 'headers']);
+
+/**
+ * Copy of MCP server data (one server, a list, grouped by scope) with every
+ * `env`/`headers` value replaced by `''`. Keys and the shape stay, so the
+ * settings screen renders the same; only an admin gets the real values.
+ */
+export function redactMcpServerSecrets<T>(value: T): T {
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (!node || typeof node !== 'object') return node;
+    const copy: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(node as Record<string, unknown>)) {
+      if (SECRET_VALUE_FIELDS.has(key) && entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        copy[key] = Object.fromEntries(Object.keys(entry as Record<string, unknown>).map((name) => [name, '']));
+      } else {
+        copy[key] = walk(entry);
+      }
+    }
+    return copy;
+  };
+  return walk(value) as T;
+}
+
 export const providerMcpService = {
   /**
    * Lists MCP servers for one provider grouped by supported scopes.

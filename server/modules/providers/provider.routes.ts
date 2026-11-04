@@ -6,7 +6,7 @@ import { assertCanLinkNewChild, linkSession, relatedSessionIds } from '@/modules
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
-import { mcpServerNamesByScope, providerMcpService } from '@/modules/providers/services/mcp.service.js';
+import { mcpServerNamesByScope, providerMcpService, redactMcpServerSecrets } from '@/modules/providers/services/mcp.service.js';
 import { autoRelayService } from '@/modules/auto-relay/auto-relay.service.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
@@ -22,6 +22,7 @@ import type {
   ProviderSkillCreateInput,
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
+import { isAdminUser } from '@/shared/project-access.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
 const router = express.Router();
@@ -506,10 +507,13 @@ router.get(
     const provider = parseProvider(req.params.provider);
     const workspacePath = readOptionalQueryString(req.query.workspacePath);
     const scope = parseMcpScope(req.query.scope);
+    // Teammates see servers and keys, never env/header values (role from the database).
+    const isAdmin = isAdminUser((req as Request & { user?: AuthenticatedWebSocketUser }).user);
+    const visible = <T,>(value: T): T => (isAdmin ? value : redactMcpServerSecrets(value));
 
     if (scope) {
       const servers = await providerMcpService.listProviderMcpServersForScope(provider, scope, { workspacePath });
-      res.json(createApiSuccessResponse({ provider, scope, servers }));
+      res.json(createApiSuccessResponse({ provider, scope, servers: visible(servers) }));
       return;
     }
 
@@ -519,7 +523,7 @@ router.get(
       res.json(createApiSuccessResponse({ provider, scopes: mcpServerNamesByScope(groupedServers) }));
       return;
     }
-    res.json(createApiSuccessResponse({ provider, scopes: groupedServers }));
+    res.json(createApiSuccessResponse({ provider, scopes: visible(groupedServers) }));
   }),
 );
 

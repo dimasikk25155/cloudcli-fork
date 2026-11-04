@@ -70,3 +70,60 @@ export function readAutoRelayStatus(value: unknown): AutoRelayStatus | null {
     manual: raw.manual === true,
   };
 }
+
+/** Statuses of chats this page knows, shared by every subscriber of the page. */
+export type AutoRelayStatusStore = {
+  get: (sessionId: string) => AutoRelayStatus | undefined;
+  /** Stores the status and tells the listeners; returns the one it replaced. */
+  publish: (status: AutoRelayStatus) => AutoRelayStatus | undefined;
+  subscribe: (listener: () => void) => () => void;
+};
+
+export function createAutoRelayStatusStore(): AutoRelayStatusStore {
+  const statuses = new Map<string, AutoRelayStatus>();
+  const listeners = new Set<() => void>();
+  return {
+    get: (sessionId) => statuses.get(sessionId),
+    publish(status) {
+      const previous = statuses.get(status.sessionId);
+      statuses.set(status.sessionId, status);
+      listeners.forEach((listener) => listener());
+      return previous;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+export type MoveFollower = {
+  /** A status this subscriber learnt itself (load, its own request); also shared. */
+  note: (status: AutoRelayStatus) => void;
+  /** An `auto_relay` frame: the continuation to follow, or null. */
+  frame: (next: AutoRelayStatus, openSessionId: string | null) => string | null;
+};
+
+/**
+ * One per subscriber (the relay band, the limits card…). «What was the status
+ * before this frame» is what THIS subscriber saw, not the shared store: the
+ * first subscriber to get a frame already stored `done` there, and the second
+ * would see `done → done` and never follow the move (13.10, R06).
+ */
+export function createMoveFollower(store: AutoRelayStatusStore): MoveFollower {
+  const seen = new Map<string, AutoRelayStatus>();
+  return {
+    note(status) {
+      seen.set(status.sessionId, status);
+      store.publish(status);
+    },
+    frame(next, openSessionId) {
+      const previous = seen.get(next.sessionId);
+      seen.set(next.sessionId, next);
+      store.publish(next);
+      return shouldFollowMove(previous, next, openSessionId);
+    },
+  };
+}

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createMasterSessionService, type MasterSessionDependencies } from '@/modules/master-session/index.js';
+import Database from 'better-sqlite3';
+
+import { createWorkspaceStore } from '@/modules/agent-workspace/index.js';
+import { createMasterSessionService, createWorkspaceMasterSendLedger, type MasterSessionDependencies } from '@/modules/master-session/index.js';
 import type { AttentionItem, AttentionUser } from '@/modules/session-attention/index.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -235,4 +238,63 @@ test('mod off: every operation is 409 MOD_OFF', async () => {
     (error: unknown) => error instanceof AppError && error.code === 'MOD_OFF',
   );
   assert.equal(calls.sends.length, 0);
+});
+
+// R09: the «already sent» memory outlives a server restart — a new service
+// instance on the same workspace store repeats the first result.
+function workspaceStore() {
+  const db = new Database(':memory:');
+  db.exec('CREATE TABLE workspace_records(id TEXT PRIMARY KEY,kind TEXT,owner_user_id INTEGER,project_id TEXT,revision INTEGER,payload TEXT,created_at TEXT,updated_at TEXT)');
+  return { db, store: createWorkspaceStore(db) };
+}
+
+const RESTART_BATCH = {
+  batchId: 'batch-restart-1',
+  items: [
+    { sessionId: 'ask', expectedUpdatedAt: ASK.updatedAt, answer: { choice: 'opt1' } },
+    { sessionId: 'text', expectedUpdatedAt: TEXT.updatedAt, answer: { text: 'Да' } },
+  ],
+};
+
+test('send: the same batch after a restart is not delivered again, the first result comes back', async () => {
+  const { db, store } = workspaceStore();
+  let clock = Date.parse('2026-11-04T12:00:00.000Z');
+  const before = setup({ ledger: createWorkspaceMasterSendLedger(store), now: () => clock });
+  const first = await before.service.send(ADMIN, RESTART_BATCH);
+  assert.deepEqual(first.results.map((entry) => entry.status), ['sent', 'sent']);
+
+  clock += 60_000;
+  const after = setup({ ledger: createWorkspaceMasterSendLedger(store), now: () => clock });
+  const again = await after.service.send(ADMIN, RESTART_BATCH);
+
+  assert.deepEqual(again.results, first.results);
+  assert.equal(after.calls.answers.length, 0);
+  assert.equal(after.calls.sends.length, 0);
+  const rows = db.prepare("SELECT kind, owner_user_id FROM workspace_records WHERE kind = 'master-send'").all() as Array<{ owner_user_id: number }>;
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((row) => row.owner_user_id === ADMIN.id));
+});
+
+test('send: a failed delivery is not remembered — after a restart the same batch tries again', async () => {
+  const { store } = workspaceStore();
+  const before = setup({ ledger: createWorkspaceMasterSendLedger(store), send: async () => false });
+  const first = await before.service.send(ADMIN, { ...RESTART_BATCH, items: [RESTART_BATCH.items[1]] });
+  assert.deepEqual(first.results.map((entry) => [entry.status, entry.reason]), [['failed', 'not_started']]);
+
+  const after = setup({ ledger: createWorkspaceMasterSendLedger(store) });
+  const again = await after.service.send(ADMIN, { ...RESTART_BATCH, items: [RESTART_BATCH.items[1]] });
+  assert.deepEqual(again.results.map((entry) => entry.status), ['sent']);
+  assert.equal(after.calls.sends.length, 1);
+});
+
+test('send: after 24 hours the same batch id is a new press', async () => {
+  const { store } = workspaceStore();
+  let clock = Date.parse('2026-11-04T12:00:00.000Z');
+  const before = setup({ ledger: createWorkspaceMasterSendLedger(store), now: () => clock });
+  await before.service.send(ADMIN, { ...RESTART_BATCH, items: [RESTART_BATCH.items[1]] });
+
+  clock += 24 * 60 * 60 * 1000 + 1;
+  const after = setup({ ledger: createWorkspaceMasterSendLedger(store), now: () => clock });
+  await after.service.send(ADMIN, { ...RESTART_BATCH, items: [RESTART_BATCH.items[1]] });
+  assert.equal(after.calls.sends.length, 1);
 });
