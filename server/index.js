@@ -15,7 +15,7 @@ import express from 'express';
 import cors from 'cors';
 import mime from 'mime-types';
 
-import { AppError, WORKSPACES_ROOT, validateWorkspacePath } from '@/shared/utils.js';
+import { WORKSPACES_ROOT, apiErrorHandler, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
 import { createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
@@ -1393,28 +1393,7 @@ app.get('*', (req, res) => {
 });
 
 // global error middleware must be last
-app.use((err, req, res, next) => {
-  if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
-      success: false,
-      error: {
-        code: err.code,
-        message: err.message,
-        details: err.details,
-      },
-    });
-  }
-
-  console.error(err);
-
-  return res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: 'Internal server error',
-    },
-  });
-});
+app.use(apiErrorHandler);
 
 // Helper function to convert permissions to rwx format
 function permToRwx(perm) {

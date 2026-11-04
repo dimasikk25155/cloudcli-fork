@@ -23,10 +23,12 @@ async function readFailure(response: Response): Promise<ArtifactsApiError> {
   let code: string | null = null;
   let details: unknown = null;
   try {
-    const body = await response.json() as { error?: string | { message?: string; code?: string }; details?: unknown };
-    message = typeof body.error === 'string' ? body.error : body.error?.message;
-    code = typeof body.error === 'object' && typeof body.error?.code === 'string' ? body.error.code : null;
-    details = body.details ?? null;
+    // The app's error middleware (`apiErrorHandler`): `{success:false, error:{code, message, details}}`.
+    const body = await response.json() as { error?: string | { message?: string; code?: string; details?: unknown } };
+    const error = typeof body.error === 'object' && body.error !== null ? body.error : null;
+    message = typeof body.error === 'string' ? body.error : error?.message;
+    code = typeof error?.code === 'string' ? error.code : null;
+    details = error?.details ?? null;
   } catch {
     // not JSON
   }

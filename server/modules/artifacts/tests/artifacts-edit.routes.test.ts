@@ -12,11 +12,11 @@ import express from 'express';
 import { createWorkspaceStore } from '@/modules/agent-workspace/index.js';
 import { createArtifactsRouter, createArtifactsService } from '@/modules/artifacts/index.js';
 import { createFilePreviewRoutes, createFilePreviewService } from '@/modules/file-preview/index.js';
-import { AppError } from '@/shared/utils.js';
+import { apiErrorHandler } from '@/shared/utils.js';
 
 // HTTP of «Правка артефактов»: PUT /:id/edit and POST /:id/editor-preview, the
-// copy served by the real file preview route; the same AppError → JSON shape
-// as the global middleware of server/index.js.
+// copy served by the real file preview route; errors answered by the global
+// middleware of server/index.js itself (apiErrorHandler), read by the real client.
 
 type Options = { off?: string[]; access?: boolean; textLimit?: number };
 
@@ -41,13 +41,7 @@ async function withServer(options: Options, runTest: (urls: { api: string; origi
   app.use('/api/file-preview', createFilePreviewRoutes({ service: preview, resolve: async () => ({ ok: false, status: 400, error: 'unused' }) }).assets);
   app.use((req, _res, next) => { (req as express.Request & { user: { id: number } }).user = { id: 1 }; next(); });
   app.use('/api/projects/:projectId/artifacts', createArtifactsRouter(() => service));
-  app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    if (error instanceof AppError) {
-      res.status(error.statusCode).json({ success: false, error: { code: error.code, message: error.message }, details: error.details });
-      return;
-    }
-    res.status(500).json({ success: false });
-  });
+  app.use(apiErrorHandler);
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -82,10 +76,46 @@ test('PUT /:id/edit saves a version «edit»; a file changed on disk → 409 ART
     await writeFile(path.join(project, 'page.html'), '<h1>агент</h1>');
     const conflict = await fetch(`${api}/${id}/edit`, json('PUT', { content: '<h1>моя</h1>', baseVersionN: 2 }));
     assert.equal(conflict.status, 409);
-    const error = await conflict.json() as { error: { code: string }; details: { latestVersion: number } };
+    const error = await conflict.json() as { success: boolean; error: { code: string; details: { latestVersion: number } } };
+    assert.equal(error.success, false);
     assert.equal(error.error.code, 'ARTIFACT_EDIT_CONFLICT');
-    assert.equal(error.details.latestVersion, 3);
+    assert.equal(error.error.details.latestVersion, 3);
     assert.equal(await readFile(path.join(project, 'page.html'), 'utf8'), '<h1>агент</h1>');
+  });
+});
+
+// The browser client (src/), loaded by path: the server tsconfig does not compile client modules.
+type ClientApi = {
+  artifactsApi: { saveEdit(projectId: string, id: string, input: { content: string; baseVersionN: number }): Promise<{ versions: Array<{ source: string }> }> };
+  ArtifactsApiError: new (...args: never[]) => Error & { status: number; code: string | null; details: unknown };
+};
+const loadClient = () => import(path.join(process.cwd(), 'src/components/workbench/artifacts/artifactsApi.ts')) as Promise<ClientApi>;
+
+test('the client artifactsApi.saveEdit gets the conflict with its code and the latest version from the production error shape', async (t) => {
+  const realFetch = globalThis.fetch;
+  const storage = globalThis.localStorage;
+  t.after(() => {
+    globalThis.fetch = realFetch;
+    Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true, writable: true });
+  });
+  Object.defineProperty(globalThis, 'localStorage', { value: { getItem: () => null, setItem: () => {}, removeItem: () => {} }, configurable: true, writable: true });
+  const { artifactsApi, ArtifactsApiError } = await loadClient();
+  await withServer({}, async ({ api, origin }, project) => {
+    // The browser client calls relative URLs; here they go to the test server.
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => realFetch(typeof input === 'string' && input.startsWith('/') ? `${origin}${input}` : input, init)) as typeof fetch;
+    await writeFile(path.join(project, 'page.html'), '<h1>v1</h1>');
+    const id = await publish(api, 'page.html');
+    const saved = await artifactsApi.saveEdit('p', id, { content: '<h1>правка</h1>', baseVersionN: 1 });
+    assert.deepEqual(saved.versions.map((v) => v.source), ['publish', 'edit']);
+    await writeFile(path.join(project, 'page.html'), '<h1>агент</h1>');
+    await assert.rejects(artifactsApi.saveEdit('p', id, { content: '<h1>моя</h1>', baseVersionN: 2 }), (error: unknown) => {
+      assert.ok(error instanceof ArtifactsApiError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, 'ARTIFACT_EDIT_CONFLICT');
+      assert.deepEqual(error.details, { latestVersion: 3 });
+      assert.equal(error.message, 'Файл изменился, пока ты правил');
+      return true;
+    });
   });
 });
 

@@ -104,6 +104,36 @@ export class AppError extends Error {
   }
 }
 
+/**
+ * The app's global error middleware (last in `server/index.js`): AppError →
+ * its status and `{success:false, error:{code, message, details}}`; anything
+ * else → 500 INTERNAL_ERROR. Exported so route tests answer exactly as production.
+ * Four parameters on purpose: Express tells error middleware by its arity.
+ */
+export function apiErrorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json({
+      success: false,
+      error: {
+        code: err.code,
+        message: err.message,
+        details: err.details,
+      },
+    });
+    return;
+  }
+
+  console.error(err);
+
+  res.status(500).json({
+    success: false,
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: 'Internal server error',
+    },
+  });
+}
+
 // ---------------------------
 //----------------- WORKSPACE PATH VALIDATION UTILITIES ------------
 /**
