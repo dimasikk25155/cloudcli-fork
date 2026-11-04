@@ -74,6 +74,19 @@ const PRIVATE_SEGMENT = /^(?:\.env(?:\..*)?|\.secrets?(?:[.-].*)?|\.git|\.ssh|\.
 
 const toPosix = (value: string) => value.split(path.sep).join('/');
 
+const PRIVATE_PATH_CODE = 'ARTIFACT_PATH_PRIVATE';
+
+function failPrivate(): never {
+  fail('Этот файл нельзя открыть в холсте', PRIVATE_PATH_CODE, 400);
+}
+
+/** A real path (symlinks resolved) relative to the real project root goes through a private segment. */
+function isPrivateRealPath(realRoot: string, realPath: string): boolean {
+  return path.relative(realRoot, realPath).split(path.sep).some((segment) => PRIVATE_SEGMENT.test(segment));
+}
+
+const isPrivatePathError = (error: unknown) => error instanceof AppError && error.code === PRIVATE_PATH_CODE;
+
 const view = <T>(record: WorkspaceRecord<T>): ArtifactRecordView<T> => ({
   ...record.payload,
   id: record.id,
@@ -166,9 +179,7 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
     if (!raw || raw.includes('\0')) fail('Не указан путь к файлу', 'ARTIFACT_PATH_INVALID', 400);
     const segments = raw.split(/[\\/]+/);
     if (segments.includes('..')) fail('Путь к файлу не должен содержать «..»', 'ARTIFACT_PATH_INVALID', 400);
-    if (segments.some((segment) => PRIVATE_SEGMENT.test(segment))) {
-      fail('Этот файл нельзя открыть в холсте', 'ARTIFACT_PATH_PRIVATE', 400);
-    }
+    if (segments.some((segment) => PRIVATE_SEGMENT.test(segment))) failPrivate();
 
     const lexicalRoot = path.resolve(projectRoot);
     let realRoot: string;
@@ -188,9 +199,14 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
     try {
       realCandidate = await fs.realpath(absPath);
     } catch {
+      // A missing file: its folder still must not resolve into a private one (restore writes there).
+      const realParent = await fs.realpath(path.dirname(absPath)).catch(() => null);
+      if (realParent && isInside(realRoot, realParent) && isPrivateRealPath(realRoot, realParent)) failPrivate();
       return { absPath, relPath, exists: false };
     }
     if (!isInside(realRoot, realCandidate)) fail('Файл лежит вне проекта', 'ARTIFACT_PATH_OUTSIDE_PROJECT', 400);
+    // The requested name may be harmless while a link inside the project points at .env/.git/...
+    if (isPrivateRealPath(realRoot, realCandidate)) failPrivate();
     const info = await fs.stat(realCandidate);
     if (!info.isFile()) fail('Это не файл', 'ARTIFACT_PATH_INVALID', 400);
     return { absPath, relPath, exists: true };
@@ -207,8 +223,12 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
   }
 
   /** Reads the file and its fingerprint; over the limit — metadata only. */
-  async function readCurrent(absPath: string): Promise<{ sha256: string; size: number; data: Buffer | null }> {
+  async function readCurrent(projectRoot: string, absPath: string): Promise<{ sha256: string; size: number; data: Buffer | null }> {
     const real = await fs.realpath(absPath);
+    // Re-checked on the path actually read: the link could be swapped after resolvePath.
+    const realRoot = await fs.realpath(path.resolve(projectRoot));
+    if (!isInside(realRoot, real)) fail('Файл лежит вне проекта', 'ARTIFACT_PATH_OUTSIDE_PROJECT', 400);
+    if (isPrivateRealPath(realRoot, real)) failPrivate();
     const info = await fs.stat(real);
     const limit = isTextArtifactPath(absPath) ? limits.text : limits.binary;
     if (info.size > limit) {
@@ -267,9 +287,16 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
 
   /** New version when the file changed since the latest one. */
   async function snapshotIfChanged(userId: number, projectId: string, projectRoot: string, artifact: WorkspaceRecord<ArtifactPayload>) {
-    const state = await fileState(projectRoot, artifact.payload.path);
+    let state: { absPath: string; exists: boolean };
+    try {
+      state = await resolvePath(projectRoot, artifact.payload.path);
+    } catch (error) {
+      // A file that became a link to a private one is refused, never snapshotted; other unsafe paths count as missing.
+      if (isPrivatePathError(error)) throw error;
+      return { artifact, changed: false };
+    }
     if (!state.exists) return { artifact, changed: false };
-    const current = await readCurrent(state.absPath);
+    const current = await readCurrent(projectRoot, state.absPath);
     const latest = versionsOf(projectId, artifact.id).at(-1);
     if (latest && latest.payload.sha256 === current.sha256) return { artifact, changed: false };
     const updated = await addVersion(userId, projectId, artifact, current, latest ? 'change' : 'publish');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -121,6 +121,51 @@ test('paths: «..», a symlink pointing outside, an absolute path outside and se
     await assert.rejects(service.publish(1, 'p', { path: 'nope.html' }), status(404));
     await assert.rejects(service.publish(1, 'p', { path: '' }), status(400));
     assert.deepEqual(await service.list(1, 'p'), []);
+  } finally {
+    await close();
+  }
+});
+
+test('a link inside the project to a private file (docs/a.md → ../.env, a folder link into .git) is refused as private; no snapshot is made', async () => {
+  const { service, project, snapshots, close } = await fixture();
+  try {
+    await mkdir(path.join(project, 'docs'));
+    await mkdir(path.join(project, '.git'));
+    await writeFile(path.join(project, '.env'), 'KEY=1');
+    await writeFile(path.join(project, '.git', 'config.md'), '# git');
+    await symlink('../.env', path.join(project, 'docs', 'a.md'));
+    await symlink('.git', path.join(project, 'repo'));
+    const isPrivate = (error: { statusCode?: number; code?: string }) => error.statusCode === 400 && error.code === 'ARTIFACT_PATH_PRIVATE';
+    await assert.rejects(service.publish(1, 'p', { path: 'docs/a.md' }), isPrivate);
+    await assert.rejects(service.publish(1, 'p', { path: path.join(project, 'docs', 'a.md') }), isPrivate);
+    await assert.rejects(service.publish(1, 'p', { path: 'repo/config.md' }), isPrivate);
+    assert.deepEqual(await service.list(1, 'p'), []);
+    await assert.rejects(readdir(snapshots), { code: 'ENOENT' }, 'no snapshot folder was written');
+  } finally {
+    await close();
+  }
+});
+
+test('refresh: a published file swapped for a link to .env is refused as private; no new version, the old snapshot is unchanged', async () => {
+  const { service, project, close } = await fixture();
+  try {
+    await mkdir(path.join(project, 'docs'));
+    await writeFile(path.join(project, '.env'), 'KEY=1');
+    await writeFile(path.join(project, 'docs', 'a.md'), '# v1');
+    const published = await service.publish(1, 'p', { path: 'docs/a.md' });
+    await unlink(path.join(project, 'docs', 'a.md'));
+    await symlink('../.env', path.join(project, 'docs', 'a.md'));
+    await assert.rejects(
+      service.refresh(1, 'p', published.artifact.id),
+      (error: { statusCode?: number; code?: string }) => error.statusCode === 400 && error.code === 'ARTIFACT_PATH_PRIVATE',
+    );
+    const detail = await service.detail(1, 'p', published.artifact.id);
+    assert.deepEqual(detail.versions.map((v) => v.n), [1]);
+    assert.equal(detail.artifact.latestVersion, 1);
+    assert.equal(detail.file.exists, false, 'a private target is not shown as an existing file');
+    assert.equal((await service.versionContent(1, 'p', published.artifact.id, 1)).data.toString('utf8'), '# v1');
+    await assert.rejects(service.publish(1, 'p', { path: 'docs/a.md' }), (error: { code?: string }) => error.code === 'ARTIFACT_PATH_PRIVATE');
+    assert.deepEqual((await service.detail(1, 'p', published.artifact.id)).versions.map((v) => v.n), [1]);
   } finally {
     await close();
   }
