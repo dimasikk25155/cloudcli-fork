@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GitCompare, History, Loader2, MessageSquarePlus, MessagesSquare, RefreshCw, RotateCcw, Send, SquareDashedMousePointer } from 'lucide-react';
+import { GitCompare, History, Loader2, MessageSquarePlus, MessagesSquare, PenTool, RefreshCw, RotateCcw, Send, SquareDashedMousePointer } from 'lucide-react';
 
 import {
   describeArtifactAnchor,
@@ -11,10 +11,14 @@ import {
   type ArtifactDetail,
   type ArtifactVersion,
 } from '../../../../shared/artifacts';
+import { useModEnabled } from '../../../hooks/useModEnabled';
 import { sendToComposer } from '../../../utils/composerDraft';
 import { Markdown } from '../../chat/view/subcomponents/Markdown';
 import CodeEditorHtmlPreview from '../../code-editor/view/subcomponents/CodeEditorHtmlPreview';
 import { useHtmlPreview } from '../../code-editor/hooks/useHtmlPreview';
+import ArtifactEditor from '../artifact-editor/ArtifactEditor';
+import { getEditorState } from '../artifact-editor/editorStore';
+import { canEditArtifact } from '../artifact-editor/editorUiModel';
 import { openWorkbenchTab } from '../useWorkbench';
 import type { WorkbenchRenderContext } from '../workbenchTabs';
 
@@ -48,6 +52,9 @@ export default function ArtifactView({ artifactId, context }: { artifactId: stri
   const [draftText, setDraftText] = useState(() => getCommentDraft(artifactId)?.text ?? '');
   const [selection, setSelection] = useState('');
   const [confirmRestore, setConfirmRestore] = useState<number | null>(null);
+  // «Правка»: an unsaved edit outlives the view (editorStore) and reopens the mode.
+  const editorOn = useModEnabled('modArtifactEditor');
+  const [editing, setEditing] = useState(() => getEditorState(artifactId) !== null);
   const textRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -93,7 +100,9 @@ export default function ArtifactView({ artifactId, context }: { artifactId: stri
   const textual = artifact ? isTextArtifactPath(artifact.path) : true;
   const showsText = textual && !livePreview && kind !== 'image';
 
-  const html = useHtmlPreview(projectId, detail?.file.absPath ?? '', livePreview);
+  const editable = Boolean(editorOn && detail && isLatest && canEditArtifact(detail));
+  const inEditor = editing && editable;
+  const html = useHtmlPreview(projectId, detail?.file.absPath ?? '', livePreview && !inEditor);
   const retryPreview = html.retry;
   const latestN = latest?.n ?? null;
   const lastPreviewVersion = useRef<number | null>(null);
@@ -230,6 +239,22 @@ export default function ArtifactView({ artifactId, context }: { artifactId: stri
     return <p role="status" className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />Открываем…</p>;
   }
 
+  if (inEditor && detail) {
+    return (
+      <ArtifactEditor
+        projectId={projectId}
+        artifact={detail}
+        sessionId={context.sessionId}
+        onSaved={(next) => {
+          apply(next);
+          setSelectedN(null);
+          setCompareN(null);
+        }}
+        onExit={() => setEditing(false)}
+      />
+    );
+  }
+
   const renderBody = () => {
     if (compareVersion && textual) {
       if (compareContent.loading || latestText.loading) return <p className="p-4 text-sm text-muted-foreground">Сравниваем…</p>;
@@ -318,6 +343,11 @@ export default function ArtifactView({ artifactId, context }: { artifactId: stri
           <button type="button" className={btn} onClick={() => void refresh(true)} disabled={busy}>
             <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} aria-hidden />Проверить изменения
           </button>
+          {editable && !compareVersion && (
+            <button type="button" className={btn} onClick={() => { setRegionMode(false); setEditing(true); }} title="Двигать, менять размер, текст и цвета прямо на макете">
+              <PenTool className="h-3.5 w-3.5" aria-hidden />Правка
+            </button>
+          )}
           <button type="button" className={panel === 'versions' ? btnOn : btn} onClick={() => setPanel(panel === 'versions' ? null : 'versions')}>
             <History className="h-3.5 w-3.5" aria-hidden />Версии ({versions.length})
           </button>
