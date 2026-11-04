@@ -11,18 +11,15 @@ import type { WorkbenchMenuEntry } from './workbenchCanvasModel';
 export type WorkbenchLauncherProps = {
   entries: WorkbenchMenuEntry[];
   onPick: (entry: WorkbenchMenuEntry) => void;
-  /** A quiet line above the grid. */
-  hint?: string;
 };
 
-export default function WorkbenchLauncher({ entries, onPick, hint }: WorkbenchLauncherProps) {
+export default function WorkbenchLauncher({ entries, onPick }: WorkbenchLauncherProps) {
   if (entries.length === 0) {
     return <p className="text-center text-sm text-muted-foreground">Нечего открыть</p>;
   }
   return (
     <div className="mx-auto w-full max-w-[34rem]" data-workbench-launcher>
-      {hint && <p className="mb-6 text-center text-sm text-muted-foreground">{hint}</p>}
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-x-1 gap-y-4">
+      <ul role="list" className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-x-1 gap-y-4">
         {entries.map((entry) => {
           const { Icon, gradient } = launcherStyleFor(entry.kind, entry.ref);
           return (
@@ -40,7 +37,7 @@ export default function WorkbenchLauncher({ entries, onPick, hint }: WorkbenchLa
                   style={{ background: gradient }}
                 >
                   {/* Top light and a hairline edge, so the tile reads on both themes. */}
-                  <span className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_1px_0_rgba(255,255,255,0.32),inset_0_0_0_0.5px_rgba(0,0,0,0.1)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.24),inset_0_0_0_0.5px_rgba(255,255,255,0.1)]" />
+                  <span className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_1px_0_rgba(255,255,255,0.32),inset_0_0_0_0.5px_rgba(0,0,0,0.1)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),inset_0_0_0_1px_rgba(255,255,255,0.14)]" />
                   <Icon className="relative h-7 w-7 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.2)]" strokeWidth={1.85} />
                 </span>
                 <span className="line-clamp-2 w-full break-words text-center text-xs leading-tight text-foreground">

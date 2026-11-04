@@ -28,3 +28,15 @@ test('a plugin and an unknown kind get the neutral fallback', () => {
   assert.deepEqual(launcherStyleFor('from-a-newer-neo3' as WorkbenchTabKind), fallback);
   assert.deepEqual(launcherStyleFor('plugin', 'another'), fallback);
 });
+
+test('the terminal tile stays visibly lighter than the dark canvas (about #151517)', () => {
+  const hexes = launcherStyleFor('terminal').gradient.match(/#[0-9A-Fa-f]{6}/g) ?? [];
+  assert.equal(hexes.length, 2);
+  const luma = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  // Canvas luma is ~21; the darkest end of the tile must clear it clearly, and the top must stay a lit graphite.
+  assert.ok(luma(hexes[1]) >= 36, `bottom ${hexes[1]} too dark`);
+  assert.ok(luma(hexes[0]) >= 60, `top ${hexes[0]} too dark`);
+});

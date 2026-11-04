@@ -37,8 +37,13 @@ test('tiles give way on press, show keyboard focus and respect reduced motion', 
   assert.match(html, /motion-reduce:transition-none/);
 });
 
-test('nothing to open says so; a hint is shown above the grid', () => {
+test('the grid is an explicit list and takes no hint line', () => {
+  const html = render({ entries, onPick: () => {} });
+  assert.match(html, /<ul[^>]*role="list"/);
+  assert.doesNotMatch(render({ entries, onPick: () => {}, hint: 'Что открыть?' } as Parameters<typeof WorkbenchLauncher>[0]), /Что открыть\?/);
+});
+
+test('nothing to open says so', () => {
   assert.match(render({ entries: [], onPick: () => {} }), /Нечего открыть/);
   assert.doesNotMatch(render({ entries: [], onPick: () => {} }), /<button/);
-  assert.match(render({ entries, onPick: () => {}, hint: 'Что открыть?' }), /Что открыть\?/);
 });

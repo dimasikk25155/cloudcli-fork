@@ -34,7 +34,7 @@ const GRADIENTS = {
   purple: tile('#D88BFF', '#A23FE0'),
   green: tile('#6BE38A', '#25B04A'),
   amber: tile('#FFDA5C', '#FFA800'),
-  graphite: tile('#55555C', '#1C1C1F'),
+  graphite: tile('#4A4A4E', '#26262A'),
   cyan: tile('#7FD9FF', '#1FA6EB'),
   pink: tile('#FF7A90', '#F2294F'),
   indigo: tile('#8C89FF', '#4F4BD8'),

@@ -1,4 +1,4 @@
-import React, { useRef, useSyncExternalStore } from 'react';
+import React, { useEffect, useRef, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, LayoutDashboard, Plus, X } from 'lucide-react';
 
@@ -71,6 +71,9 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
   const { terminalDisabled } = useAuth();
   const autopilot = useAutopilotDashboard(project.projectId);
   const visitedRef = useRef<Set<string>>(new Set());
+  const canvasRef = useRef<HTMLDivElement>(null);
+  // Who gets focus once the next tab becomes active: the first launcher icon («+») or the tab itself (a picked icon).
+  const focusRequestRef = useRef<'launcher' | 'tab' | null>(null);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const open = (tab: WorkbenchTabInput) => openWorkbenchTab(sessionId, tab);
@@ -92,6 +95,18 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
     onFileOpen,
   });
 
+  useEffect(() => {
+    const request = focusRequestRef.current;
+    focusRequestRef.current = null;
+    const root = canvasRef.current;
+    if (!request || !root || !activeTabId) return;
+    const target =
+      request === 'launcher'
+        ? root.querySelector<HTMLElement>(`[data-workbench-pane="${CSS.escape(activeTabId)}"] [data-workbench-launcher] button`)
+        : root.querySelector<HTMLElement>(`[role="tab"][data-tab-id="${CSS.escape(activeTabId)}"]`);
+    target?.focus();
+  }, [activeTabId]);
+
   const menuEntries = buildWorkbenchMenu(
     listWorkbenchTabKinds(),
     { autopilotAvailable: autopilot.available, terminalDisabled },
@@ -101,10 +116,13 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
     })),
   );
   const toInput = (entry: WorkbenchMenuEntry): WorkbenchTabInput => ({ kind: entry.kind, title: entry.title, ref: entry.ref });
-  const openEntry = (entry: WorkbenchMenuEntry) => open(toInput(entry));
+  const openEntry = (entry: WorkbenchMenuEntry) => {
+    focusRequestRef.current = 'tab';
+    open(toInput(entry));
+  };
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background" data-workbench-canvas>
+    <div ref={canvasRef} className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background" data-workbench-canvas>
       <div className="flex flex-shrink-0 items-center gap-1 border-b border-border/70 px-2 py-1.5">
         {onBack && (
           <button
@@ -130,6 +148,7 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
                 <button
                   type="button"
                   role="tab"
+                  data-tab-id={tab.id}
                   aria-selected={selected}
                   onClick={() => setActive(tab.id)}
                   className="flex min-w-0 items-center gap-1.5 py-1 pl-2.5 pr-1"
@@ -151,7 +170,10 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
         </div>
         <button
           type="button"
-          onClick={() => openNewWorkbenchTab(sessionId)}
+          onClick={() => {
+            focusRequestRef.current = 'launcher';
+            openNewWorkbenchTab(sessionId);
+          }}
           aria-label="Новая вкладка"
           title="Новая вкладка"
           className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -175,7 +197,10 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
                 <div className="flex min-h-full justify-center px-4 pb-10 pt-10 sm:pt-14">
                   <WorkbenchLauncher
                     entries={menuEntries}
-                    onPick={(entry) => replaceWorkbenchTab(sessionId, tab.id, toInput(entry))}
+                    onPick={(entry) => {
+                      focusRequestRef.current = 'tab';
+                      replaceWorkbenchTab(sessionId, tab.id, toInput(entry));
+                    }}
                   />
                 </div>
               ) : def ? def.render(tab, contextFor(!hidden)) : (
