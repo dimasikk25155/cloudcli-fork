@@ -10,6 +10,7 @@ import { parseFrontMatter } from "../shared/frontmatter.js";
 import { getSessionCostSnapshot } from "../shared/session-usage.js";
 import { findAppRoot, getModuleDir } from "../utils/runtime-paths.js";
 import { SUPPORTED_PROVIDERS } from "../shared/providers.js";
+import { isModOn as defaultIsModOn, modOffError } from "../shared/mods.js";
 
 const __dirname = getModuleDir(import.meta.url);
 // This route reads the top-level package.json for the status command, so it needs the real
@@ -230,7 +231,26 @@ const builtInCommands = [
     namespace: "builtin",
     metadata: { type: "builtin" },
   },
+  {
+    name: "/btw",
+    description: "Спросить в стороне: вопрос в отдельном чате, основной не прерывается",
+    namespace: "builtin",
+    metadata: { type: "builtin" },
+  },
 ];
+
+/** Built-in commands that exist only while their mod is on. */
+const MOD_GATED_COMMANDS = {
+  "/btw": "modSideChat",
+};
+
+/** The built-in commands this user is offered (a switched-off mod hides its command). */
+export function builtInCommandsFor(userId, isModOn = defaultIsModOn) {
+  return builtInCommands.filter((command) => {
+    const mod = MOD_GATED_COMMANDS[command.name];
+    return !mod || isModOn(userId, mod);
+  });
+}
 
 /**
  * Built-in command handlers
@@ -517,7 +537,35 @@ Custom commands can be created in:
       },
     };
   },
+
+  // The side chat itself is created by the composer (POST /api/sessions/:id/btw):
+  // the command only hands the question over.
+  "/btw": async (args) => {
+    return {
+      type: "builtin",
+      action: "btw",
+      data: {
+        question: (Array.isArray(args) ? args : []).join(" ").trim(),
+      },
+    };
+  },
 };
+
+/**
+ * Runs a built-in command for a user; `null` when `commandName` is not one.
+ * A command of a switched-off mod is refused with 409 MOD_OFF.
+ */
+export async function executeBuiltInCommand(commandName, args, context, userId, isModOn = defaultIsModOn) {
+  const handler = builtInHandlers[commandName];
+  if (!handler) {
+    return null;
+  }
+  const mod = MOD_GATED_COMMANDS[commandName];
+  if (mod && !isModOn(userId, mod)) {
+    throw modOffError(mod);
+  }
+  return handler(args, context);
+}
 
 /**
  * POST /api/commands/list
@@ -526,7 +574,8 @@ Custom commands can be created in:
 router.post("/list", async (req, res) => {
   try {
     const { projectPath } = req.body;
-    const allCommands = [...builtInCommands];
+    const offeredBuiltIns = builtInCommandsFor(req.user?.id);
+    const allCommands = [...offeredBuiltIns];
 
     // Scan project-level commands (.claude/commands/)
     if (projectPath) {
@@ -558,7 +607,7 @@ router.post("/list", async (req, res) => {
     customCommands.sort((a, b) => a.name.localeCompare(b.name));
 
     res.json({
-      builtIn: builtInCommands,
+      builtIn: offeredBuiltIns,
       custom: customCommands,
       count: allCommands.length,
     });
@@ -588,15 +637,17 @@ router.post("/execute", async (req, res) => {
     }
 
     // Handle built-in commands
-    const handler = builtInHandlers[commandName];
-    if (handler) {
+    if (builtInHandlers[commandName]) {
       try {
-        const result = await handler(args, context);
+        const result = await executeBuiltInCommand(commandName, args, context, req.user?.id);
         return res.json({
           ...result,
           command: commandName,
         });
       } catch (error) {
+        if (error?.code === "MOD_OFF") {
+          return res.status(409).json({ error: error.code, message: error.message, command: commandName });
+        }
         console.error(
           `Error executing built-in command ${commandName}:`,
           error,

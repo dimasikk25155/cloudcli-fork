@@ -61,6 +61,7 @@ import { runSecretGuard } from '../utils/secretGuard';
 import { askSecretGuard } from '../view/subcomponents/SecretGuardDialog';
 import { stashSecretRequest } from '../utils/secretStash';
 import { resetSessionSteps } from '../utils/stepTimer';
+import { askAside, openSideChatTab } from '../../workbench/sidechat/sideChatApi';
 
 import { useFileMentions } from './useFileMentions';
 import { useInputHistory } from './useInputHistory';
@@ -339,6 +340,7 @@ export function useChatComposerState({
   const isAdmin = user?.role === 'admin';
   const secretGuardOn = useModEnabled('modSecretGuard');
   const screenshotsOn = useModEnabled('modScreenshots');
+  const workbenchOn = useModEnabled('modWorkbench');
   // What the last paste carried, for the duplicate-paste guard in handlePaste.
   const lastPasteRef = useRef<PasteRecord | null>(null);
   const inputValueRef = useRef(input);
@@ -447,11 +449,38 @@ export function useChatComposerState({
           onShowSettings?.();
           break;
 
+        // /btw <вопрос>: a side chat next to this one; this chat's run goes on.
+        case 'btw': {
+          const question = String(data?.question ?? '').trim();
+          const note = (content: string) => addMessage({ type: 'assistant', content, timestamp: Date.now() });
+          if (!question) {
+            note('Напиши вопрос после /btw — например: /btw зачем здесь этот индекс?');
+            break;
+          }
+          if (!currentSessionId) {
+            note('Побочный вопрос задаётся к начатому чату — сначала отправь здесь первое сообщение.');
+            break;
+          }
+          const parentSessionId = currentSessionId;
+          void askAside(parentSessionId, { question })
+            .then((created) => {
+              if (workbenchOn) {
+                openSideChatTab(parentSessionId, created);
+              } else {
+                note(`Побочный чат «${created.title}» создан — он в списке слева, под этим чатом.`);
+              }
+            })
+            .catch((error: unknown) => {
+              note(`Побочный чат не создан: ${error instanceof Error ? error.message : 'ошибка'}`);
+            });
+          break;
+        }
+
         default:
           console.warn('Unknown built-in command action:', action);
       }
     },
-    [onFileOpen, onShowSettings, addMessage],
+    [onFileOpen, onShowSettings, addMessage, currentSessionId, workbenchOn],
   );
 
   const closeCommandModal = useCallback(() => {

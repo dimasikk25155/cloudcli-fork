@@ -1,4 +1,5 @@
-import { Plus } from 'lucide-react';
+import { useMemo } from 'react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '../../../../shared/view/ui';
@@ -6,6 +7,9 @@ import type { SessionActivityMap } from '../../../../hooks/useSessionProtection'
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
 import { useSessionReorderDrag } from '../../hooks/useSessionReorderDrag';
+import { useFoldedChats } from '../../hooks/useFoldedChats';
+import { buildSessionTree, type SessionTreeRow } from '../../utils/sessionTree';
+import { useModEnabled } from '../../../../hooks/useModEnabled';
 import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
 
 import SidebarSessionItem from './SidebarSessionItem';
@@ -84,8 +88,17 @@ export default function SidebarProjectSessions({
   onReorderSessions,
   t,
 }: SidebarProjectSessionsProps) {
+  // «Побочный чат» on: children (thread / relay / side chat) under their parent, foldable.
+  const treeOn = useModEnabled('modSideChat');
+  const { folded, toggleFolded } = useFoldedChats();
+  const rows: SessionTreeRow<SessionWithProvider>[] = useMemo(
+    () => (treeOn
+      ? buildSessionTree(sessions, folded)
+      : sessions.map((session) => ({ session, depth: 0, childCount: 0, collapsed: false }))),
+    [treeOn, sessions, folded],
+  );
   const { drag, handlePointerDown, shouldSuppressClick } = useSessionReorderDrag({
-    sessionIds: sessions.map((session) => String(session.id)),
+    sessionIds: rows.map((row) => String(row.session.id)),
     onReorder: (orderedSessionIds) => onReorderSessions(project.projectId, orderedSessionIds),
   });
 
@@ -135,9 +148,27 @@ export default function SidebarProjectSessions({
       ) : (
         <>
           <div data-session-list className="space-y-1">
-          {sessions.map((session, index) => (
-            <div key={session.id}>
+          {rows.map(({ session, depth, childCount, collapsed }, index) => (
+            <div
+              key={session.id}
+              className={childCount > 0 || depth > 0 ? 'relative' : undefined}
+              style={depth > 0 ? { paddingLeft: Math.min(depth, 4) * 14 } : undefined}
+              data-session-depth={depth || undefined}
+            >
               {dropIndex === index && <SessionDropLine />}
+              {childCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => toggleFolded(String(session.id))}
+                  aria-expanded={!collapsed}
+                  aria-label={collapsed ? `Показать вложенные чаты (${childCount})` : 'Свернуть вложенные чаты'}
+                  title={collapsed ? `Вложенные чаты: ${childCount}` : 'Свернуть вложенные чаты'}
+                  className="absolute -left-3 top-2.5 z-10 grid h-4 w-4 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                  style={depth > 0 ? { left: Math.min(depth, 4) * 14 - 12 } : undefined}
+                >
+                  {collapsed ? <ChevronRight className="h-3 w-3" aria-hidden /> : <ChevronDown className="h-3 w-3" aria-hidden />}
+                </button>
+              )}
             <SidebarSessionItem
               project={project}
               session={session}
@@ -163,7 +194,7 @@ export default function SidebarProjectSessions({
             />
             </div>
           ))}
-          {dropIndex === sessions.length && <SessionDropLine />}
+          {dropIndex === rows.length && <SessionDropLine />}
           </div>
 
           {hasMoreSessions && (

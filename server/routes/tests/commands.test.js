@@ -115,3 +115,22 @@ test('models command serves the grok catalog, not the claude one', async () => {
     providerModelsService.getProviderModels = originalGetProviderModels;
   }
 });
+
+test('/btw is offered only while «Побочный чат» is on and hands the question to the composer', async () => {
+  const { builtInCommandsFor, executeBuiltInCommand } = await import('../commands.js');
+  const names = (isOn) => builtInCommandsFor(7, () => isOn).map((command) => command.name);
+
+  assert.ok(names(true).includes('/btw'));
+  assert.ok(!names(false).includes('/btw'));
+  assert.ok(names(false).includes('/help'));
+
+  const result = await executeBuiltInCommand('/btw', ['почему', 'упал', 'тест?'], {}, 7, () => true);
+  assert.equal(result.type, 'builtin');
+  assert.equal(result.action, 'btw');
+  assert.equal(result.data.question, 'почему упал тест?');
+
+  await assert.rejects(
+    () => executeBuiltInCommand('/btw', ['вопрос'], {}, 7, () => false),
+    { code: 'MOD_OFF', statusCode: 409 },
+  );
+});
