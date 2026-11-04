@@ -176,6 +176,7 @@ export default tseslint.config(
             "server/shared/secret-scrub.ts", // pure credential redaction; the audit log must not become a second key store
             "server/shared/providers.js", // single list of shipped engines; the agent API, unattended runs and /models all read it
             "server/shared/project-access.ts", // the one "may this user touch this project/session" rule; session routes, links and relay checks share it
+            "server/shared/require-session-access.ts", // Express guard over project-access for routes addressed by :sessionId (404/403)
             "server/shared/sqlite-time.ts", // pure SQLite timestamp → ISO conversion used by session links
             "server/shared/mods.ts", // isModOn: the one server read of the built-in mod switches; every mod checks it where its work starts
             "server/shared/threads-env.ts", // threadsApiUrl / thread env: Neo3's own address for engines (threads, team Telegram)

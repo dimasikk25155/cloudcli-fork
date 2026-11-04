@@ -13,6 +13,7 @@ import {
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
+  SAFARI_LIVE_BINDINGS_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_SEEN_TABLE_SCHEMA_SQL,
   SIDEBAR_GROUPS_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_TABLE_SCHEMA_SQL,
@@ -585,6 +586,8 @@ export const runMigrations = (db: Database) => {
     db.exec(IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL);
     // Sidebar groups and chat pins (sidebar-groups module).
     db.exec(SIDEBAR_GROUPS_TABLE_SCHEMA_SQL);
+    // «Safari вживую»: chat → Safari window binding (safari-live module).
+    db.exec(SAFARI_LIVE_BINDINGS_TABLE_SCHEMA_SQL);
 
     // «Время размышления»: time the model spent thinking in a run. Older
     // run_durations tables only gain the column here (NULL = not measured).

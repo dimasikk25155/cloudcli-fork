@@ -12,7 +12,13 @@ import { createTeamService } from '../workspace-team/index.js';
 import type { WorkspaceDependencies } from './dependencies.js';
 import { requireWorkspaceProject, createDailyService } from './service.js';
 import { WorkspaceError } from './store.js';
-export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService };
+/** «Safari вживую»: binds the agent's Safari window to its chat (`safari.show`). */
+export type SafariLiveTool = { show(userId: number, sessionId: string, data: Record<string, unknown>): Promise<unknown> };
+export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; safariLive?: SafariLiveTool };
+/** Production `safari.show`, loaded on first use (the module owns helper processes). */
+const defaultSafariLive: SafariLiveTool = {
+    show: async (userId, sessionId, data) => (await import('../safari-live/index.js')).showForAgent(userId, sessionId, data),
+};
 /** Same for the services that throw AppError synchronously (groups, settings profile). */
 const sync = <T>(run: () => T): T => {
     try {
@@ -32,12 +38,14 @@ const asWorkspaceError = (error: unknown): never => {
  * `group.*` / `pin.set` only arrange the sidebar (no deletes); `settings.propose` only suggests.
  * `artifact.publish` only shows a file of the chat project in the Neo3 canvas
  * (the source is this chat); nothing leaves the machine.
+ * `safari.show` only binds an already open Safari window of the agent to this chat (admin only).
  */
 export function createWorkspaceTools(deps: WorkspaceDependencies, options: WorkspaceToolsOptions = {}) {
     const documents = createDocumentsService(deps), team = createTeamService(deps), daily = createDailyService(deps);
     const artifacts = () => options.artifacts ?? getArtifactsService();
     const groups = () => options.groups ?? getSidebarGroupsService();
     const profile = () => options.profile ?? getSettingsProfileService();
+    const safariLive = () => options.safariLive ?? defaultSafariLive;
     return {
         call(userId: number, sessionId: string, input: Record<string, unknown>): unknown {
             const projectId = deps.sessionProject?.(userId, sessionId);
@@ -101,6 +109,11 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
                 case 'pin.set': return sync(() => groups().setPin(userId, data.sessionId ?? sessionId, data.pinned !== false));
                 // A suggestion only: the person applies it in «Настройки → Профиль настроек».
                 case 'settings.propose': return sync(() => profile().propose(userId, sessionId, { changes: data.changes, reason: data.reason }));
+                // Shows the agent's Safari window to the user live on the canvas; never brings Safari to the front.
+                case 'safari.show': {
+                    const titleContains = typeof data.titleContains === 'string' ? data.titleContains : undefined;
+                    return safariLive().show(userId, sessionId, titleContains === undefined ? {} : { titleContains }).catch(asWorkspaceError);
+                }
                 default: throw new WorkspaceError('Операция недоступна агенту: отправку, согласование и публикацию выполняет человек в интерфейсе', 403);
             }
         },

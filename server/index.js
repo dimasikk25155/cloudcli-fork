@@ -90,6 +90,7 @@ import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import { krabikRoutes, startKrabikWatch } from './modules/krabik/index.js';
 import { duetRoutes, startDuetWatch } from './modules/duet/index.js';
+import { safariLiveRoutes, safariLiveService, serveSafariLiveStream } from './modules/safari-live/index.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
@@ -367,6 +368,8 @@ app.use('/api/vps/ingest', vpsIngestRouter);
 app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
 app.use('/api/krabik', authenticateToken, requireAdmin, krabikRoutes);
 app.use('/api/duet', authenticateToken, requireAdmin, duetRoutes);
+// «Safari вживую»: windows list and chat → Safari window binding (admin only).
+app.use('/api/safari-live', authenticateToken, requireAdmin, safariLiveRoutes);
 // Sticky phone pushes (Consigliere tasks + dead bots). Public by design:
 // the service worker has no JWT, and the Mac/VPS reminder job has only a shared token.
 app.use('/api/sticky-push', stickyPushRoutes);
@@ -416,6 +419,8 @@ app.get('/d/:token', serveSharedFile);
 // затирает query, поэтому токен живёт в пути. Подробности в routes/autopilot.js.
 app.use('/api', autopilotRoutes);
 app.get('/ap/:token/:file', serveAutopilotAsset);
+// «Safari вживую»: MJPEG for a plain <img> — no Authorization header, short JWT in the path.
+app.get('/sl/:token/stream', serveSafariLiveStream);
 
 // Digital Asset Links for the Android TWA (ru.neo3.claudecli). express.static
 // ignores dotfiles by default, so .well-known must be mounted explicitly or
@@ -1749,6 +1754,12 @@ async function startServer() {
                 await stopAllPlugins();
             } catch (err) {
                 console.error('[Plugins] Error stopping plugins during shutdown:', err?.message || err);
+            }
+            try {
+                // Hides Safari and removes the invisible «Neo3 Safari» display.
+                safariLiveService.stopAll();
+            } catch (err) {
+                console.error('[Safari live] Error stopping capture during shutdown:', err?.message || err);
             }
             try {
                 await removeLocalServerMarker();

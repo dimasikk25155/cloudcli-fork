@@ -7,6 +7,9 @@ const UI_PREFERENCES_CHANGED = 'ui_preferences_changed';
 /** Content-free "re-read your sidebar groups" frame. Not a chat row. */
 const SIDEBAR_GROUPS_CHANGED = 'sidebar_groups_changed';
 
+/** «Safari вживую»: a chat's Safari window binding changed; re-read GET. Not a chat row. */
+const SAFARI_LIVE_CHANGED = 'safari_live_changed';
+
 function sameUser(socketUserId: string | number | null, userId: number): boolean {
   return socketUserId !== null && Number(socketUserId) === userId;
 }
@@ -33,4 +36,13 @@ export function notifyUiPreferencesChanged(userId: number): void {
 /** After any change of sidebar groups or pins: the user's other devices re-read the tree. */
 export function notifySidebarGroupsChanged(userId: number): void {
   sendToUser(userId, { kind: SIDEBAR_GROUPS_CHANGED });
+}
+
+/**
+ * «Safari вживую»: a chat got (or changed) its Safari window. Only the chat id
+ * goes out; the client re-reads `GET /api/safari-live/sessions/:id`, where
+ * access is checked, and opens the «Safari» tab.
+ */
+export function notifySafariLiveChanged(userId: number, sessionId: string): void {
+  sendToUser(userId, { kind: SAFARI_LIVE_CHANGED, sessionId });
 }

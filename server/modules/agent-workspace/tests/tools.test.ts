@@ -182,3 +182,36 @@ test('settings.propose stores a suggestion through the profile service and chang
         db.close();
     }
 });
+test('safari.show passes this chat and titleContains to Safari live; its refusals keep their status for the agent', async () => {
+    const { db, deps, revoke } = fixture();
+    try {
+        const calls: Array<[number, string, Record<string, unknown>]> = [];
+        let refusal: AppError | null = null;
+        const safariLive = {
+            show: async (userId: number, sessionId: string, data: Record<string, unknown>) => {
+                calls.push([userId, sessionId, data]);
+                if (refusal) throw refusal;
+                return { windowId: 345, title: 'Kwork', message: 'Окно «Kwork» показано Диме справа в Neo3 вживую' };
+            },
+        };
+        const tools = createWorkspaceTools(deps, { safariLive });
+        const shown = await tools.call(1, 'session', { action: 'safari.show', data: { titleContains: 'kwork' } }) as { windowId: number; message: string };
+        assert.equal(shown.windowId, 345);
+        assert.match(shown.message, /вживую/);
+        await tools.call(1, 'session', { action: 'safari.show' });
+        assert.deepEqual(calls, [[1, 'session', { titleContains: 'kwork' }], [1, 'session', {}]]);
+
+        refusal = new AppError('Safari вживую доступен только администратору', { code: 'FORBIDDEN', statusCode: 403 });
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'safari.show' })), (error: { statusCode?: number; message: string; constructor: { name: string } }) => error.statusCode === 403 && /администратору/.test(error.message) && error.constructor.name === 'WorkspaceError');
+        refusal = new AppError('Мод выключен', { code: 'MOD_OFF', statusCode: 409 });
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'safari.show' })), (error: { statusCode?: number }) => error.statusCode === 409);
+
+        // A chat the user no longer has access to never reaches Safari live.
+        revoke();
+        assert.throws(() => tools.call(1, 'session', { action: 'safari.show' }), (error: { statusCode?: number }) => error.statusCode === 403);
+        assert.equal(calls.length, 4);
+    }
+    finally {
+        db.close();
+    }
+});

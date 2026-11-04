@@ -9,7 +9,7 @@ import { createIsModOn, isModOn } from '@/shared/mods.js';
 
 import { MODS, MOD_KEYS, modDefault } from '../../../shared/mods.js';
 
-// The twenty-three keys written out by hand; `subagentCrabs` keeps its old name.
+// The twenty-four keys written out by hand; `subagentCrabs` keeps its old name.
 const EXPECTED_KEYS = [
   'modAttention',
   'modAnswerButtons',
@@ -34,6 +34,7 @@ const EXPECTED_KEYS = [
   'modKeepAwake',
   'modDiagnostics',
   'modArtifactEditor',
+  'modSafariLive',
 ];
 
 // Mods of the workbench build (04.11.2026): each card says how it works in every engine.
@@ -46,11 +47,12 @@ const WORKBENCH_BUILD_KEYS = [
   'modKeepAwake',
   'modDiagnostics',
   'modArtifactEditor',
+  'modSafariLive',
 ];
 
-test('the mod registry lists exactly the twenty-three mods, each with a title and a description', () => {
+test('the mod registry lists exactly the twenty-four mods, each with a title and a description', () => {
   assert.deepEqual([...MOD_KEYS].sort(), [...EXPECTED_KEYS].sort());
-  assert.equal(MODS.length, 23);
+  assert.equal(MODS.length, 24);
   for (const mod of MODS) {
     assert.ok(mod.title.trim().length > 0, `${mod.key} has a title`);
     assert.ok(mod.description.trim().length > 0, `${mod.key} has a description`);
@@ -69,12 +71,22 @@ test('every mod of the workbench build names its support in Claude, Codex and Gr
   }
 });
 
-test('answer buttons need «Ждут тебя», artifact editing needs «Рабочий стол»; no other mod depends on another', () => {
+test('answer buttons need «Ждут тебя», artifact editing and Safari live need «Рабочий стол»; no other mod depends on another', () => {
   const withRequires = MODS.filter((mod) => mod.requires);
   assert.deepEqual(withRequires.map((mod) => [mod.key, mod.requires]).sort(), [
     ['modAnswerButtons', 'modAttention'],
     ['modArtifactEditor', 'modWorkbench'],
+    ['modSafariLive', 'modWorkbench'],
   ]);
+});
+
+test('«Safari вживую» card: last in the registry, title and support in all three engines', () => {
+  assert.equal(MOD_KEYS[MOD_KEYS.length - 1], 'modSafariLive');
+  const mod = MODS.find((candidate) => candidate.key === 'modSafariLive');
+  assert.ok(mod, 'modSafariLive has a card');
+  assert.equal(mod.title, 'Safari вживую');
+  assert.equal(mod.requires, 'modWorkbench');
+  assert.equal(mod.engines, 'Claude ✓ · Codex ✓ · Grok ✓');
 });
 
 test('«Правка артефактов» card: title and support in all three engines', () => {

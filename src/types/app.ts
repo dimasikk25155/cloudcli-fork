@@ -44,7 +44,37 @@ export type GatewayEventKind =
    * clients re-read `GET /api/sidebar-groups`. Not a chat row.
    * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
    */
-  | 'sidebar_groups_changed';
+  | 'sidebar_groups_changed'
+  /**
+   * «Safari вживую»: a chat's Safari window binding changed. Carries only
+   * `{kind, sessionId}`, sent only to that user's sockets; clients re-read
+   * `GET /api/safari-live/sessions/:sessionId`. Not a chat row.
+   * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
+   */
+  | 'safari_live_changed';
+
+/**
+ * «Safari вживую» — `GET /api/safari-live/sessions/:sessionId`.
+ * Mirror of `server/modules/safari-live/safari-live.types.ts`.
+ */
+export type SafariWindow = { windowId: number; title: string; onScreen: boolean; width: number; height: number };
+export type SafariLiveState = 'ok' | 'no_permission' | 'unsupported' | 'error';
+export type SafariBinding = {
+  sessionId: string;
+  windowId: number;
+  title: string;
+  boundBy: 'agent' | 'user';
+  updatedAt: string;
+};
+export type SafariLiveView = {
+  state: SafariLiveState;
+  binding: SafariBinding | null;
+  windowAlive: boolean;
+  /** `/sl/<jwt>/stream` (MJPEG for `<img>`) only while the helper works and the window exists. */
+  streamUrl: string | null;
+  windows: SafariWindow[];
+  message?: string;
+};
 
 export type LLMProvider = 'claude' | 'cursor' | 'codex' | 'opencode' | 'kimi' | 'gemini' | 'grok';
 

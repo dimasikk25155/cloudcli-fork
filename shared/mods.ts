@@ -33,6 +33,7 @@ export const MOD_KEYS = [
   'modKeepAwake',
   'modDiagnostics',
   'modArtifactEditor',
+  'modSafariLive',
 ] as const;
 
 export type ModKey = (typeof MOD_KEYS)[number];
@@ -215,6 +216,15 @@ export const MODS: readonly ModDef[] = [
     description:
       'Кнопка «Правка» у HTML, слайдов и SVG на холсте: двигай, меняй текст, цвет и размер мышкой, '
       + '«Сохранить» пишет файл новой версией. Сложное — «Попросить агента» по выделению.',
+    requires: 'modWorkbench',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
+  },
+  {
+    key: 'modSafariLive',
+    title: 'Safari вживую',
+    description:
+      'Вкладка «Safari» на холсте: живая картинка окна Safari, в котором работает агент чата, 2–4 раза в секунду. '
+      + 'Только смотреть — Safari вперёд не выходит. Только Mac и только администратору.',
     requires: 'modWorkbench',
     engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },

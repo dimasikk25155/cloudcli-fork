@@ -29,6 +29,8 @@ export { notificationPreferencesDb } from '@/modules/database/repositories/notif
 export { projectsDb } from '@/modules/database/repositories/projects.db.js';
 export { providerPreferencesDb } from '@/modules/database/repositories/provider-preferences.js';
 export { pushSubscriptionsDb } from '@/modules/database/repositories/push-subscriptions.js';
+export { safariLiveBindingsDb } from '@/modules/database/repositories/safari-live-bindings.db.js';
+export type { SafariLiveBindingRow } from '@/modules/database/repositories/safari-live-bindings.db.js';
 export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 export { sessionLinksDb } from '@/modules/database/repositories/session-links.db.js';
