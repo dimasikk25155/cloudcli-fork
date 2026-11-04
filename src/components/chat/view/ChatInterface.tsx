@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
@@ -29,7 +29,7 @@ import {
 import { attentionStore, useAttentionItem } from '../../attention/useAttention';
 import { isSeenable } from '../../attention/utils/attentionModel';
 import { createStreamBuffers } from '../utils/streamBuffers';
-import { isEscapeForInstance } from '../utils/chatInstance';
+import { chatPointerOwner, isEscapeForInstance, whenPageVisible } from '../utils/chatInstance';
 import { lastModelActivityAt, latestTimestamp, promptCacheApplies } from '../../../utils/promptCache';
 
 // Engines whose models share one list in the composer's model chip: picking
@@ -88,6 +88,19 @@ function ChatInterface({
   // A chat inside a canvas tab (see ChatEmbedding): fixed for the instance's life.
   const isEmbedded = Boolean(embedded);
   const chatRootRef = useRef<HTMLDivElement | null>(null);
+  // Who got the last pointerdown (see chatPointerOwner): the document listener
+  // runs first and clears it, then this chat's React handler (which also sees
+  // its portaled menus) claims it.
+  const instanceId = useId();
+  const claimPointer = useCallback(() => chatPointerOwner.claim(instanceId), [instanceId]);
+  useEffect(() => {
+    const release = () => chatPointerOwner.release();
+    document.addEventListener('pointerdown', release, { capture: true });
+    return () => {
+      document.removeEventListener('pointerdown', release, { capture: true });
+      if (chatPointerOwner.current() === instanceId) chatPointerOwner.release();
+    };
+  }, [instanceId]);
   // Live stream text per session: two chats streaming at once never mix.
   const [streamBuffers] = useState(createStreamBuffers);
   // When each session's `chat.subscribe` was last sent; idle acks older than
@@ -385,10 +398,12 @@ function ChatInterface({
   // route's chat (useAttentionSync does that one).
   const embeddedVisible = Boolean(embedded?.isVisible);
   useEffect(() => {
-    if (!embeddedVisible || !chipsSessionId || !attentionEntry) return;
-    if (!attentionEntry.unread || !isSeenable(attentionEntry)) return;
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-    void attentionStore.markSeen({ sessionIds: [chipsSessionId] });
+    if (!embeddedVisible || !chipsSessionId || !attentionEntry) return undefined;
+    if (!attentionEntry.unread || !isSeenable(attentionEntry)) return undefined;
+    // Now if the page is shown, otherwise when it comes back.
+    return whenPageVisible(typeof document === 'undefined' ? undefined : document, () => {
+      void attentionStore.markSeen({ sessionIds: [chipsSessionId] });
+    });
   }, [embeddedVisible, chipsSessionId, attentionEntry]);
   const transcriptModelAt = useMemo(
     () => (chipsSessionId ? lastModelActivityAt(sessionStore.getMessages(chipsSessionId)) : null),
@@ -493,7 +508,7 @@ function ChatInterface({
         return;
       }
       // Two chats on the page: Esc belongs to the one it was pressed in.
-      if (!isEscapeForInstance(event.target, chatRootRef.current, isEmbedded)) {
+      if (!isEscapeForInstance(event.target, chatRootRef.current, isEmbedded, { self: instanceId, owner: chatPointerOwner.current() })) {
         return;
       }
 
@@ -525,7 +540,7 @@ function ChatInterface({
     return () => {
       document.removeEventListener('keydown', handleGlobalEscape, { capture: true });
     };
-  }, [canAbortSession, handleAbortSession, clearEscapeArm, isEmbedded]);
+  }, [canAbortSession, handleAbortSession, clearEscapeArm, isEmbedded, instanceId]);
 
   useEffect(() => {
     return () => {
@@ -694,7 +709,8 @@ function ChatInterface({
       <div
         ref={chatRootRef}
         className="flex h-full min-h-0 flex-col"
-        data-chat-root={isEmbedded ? 'embedded' : undefined}
+        data-chat-root={isEmbedded ? 'embedded' : 'main'}
+        onPointerDownCapture={claimPointer}
       >
         {threadsOn && (
           <ThreadsBar

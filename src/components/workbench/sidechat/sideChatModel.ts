@@ -96,6 +96,28 @@ export function chatPickerChoices(sessions: PickerSession[], canvasSessionId: st
     .map((session) => ({ sessionId: session.id, title: sessionTitle(session) }));
 }
 
+/** Title of a chat tab whose chat the project list does not know yet. */
+export const PENDING_CHAT_TITLE = 'Чат';
+const PROVISIONAL_TITLES = new Set(['', PENDING_CHAT_TITLE, 'Новый чат']);
+
+/** Title for a tab retargeted to `sessionId`: the list's, or the stand-in until it arrives. */
+export function retargetTitle(sessions: PickerSession[], sessionId: string): string {
+  return chatPickerChoices(sessions, null).find((choice) => choice.sessionId === sessionId)?.title ?? PENDING_CHAT_TITLE;
+}
+
+/**
+ * The title a chat tab should switch to now, or null to keep it: a stand-in
+ * title («Чат», «Новый чат») gives way to the chat's own name once the
+ * project list has the chat with one.
+ */
+export function settledTabTitle(tabTitle: string, sessions: PickerSession[], sessionId: string): string | null {
+  if (!PROVISIONAL_TITLES.has(tabTitle.trim())) return null;
+  const session = sessions.find((candidate) => candidate.id === sessionId);
+  if (!session) return null;
+  const title = sessionTitle(session);
+  return PROVISIONAL_TITLES.has(title) || title === tabTitle ? null : title;
+}
+
 /**
  * Engine options of side chats, by session id — the chat list of the project
  * may not know a fresh `/btw` chat yet, so its engine comes from here.

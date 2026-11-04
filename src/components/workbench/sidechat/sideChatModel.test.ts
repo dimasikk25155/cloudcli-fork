@@ -5,7 +5,9 @@ import {
   chatPickerChoices,
   createSideChatStore,
   paneSession,
+  retargetTitle,
   sameSessionView,
+  settledTabTitle,
   sideChatTabFor,
 } from './sideChatModel.js';
 
@@ -68,4 +70,25 @@ test('a refreshed project list with the same chat data keeps the same session fo
   const renamed = paneSession([{ id: 's', provider: 'claude', summary: 'y' }], 's', null, { projectId: 'p' }, 't');
   assert.equal(sameSessionView(a, b), true);
   assert.equal(sameSessionView(a, renamed), false);
+});
+
+test('a tab retargeted to a chat the list does not have yet picks up its name when it arrives', () => {
+  // Retarget (relay / thread) to a brand-new chat: the list does not know it.
+  const title = retargetTitle([{ id: 'old', summary: 'Старый' }], 'new');
+  assert.equal(title, 'Чат');
+  assert.equal(settledTabTitle(title, [{ id: 'old', summary: 'Старый' }], 'new'), null, 'nothing to switch to yet');
+
+  // The chat shows up, still unnamed: keep the stand-in.
+  assert.equal(settledTabTitle(title, [{ id: 'new' }], 'new'), null);
+
+  // It gets its summary: the tab takes it.
+  assert.equal(settledTabTitle(title, [{ id: 'new', summary: 'Перенос: рефакторинг' }], 'new'), 'Перенос: рефакторинг');
+  assert.equal(settledTabTitle('Новый чат', [{ id: 'new', summary: 'Перенос: рефакторинг' }], 'new'), 'Перенос: рефакторинг');
+
+  // A tab with a real name keeps it (no loop once settled, no override of a picked title).
+  assert.equal(settledTabTitle('Перенос: рефакторинг', [{ id: 'new', summary: 'Перенос: рефакторинг' }], 'new'), null);
+  assert.equal(settledTabTitle('Побочный: зачем индекс', [{ id: 'new', summary: 'Другое' }], 'new'), null);
+
+  // Known chat: its own title straight away.
+  assert.equal(retargetTitle([{ id: 'new', summary: 'Перенос: рефакторинг' }], 'new'), 'Перенос: рефакторинг');
 });

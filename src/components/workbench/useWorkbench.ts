@@ -53,8 +53,8 @@ export function openNewWorkbenchTab(sessionId: string | null): string {
 }
 
 /** What was picked in «Новая вкладка» takes its place (an already open tab is shown instead). */
-export function replaceWorkbenchTab(sessionId: string | null, tabId: string, tab: WorkbenchTabInput): void {
-  workbenchStore.replaceTab(sessionId, tabId, tab);
+export function replaceWorkbenchTab(sessionId: string | null, tabId: string, tab: WorkbenchTabInput, options?: { keepActive?: boolean }): void {
+  workbenchStore.replaceTab(sessionId, tabId, tab, options);
 }
 
 export function closeWorkbenchTab(sessionId: string | null, tabId: string): void {

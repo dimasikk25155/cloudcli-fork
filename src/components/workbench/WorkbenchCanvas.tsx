@@ -94,6 +94,7 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
     session,
     openTab: (tab) => openWorkbenchTab(sessionId, tab),
     closeTab: () => close(ownTab),
+    replaceTab: (tab) => replaceWorkbenchTab(sessionId, ownTab.id, tab, { keepActive: true }),
     isActive: isActive && visible,
     onFileOpen,
     chatRuntime,

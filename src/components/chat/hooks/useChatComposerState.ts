@@ -1,4 +1,4 @@
-import { bindPendingWorkspaceHandoffs, cancelPendingWorkspaceHandoffs, WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
+import { WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
 import { workspaceApi, workspaceJson } from '../../agent-workspace/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
@@ -65,7 +65,7 @@ import { resetSessionSteps } from '../utils/stepTimer';
 import { askAdvisor } from '../../workbench/advisor/advisorApi';
 import { askAside, openSideChatTab } from '../../workbench/sidechat/sideChatApi';
 import { openWorkbenchTab } from '../../workbench/useWorkbench';
-import { draftStorageKey } from '../utils/chatInstance';
+import { draftStorageKey, workspaceHandoffsFor } from '../utils/chatInstance';
 
 import { useFileMentions } from './useFileMentions';
 import { useInputHistory } from './useInputHistory';
@@ -1260,7 +1260,8 @@ export function useChatComposerState({
         });
       }
       try {
-        await bindPendingWorkspaceHandoffs(selectedProject.projectId!, targetSessionId, sessionStorage,
+        // Hand-offs sit in the main chat's draft: a chat on the canvas never binds them.
+        await workspaceHandoffsFor(isEmbedded).bindOnSend(selectedProject.projectId!, targetSessionId, sessionStorage,
           (grantId, sessionId) => workspaceApi('/handoff/' + encodeURIComponent(grantId) + '/bind', workspaceJson('POST', { sessionId })));
         setWorkspaceHandoffError(null);
       } catch (error) {
@@ -1359,6 +1360,7 @@ export function useChatComposerState({
       slashCommands,
       screenshotCaptionsFor,
       uploadAttachedImages,
+      isEmbedded,
     ],
   );
 
@@ -1967,7 +1969,7 @@ export function useChatComposerState({
     workspaceHandoffError: workspaceHandoffError && workspaceHandoffError.projectId === selectedProject?.projectId ? workspaceHandoffError.message : null,
     cancelWorkspaceHandoff: () => {
       if (!selectedProject?.projectId) return;
-      cancelPendingWorkspaceHandoffs(selectedProject.projectId, sessionStorage);
+      workspaceHandoffsFor(isEmbedded).cancel(selectedProject.projectId, sessionStorage);
       setWorkspaceHandoffError(null);
     },
     input,

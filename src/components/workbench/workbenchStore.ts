@@ -196,21 +196,24 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
     /**
      * The new tab becomes what was picked in it, in the same place. A tab that
      * is already open is not duplicated: this one closes, that one is shown.
+     * `keepActive`: the active tab stays active (a hidden tab is swapped quietly).
      */
-    replaceTab(sessionId: string | null | undefined, tabId: string, input: WorkbenchTabInput) {
+    replaceTab(sessionId: string | null | undefined, tabId: string, input: WorkbenchTabInput, options: { keepActive?: boolean } = {}) {
       const current = getSession(sessionId);
       const index = current.tabs.findIndex((tab) => tab.id === tabId);
       if (index < 0) return;
       const id = workbenchTabId(input);
+      // keepActive: a tab replaced while hidden stays hidden (the user stays on theirs).
+      const activeTabId = options.keepActive && current.activeTabId !== tabId ? current.activeTabId : id;
       if (id !== tabId && current.tabs.some((tab) => tab.id === id)) {
-        setSession(sessionId, { tabs: current.tabs.filter((tab) => tab.id !== tabId), activeTabId: id });
+        setSession(sessionId, { tabs: current.tabs.filter((tab) => tab.id !== tabId), activeTabId });
         return;
       }
       const next: WorkbenchTab = { id, kind: input.kind, title: input.title };
       if (input.ref) next.ref = input.ref;
       const tabs = current.tabs.slice();
       tabs[index] = next;
-      setSession(sessionId, { tabs, activeTabId: id });
+      setSession(sessionId, { tabs, activeTabId });
     },
     closeTab(sessionId: string | null | undefined, tabId: string) {
       const current = getSession(sessionId);

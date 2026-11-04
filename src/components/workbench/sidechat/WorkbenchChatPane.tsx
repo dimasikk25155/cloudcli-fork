@@ -9,7 +9,7 @@
  * The tab is kept mounted while another canvas tab is active (keepMounted),
  * so a running answer, the scroll and the draft survive tab switches.
  */
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -21,7 +21,7 @@ import type { ChatEmbedding } from '../../chat/types/types';
 import ErrorBoundary from '../../main-content/view/ErrorBoundary';
 import type { WorkbenchRenderContext, WorkbenchTab } from '../workbenchTabs';
 
-import { chatPickerChoices, paneSession, sameSessionView, sideChatStore } from './sideChatModel';
+import { paneSession, retargetTitle, sameSessionView, settledTabTitle, sideChatStore } from './sideChatModel';
 
 type WorkbenchChatPaneProps = {
   tab: WorkbenchTab;
@@ -57,14 +57,19 @@ export default function WorkbenchChatPane({ tab, sessionId, context }: Workbench
   // Latest context for the stable callback below (the context object is new every render).
   const contextRef = useRef(context);
   contextRef.current = context;
+  // The tab becomes the other chat in place; a hidden tab stays hidden.
   const onRetarget = useCallback((targetSessionId: string) => {
     if (!targetSessionId || targetSessionId === sessionId) return;
-    const { openTab, closeTab, project } = contextRef.current;
-    const title = chatPickerChoices(project.sessions ?? [], null)
-      .find((choice) => choice.sessionId === targetSessionId)?.title ?? 'Чат';
-    openTab({ kind: tab.kind === 'btw' ? 'btw' : 'chat', ref: targetSessionId, title });
-    closeTab();
+    const { replaceTab, project } = contextRef.current;
+    replaceTab({ kind: tab.kind === 'btw' ? 'btw' : 'chat', ref: targetSessionId, title: retargetTitle(project.sessions ?? [], targetSessionId) });
   }, [sessionId, tab.kind]);
+
+  // A stand-in title («Чат») gives way to the chat's name once the list has it.
+  const settledTitle = settledTabTitle(tab.title, projectSessions ?? [], sessionId);
+  useEffect(() => {
+    if (!settledTitle) return;
+    contextRef.current.replaceTab({ id: tab.id, kind: tab.kind, ref: tab.ref, title: settledTitle });
+  }, [settledTitle, tab.id, tab.kind, tab.ref]);
 
   const embedded = useMemo<ChatEmbedding>(() => ({
     hostSessionId: context.sessionId,
