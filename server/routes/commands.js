@@ -10,7 +10,9 @@ import { parseFrontMatter } from "../shared/frontmatter.js";
 import { getSessionCostSnapshot } from "../shared/session-usage.js";
 import { findAppRoot, getModuleDir } from "../utils/runtime-paths.js";
 import { SUPPORTED_PROVIDERS } from "../shared/providers.js";
+import { runDoctor, runSkillDoctor } from "../modules/diagnostics/index.js";
 import { isModOn as defaultIsModOn, modOffError } from "../shared/mods.js";
+import { isAdminUser } from "../shared/project-access.js";
 
 const __dirname = getModuleDir(import.meta.url);
 // This route reads the top-level package.json for the status command, so it needs the real
@@ -237,18 +239,52 @@ const builtInCommands = [
     namespace: "builtin",
     metadata: { type: "builtin" },
   },
+  {
+    name: "/doctor",
+    description: "Проверить настройку: движки, MCP, диск, база, служба (только админ)",
+    namespace: "builtin",
+    metadata: { type: "builtin" },
+  },
+  {
+    name: "/skill-doctor",
+    description: "Проверить навыки Claude и Codex: дубли, пустые описания, битые ссылки (только админ)",
+    namespace: "builtin",
+    metadata: { type: "builtin" },
+  },
+  {
+    name: "/advisor",
+    description: "Спросить сильную модель (Claude Opus) с последними сообщениями чата",
+    namespace: "builtin",
+    metadata: { type: "builtin" },
+  },
 ];
 
 /** Built-in commands that exist only while their mod is on. */
 const MOD_GATED_COMMANDS = {
   "/btw": "modSideChat",
+  "/doctor": "modDiagnostics",
+  "/skill-doctor": "modDiagnostics",
+  "/advisor": "modDiagnostics",
+};
+
+/** Built-in commands only an administrator is offered and may run. */
+const ADMIN_ONLY_COMMANDS = new Set(["/doctor", "/skill-doctor"]);
+
+const defaultIsAdmin = (userId) => {
+  try {
+    return isAdminUser({ id: userId });
+  } catch {
+    // No readable user database: nobody counts as admin.
+    return false;
+  }
 };
 
 /** The built-in commands this user is offered (a switched-off mod hides its command). */
-export function builtInCommandsFor(userId, isModOn = defaultIsModOn) {
+export function builtInCommandsFor(userId, isModOn = defaultIsModOn, isAdmin = defaultIsAdmin) {
   return builtInCommands.filter((command) => {
     const mod = MOD_GATED_COMMANDS[command.name];
-    return !mod || isModOn(userId, mod);
+    if (mod && !isModOn(userId, mod)) return false;
+    return !ADMIN_ONLY_COMMANDS.has(command.name) || isAdmin(userId);
   });
 }
 
@@ -549,13 +585,34 @@ Custom commands can be created in:
       },
     };
   },
+
+  // Reports are read-only; the admin check sits in executeBuiltInCommand.
+  "/doctor": async () => ({
+    type: "builtin",
+    action: "doctor",
+    data: { report: await runDoctor() },
+  }),
+
+  "/skill-doctor": async () => ({
+    type: "builtin",
+    action: "skill-doctor",
+    data: { report: await runSkillDoctor() },
+  }),
+
+  // The question goes to POST /api/diagnostics/advisor from the composer:
+  // one call per command, the answer lands in the `advisor` canvas tab.
+  "/advisor": async (args) => ({
+    type: "builtin",
+    action: "advisor",
+    data: { question: (Array.isArray(args) ? args : []).join(" ").trim() },
+  }),
 };
 
 /**
  * Runs a built-in command for a user; `null` when `commandName` is not one.
  * A command of a switched-off mod is refused with 409 MOD_OFF.
  */
-export async function executeBuiltInCommand(commandName, args, context, userId, isModOn = defaultIsModOn) {
+export async function executeBuiltInCommand(commandName, args, context, userId, isModOn = defaultIsModOn, isAdmin = defaultIsAdmin) {
   const handler = builtInHandlers[commandName];
   if (!handler) {
     return null;
@@ -563,6 +620,11 @@ export async function executeBuiltInCommand(commandName, args, context, userId, 
   const mod = MOD_GATED_COMMANDS[commandName];
   if (mod && !isModOn(userId, mod)) {
     throw modOffError(mod);
+  }
+  if (ADMIN_ONLY_COMMANDS.has(commandName) && !isAdmin(userId)) {
+    const error = new Error("Команда доступна только администратору.");
+    error.code = "FORBIDDEN";
+    throw error;
   }
   return handler(args, context);
 }
@@ -647,6 +709,9 @@ router.post("/execute", async (req, res) => {
       } catch (error) {
         if (error?.code === "MOD_OFF") {
           return res.status(409).json({ error: error.code, message: error.message, command: commandName });
+        }
+        if (error?.code === "FORBIDDEN") {
+          return res.status(403).json({ error: error.code, message: error.message, command: commandName });
         }
         console.error(
           `Error executing built-in command ${commandName}:`,

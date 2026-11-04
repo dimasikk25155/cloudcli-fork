@@ -1,5 +1,6 @@
 import './sidechat/registerSideChatTabs';
 import './artifacts/artifactTabs';
+import './advisor/registerAdvisorTab';
 export { default as WorkbenchCanvas } from './WorkbenchCanvas';
 export { default as WorkbenchLayout } from './WorkbenchLayout';
 export { default as WorkbenchToggle } from './WorkbenchToggle';
