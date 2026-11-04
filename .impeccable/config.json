@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/components/workbench/artifact-editor/editorProtocol.test.ts"
+        ],
+        "createdAt": "2026-11-04T14:56:15.569Z",
+        "reason": "агент: тест протокола моста — строка '<img onerror>' нарочно подаётся как недоверенный id, который валидатор должен отбросить; не вёрстка"
+      },
+      {
+        "rule": "overused-font",
+        "value": "*",
+        "files": [
+          "src/components/workbench/artifact-editor/editorUiModel.test.ts"
+        ],
+        "createdAt": "2026-11-04T14:56:15.587Z",
+        "reason": "агент: тест разбора CSS — Inter лишь пример шрифта, найденного на странице артефакта; интерфейс Neo3 его не использует"
+      }
+    ]
+  }
+}
