@@ -11,6 +11,7 @@ import { bracketSpacedLinkTargets, decodeFileHref, looksLikePath, shortenPathLab
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
+import OpenInCanvasButton from '../../../workbench/artifacts/OpenInCanvasButton';
 
 type MarkdownProps = {
   children: React.ReactNode;
@@ -79,6 +80,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
       const open = () => openFileInEditor(fileRef);
 
       return (
+        <>
         <code
           role="button"
           tabIndex={0}
@@ -96,6 +98,8 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
         >
           {shortenPathLabel(raw)}
         </code>
+        <OpenInCanvasButton filePath={fileRef} />
+        </>
       );
     }
 
@@ -238,6 +242,7 @@ export function Markdown({ children, className }: MarkdownProps) {
 
         if (fileRef && !isExternalHref(href)) {
           return (
+            <>
             <a
               href={href || fileRef}
               title={fileRef}
@@ -249,6 +254,8 @@ export function Markdown({ children, className }: MarkdownProps) {
             >
               {linkText === fileRef ? shortenPathLabel(fileRef) : linkChildren}
             </a>
+            <OpenInCanvasButton filePath={stripLineSuffix(fileRef)} />
+            </>
           );
         }
 

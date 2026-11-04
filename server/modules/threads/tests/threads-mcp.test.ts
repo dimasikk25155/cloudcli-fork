@@ -218,3 +218,21 @@ test('threads off with workspace token forwards workspace action but still refus
   });
  });
 });
+
+test('workspace_action offers artifact.publish and artifact.list and forwards them with the run token', async () => {
+  await withFakeNeo3(() => ({ status: 200, body: { success: true, data: { artifact: { id: 'a-1' } } } }), async (apiUrl, recorded) => {
+    await withClient({ NEO3_THREADS_TOKEN: 'f'.repeat(64), NEO3_THREADS_API_URL: apiUrl }, async (client) => {
+      const list = await client.request('tools/list');
+      const tools = (list.result as { tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }> }).tools;
+      const workspace = tools.find((tool) => tool.name === 'workspace_action')!;
+      assert.ok(workspace.inputSchema.properties.action.enum?.includes('artifact.publish'));
+      assert.ok(workspace.inputSchema.properties.action.enum?.includes('artifact.list'));
+      assert.match(workspace.description, /artifact\.publish/);
+      const answer = await client.request('tools/call', { name: 'workspace_action', arguments: { action: 'artifact.publish', data: { path: 'report.html', title: 'Отчёт' } } });
+      assert.notEqual((answer.result as Record<string, unknown>).isError, true);
+      assert.match(textOf(answer.result as Record<string, unknown>), /a-1/);
+      assert.deepEqual(recorded.map((entry) => entry.url), ['/api/threads/tools/workspace_action']);
+      assert.deepEqual(recorded[0].body, { action: 'artifact.publish', data: { path: 'report.html', title: 'Отчёт' } });
+    });
+  });
+});

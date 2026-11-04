@@ -100,3 +100,33 @@ test('selected email → session grant → agent draft/document → human approv
         db.close();
     }
 });
+test('artifact.publish / artifact.list: the agent publishes a file of its chat project; outside paths, a foreign chat and the switched-off mod are refused', async () => {
+    const { mkdtemp, realpath, rm, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const { createArtifactsService } = await import('../../artifacts/index.js');
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), 'tools-artifacts-')));
+    const { db, deps, revoke } = fixture();
+    let modOn = true;
+    try {
+        await writeFile(path.join(root, 'slides.html'), '<section>1</section>');
+        const artifacts = createArtifactsService({ store: deps.store, projectPath: id => (id === 'p' ? root : null), canAccessProject: () => true, sessionProjectId: () => 'p', isModOn: () => modOn, snapshotRoot: () => path.join(root, '.snapshots') });
+        const tools = createWorkspaceTools(deps, { artifacts });
+        const published = await tools.call(1, 'session', { action: 'artifact.publish', data: { path: 'slides.html', title: 'Слайды' } }) as { artifact: { id: string; sessionId: string; title: string; kind: string } };
+        assert.equal(published.artifact.sessionId, 'session', 'the source is the agent\'s chat');
+        assert.equal(published.artifact.title, 'Слайды');
+        assert.equal(published.artifact.kind, 'slides');
+        const listed = await tools.call(1, 'session', { action: 'artifact.list' }) as Array<{ id: string }>;
+        assert.deepEqual(listed.map(item => item.id), [published.artifact.id]);
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'artifact.publish', data: { path: '../etc/passwd' } })), (error: { statusCode?: number; constructor: { name: string } }) => error.statusCode === 400 && error.constructor.name === 'WorkspaceError');
+        modOn = false;
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'artifact.list' })), (error: { statusCode?: number }) => error.statusCode === 409);
+        modOn = true;
+        revoke();
+        assert.throws(() => tools.call(1, 'session', { action: 'artifact.list' }), (error: { statusCode?: number }) => error.statusCode === 403);
+    }
+    finally {
+        db.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});

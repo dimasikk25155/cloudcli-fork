@@ -1,15 +1,29 @@
+import { AppError } from '@/shared/utils.js';
+
 import type { WorkspaceSource } from '../../../shared/agent-workspace.js';
 import type { MailDraftInput } from '../../../shared/agent-mail.js';
 import { createMailService, type MailOptions } from '../agent-mail/index.js';
+import { getArtifactsService, type ArtifactsService } from '../artifacts/index.js';
 import { createDocumentsService } from '../managed-documents/index.js';
 import { createTeamService } from '../workspace-team/index.js';
 
 import type { WorkspaceDependencies } from './dependencies.js';
 import { requireWorkspaceProject, createDailyService } from './service.js';
 import { WorkspaceError } from './store.js';
-/** Narrow agent surface: no approval, transport, publishing, mailbox enumeration or syncing. */
-export function createWorkspaceTools(deps: WorkspaceDependencies, options: MailOptions = {}) {
+export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService };
+/** Artifact refusals (AppError) keep their status for the agent, like every workspace refusal. */
+const asWorkspaceError = (error: unknown): never => {
+    if (error instanceof AppError) throw new WorkspaceError(error.message, error.statusCode);
+    throw error;
+};
+/**
+ * Narrow agent surface: no approval, transport, mailbox enumeration or syncing.
+ * `artifact.publish` only shows a file of the chat project in the Neo3 canvas
+ * (the source is this chat); nothing leaves the machine.
+ */
+export function createWorkspaceTools(deps: WorkspaceDependencies, options: WorkspaceToolsOptions = {}) {
     const documents = createDocumentsService(deps), team = createTeamService(deps), daily = createDailyService(deps);
+    const artifacts = () => options.artifacts ?? getArtifactsService();
     return {
         call(userId: number, sessionId: string, input: Record<string, unknown>): unknown {
             const projectId = deps.sessionProject?.(userId, sessionId);
@@ -60,6 +74,10 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: MailO
                     const sourceId = typeof data.replyToId === 'string' ? data.replyToId : '';
                     return mailGrant(sourceId).create(userId, data as unknown as MailDraftInput);
                 }
+                case 'artifact.publish':
+                    return artifacts().publish(userId, projectId, { path: data.path, title: data.title, sessionId }).catch(asWorkspaceError);
+                case 'artifact.list':
+                    return artifacts().list(userId, projectId).catch(asWorkspaceError);
                 default: throw new WorkspaceError('Операция недоступна агенту: отправку, согласование и публикацию выполняет человек в интерфейсе', 403);
             }
         },
