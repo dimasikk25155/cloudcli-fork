@@ -9,7 +9,7 @@ import { createIsModOn, isModOn } from '@/shared/mods.js';
 
 import { MODS, MOD_KEYS, modDefault } from '../../../shared/mods.js';
 
-// The twenty-two keys written out by hand; `subagentCrabs` keeps its old name.
+// The twenty-three keys written out by hand; `subagentCrabs` keeps its old name.
 const EXPECTED_KEYS = [
   'modAttention',
   'modAnswerButtons',
@@ -33,6 +33,7 @@ const EXPECTED_KEYS = [
   'modThinkingTime',
   'modKeepAwake',
   'modDiagnostics',
+  'modArtifactEditor',
 ];
 
 // Mods of the workbench build (04.11.2026): each card says how it works in every engine.
@@ -44,11 +45,12 @@ const WORKBENCH_BUILD_KEYS = [
   'modThinkingTime',
   'modKeepAwake',
   'modDiagnostics',
+  'modArtifactEditor',
 ];
 
-test('the mod registry lists exactly the twenty-two mods, each with a title and a description', () => {
+test('the mod registry lists exactly the twenty-three mods, each with a title and a description', () => {
   assert.deepEqual([...MOD_KEYS].sort(), [...EXPECTED_KEYS].sort());
-  assert.equal(MODS.length, 22);
+  assert.equal(MODS.length, 23);
   for (const mod of MODS) {
     assert.ok(mod.title.trim().length > 0, `${mod.key} has a title`);
     assert.ok(mod.description.trim().length > 0, `${mod.key} has a description`);
@@ -67,9 +69,19 @@ test('every mod of the workbench build names its support in Claude, Codex and Gr
   }
 });
 
-test('answer buttons work only together with «Ждут тебя»; no other mod depends on another', () => {
+test('answer buttons need «Ждут тебя», artifact editing needs «Рабочий стол»; no other mod depends on another', () => {
   const withRequires = MODS.filter((mod) => mod.requires);
-  assert.deepEqual(withRequires.map((mod) => [mod.key, mod.requires]), [['modAnswerButtons', 'modAttention']]);
+  assert.deepEqual(withRequires.map((mod) => [mod.key, mod.requires]).sort(), [
+    ['modAnswerButtons', 'modAttention'],
+    ['modArtifactEditor', 'modWorkbench'],
+  ]);
+});
+
+test('«Правка артефактов» card: title and support in all three engines', () => {
+  const mod = MODS.find((candidate) => candidate.key === 'modArtifactEditor');
+  assert.ok(mod, 'modArtifactEditor has a card');
+  assert.equal(mod.title, 'Правка артефактов');
+  assert.equal(mod.engines, 'Claude ✓ · Codex ✓ · Grok ✓');
 });
 
 test('isModOn: on until the user switches it off, and only for that user', async (t) => {

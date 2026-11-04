@@ -54,7 +54,15 @@ export type ArtifactsDependencies = {
   snapshotRoot?: () => string;
   now?: () => string;
   limits?: { text: number; binary: number };
+  /**
+   * File preview «копия документа» (`filePreviewService.createDocumentGrant`):
+   * the editor's copy of a page served at the real path of the file.
+   */
+  documentGrant?: (input: { root: string; relPath: string; html: string; userId: number; projectId: string }) => { token: string; url: string };
 };
+
+export type SaveEditInput = { content: unknown; baseVersionN: unknown };
+export type EditorPreviewInput = { html: unknown };
 
 export type PublishInput = { path: unknown; title?: unknown; sessionId?: unknown; messageId?: unknown };
 export type CommentInput = { anchor: unknown; text: unknown; versionN?: unknown };
@@ -86,6 +94,10 @@ function isPrivateRealPath(realRoot: string, realPath: string): boolean {
 }
 
 const isPrivatePathError = (error: unknown) => error instanceof AppError && error.code === PRIVATE_PATH_CODE;
+
+/** Documents the «Правка» mode edits: HTML pages, slides and SVG pictures. */
+const EDITABLE_PATH = /\.(?:html?|svg)$/i;
+const EDITABLE_KINDS: ReadonlySet<string> = new Set(['html', 'slides', 'image']);
 
 const view = <T>(record: WorkspaceRecord<T>): ArtifactRecordView<T> => ({
   ...record.payload,
@@ -303,6 +315,39 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
     return { artifact: updated, changed: true };
   }
 
+  /** Mod, artifact, kind and size of the sent text: shared by saving and the editor's copy. */
+  function editableArtifact(userId: number, projectId: string, id: string, text: unknown): { artifact: WorkspaceRecord<ArtifactPayload>; data: Buffer } {
+    if (!isModOn(userId, 'modArtifactEditor')) throw modOffError('modArtifactEditor');
+    const artifact = getArtifact(projectId, id);
+    if (!EDITABLE_KINDS.has(artifact.payload.kind) || !EDITABLE_PATH.test(artifact.payload.path)) {
+      fail('Править вручную можно только HTML, слайды и SVG', 'ARTIFACT_EDIT_UNSUPPORTED', 400);
+    }
+    if (typeof text !== 'string') fail('Нет текста документа', 'ARTIFACT_EDIT_INVALID', 400);
+    const data = Buffer.from(text, 'utf8');
+    if (data.length > limits.text) fail('Документ больше лимита текстового файла', 'ARTIFACT_EDIT_TOO_LARGE', 413);
+    return { artifact, data };
+  }
+
+  /**
+   * Real path of the artifact's file, checked right now: inside the real project
+   * root, not through a private segment, still a page (a link swapped onto
+   * package.json is not one). Called again immediately before the write.
+   */
+  async function verifiedRealPath(projectRoot: string, absPath: string): Promise<{ real: string; realRoot: string }> {
+    const real = await fs.realpath(absPath);
+    const realRoot = await fs.realpath(path.resolve(projectRoot));
+    if (!isInside(realRoot, real)) fail('Файл лежит вне проекта', 'ARTIFACT_PATH_OUTSIDE_PROJECT', 400);
+    if (isPrivateRealPath(realRoot, real)) failPrivate();
+    if (!EDITABLE_PATH.test(real)) fail('Ссылка ведёт не на страницу', 'ARTIFACT_EDIT_UNSUPPORTED', 400);
+    return { real, realRoot };
+  }
+
+  async function existingFile(projectRoot: string, artifact: WorkspaceRecord<ArtifactPayload>) {
+    const resolved = await resolvePath(projectRoot, artifact.payload.path);
+    if (!resolved.exists) fail(`Файл не найден: ${resolved.relPath}`, 'ARTIFACT_FILE_NOT_FOUND', 404);
+    return resolved;
+  }
+
   return {
     async list(userId: number, projectId: string): Promise<ArtifactListItem[]> {
       const root = guard(userId, projectId);
@@ -406,6 +451,52 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
         restoredFrom: version.payload.n,
       });
       return detailOf(root, projectId, updated);
+    },
+
+    /**
+     * «Сохранить» of the «Правка» mode: writes the edited document over the file
+     * and adds a version `edit`. Refused with 409 ARTIFACT_EDIT_CONFLICT (details
+     * `{latestVersion}`) when the edit did not start from the latest version or
+     * the file on disk no longer matches that version (the agent changed it) —
+     * the agent's change becomes a version, the file is not touched.
+     */
+    async saveEdit(userId: number, projectId: string, id: string, input: SaveEditInput): Promise<ArtifactDetail> {
+      const root = guard(userId, projectId);
+      const { artifact, data } = editableArtifact(userId, projectId, id, input.content);
+      const baseVersionN = Number(input.baseVersionN);
+      if (!Number.isSafeInteger(baseVersionN) || baseVersionN < 1) fail('Не указана версия, с которой начата правка', 'ARTIFACT_EDIT_INVALID', 400);
+      const resolved = await existingFile(root, artifact);
+      await verifiedRealPath(root, resolved.absPath);
+      const current = await readCurrent(root, resolved.absPath);
+      const base = versionsOf(projectId, artifact.id).find((record) => record.payload.n === baseVersionN);
+      if (!base || baseVersionN !== artifact.payload.latestVersion || base.payload.sha256 !== current.sha256) {
+        const latest = (await snapshotIfChanged(userId, projectId, root, artifact)).artifact.payload.latestVersion;
+        throw new AppError('Файл изменился, пока ты правил', { code: 'ARTIFACT_EDIT_CONFLICT', statusCode: 409, details: { latestVersion: latest } });
+      }
+      // The link could be swapped while the content was compared: the write goes to the path checked right now.
+      const { real } = await verifiedRealPath(root, resolved.absPath);
+      await fs.writeFile(real, data);
+      const updated = await addVersion(userId, projectId, artifact, {
+        sha256: createHash('sha256').update(data).digest('hex'),
+        size: data.length,
+        data,
+      }, 'edit');
+      return detailOf(root, projectId, updated);
+    },
+
+    /**
+     * The editor's copy of the document (the parsed source with `data-neo3-id`
+     * and the bridge) served by file preview at the real path of the file:
+     * relative pictures and CSS load from disk, the page under the preview CSP.
+     */
+    async editorPreview(userId: number, projectId: string, id: string, input: EditorPreviewInput): Promise<{ url: string }> {
+      const root = guard(userId, projectId);
+      const { artifact } = editableArtifact(userId, projectId, id, input.html);
+      const resolved = await existingFile(root, artifact);
+      const { real, realRoot } = await verifiedRealPath(root, resolved.absPath);
+      if (!deps.documentGrant) fail('Превью правки недоступно', 'ARTIFACT_EDIT_PREVIEW_UNAVAILABLE', 503);
+      const grant = deps.documentGrant({ root: realRoot, relPath: toPosix(path.relative(realRoot, real)), html: input.html as string, userId, projectId });
+      return { url: grant.url };
     },
 
     addComment(userId: number, projectId: string, id: string, input: CommentInput): ArtifactComment {

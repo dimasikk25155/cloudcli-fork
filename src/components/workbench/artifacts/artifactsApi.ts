@@ -10,20 +10,37 @@ import { authenticatedFetch } from '../../../utils/api';
 
 const base = (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/artifacts`;
 
-async function readError(response: Response): Promise<string> {
+/** A refusal of the artifacts API: the server's `code` and `details` stay readable (409 ARTIFACT_EDIT_CONFLICT → `details.latestVersion`). */
+export class ArtifactsApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string | null, readonly details: unknown) {
+    super(message);
+    this.name = 'ArtifactsApiError';
+  }
+}
+
+async function readFailure(response: Response): Promise<ArtifactsApiError> {
+  let message: string | undefined;
+  let code: string | null = null;
+  let details: unknown = null;
   try {
-    const body = await response.json() as { error?: string | { message?: string } };
-    const message = typeof body.error === 'string' ? body.error : body.error?.message;
-    if (message) return message;
+    const body = await response.json() as { error?: string | { message?: string; code?: string }; details?: unknown };
+    message = typeof body.error === 'string' ? body.error : body.error?.message;
+    code = typeof body.error === 'object' && typeof body.error?.code === 'string' ? body.error.code : null;
+    details = body.details ?? null;
   } catch {
     // not JSON
   }
-  return response.status === 409 ? 'Мод «Рабочий стол» выключен' : `Neo3 отказал (${response.status})`;
+  const fallback = response.status === 409 ? 'Мод «Рабочий стол» выключен' : `Neo3 отказал (${response.status})`;
+  return new ArtifactsApiError(message || fallback, response.status, code, details);
+}
+
+async function readError(response: Response): Promise<string> {
+  return (await readFailure(response)).message;
 }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(url, init);
-  if (!response.ok) throw new Error(await readError(response));
+  if (!response.ok) throw await readFailure(response);
   const body = await response.json() as { data: T };
   return body.data;
 }
@@ -47,6 +64,18 @@ export const artifactsApi = {
   sendComments: (projectId: string, id: string, sessionId: string) => (
     call<ArtifactSendResult>(`${base(projectId)}/${encodeURIComponent(id)}/send-comments`, post({ sessionId }))
   ),
+  /**
+   * «Сохранить» of the «Правка» mode: a new version `edit`. The file changed
+   * since `baseVersionN` → ArtifactsApiError 409 `ARTIFACT_EDIT_CONFLICT`, `details.latestVersion`.
+   */
+  saveEdit: (projectId: string, id: string, input: { content: string; baseVersionN: number }) => (
+    call<ArtifactDetail>(`${base(projectId)}/${encodeURIComponent(id)}/edit`, post(input, 'PUT'))
+  ),
+  /** URL of the editor's copy (parsed source + bridge) served by file preview at the file's own path. */
+  async editorPreview(projectId: string, id: string, html: string): Promise<string> {
+    const { url } = await call<{ url: string }>(`${base(projectId)}/${encodeURIComponent(id)}/editor-preview`, post({ html }));
+    return url;
+  },
   /** Bytes of a saved version (HTML comes as text). */
   async versionBlob(projectId: string, id: string, n: number, signal?: AbortSignal): Promise<Blob> {
     const response = await authenticatedFetch(`${base(projectId)}/${encodeURIComponent(id)}/versions/${n}/content`, { signal });

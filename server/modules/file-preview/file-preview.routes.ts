@@ -5,6 +5,7 @@ import mime from 'mime-types';
 import { projectsDb } from '@/modules/database/index.js';
 import { canAccessProject, isAdminUser } from '@/shared/project-access.js';
 
+import { getFilePreviewService } from './file-preview.runtime.js';
 import { createFilePreviewService, PreviewError } from './file-preview.service.js';
 
 type User = { id: number; role?: string };
@@ -22,7 +23,10 @@ const fail = (res: Response, error: unknown) => {
 
 export function createFilePreviewRoutes(deps: Dependencies) {
   const access = deps.access ?? canAccessProject;
-  const service = deps.service ?? createFilePreviewService({ canAccess: (userId, projectId) => access({ id: userId }, projectId) });
+  // Production shares one grant table with the artifact editor; a custom access rule (tests) gets its own.
+  const service = deps.service ?? (deps.access
+    ? createFilePreviewService({ canAccess: (userId, projectId) => access({ id: userId }, projectId) })
+    : getFilePreviewService());
   const create = express.Router({ mergeParams: true });
   create.post('/', async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -45,6 +49,11 @@ export function createFilePreviewRoutes(deps: Dependencies) {
     // Opaque origin even when opened directly, rather than only in an iframe.
     res.setHeader('Content-Security-Policy', "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' https: http:; style-src 'unsafe-inline' https: http:; img-src data: blob: https: http:; font-src data: https: http:; media-src blob: https: http:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'");
     try {
+      const copy = service.document(req.params.token, req.params[0]);
+      if (copy !== null) {
+        res.type('text/html; charset=utf-8').send(copy);
+        return;
+      }
       const file = await service.resource(req.params.token, req.params[0]);
       res.type(mime.lookup(file) || 'application/octet-stream');
       // Stream assets without buffering large media. The URL preserves CSS and module resolution.

@@ -32,6 +32,7 @@ export const MOD_KEYS = [
   'modThinkingTime',
   'modKeepAwake',
   'modDiagnostics',
+  'modArtifactEditor',
 ] as const;
 
 export type ModKey = (typeof MOD_KEYS)[number];
@@ -207,6 +208,15 @@ export const MODS: readonly ModDef[] = [
       '/doctor проверяет настройку, /skill-doctor — навыки, /advisor спрашивает сильную модель. '
       + 'Профиль настроек: изменения с предпросмотром и «Вернуть как было».',
     engines: 'Claude ✓ · Codex ✓ · Grok ✓ — /advisor всегда отвечает моделью Claude',
+  },
+  {
+    key: 'modArtifactEditor',
+    title: 'Правка артефактов',
+    description:
+      'Кнопка «Правка» у HTML, слайдов и SVG на холсте: двигай, меняй текст, цвет и размер мышкой, '
+      + '«Сохранить» пишет файл новой версией. Сложное — «Попросить агента» по выделению.',
+    requires: 'modWorkbench',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
 ];
 

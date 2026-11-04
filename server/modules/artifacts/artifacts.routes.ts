@@ -67,6 +67,23 @@ export function createArtifactsRouter(getService: () => ArtifactsService) {
     res.json(createApiSuccessResponse(await getService().restore(userId, projectId, String(req.params.id), Number(req.params.n))));
   }));
 
+  // A document is up to the 2 MB text limit; JSON escaping can grow it. The app parser
+  // (50 MB) normally runs first — this one only matters where the router is mounted alone.
+  const editBody = express.json({ limit: '3mb' });
+
+  router.put('/:id/edit', editBody, asyncHandler(async (req, res) => {
+    const { userId, projectId } = context(req);
+    const input = body(req);
+    res.json(createApiSuccessResponse(await getService().saveEdit(userId, projectId, String(req.params.id), {
+      content: input.content, baseVersionN: input.baseVersionN,
+    })));
+  }));
+
+  router.post('/:id/editor-preview', editBody, asyncHandler(async (req, res) => {
+    const { userId, projectId } = context(req);
+    res.json(createApiSuccessResponse(await getService().editorPreview(userId, projectId, String(req.params.id), { html: body(req).html })));
+  }));
+
   router.post('/:id/comments', asyncHandler(async (req, res) => {
     const { userId, projectId } = context(req);
     const input = body(req);

@@ -1,5 +1,6 @@
 import { createWorkspaceStore } from '@/modules/agent-workspace/index.js';
 import { getConnection, projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { getFilePreviewService } from '@/modules/file-preview/index.js';
 import { canAccessProject, canAccessSession } from '@/shared/project-access.js';
 
 import { createArtifactsService, type ArtifactsService } from './artifacts.service.js';
@@ -23,5 +24,7 @@ export function getArtifactsService(): ArtifactsService {
     projectPath: (projectId) => projectsDb.getProjectPathById(projectId),
     canAccessProject: (userId, projectId) => canAccessProject({ id: userId }, projectId),
     sessionProjectId: artifactsSessionProjectId,
+    // The same grant table the `/api/file-preview` route serves.
+    documentGrant: (input) => getFilePreviewService().createDocumentGrant(input),
   });
 }

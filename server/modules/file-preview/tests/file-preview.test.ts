@@ -105,3 +105,58 @@ for (const directory of ['secrets', 'credentials', '.secrets']) {
     await assert.rejects(service.issue({ file, projectRoot: path.join(root, 'project'), projectId: 'p', userId: 1, admin: true }), { status: 403 });
   });
 }
+
+test('a document grant serves the sent HTML at the file path under the same CSP, other files of the grant come from disk', async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'html-document-')));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(path.join(root, 'site'));
+  await fs.writeFile(path.join(root, 'site', 'page.html'), '<h1>on disk</h1>');
+  await fs.writeFile(path.join(root, 'site', 'style.css'), 'h1{color:red}');
+  let allowed = true;
+  const service = createFilePreviewService({ canAccess: () => allowed });
+  const routes = createFilePreviewRoutes({ service, resolve: async () => ({ ok: false, status: 400, error: 'unused' }) });
+  const app = express();
+  app.use('/api/file-preview', routes.assets);
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const origin = `http://127.0.0.1:${address.port}`;
+
+  const grant = service.createDocumentGrant({ root, relPath: 'site/page.html', html: '<h1>копия с мостом</h1>', userId: 1, projectId: 'p' });
+  assert.match(grant.url, new RegExp(`^/api/file-preview/${grant.token}/site/page\\.html$`));
+  const page = await fetch(new URL(grant.url, origin));
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('content-type'), 'text/html; charset=utf-8');
+  assert.equal(await page.text(), '<h1>копия с мостом</h1>');
+  const csp = page.headers.get('content-security-policy')!;
+  assert.match(csp, /sandbox allow-scripts;/);
+  assert.match(csp, /connect-src 'none'/);
+  assert.doesNotMatch(csp, /allow-same-origin/);
+  const css = await fetch(new URL('style.css', new URL(grant.url, origin)));
+  assert.equal(css.status, 200);
+  assert.equal(await css.text(), 'h1{color:red}');
+
+  // The grant follows the project access rule like any other.
+  allowed = false;
+  assert.equal((await fetch(new URL(grant.url, origin))).status, 403);
+  allowed = true;
+
+  // Only a safe page path inside the root becomes a document.
+  for (const relPath of ['../x.html', '.env.html', 'site/style.css', '/etc/passwd.html', 'secrets/a.html']) {
+    assert.throws(() => service.createDocumentGrant({ root, relPath, html: '<p>', userId: 1, projectId: 'p' }), { status: 403 }, relPath);
+  }
+  // SVG artifacts are served as an HTML wrapper at their own path.
+  const svg = service.createDocumentGrant({ root, relPath: 'site/pic.svg', html: '<!DOCTYPE html><svg></svg>', userId: 1, projectId: 'p' });
+  assert.equal((await fetch(new URL(svg.url, origin))).headers.get('content-type'), 'text/html; charset=utf-8');
+});
+
+test('at most 20 document grants live at once: the oldest is dropped', async () => {
+  const service = createFilePreviewService();
+  const grants = Array.from({ length: 21 }, (_, index) => service.createDocumentGrant({ root: '/tmp/p', relPath: 'a.html', html: `<p>${index}</p>`, userId: 1, projectId: 'p' }));
+  assert.equal(service.document(grants[0].token, 'a.html'), null);
+  assert.equal(service.document(grants[1].token, 'a.html'), '<p>1</p>');
+  assert.equal(service.document(grants[20].token, 'a.html'), '<p>20</p>');
+  assert.equal(service.document(grants[20].token, 'b.html'), null, 'another path of the grant is not the document');
+});

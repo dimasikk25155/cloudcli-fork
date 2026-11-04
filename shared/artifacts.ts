@@ -11,7 +11,8 @@
 export const ARTIFACT_KINDS = ['html', 'markdown', 'pdf', 'image', 'slides', 'other'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
-export const ARTIFACT_VERSION_SOURCES = ['publish', 'change', 'restore'] as const;
+/** `edit` — saved from the «Правка» mode of the canvas (mod «Правка артефактов»). */
+export const ARTIFACT_VERSION_SOURCES = ['publish', 'change', 'restore', 'edit'] as const;
 export type ArtifactVersionSource = (typeof ARTIFACT_VERSION_SOURCES)[number];
 
 export const ARTIFACT_COMMENT_STATUSES = ['open', 'sent', 'resolved'] as const;
