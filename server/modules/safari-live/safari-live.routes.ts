@@ -41,7 +41,7 @@ export function buildSafariLiveView(userId: number, binding: SafariBinding | nul
     binding: binding && live && live.title && live.title !== binding.title ? { ...binding, title: live.title } : binding,
     windowAlive,
     streamUrl: list.state === 'ok' && binding && windowAlive
-      ? `/sl/${signStreamToken({ userId, windowId: binding.windowId })}/stream`
+      ? `/sl/${signStreamToken({ userId, windowId: binding.windowId, sessionId: binding.sessionId })}/stream`
       : null,
     windows: list.windows,
   };

@@ -4,7 +4,11 @@ import test from 'node:test';
 import type { SafariLiveView } from '../../types/app.js';
 
 import {
+  STREAM_RECOVERY_START,
+  STREAM_STABLE_MS,
   SAFARI_STATE_TEXT,
+  nextStreamRecovery,
+  streamUrlEvent,
   markSafariAutoOpened,
   panelStateFor,
   safariBindingKey,
@@ -94,4 +98,45 @@ test('память автооткрытия хранит последние 50 �
   assert.equal(wasSafariAutoOpened('k1', storage), false);
   assert.equal(wasSafariAutoOpened('n59', storage), true);
   assert.equal(JSON.parse(storage.getItem('neo3.safariLive.autoOpened') ?? '[]').length, 50);
+});
+
+test('stream recovery: every break after a recovery gets its own resubscribe in 2 s; a second break without recovery is final', () => {
+  let state = STREAM_RECOVERY_START;
+  state = nextStreamRecovery(state, 'break', 1_000);
+  assert.equal(state.phase, 'waiting', 'first break → wait 2 s, then resubscribe');
+  state = nextStreamRecovery(state, 'break', 1_100);
+  assert.equal(state.phase, 'waiting', 'a repeated error while waiting changes nothing');
+  state = nextStreamRecovery(state, 'resubscribed', 3_000);
+  assert.equal(state.phase, 'retried');
+  state = nextStreamRecovery(state, 'recovered', 3_500);
+  assert.equal(state.phase, 'ok', 'the new picture arrived');
+  state = nextStreamRecovery(state, 'break', 60_000);
+  assert.equal(state.phase, 'waiting', 'a new break after recovery → one more resubscribe (review F1)');
+  state = nextStreamRecovery(state, 'resubscribed', 62_000);
+  state = nextStreamRecovery(state, 'break', 62_500);
+  assert.equal(state.phase, 'broken', 'broke again before any picture → «Связь прервалась» + «Повторить»');
+  assert.equal(nextStreamRecovery(state, 'break', 63_000).phase, 'broken');
+  assert.equal(nextStreamRecovery(state, 'reset', 64_000).phase, 'ok', '«Повторить», another window, the tab back on view');
+});
+
+test('stream recovery: a resubscribed stream that lived long enough counts as recovered even if the browser fired no load', () => {
+  let state = nextStreamRecovery(STREAM_RECOVERY_START, 'break', 0);
+  state = nextStreamRecovery(state, 'resubscribed', 2_000);
+  assert.equal(nextStreamRecovery(state, 'break', 2_000 + STREAM_STABLE_MS - 1).phase, 'broken');
+  assert.equal(nextStreamRecovery(state, 'break', 2_000 + STREAM_STABLE_MS).phase, 'waiting');
+});
+
+test('streamUrlEvent: a new link for the same binding that the tab did not ask for = the server ended the picture', () => {
+  const a = { url: '/sl/a/stream', bindingKey: 's1::7::t1' };
+  assert.equal(streamUrlEvent(null, a, false), null, 'first load');
+  assert.equal(streamUrlEvent(a, a, false), null, 'nothing changed');
+  assert.equal(streamUrlEvent(a, { ...a, url: '/sl/b/stream' }, false), 'break', 'pinged after the stream ended');
+  assert.equal(streamUrlEvent(a, { ...a, url: '/sl/b/stream' }, true), null, 'our own resubscribe / «Повторить»');
+  assert.equal(streamUrlEvent(a, { url: '/sl/c/stream', bindingKey: 's1::9::t2' }, false), 'reset', 'another window bound');
+  assert.equal(streamUrlEvent(a, { ...a, url: null }, false), null, 'window gone → the tab shows «Окно закрыто», not a resubscribe');
+});
+
+test('panelStateFor: a pending resubscribe shows loading, not a dead picture', () => {
+  assert.equal(panelStateFor(view(), { isActive: true, modOn: true, reconnecting: true }), 'loading');
+  assert.equal(panelStateFor(view({ windowAlive: false, streamUrl: null }), { isActive: true, modOn: true, reconnecting: true }), 'window_gone');
 });

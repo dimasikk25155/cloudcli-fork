@@ -312,3 +312,75 @@ test('placeOnDisplay: the window fills the display; a closed window is window_go
   assert.ok(noDisplay.message);
   assert.equal(places.length, 2, 'nothing is moved without a display');
 });
+
+test('pickWindow skips untitled windows (the 500×500 service window), like the tab list does', async () => {
+  const service = createSafariLiveService({
+    platform: 'darwin',
+    runList: async () => listOk([
+      { windowId: 120, title: 'Яндекс', onScreen: true, width: 1280, height: 800 },
+      { windowId: 900, title: '', onScreen: false, width: 500, height: 500 },
+      { windowId: 901, title: '   ', onScreen: false, width: 800, height: 600 },
+    ]),
+  });
+  assert.equal((await service.pickWindow()).window?.windowId, 120);
+
+  const onlyService = createSafariLiveService({
+    platform: 'darwin',
+    runList: async () => listOk([{ windowId: 900, title: '', onScreen: false, width: 500, height: 500 }]),
+  });
+  const picked = await onlyService.pickWindow();
+  assert.equal(picked.window, null);
+  assert.equal(picked.list.windows.length, 1);
+});
+
+test('openWindow: the helper opens the agent\'s own new window (or navigates the given one) and the next list is fresh', async () => {
+  const calls: Array<[string, number | undefined]> = [];
+  let windows: unknown[] = [];
+  let lists = 0;
+  const service = createSafariLiveService({
+    platform: 'darwin',
+    now: () => 0,
+    runList: async () => { lists += 1; return listOk(windows); },
+    runOpen: async (url, windowId) => {
+      calls.push([url, windowId]);
+      if (windowId === 404) return { code: 4, stdout: '', stderr: '{"error":"window_gone","message":"нет окна"}\n' };
+      windows = [{ windowId: 777, title: 'Без названия', onScreen: false, width: 1920, height: 1170 }];
+      return { code: 0, stdout: '{"ok":true,"windowId":777}\n', stderr: '' };
+    },
+  });
+  await service.listWindows();
+  assert.deepEqual(await service.openWindow('https://example.com/'), { ok: true, windowId: 777 });
+  assert.deepEqual(calls, [['https://example.com/', undefined]]);
+  // cached list (now() never moves) would not know the new window — openWindow drops the cache
+  assert.equal((await service.listWindows()).windows[0]?.windowId, 777);
+  assert.equal(lists, 2);
+
+  assert.deepEqual(await service.openWindow('https://example.org/', 777), { ok: true, windowId: 777 });
+  const gone = await service.openWindow('https://example.org/', 404);
+  assert.equal(gone.ok, false);
+  assert.equal(!gone.ok && gone.end, 'window_gone');
+
+  const bad = await service.openWindow('file:///etc/passwd');
+  assert.equal(bad.ok, false);
+  assert.equal(calls.length, 3, 'a non-http(s) address never reaches the helper');
+
+  const notMac = createSafariLiveService({ platform: 'linux', runOpen: async () => { throw new Error('must not run'); } });
+  const unsupported = await notMac.openWindow('https://example.com/');
+  assert.equal(!unsupported.ok && unsupported.state, 'unsupported');
+});
+
+test('subscribe: a stream ending with window_gone drops the cached list, so the tab sees «Окно закрыто» at once', async () => {
+  let windows: unknown[] = [{ windowId: 7, title: 'Мой', onScreen: false, width: 1280, height: 800 }];
+  const spawned: FakeStream[] = [];
+  const service = createSafariLiveService({
+    platform: 'darwin',
+    now: () => 0,
+    runList: async () => listOk(windows),
+    spawnStream: () => { const process = new FakeStream(); spawned.push(process); return process; },
+  });
+  assert.equal((await service.listWindows()).windows.length, 1);
+  service.subscribe(7, { onFrame: () => {}, onEnd: () => {} });
+  windows = [];
+  spawned[0].exit('window_gone');
+  assert.equal((await service.listWindows()).windows.length, 0);
+});

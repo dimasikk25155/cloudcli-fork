@@ -38,7 +38,7 @@ const asWorkspaceError = (error: unknown): never => {
  * `group.*` / `pin.set` only arrange the sidebar (no deletes); `settings.propose` only suggests.
  * `artifact.publish` only shows a file of the chat project in the Neo3 canvas
  * (the source is this chat); nothing leaves the machine.
- * `safari.show` only binds an already open Safari window of the agent to this chat (admin only).
+ * `safari.show` opens a page in the agent's own Safari window (or binds an open one) and shows it in this chat (admin only).
  */
 export function createWorkspaceTools(deps: WorkspaceDependencies, options: WorkspaceToolsOptions = {}) {
     const documents = createDocumentsService(deps), team = createTeamService(deps), daily = createDailyService(deps);
@@ -111,8 +111,11 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
                 case 'settings.propose': return sync(() => profile().propose(userId, sessionId, { changes: data.changes, reason: data.reason }));
                 // Shows the agent's Safari window to the user live on the canvas; never brings Safari to the front.
                 case 'safari.show': {
-                    const titleContains = typeof data.titleContains === 'string' ? data.titleContains : undefined;
-                    return safariLive().show(userId, sessionId, titleContains === undefined ? {} : { titleContains }).catch(asWorkspaceError);
+                    const picked: Record<string, unknown> = {};
+                    if (typeof data.url === 'string') picked.url = data.url;
+                    if (typeof data.windowId === 'number' || typeof data.windowId === 'string') picked.windowId = data.windowId;
+                    if (typeof data.titleContains === 'string') picked.titleContains = data.titleContains;
+                    return safariLive().show(userId, sessionId, picked).catch(asWorkspaceError);
                 }
                 default: throw new WorkspaceError('Операция недоступна агенту: отправку, согласование и публикацию выполняет человек в интерфейсе', 403);
             }

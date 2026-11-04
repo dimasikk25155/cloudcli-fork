@@ -34,10 +34,13 @@ function streamSecret(): string {
   return createHmac('sha256', appSecret).update('neo3-safari-live-stream-v1').digest('base64url');
 }
 
-export type StreamTokenPayload = { userId: number; windowId: number };
+/** `sessionId` — the chat whose tab shows the picture: pinged when the picture ends by itself. */
+export type StreamTokenPayload = { userId: number; windowId: number; sessionId?: string };
 
 export function signStreamToken(payload: StreamTokenPayload, ttlSeconds: number = STREAM_TOKEN_TTL_SECONDS): string {
-  return jwt.sign({ scope: SCOPE, viewer: payload.userId, windowId: payload.windowId }, streamSecret(), { expiresIn: ttlSeconds, algorithm: 'HS256' });
+  const claims: Record<string, unknown> = { scope: SCOPE, viewer: payload.userId, windowId: payload.windowId };
+  if (payload.sessionId) claims.chat = payload.sessionId;
+  return jwt.sign(claims, streamSecret(), { expiresIn: ttlSeconds, algorithm: 'HS256' });
 }
 
 export function readStreamToken(token: string): StreamTokenPayload | null {
@@ -47,7 +50,7 @@ export function readStreamToken(token: string): StreamTokenPayload | null {
     const userId = Number(payload.viewer);
     const windowId = Number(payload.windowId);
     if (!Number.isSafeInteger(userId) || userId <= 0 || !Number.isSafeInteger(windowId) || windowId <= 0) return null;
-    return { userId, windowId };
+    return typeof payload.chat === 'string' && payload.chat ? { userId, windowId, sessionId: payload.chat } : { userId, windowId };
   } catch {
     return null;
   }
@@ -56,6 +59,11 @@ export function readStreamToken(token: string): StreamTokenPayload | null {
 export type StreamHandlerOptions = {
   service: SafariLiveService;
   modOn: (userId: unknown) => boolean;
+  /**
+   * The picture ended by itself (window closed, helper failed): `safari_live_changed` to the
+   * chat of the link, so the tab rereads at once («Окно закрыто» / one resubscribe).
+   */
+  notify?: (userId: number, sessionId: string) => void;
 };
 
 export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
@@ -101,10 +109,17 @@ export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
           res.once('drain', () => { waitingForDrain = false; });
         }
       },
-      onEnd() {
+      onEnd(end) {
         if (closed) return;
         close();
         res.end();
+        if (end !== 'stopped' && payload.sessionId) {
+          try {
+            options.notify?.(payload.userId, payload.sessionId);
+          } catch {
+            // a failed ping must not break the response
+          }
+        }
       },
     });
     if (closed) unsubscribe();
@@ -118,4 +133,10 @@ export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
 export const serveSafariLiveStream = createSafariLiveStreamHandler({
   service: safariLiveService,
   modOn: (userId) => isModActive(userId as number, 'modSafariLive'),
+  // Lazy: the websocket module is big and imports half the server.
+  notify: (userId, sessionId) => {
+    void import('@/modules/websocket/index.js')
+      .then(({ notifySafariLiveChanged }) => notifySafariLiveChanged(userId, sessionId))
+      .catch(() => {});
+  },
 });

@@ -1,16 +1,26 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef } from 'react';
 
 import { useModEnabled } from '../../hooks/useModEnabled';
 
-import { panelStateFor, SAFARI_STATE_TEXT, visibleSafariWindows, type SafariPanelState } from './safariLiveModel';
+import {
+  STREAM_RECOVERY_START,
+  STREAM_RESUBSCRIBE_MS,
+  nextStreamRecovery,
+  panelStateFor,
+  safariBindingKey,
+  SAFARI_STATE_TEXT,
+  streamUrlEvent,
+  visibleSafariWindows,
+  type SafariPanelState,
+  type StreamRecoveryEvent,
+} from './safariLiveModel';
+import { usePageVisible } from './usePageVisible';
 import { useSafariLive } from './useSafariLive';
 
 type SafariLivePanelProps = {
   sessionId: string | null;
   isActive: boolean;
 };
-
-const RESUBSCRIBE_MS = 2000;
 
 const DOT_CLASS: Record<SafariPanelState, string> = {
   live: 'bg-green-500',
@@ -25,52 +35,70 @@ const DOT_CLASS: Record<SafariPanelState, string> = {
   pick: 'bg-muted-foreground/50',
 };
 
+const recoveryReducer = (state: typeof STREAM_RECOVERY_START, event: StreamRecoveryEvent) =>
+  nextStreamRecovery(state, event, Date.now());
+
 /**
  * Живая картинка окна Safari, привязанного к чату. Только смотреть: картинка
  * не принимает кликов. Поток (`<img>`) держится открытым, только пока вкладка
- * на виду, — сервер снимает окно, лишь когда кто-то смотрит.
+ * на виду и вкладка браузера с Neo3 не в фоне, — сервер снимает окно, лишь когда кто-то смотрит.
  */
-export default function SafariLivePanel({ sessionId, isActive }: SafariLivePanelProps) {
+export default function SafariLivePanel({ sessionId, isActive: tabActive }: SafariLivePanelProps) {
   const modOn = useModEnabled('modSafariLive');
+  const pageVisible = usePageVisible();
+  const isActive = tabActive && pageVisible;
   const { view, failed, select, retry } = useSafariLive(sessionId);
-  // Обрыв потока: одна переподписка через 2 с (новый GET → новая ссылка), потом «Повторить».
-  const [retried, setRetried] = useState(false);
-  const [streamBroken, setStreamBroken] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Обрыв потока: одна переподписка через 2 с на каждый обрыв после восстановления (модель).
+  const [recovery, dispatch] = useReducer(recoveryReducer, STREAM_RECOVERY_START);
+  // Новую ссылку попросила сама вкладка (переподписка, «Повторить») — это не обрыв.
+  const expectingUrlRef = useRef(false);
 
   const streamUrl = view?.streamUrl ?? null;
+  const binding = view?.binding ?? null;
+  const bindingKey = sessionId && binding ? safariBindingKey(sessionId, binding) : null;
+  const lastLinkRef = useRef<{ url: string | null; bindingKey: string | null } | null>(null);
   useEffect(() => {
-    setStreamBroken(false);
-  }, [streamUrl, isActive]);
-  useEffect(() => {
-    setRetried(false);
-  }, [view?.binding?.windowId, view?.binding?.updatedAt]);
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    [],
-  );
+    const next = { url: streamUrl, bindingKey };
+    const event = streamUrlEvent(lastLinkRef.current, next, expectingUrlRef.current);
+    if (lastLinkRef.current?.url !== next.url) expectingUrlRef.current = false;
+    lastLinkRef.current = next;
+    if (event) dispatch(event);
+  }, [streamUrl, bindingKey]);
 
-  const handleStreamError = useCallback(() => {
-    if (retried) {
-      setStreamBroken(true);
-      return;
-    }
-    setRetried(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => void retry(), RESUBSCRIBE_MS);
-  }, [retried, retry]);
+  // Вкладка снова на виду — свежая попытка.
+  useEffect(() => {
+    if (isActive) dispatch('reset');
+  }, [isActive]);
+
+  useEffect(() => {
+    if (recovery.phase !== 'waiting') return undefined;
+    const timer = setTimeout(() => {
+      expectingUrlRef.current = true;
+      dispatch('resubscribed');
+      void retry();
+    }, STREAM_RESUBSCRIBE_MS);
+    return () => clearTimeout(timer);
+  }, [recovery.phase, retry]);
+
+  const handleStreamError = useCallback(() => dispatch('break'), []);
+  const handleStreamLoad = useCallback(() => dispatch('recovered'), []);
 
   const handleRetry = useCallback(() => {
-    setRetried(false);
-    setStreamBroken(false);
+    expectingUrlRef.current = true;
+    dispatch('reset');
     void retry();
   }, [retry]);
 
-  const state: SafariPanelState = failed && !view ? 'error' : panelStateFor(view, { isActive, modOn, streamBroken });
+  const state: SafariPanelState =
+    failed && !view
+      ? 'error'
+      : panelStateFor(view, {
+          isActive,
+          modOn,
+          streamBroken: recovery.phase === 'broken',
+          reconnecting: recovery.phase === 'waiting',
+        });
   const windows = visibleSafariWindows(view?.windows ?? []);
-  const binding = view?.binding ?? null;
   const showList = modOn && view !== null && view.state === 'ok' && (windows.length > 0 || binding !== null);
   const boundTitle = windows.find((window) => window.windowId === binding?.windowId)?.title || binding?.title || '';
   // Список раскрыт сам, когда выбирать нечего, кроме него.
@@ -114,6 +142,7 @@ export default function SafariLivePanel({ sessionId, isActive }: SafariLivePanel
             alt="Окно Safari вживую"
             draggable={false}
             onError={handleStreamError}
+            onLoad={handleStreamLoad}
             className="pointer-events-none h-full w-full select-none object-contain"
           />
         ) : (

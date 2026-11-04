@@ -180,6 +180,7 @@ export function createHelperRunners(bin: string = defaultHelperPath(), baseArgs:
   return {
     runList: () => run(['list']),
     runPlace: (windowId: number, rect: SafariRect) => run(['place', String(windowId), ...rectArgs(rect)]),
+    runOpen: (url: string, windowId?: number) => run(['open', url, ...(windowId ? ['--window', String(windowId)] : [])]),
     spawnStream,
     spawnDisplay,
   };

@@ -253,15 +253,17 @@ test('workspace_action lists the sidebar-order and settings.propose actions, and
   });
 });
 
-test('workspace_action offers safari.show: the description tells the agent to open with -g and never bring Safari forward', async () => {
+test('workspace_action offers safari.show: the description tells the agent to open its own window via safari.show {url}, never via open -a, and never bring Safari forward', async () => {
   await withFakeNeo3(() => ({ status: 200, body: { success: true, data: { windowId: 345, title: 'Kwork', message: 'Окно «Kwork» показано Диме справа в Neo3 вживую' } } }), async (apiUrl, recorded) => {
     await withClient({ NEO3_THREADS_TOKEN: 'f'.repeat(64), NEO3_THREADS_API_URL: apiUrl }, async (client) => {
       const list = await client.request('tools/list');
       const tools = (list.result as { tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }> }).tools;
       const workspace = tools.find((tool) => tool.name === 'workspace_action')!;
       assert.ok(workspace.inputSchema.properties.action.enum?.includes('safari.show'));
-      assert.match(workspace.description, /safari\.show \{data:\{titleContains\?\}\}/);
-      assert.match(workspace.description, /open -a Safari -g "<url>"/);
+      assert.match(workspace.description, /safari\.show \{data:\{url\}\}/);
+      assert.match(workspace.description, /own NEW Safari window/);
+      assert.match(workspace.description, /safari\.show \{data:\{windowId, url\}\}/);
+      assert.match(workspace.description, /never use open -a Safari/);
       assert.match(workspace.description, /never bring Safari to the front/);
       const answer = await client.request('tools/call', { name: 'workspace_action', arguments: { action: 'safari.show', data: { titleContains: 'kwork' } } });
       assert.notEqual((answer.result as Record<string, unknown>).isError, true);

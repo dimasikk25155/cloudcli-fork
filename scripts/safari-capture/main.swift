@@ -6,6 +6,7 @@
 //   display [--width 1920 --height 1200]   → invisible «Neo3 Safari» monitor, ready line, lives until stdin EOF
 //   place <windowId> --x X --y Y --width W --height H
 //                                          → moves that Safari window, unhides Safari without activating it
+//   open <url> [--window N]                → the agent's own new Safari window (or navigates window N): {"ok":true,"windowId":N}
 //
 // Never activates Safari (no `activate`, no frontmost, no NSRunningApplication.activate)
 // and touches no Safari window other than the one passed by id.
@@ -139,6 +140,57 @@ func shareableContent() async throws -> SCShareableContent {
     try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
 }
 
+/// Runs an AppleScript through osascript with `argv` (values never pasted into the script text).
+/// Never when Safari is not running (a `tell` would launch it). nil = failed or timed out.
+func safariScriptOutput(_ lines: [String], _ argv: [String] = [], timeout: TimeInterval = 4) -> String? {
+    guard !safariApps().isEmpty else { return nil }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    process.arguments = lines.flatMap { ["-e", $0] } + argv
+    let output = Pipe()
+    process.standardOutput = output
+    process.standardError = FileHandle.nullDevice
+    do { try process.run() } catch { return nil }
+    let killer = DispatchWorkItem { if process.isRunning { process.terminate() } }
+    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    killer.cancel()
+    guard process.terminationStatus == 0 else { return nil }
+    return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+/// Ids of Safari windows that really hold a page (≥ 1 tab). A window closed while Safari is
+/// hidden lingers in ScreenCaptureKit/CGWindowList without tabs (05.11), and the 500×500
+/// service window is no AppleScript window at all. nil = AppleScript unavailable (no filter).
+func safariWindowsWithTabs() -> Set<UInt32>? {
+    guard let text = safariScriptOutput([
+        "set out to {}",
+        "tell application \"Safari\"",
+        "repeat with w in every window",
+        "if (count of tabs of w) > 0 then set end of out to (id of w as text)",
+        "end repeat",
+        "end tell",
+        "set AppleScript's text item delimiters to \",\"",
+        "return out as text",
+    ]) else { return nil }
+    return Set(text.split(separator: ",").compactMap { UInt32($0.trimmingCharacters(in: .whitespaces)) })
+}
+
+/// false = the window is gone or has no tabs; nil = cannot tell (AppleScript failed).
+func safariWindowHasTabs(_ id: UInt32) -> Bool? {
+    guard let text = safariScriptOutput([
+        "on run argv",
+        "set wid to (item 1 of argv) as integer",
+        "tell application \"Safari\"",
+        "if not (exists window id wid) then return 0",
+        "return count of tabs of window id wid",
+        "end tell",
+        "end run",
+    ], [String(id)]), let count = Int(text) else { return nil }
+    return count > 0
+}
+
 // MARK: - list
 
 func runList() async {
@@ -148,9 +200,11 @@ func runList() async {
     }
     do {
         let content = try await shareableContent()
+        let withTabs = safariWindowsWithTabs()
         let windows: [[String: Any]] = content.windows
             .filter { $0.owningApplication?.bundleIdentifier == safariBundle && $0.windowLayer == 0
-                && $0.frame.width >= 100 && $0.frame.height >= 100 }
+                && $0.frame.width >= 100 && $0.frame.height >= 100
+                && (withTabs?.contains($0.windowID) ?? true) }
             .sorted { $0.windowID < $1.windowID }
             .map { ["windowId": $0.windowID, "title": $0.title ?? "", "onScreen": $0.isOnScreen,
                     "width": Int($0.frame.width), "height": Int($0.frame.height)] }
@@ -245,6 +299,7 @@ func streamConfiguration(width: CGFloat, height: CGFloat, fps: Int, maxWidth: In
 var activeStream: SCStream? = nil
 var activeSink: FrameSink? = nil
 var watchTimer: DispatchSourceTimer? = nil
+var tabsWatchTimer: DispatchSourceTimer? = nil
 
 func runStream() async {
     let id = windowIdArgument()
@@ -261,6 +316,7 @@ func runStream() async {
         guard let window = content.windows.first(where: { $0.windowID == id && $0.owningApplication?.bundleIdentifier == safariBundle }) else {
             fail("window_gone", "Safari window \(id) not found", .windowGone)
         }
+        if safariWindowHasTabs(id) == false { fail("window_gone", "Safari window \(id) is closed (no tabs)", .windowGone) }
         let sink = FrameSink(quality: quality)
         let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: window),
                               configuration: streamConfiguration(width: window.frame.width, height: window.frame.height, fps: fps, maxWidth: maxWidth),
@@ -290,6 +346,19 @@ func runStream() async {
         }
         timer.resume()
         watchTimer = timer
+
+        // A window closed in a hidden Safari stays in CGWindowList without tabs: ask Safari
+        // itself every 2 s (off the main queue — osascript takes ~0.1 s).
+        let tabsQueue = DispatchQueue(label: "neo3.safari.tabs")
+        let tabsTimer = DispatchSource.makeTimerSource(queue: tabsQueue)
+        tabsTimer.schedule(deadline: .now() + 2, repeating: 2)
+        tabsTimer.setEventHandler {
+            if safariWindowHasTabs(id) == false {
+                DispatchQueue.main.async { fail("window_gone", "Safari window \(id) closed (no tabs)", .windowGone) }
+            }
+        }
+        tabsTimer.resume()
+        tabsWatchTimer = tabsTimer
 
         exitOnLifelineEnd {
             let done = DispatchSemaphore(value: 0)
@@ -483,15 +552,80 @@ func runPlace() {
     exit(0)
 }
 
+// MARK: - open
+
+/// `open <url> [--window N]` — the agent's own Safari window, never the user's:
+/// without `--window` a NEW window (`make new document`, found by the difference of window
+/// ids, not by `front window`); with it — that window's current tab navigates.
+/// `open -a Safari -g <url>` would put the page into the user's front window (probe 05.11).
+/// Never activates Safari: AppleScript `make`/`set URL` keep the frontmost app (live 05.11).
+func runOpen() {
+    guard args.count >= 3, let url = URL(string: args[2]), let scheme = url.scheme?.lowercased(),
+          scheme == "http" || scheme == "https", url.host != nil else {
+        fail("bad_args", "an http(s) URL is required", .badArgs)
+    }
+    let address = args[2]
+    if let raw = option("--window") {
+        guard let id = UInt32(raw), id > 0 else { fail("bad_args", "--window must be a window id", .badArgs) }
+        guard !safariApps().isEmpty, safariWindowHasTabs(id) == true else { fail("window_gone", "Safari window \(id) not found", .windowGone) }
+        guard safariScriptOutput([
+            "on run argv",
+            "tell application \"Safari\" to set URL of current tab of window id ((item 1 of argv) as integer) to (item 2 of argv)",
+            "end run",
+        ], [String(id), address]) != nil else {
+            if safariWindowHasTabs(id) != true { fail("window_gone", "Safari window \(id) closed", .windowGone) }
+            fail("capture_failed", "Safari did not open the page", .other)
+        }
+        printLine(json(["ok": true, "windowId": id]))
+        exit(0)
+    }
+
+    if safariApps().isEmpty {
+        // Launch in the background and hidden (-g -j): a plain `tell` would launch it in front.
+        let launcher = Process()
+        launcher.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        launcher.arguments = ["-g", "-j", "-b", safariBundle]
+        do { try launcher.run() } catch { fail("capture_failed", "cannot launch Safari: \(errText(error))", .other) }
+        launcher.waitUntilExit()
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline && safariScriptOutput(["tell application \"Safari\" to count windows"], timeout: 2) == nil {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+        }
+    }
+    guard let text = safariScriptOutput([
+        "on run argv",
+        "tell application \"Safari\"",
+        "set oldIds to id of every window",
+        "make new document with properties {URL:(item 1 of argv)}",
+        "repeat 40 times",
+        "repeat with w in every window",
+        "set wid to id of w",
+        "if oldIds does not contain wid then return wid",
+        "end repeat",
+        "delay 0.1",
+        "end repeat",
+        "end tell",
+        "return 0",
+        "end run",
+    ], [address], timeout: 10), let id = UInt32(text) else {
+        fail("capture_failed", "Safari did not answer", .other)
+    }
+    if id == 0 { fail("capture_failed", "Safari opened no new window", .other) }
+    printLine(json(["ok": true, "windowId": id]))
+    exit(0)
+}
+
 // MARK: - main
 
-guard args.count >= 2 else { fail("bad_args", "usage: neo3-safari-capture list | stream <id> | display | place <id> …", .badArgs) }
+guard args.count >= 2 else { fail("bad_args", "usage: neo3-safari-capture list | stream <id> | display | place <id> … | open <url> [--window id]", .badArgs) }
 
 switch args[1] {
 case "display":
     runDisplay()
 case "place":
     runPlace()
+case "open":
+    runOpen()
 case "list":
     Task { await runList() }
 case "stream":

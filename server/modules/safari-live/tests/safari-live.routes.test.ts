@@ -32,6 +32,7 @@ function fakeService(list: () => SafariWindowList, calls: string[]): SafariLiveS
       calls.push(`place:${windowId}`);
       return { ok: true };
     },
+    openWindow: async () => ({ ok: false, state: 'error', message: 'not used' }),
     activeStreams: () => 0,
     stopAll: () => {},
   };
@@ -167,7 +168,7 @@ test('PUT /sessions/:id binds the window (by the user), moves it onto the displa
 
     const match = /^\/sl\/([^/]+)\/stream$/.exec(view.streamUrl);
     assert.ok(match, `stream link shape: ${view.streamUrl}`);
-    assert.deepEqual(readStreamToken(match[1]), { userId: adminId, windowId: 345 });
+    assert.deepEqual(readStreamToken(match[1]), { userId: adminId, windowId: 345, sessionId: 'chat' });
 
     // The binding survives: GET returns it with a fresh link.
     const again = await call('GET', '/sessions/chat');

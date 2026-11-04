@@ -55,6 +55,8 @@ export type SafariLiveDeps = {
   runList?: () => Promise<HelperResult>;
   spawnDisplay?: () => DisplayProcess;
   runPlace?: (windowId: number, rect: SafariRect) => Promise<HelperResult>;
+  /** `open <url> [--window N]`: the agent's own new Safari window, or navigate window N. */
+  runOpen?: (url: string, windowId?: number) => Promise<HelperResult>;
   spawnStream?: (windowId: number, opts: StreamOptions) => StreamProcess;
   now?: () => number;
   /** No viewers this long → the stream process stops. Default 20 000 ms. */
@@ -73,9 +75,13 @@ export type EnsureDisplayResult =
 
 export type PlaceResult = { ok: boolean; end?: StreamEnd; message?: string };
 
+export type OpenWindowResult =
+  | { ok: true; windowId: number }
+  | { ok: false; state: SafariLiveState; end?: StreamEnd; message: string };
+
 export type SafariLiveService = {
   listWindows(): Promise<SafariWindowList>;
-  /** Newest window = largest `windowId`; `titleContains` is case-insensitive. */
+  /** Newest titled window = largest `windowId` (untitled service windows are skipped); `titleContains` is case-insensitive. */
   pickWindow(titleContains?: string): Promise<{ window: SafariWindow | null; list: SafariWindowList }>;
   /** Returns the unsubscribe function. */
   subscribe(windowId: number, viewer: SafariViewer): () => void;
@@ -83,6 +89,8 @@ export type SafariLiveService = {
   ensureDisplay(): Promise<EnsureDisplayResult>;
   /** Moves the window onto the virtual display, filling it. */
   placeOnDisplay(windowId: number): Promise<PlaceResult>;
+  /** Opens `url` (http/https) in a new Safari window of the agent, or in window `windowId`; never activates Safari. */
+  openWindow(url: string, windowId?: number): Promise<OpenWindowResult>;
   activeStreams(): number;
   stopAll(): void;
 };

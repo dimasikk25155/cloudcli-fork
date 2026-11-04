@@ -44,14 +44,18 @@ function fakeService() {
     viewers,
     unsubscribed: () => unsubscribed,
     push: (jpeg: string) => { for (const viewer of viewers.keys()) viewer.onFrame(Buffer.from(jpeg)); },
-    end: () => { for (const viewer of [...viewers.keys()]) viewer.onEnd('window_gone'); },
+    end: (how: 'window_gone' | 'error' | 'stopped' = 'window_gone') => { for (const viewer of [...viewers.keys()]) viewer.onEnd(how); },
   };
 }
 
-async function withServer(modOn: (userId: unknown) => boolean, run: (base: string, fake: ReturnType<typeof fakeService>) => Promise<void>) {
+async function withServer(
+  modOn: (userId: unknown) => boolean,
+  run: (base: string, fake: ReturnType<typeof fakeService>) => Promise<void>,
+  notify?: (userId: number, sessionId: string) => void,
+) {
   const fake = fakeService();
   const app = express();
-  app.get('/sl/:token/stream', createSafariLiveStreamHandler({ service: fake.service, modOn }));
+  app.get('/sl/:token/stream', createSafariLiveStreamHandler({ service: fake.service, modOn, notify }));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
@@ -136,4 +140,28 @@ test('GET /sl/:token/stream: the viewer is unsubscribed when the client goes awa
     assert.equal(fake.unsubscribed(), 1);
     assert.equal(fake.viewers.size, 0);
   });
+});
+
+test('GET /sl/:token/stream: when the picture ends by itself (window closed, helper failed) the chat of the link is pinged, not when stopped or the viewer leaves', async () => {
+  const pings: Array<[number, string]> = [];
+  await withServer(() => true, async (base, fake) => {
+    for (const how of ['window_gone', 'error', 'stopped'] as const) {
+      const response = await fetch(`${base}/sl/${signStreamToken({ userId: 1, windowId: 345, sessionId: `chat-${how}` })}/stream`);
+      await waitFor(() => fake.viewers.size > 0, 'a viewer');
+      fake.end(how);
+      await response.text();
+    }
+    const controller = new AbortController();
+    await fetch(`${base}/sl/${signStreamToken({ userId: 1, windowId: 7, sessionId: 'chat-left' })}/stream`, { signal: controller.signal });
+    await waitFor(() => fake.viewers.size > 0, 'a viewer');
+    controller.abort();
+    await waitFor(() => fake.unsubscribed() > 0, 'the unsubscribe');
+    // a link without a chat (older tab) ends silently
+    const old = await fetch(`${base}/sl/${signStreamToken({ userId: 1, windowId: 8 })}/stream`);
+    await waitFor(() => fake.viewers.size > 0, 'a viewer');
+    fake.end('window_gone');
+    await old.text();
+  }, (userId, sessionId) => { pings.push([userId, sessionId]); });
+  assert.deepEqual(pings, [[1, 'chat-window_gone'], [1, 'chat-error']]);
+  assert.equal(readStreamToken(signStreamToken({ userId: 2, windowId: 9, sessionId: 's' }))?.sessionId, 's');
 });

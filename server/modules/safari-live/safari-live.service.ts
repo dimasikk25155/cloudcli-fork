@@ -15,6 +15,7 @@ import type {
   DisplayProcess,
   EnsureDisplayResult,
   HelperResult,
+  OpenWindowResult,
   PlaceResult,
   SafariLiveDeps,
   SafariLiveService,
@@ -36,7 +37,34 @@ export const SAFARI_TEXT = {
   noPermission: 'Нет разрешения «Запись экрана»',
   failed: 'Помощник Safari не ответил',
   displayFailed: 'Невидимый экран для Safari не создан',
+  badUrl: 'Нужен адрес страницы http(s)',
 } as const;
+
+/** Untitled windows (the 500×500 service window of Safari) are not pages: never picked, never listed in the tab. */
+export function isTitledWindow(window: Pick<SafariWindow, 'title'>): boolean {
+  return window.title.trim() !== '';
+}
+
+/** Normalised http(s) address (quotes and spaces percent-encoded), or null. */
+export function normalizePageUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const url = new URL(raw.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function readWindowId(stdout: string): number | null {
+  try {
+    const parsed = JSON.parse(String(stdout || '').trim()) as { windowId?: unknown };
+    const windowId = Number(parsed?.windowId);
+    return Number.isSafeInteger(windowId) && windowId > 0 ? windowId : null;
+  } catch {
+    return null;
+  }
+}
 
 const STREAM_OPTIONS = { fps: 3, maxWidth: 1280, quality: 0.6 };
 
@@ -143,6 +171,7 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
     const needle = typeof titleContains === 'string' ? titleContains.trim().toLocaleLowerCase() : '';
     let window: SafariWindow | null = null;
     for (const candidate of list.windows) {
+      if (!isTitledWindow(candidate)) continue;
       if (needle && !candidate.title.toLocaleLowerCase().includes(needle)) continue;
       if (!window || candidate.windowId > window.windowId) window = candidate;
     }
@@ -183,6 +212,8 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
     process.onExit((end, message) => {
       if (streams.get(windowId) !== entry) return;
       dropEntry(windowId, entry);
+      // The tab rereads the view right after: it must see the window gone, not a 2 s old list.
+      if (end === 'window_gone') listCache = null;
       const viewers = [...entry.viewers];
       entry.viewers.clear();
       for (const viewer of viewers) {
@@ -298,6 +329,26 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
     }
   }
 
+  async function openWindow(url: string, windowId?: number): Promise<OpenWindowResult> {
+    if (!supported) return { ok: false, state: 'unsupported', message: SAFARI_TEXT.unsupported };
+    const address = normalizePageUrl(url);
+    if (!address) return { ok: false, state: 'error', message: SAFARI_TEXT.badUrl };
+    if (!deps.runOpen) return { ok: false, state: 'error', message: SAFARI_TEXT.helperMissing };
+    try {
+      const result = await deps.runOpen(address, windowId);
+      listCache = null;
+      if (result.code === 0) {
+        const opened = readWindowId(result.stdout);
+        if (opened) return { ok: true, windowId: opened };
+        return { ok: false, state: 'error', message: SAFARI_TEXT.failed };
+      }
+      if (result.code === 4) return { ok: false, state: 'error', end: 'window_gone', message: failureText(result) };
+      return { ok: false, state: 'error', message: failureText(result) };
+    } catch (error) {
+      return { ok: false, state: 'error', message: errorText(error) };
+    }
+  }
+
   function stopAll(): void {
     for (const [windowId, entry] of [...streams]) {
       dropEntry(windowId, entry);
@@ -318,6 +369,7 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
     subscribe,
     ensureDisplay,
     placeOnDisplay,
+    openWindow,
     activeStreams: () => streams.size,
     stopAll,
   };

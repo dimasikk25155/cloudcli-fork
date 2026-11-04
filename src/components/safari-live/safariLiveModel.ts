@@ -37,7 +37,7 @@ export function visibleSafariWindows<T extends Pick<SafariWindow, 'title'>>(wind
 
 export function panelStateFor(
   view: SafariLiveView | null,
-  opts: { isActive: boolean; modOn: boolean; streamBroken?: boolean },
+  opts: { isActive: boolean; modOn: boolean; streamBroken?: boolean; reconnecting?: boolean },
 ): SafariPanelState {
   if (!opts.modOn) return 'mod_off';
   if (!view) return 'loading';
@@ -48,7 +48,58 @@ export function panelStateFor(
   if (!view.windowAlive) return 'window_gone';
   if (opts.streamBroken) return 'error';
   if (!opts.isActive) return 'paused';
+  if (opts.reconnecting) return 'loading';
   return view.streamUrl ? 'live' : 'loading';
+}
+
+/** Обрыв потока → через столько мс одна переподписка (новый GET → новая ссылка). */
+export const STREAM_RESUBSCRIBE_MS = 2000;
+/** Переподписанный поток, проживший столько без обрыва, считается восстановленным, даже если браузер не прислал `load`. */
+export const STREAM_STABLE_MS = 10_000;
+
+/**
+ * Переподписка картинки (R12i): обрыв → `waiting` (2 с) → `retried`; новая картинка
+ * (`recovered`) возвращает `ok`, и следующий обрыв снова получает свою переподписку;
+ * второй обрыв без восстановления → `broken` («Связь прервалась» + «Повторить»).
+ */
+export type StreamRecovery = { phase: 'ok' | 'waiting' | 'retried' | 'broken'; since: number };
+export type StreamRecoveryEvent = 'break' | 'resubscribed' | 'recovered' | 'reset';
+export const STREAM_RECOVERY_START: StreamRecovery = { phase: 'ok', since: 0 };
+
+export function nextStreamRecovery(state: StreamRecovery, event: StreamRecoveryEvent, now: number): StreamRecovery {
+  switch (event) {
+    case 'reset':
+      return { phase: 'ok', since: now };
+    case 'resubscribed':
+      return state.phase === 'waiting' ? { phase: 'retried', since: now } : state;
+    case 'recovered':
+      return state.phase === 'retried' ? { phase: 'ok', since: now } : state;
+    case 'break':
+      if (state.phase === 'ok') return { phase: 'waiting', since: now };
+      if (state.phase === 'retried') {
+        return now - state.since >= STREAM_STABLE_MS ? { phase: 'waiting', since: now } : { phase: 'broken', since: now };
+      }
+      return state;
+    default:
+      return state;
+  }
+}
+
+/**
+ * Ссылка на картинку сменилась. Сервер шлёт `safari_live_changed`, когда поток кончился сам
+ * (окно закрыто, сбой помощника), — вкладка перечитывает вид и получает новую ссылку на ту же
+ * привязку: это обрыв. Своя переподписка или «Повторить» (`expected`) — не обрыв; другая
+ * привязка — начать заново; ссылки нет (окно закрыто) — вкладка просто покажет состояние.
+ */
+export function streamUrlEvent(
+  prev: { url: string | null; bindingKey: string | null } | null,
+  next: { url: string | null; bindingKey: string | null },
+  expected: boolean,
+): StreamRecoveryEvent | null {
+  if (!prev) return null;
+  if (prev.bindingKey !== next.bindingKey) return 'reset';
+  if (!prev.url || !next.url || prev.url === next.url || expected) return null;
+  return 'break';
 }
 
 /** Новая привязка (другое окно или новое время) — новый ключ, и вкладка может открыться снова. */

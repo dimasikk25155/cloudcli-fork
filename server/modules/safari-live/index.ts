@@ -1,5 +1,5 @@
 export type * from './safari-live.types.js';
-export { createSafariLiveService, parseListResult, SAFARI_TEXT } from './safari-live.service.js';
+export { createSafariLiveService, isTitledWindow, normalizePageUrl, parseListResult, SAFARI_TEXT } from './safari-live.service.js';
 export { createHelperRunners, defaultHelperPath } from './safari-live.helper.js';
 export { safariLiveService } from './safari-live.runtime.js';
 export {

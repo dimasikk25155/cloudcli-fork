@@ -182,7 +182,7 @@ test('settings.propose stores a suggestion through the profile service and chang
         db.close();
     }
 });
-test('safari.show passes this chat and titleContains to Safari live; its refusals keep their status for the agent', async () => {
+test('safari.show passes this chat, url, windowId and titleContains to Safari live; its refusals keep their status for the agent', async () => {
     const { db, deps, revoke } = fixture();
     try {
         const calls: Array<[number, string, Record<string, unknown>]> = [];
@@ -199,7 +199,8 @@ test('safari.show passes this chat and titleContains to Safari live; its refusal
         assert.equal(shown.windowId, 345);
         assert.match(shown.message, /вживую/);
         await tools.call(1, 'session', { action: 'safari.show' });
-        assert.deepEqual(calls, [[1, 'session', { titleContains: 'kwork' }], [1, 'session', {}]]);
+        await tools.call(1, 'session', { action: 'safari.show', data: { url: 'https://example.com/', windowId: 345, other: 'x' } });
+        assert.deepEqual(calls, [[1, 'session', { titleContains: 'kwork' }], [1, 'session', {}], [1, 'session', { url: 'https://example.com/', windowId: 345 }]]);
 
         refusal = new AppError('Safari вживую доступен только администратору', { code: 'FORBIDDEN', statusCode: 403 });
         await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'safari.show' })), (error: { statusCode?: number; message: string; constructor: { name: string } }) => error.statusCode === 403 && /администратору/.test(error.message) && error.constructor.name === 'WorkspaceError');
@@ -209,7 +210,7 @@ test('safari.show passes this chat and titleContains to Safari live; its refusal
         // A chat the user no longer has access to never reaches Safari live.
         revoke();
         assert.throws(() => tools.call(1, 'session', { action: 'safari.show' }), (error: { statusCode?: number }) => error.statusCode === 403);
-        assert.equal(calls.length, 4);
+        assert.equal(calls.length, 5);
     }
     finally {
         db.close();
