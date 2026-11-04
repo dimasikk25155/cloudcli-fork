@@ -21,16 +21,23 @@ const kinds: Array<[WorkbenchTabKind, WorkbenchTabKindDef]> = [
   ['artifact', def('Артефакт')],
   ['terminal', def('Терминал', { inMenu: true, keepMounted: true, available: (ctx) => !ctx.terminalDisabled })],
   ['autopilot', def('Автопилот', { inMenu: true, available: (ctx) => ctx.autopilotAvailable })],
+  ['safari', def('Safari', { inMenu: true, available: (ctx) => ctx.safariLiveAvailable })],
   ['plugin', def('Плагин', { inMenu: true })],
 ];
 
 const ctx = (extra: Partial<WorkbenchMenuContext> = {}): WorkbenchMenuContext => ({
   autopilotAvailable: false,
   terminalDisabled: false,
+  safariLiveAvailable: false,
   ...extra,
 });
 
 describe('меню «+» холста', () => {
+  it('«Safari» есть в меню только когда доступен (админ и мод включён)', () => {
+    assert.ok(!buildWorkbenchMenu(kinds, ctx(), []).some((entry) => entry.kind === 'safari'));
+    assert.ok(buildWorkbenchMenu(kinds, ctx({ safariLiveAvailable: true }), []).some((entry) => entry.kind === 'safari'));
+  });
+
   it('берёт только виды с inMenu и скрывает те, чей available вернул false', () => {
     const titles = buildWorkbenchMenu(kinds, ctx(), []).map((entry) => entry.title);
     assert.deepEqual(titles, ['Сессия', 'Терминал']);

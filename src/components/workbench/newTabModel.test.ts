@@ -40,3 +40,9 @@ test('the terminal tile stays visibly lighter than the dark canvas (about #15151
   assert.ok(luma(hexes[1]) >= 36, `bottom ${hexes[1]} too dark`);
   assert.ok(luma(hexes[0]) >= 60, `top ${hexes[0]} too dark`);
 });
+
+test('«Safari» has its own compass tile, not the neutral fallback', () => {
+  const style = launcherStyleFor('safari');
+  assert.notDeepEqual(style, launcherStyleFor('plugin'));
+  assert.match(style.gradient, /^linear-gradient\(/);
+});

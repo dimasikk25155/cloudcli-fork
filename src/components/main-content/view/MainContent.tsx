@@ -28,6 +28,8 @@ import EditorSidebar from '../../code-editor/view/EditorSidebar';
 import FolderModal from '../../file-browser/FolderModal';
 import MissingFileModal, { type PathMatch } from '../../file-browser/MissingFileModal';
 import { useModEnabled } from '../../../hooks/useModEnabled';
+import { useSafariLiveAutoOpen } from '../../safari-live/useSafariLiveAutoOpen';
+import { useAuth } from '../../auth/context/AuthContext';
 import {
   WorkbenchCanvas,
   WorkbenchLayout,
@@ -100,6 +102,14 @@ function MainContent({
     : null;
 
   const workbench = useWorkbench(selectedSession?.id ?? null);
+  const { user: authUser } = useAuth();
+  const safariLiveOn = useModEnabled('modSafariLive');
+  useSafariLiveAutoOpen(selectedSession?.id ?? null, {
+    isMobile,
+    workbenchOn,
+    modOn: safariLiveOn,
+    isAdmin: authUser?.role === 'admin',
+  });
   useWorkbenchAccountSync();
   const [mobileCanvasOpen, setMobileCanvasOpen] = useState(false);
   // Once opened the phone canvas stays in the DOM (hidden), so a live terminal is not cut off by «Назад».

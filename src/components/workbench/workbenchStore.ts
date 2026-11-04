@@ -40,7 +40,7 @@ export const DEFAULT_LAYOUT: Readonly<WorkbenchLayout> = { enabled: false, ratio
 
 const TAB_KINDS: ReadonlySet<string> = new Set<WorkbenchTabKind>([
   'inspector', 'limits', 'artifacts', 'artifact', 'btw', 'chat', 'advisor', 'report',
-  'terminal', 'files', 'stats', 'autopilot', 'plugin', NEW_TAB_KIND,
+  'terminal', 'files', 'stats', 'autopilot', 'plugin', 'safari', NEW_TAB_KIND,
 ]);
 const EMPTY_SESSION: WorkbenchSessionState = Object.freeze({ tabs: [], activeTabId: null }) as WorkbenchSessionState;
 

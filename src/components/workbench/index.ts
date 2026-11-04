@@ -3,6 +3,7 @@ import './sidechat/registerSideChatTabs';
 import './artifacts/artifactTabs';
 import './advisor/registerAdvisorTab';
 import './projectTabs';
+import '../safari-live/safariTab';
 export { default as WorkbenchCanvas } from './WorkbenchCanvas';
 export { default as WorkbenchLayout } from './WorkbenchLayout';
 export { default as WorkbenchToggle } from './WorkbenchToggle';

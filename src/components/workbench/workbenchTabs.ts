@@ -24,6 +24,7 @@ export type WorkbenchTabKind =
   | 'stats'
   | 'autopilot'
   | 'plugin'
+  | 'safari'
   | 'newtab';
 
 /** «Новая вкладка» of the «+» button: a launcher that turns into the picked tab. */
@@ -65,6 +66,8 @@ export type WorkbenchMenuContext = {
   autopilotAvailable: boolean;
   /** The account may not use the terminal. */
   terminalDisabled: boolean;
+  /** «Safari вживую»: the account is the admin and the mod is on. */
+  safariLiveAvailable: boolean;
 };
 
 export type WorkbenchTabKindDef = {

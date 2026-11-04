@@ -270,3 +270,13 @@ test('replaceTab of a tab that is gone changes nothing', () => {
 
   assert.equal(store.getSession('s1'), before);
 });
+
+test('the «Safari» tab survives a reload', () => {
+  const storage = memoryStorage();
+  const store = createWorkbenchStore({ storage });
+  store.openTab('s1', { kind: 'safari', title: 'Safari' });
+
+  const reloaded = createWorkbenchStore({ storage });
+  assert.deepEqual(reloaded.getSession('s1').tabs.map((tab) => tab.kind), ['safari']);
+  assert.equal(reloaded.getSession('s1').activeTabId, 'safari');
+});

@@ -8,6 +8,7 @@ import { useAutopilotDashboard } from '../autopilot/useAutopilotDashboard';
 import { listPluginTabs } from '../main-content/view/subcomponents/mainContentTabs';
 import { localizePluginName } from '../plugins/utils/pluginDisplayName';
 import { usePlugins } from '../../contexts/PluginsContext';
+import { useModEnabled } from '../../hooks/useModEnabled';
 
 import { confirmDiscardUnsaved } from './artifact-editor/editorStore';
 import { pendingArtifactPath } from './artifacts/artifactModel';
@@ -68,7 +69,9 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
   useSyncExternalStore(subscribeWorkbenchTabKinds, workbenchTabKindsVersion, workbenchTabKindsVersion);
   const { t } = useTranslation();
   const { plugins } = usePlugins();
-  const { terminalDisabled } = useAuth();
+  const { terminalDisabled, user } = useAuth();
+  const safariLiveOn = useModEnabled('modSafariLive');
+  const safariLiveAvailable = user?.role === 'admin' && safariLiveOn;
   const autopilot = useAutopilotDashboard(project.projectId);
   const visitedRef = useRef<Set<string>>(new Set());
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -109,7 +112,7 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
 
   const menuEntries = buildWorkbenchMenu(
     listWorkbenchTabKinds(),
-    { autopilotAvailable: autopilot.available, terminalDisabled },
+    { autopilotAvailable: autopilot.available, terminalDisabled, safariLiveAvailable },
     listPluginTabs(plugins, (name, displayName) => localizePluginName(name, displayName, t)).map((tab) => ({
       name: tab.pluginName,
       label: tab.label,

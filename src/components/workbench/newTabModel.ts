@@ -5,6 +5,7 @@
  */
 import {
   BarChart3,
+  Compass,
   FileImage,
   Folder,
   FolderOpen,
@@ -58,6 +59,7 @@ const STYLES: Partial<Record<WorkbenchTabKind, LauncherStyle>> = {
   stats: { Icon: BarChart3, gradient: GRADIENTS.pink },
   autopilot: { Icon: Plane, gradient: GRADIENTS.indigo },
   report: { Icon: ScrollText, gradient: GRADIENTS.teal },
+  safari: { Icon: Compass, gradient: GRADIENTS.blue },
   newtab: { Icon: LayoutGrid, gradient: GRADIENTS.gray },
   plugin: FALLBACK,
 };
