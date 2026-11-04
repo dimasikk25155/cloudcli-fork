@@ -284,6 +284,13 @@ export function useChatRealtimeHandlers({
             sessionStore.finalizeStreaming(sid);
           }
           accumulatedStreamRef.current = '';
+          // «Думал N с · ответ за N с» right as the turn ends, not after a re-read.
+          if (sid && !msg.aborted && typeof msg.completionDurationMs === 'number') {
+            sessionStore.recordAnswerTiming(sid, {
+              completionDurationMs: msg.completionDurationMs,
+              ...(typeof msg.thinkingDurationMs === 'number' ? { thinkingDurationMs: msg.thinkingDurationMs } : {}),
+            });
+          }
           if (sid) {
             resetSessionSteps(sid);
             backgroundTasksStore.clear(sid);

@@ -16,9 +16,17 @@ const row = (id: string, time: number, content: string, extra: Partial<Normalize
   id, timestamp: new Date(time).toISOString(), sessionId: 's', provider: 'codex',
   kind: 'text', role: 'assistant', content, ...extra,
 });
-const timing = (start = 1000, finish = 136000): RunDurationRow => ({
+const timing = (start = 1000, finish = 136000, thinking: number | null = null): RunDurationRow => ({
   run_id: String(start), session_id: 's', started_at: start, finished_at: finish,
-  duration_ms: finish - start, answer_hash: answerHash('Готово'),
+  duration_ms: finish - start, answer_hash: answerHash('Готово'), thinking_ms: thinking,
+});
+
+test('measured thinking rides with the duration; a run without thinking gets none', () => {
+  const result = attachRunDurations([row('one', 135000, 'Готово'), row('two', 200000, 'Готово')],
+    [timing(1000, 136000, 12000), timing(190000, 201000)]);
+  assert.deepEqual(result.map(m => [m.completionDurationMs, m.thinkingDurationMs]),
+    [[135000, 12000], [11000, undefined]]);
+  assert.equal('thinkingDurationMs' in result[1], false);
 });
 
 test('measured duration attaches only to final answer, before pagination, without mutating history', () => {
@@ -76,4 +84,19 @@ test('history service restores saved duration after reconnect and preserves pagi
   assert.equal(older.messages[0].completionDurationMs, undefined);
   assert.deepEqual(runDurationsDb.list('another-session'), []);
   closeConnection();
+});
+
+test('a thinking block the adapter did not show (empty text, signature only) is still a thinking moment', async () => {
+  const { carriesUnshownThinking } = await import('../services/run-duration.js');
+  const claudeLine = { type: 'assistant', message: { content: [{ type: 'thinking', thinking: '', signature: 'sig' }] } };
+  assert.equal(carriesUnshownThinking(claudeLine, []), true);
+  assert.equal(carriesUnshownThinking({ type: 'assistant', message: { content: [{ type: 'redacted_thinking', data: 'x' }] } }, []), true);
+  // Already shown as a thinking row — no second marker.
+  assert.equal(carriesUnshownThinking(claudeLine, [row('t', 1, 'мысль', { kind: 'thinking' })]), false);
+  assert.equal(carriesUnshownThinking({ type: 'assistant', message: { content: [{ type: 'text', text: 'Готово' }] } }, []), false);
+  assert.equal(carriesUnshownThinking({ type: 'user', message: { content: [{ type: 'thinking', thinking: '' }] } }, []), false);
+  assert.equal(carriesUnshownThinking(null, []), false);
+  // Grok reasoning lines with an empty summary (encrypted content only).
+  assert.equal(carriesUnshownThinking({ type: 'reasoning', summary: [], encrypted_content: 'x' }, []), true);
+  assert.equal(carriesUnshownThinking({ type: 'reasoning', summary: [{ text: 'мысль' }] }, [row('t', 1, 'мысль', { kind: 'thinking' })]), false);
 });

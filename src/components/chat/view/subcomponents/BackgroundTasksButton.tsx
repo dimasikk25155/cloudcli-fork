@@ -5,7 +5,7 @@ import { useWebSocket } from '../../../../contexts/WebSocketContext';
 import { formatDuration } from '../../utils/stepTimer';
 
 import BackgroundTaskStopControl from './BackgroundTaskStopControl';
-import { backgroundTasksStore, stopStateLabel, useBackgroundTasks } from './BackgroundTasksStore';
+import { backgroundTasksStore, canStopTask, stopStateLabel, useBackgroundTasks } from './BackgroundTasksStore';
 import type { BackgroundTaskKind } from './BackgroundTasksStore';
 
 const KIND_LABEL: Record<BackgroundTaskKind, string> = {
@@ -105,7 +105,7 @@ export default function BackgroundTasksButton({ sessionId, tabClassName }: Backg
                     </div>
                   </div>
                   <BackgroundTaskStopControl
-                    stoppable={stoppable}
+                    stoppable={canStopTask({ tasks, stops, stoppable, provider }, task)}
                     engine={engine}
                     stopState={stopState}
                     onStop={() => stopTask(task.taskId)}

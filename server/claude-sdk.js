@@ -40,6 +40,7 @@ import {
   notifyUserIfEnabled
 } from './services/notification-orchestrator.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
+import { carriesUnshownThinking } from './modules/providers/services/run-duration.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { recordRunOutcome, buildRunInterruptedNotice, isTransientRunFailure } from './shared/run-outcomes.js';
@@ -1305,6 +1306,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
           // Use adapter to normalize SDK events into NormalizedMessage[]
           const normalized = sessionsService.normalizeMessage('claude', transformedMessage, sid);
+          // «Время размышления»: Claude's thinking text is empty (signature
+          // only), so the adapter shows nothing — mark the moment anyway,
+          // before the line's other events (the registry times the interval).
+          if (carriesUnshownThinking(message, normalized)) {
+            ws.send(createNormalizedMessage({ kind: 'thinking', content: '', sessionId: sid, provider: 'claude',
+              ...(transformedMessage.parentToolUseId ? { parentToolUseId: transformedMessage.parentToolUseId } : {}) }));
+          }
           for (const msg of normalized) {
             // Preserve parentToolUseId from SDK wrapper for subagent tool grouping
             if (transformedMessage.parentToolUseId && !msg.parentToolUseId) {

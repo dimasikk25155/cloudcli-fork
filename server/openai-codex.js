@@ -20,6 +20,7 @@ import { Codex } from '@openai/codex-sdk';
 
 import { resolveBundledCodex } from './shared/codex-paths.js';
 import { CodexSubagentTracker, codexHelperPayload } from './modules/providers/list/codex/codex-subagents.js';
+import { createCodexBackgroundTaskTracker, pickCodexExecProcess } from './modules/providers/list/codex/codex-background-tasks.js';
 import { codexMeterMessage } from './modules/providers/list/codex/codex-usage.js';
 import { readCodexContextBudget } from './shared/context-budget.js';
 import { CODEX_SDK_EFFORTS, codexRunPolicy, mapPermissionModeToCodexOptions } from './shared/codex-work-mode.js';
@@ -31,8 +32,68 @@ import { providerModelsService } from './modules/providers/services/provider-mod
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { withThreadsEnv } from './shared/threads-env.js';
 import { buildJailProfile, codexJailWrapperPath, jailInstruction, prepareCodexHome } from './shared/user-jail.js';
+import {
+  commandMatcher,
+  findDescendantProcess,
+  findDescendantProcesses,
+  markStoppableTasks,
+  stopEngineTask,
+} from './shared/process-tree.js';
 
 const activeCodexSessions = new Map();
+
+// «Фон: N» of each live Codex turn, by thread id: `{ tracker, published }`,
+// `published` = the last list sent (with each row's «Стоп» flag).
+const codexBackgroundTasks = new Map();
+
+/** Background commands of a live Codex turn (empty once the turn is over). */
+export function getCodexBackgroundTasks(sessionId) {
+  const state = codexBackgroundTasks.get(sessionId);
+  return state ? (state.published ?? state.tracker.list()) : [];
+}
+
+/**
+ * The `codex exec` process of a run, found once among Neo3's descendants
+ * (the SDK keeps its child to itself). Null when it cannot be told apart.
+ */
+async function resolveCodexExecPid(run) {
+  if (!run) return null;
+  if (run.codexPid) return run.codexPid;
+  const candidates = await findDescendantProcesses(process.pid, (command) => command.includes(' exec --experimental-json'));
+  const claimed = new Set();
+  for (const other of activeCodexSessions.values()) {
+    if (other !== run && other.status === 'running' && other.codexPid) claimed.add(other.codexPid);
+  }
+  const pid = pickCodexExecProcess(candidates, { workingDirectory: run.workingDirectory, threadId: run.resumeThreadId, claimed });
+  if (pid) run.codexPid = pid;
+  return pid;
+}
+
+/** Is the command of this background task a live process under the turn's `codex exec`? */
+async function codexTaskProcessFound(run, tracker, taskId) {
+  const command = tracker.commandOf(taskId);
+  if (!run || run.status !== 'running' || !command) return false;
+  const rootPid = await resolveCodexExecPid(run);
+  return Boolean(rootPid && await findDescendantProcess(rootPid, commandMatcher(command)));
+}
+
+/**
+ * «Стоп» of one Codex background command. Codex has no API for it, so the
+ * command's own process tree under this turn's `codex exec` is stopped; the
+ * turn goes on and Codex sees the command end.
+ * @returns {Promise<{ok: boolean, reason?: 'turn_ended'|'not_running'|'failed'|'unsupported'}>}
+ */
+export async function stopCodexTask(sessionId, taskId) {
+  const run = activeCodexSessions.get(sessionId);
+  const state = codexBackgroundTasks.get(sessionId);
+  const running = run?.status === 'running';
+  return stopEngineTask({
+    running,
+    hasTask: Boolean(state?.tracker.has(taskId)),
+    rootPid: running ? await resolveCodexExecPid(run) : null,
+    command: state?.tracker.commandOf(taskId) ?? null,
+  });
+}
 
 /**
  * Transform Codex SDK event to WebSocket message format
@@ -276,6 +337,26 @@ export async function queryCodex(command, options = {}, ws) {
   const signal = externalSignal ? AbortSignal.any([abortController.signal, externalSignal]) : abortController.signal;
   const subagents = new CodexSubagentTracker();
   const turnEventPrefix = randomUUID();
+  // «Фон: N»: commands this turn left running in the background.
+  const background = { tracker: createCodexBackgroundTaskTracker(), published: null };
+  let backgroundPublishSeq = 0;
+  let backgroundParseFailureLogged = false;
+  const sendBackgroundTasks = (tasks) => {
+    background.published = tasks;
+    sendMessage(ws, createNormalizedMessage({ kind: 'background_tasks', tasks, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));
+  };
+  // Each row gets its own «Стоп» flag: only a command whose process is found.
+  // The list goes out at once (no «Стоп» yet), then again if a process was found.
+  const publishBackgroundTasks = (tasks) => {
+    const seq = ++backgroundPublishSeq;
+    sendBackgroundTasks(tasks.map((task) => ({ ...task, stoppable: false })));
+    if (tasks.length === 0) return;
+    void markStoppableTasks(tasks, (task) => codexTaskProcessFound(activeRun, background.tracker, task.taskId))
+      .then((marked) => {
+        if (seq === backgroundPublishSeq && marked.some((task) => task.stoppable)) sendBackgroundTasks(marked);
+      })
+      .catch(() => {});
+  };
 
   try {
     const policy = codexRunPolicy(workMode, permissionMode, { model: resolvedModel, effort: resolvedEffort });
@@ -305,9 +386,14 @@ export async function queryCodex(command, options = {}, ws) {
         codex,
         status: 'running',
         abortController,
-        startedAt: new Date().toISOString()
+        startedAt: new Date().toISOString(),
+        // For finding this turn's `codex exec` process («Стоп» of a background command).
+        workingDirectory,
+        resumeThreadId: sessionId || null,
+        codexPid: null,
       };
       activeCodexSessions.set(id, activeRun);
+      codexBackgroundTasks.set(id, background);
     };
 
     if (capturedSessionId) {
@@ -367,6 +453,17 @@ export async function queryCodex(command, options = {}, ws) {
             : 'Codex: переключаю соединение на HTTPS…',
         }));
         continue;
+      }
+
+      // «Фон: N». A parsing slip must never touch the run.
+      try {
+        const tasks = background.tracker.apply(event);
+        if (tasks) publishBackgroundTasks(tasks);
+      } catch (error) {
+        if (!backgroundParseFailureLogged) {
+          backgroundParseFailureLogged = true;
+          console.warn(`[Codex] «Фон» could not read a stream event: ${error instanceof Error ? error.name : typeof error}`);
+        }
       }
 
       const helper = codexHelperPayload(event);
@@ -470,6 +567,12 @@ export async function queryCodex(command, options = {}, ws) {
     // next turn. Never mutate that newer run through the shared session map.
     const userAborted = activeRun?.status === 'aborted' || externalSignal?.aborted;
     if (activeRun) activeRun.status = userAborted ? 'aborted' : terminalFailure ? 'failed' : 'completed';
+    // The exec process is gone, and its background commands with it.
+    for (const [id, state] of codexBackgroundTasks) {
+      if (state === background) codexBackgroundTasks.delete(id);
+    }
+    backgroundPublishSeq += 1;
+    if (background.tracker.list().length > 0 || (background.published?.length ?? 0) > 0) sendBackgroundTasks([]);
     if (!userAborted) {
       sendMessage(ws, createCompleteMessage({
         provider: 'codex', sessionId: capturedSessionId || sessionId || null,

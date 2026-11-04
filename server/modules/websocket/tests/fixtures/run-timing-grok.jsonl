@@ -1,0 +1,8 @@
+{"at": 4000, "event": {"kind": "thinking", "content": "Пользователь просит проверить", "provider": "grok"}}
+{"at": 4500, "event": {"kind": "thinking", "content": " сборку — сначала запущу тесты.", "provider": "grok"}}
+{"at": 5000, "event": {"kind": "tool_use", "toolName": "spawn_subagent", "toolId": "call-1", "toolInput": {"task": "run tests"}, "provider": "grok"}}
+{"at": 7000, "event": {"kind": "thinking", "content": "Помощник думает", "parentToolUseId": "call-1", "provider": "grok"}}
+{"at": 9000, "event": {"kind": "tool_result", "toolId": "call-1", "content": "12 passed", "provider": "grok"}}
+{"at": 12000, "event": {"kind": "thinking", "content": "Тесты зелёные.", "provider": "grok"}}
+{"at": 12300, "event": {"kind": "text", "role": "assistant", "content": "Сборка в порядке: 12 тестов прошли.", "provider": "grok"}}
+{"at": 12400, "event": {"kind": "complete", "exitCode": 0, "provider": "grok"}}

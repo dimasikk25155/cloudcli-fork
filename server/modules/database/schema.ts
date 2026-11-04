@@ -643,6 +643,7 @@ CREATE TABLE IF NOT EXISTS run_durations (
     finished_at INTEGER NOT NULL,
     duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
     answer_hash TEXT NOT NULL,
+    thinking_ms INTEGER DEFAULT NULL CHECK (thinking_ms IS NULL OR thinking_ms >= 0),
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_run_durations_session ON run_durations(session_id);

@@ -57,6 +57,7 @@ export const MODS: readonly ModDef[] = [
     key: 'modImprovementIdeas',
     title: 'Идеи улучшений',
     description: 'Сохраняет предложения агента в Obsidian. В чате можно сразу одобрить реализацию или оставить на потом.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
   {
     key: 'modAttention',
@@ -64,6 +65,7 @@ export const MODS: readonly ModDef[] = [
     description:
       'Показывает, какой чат ждёт твоего ответа, какой закончил, а какой упал: точки в списке чатов, '
       + 'число во вкладке, уведомления на телефон и в Telegram.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — после перезапуска Neo3 вопрос Grok ждёт ответа текстом, без кнопок',
   },
   {
     key: 'modAnswerButtons',
@@ -72,26 +74,31 @@ export const MODS: readonly ModDef[] = [
       'Кнопки ответа прямо в уведомлении и в Telegram — не нужно открывать Neo3. '
       + 'Кнопки доступны для Claude и Grok; в Codex — «Открыть» и ответ в чате.',
     requires: 'modAttention',
+    engines: 'Claude ✓ · Codex нет — только «Открыть» и ответ в чате · Grok ✓',
   },
   {
     key: 'modReplyChips',
     title: 'Подсказки ответов',
     description: 'Под последним ответом агента появляются готовые короткие ответы — нажал, и отправилось.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
   {
     key: 'modSecretGuard',
     title: 'Страж ключей',
     description: 'Если в сообщении есть пароль или ключ, сначала спросит, прятать ли его, и только потом отправит.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — проверка в поле ввода Neo3; в терминале — только Claude Code',
   },
   {
     key: 'modMemoryNotes',
     title: 'Заметки в Obsidian',
     description: 'Когда чат затих, сам записывает главное из него в твою базу Obsidian.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
   {
     key: 'modCodeStatus',
     title: 'Где мой код',
     description: 'Плашка вверху чата: сохранены ли правки, отправлены ли они и что сейчас на сайте.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — от движка не зависит',
   },
   {
     key: 'modRelay',
@@ -99,6 +106,7 @@ export const MODS: readonly ModDef[] = [
     description:
       'Когда чат становится слишком длинным, предлагает продолжить в новом — со всем, что уже сделано. '
       + 'Сюда же входит авто-перенос.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — продолжение на том же движке, модели и effort',
   },
   {
     key: 'modBackgroundConsole',
@@ -106,11 +114,13 @@ export const MODS: readonly ModDef[] = [
     description:
       'Таймер текущего шага работает и в Codex. «Фон: N» доступен для Claude и Grok, '
       + 'остановка отдельной фоновой задачи — только для Claude.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — у Codex и Grok «Стоп» есть, когда Neo3 нашёл процесс задачи; страж циклов — только Claude',
   },
   {
     key: 'modThreads',
     title: 'Треды',
     description: 'Агент может сам открыть соседние чаты-помощники и собрать их итоги. Полоса «Треды: N» над чатом.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — у участников команды в Grok тредов нет',
   },
   {
     key: 'subagentCrabs',
@@ -118,16 +128,19 @@ export const MODS: readonly ModDef[] = [
     description:
       'Помощники агента показываются крабиками: цвет — модель, в лапах — чем занят, галочка — вернулся. '
       + 'Выключено — прежняя карточка помощника.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
   {
     key: 'modScreenshots',
     title: 'Пометки на скриншоте',
     description: 'Карандаш на картинке: обведи или подпиши нужное перед отправкой. Агент узнает, откуда снимок.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
   {
     key: 'modCacheTimer',
     title: 'Таймер кэша',
     description: 'Оценка оставшегося времени кэша Claude. Codex и Grok не сообщают Neo3 точное время истечения кэша чата — обратный отсчёт для них не показывается.',
+    engines: 'Claude ✓ · Codex нет · Grok нет — они не сообщают время кэша',
   },
   {
     key: 'modKrabikAgent',
@@ -135,6 +148,7 @@ export const MODS: readonly ModDef[] = [
     description:
       'Агент на сервере: доводит задачи до конца, даже когда мак спит или пропал VPN. '
       + 'Окно «Крабик» в меню слева, каждое утро сам проверяет сервер.',
+    engines: 'Claude ✓ · Codex частично — подготовлен, включается после выпуска панели · Grok нет',
   },
   {
     key: 'modDuet',
@@ -142,6 +156,7 @@ export const MODS: readonly ModDef[] = [
     description:
       'Напарник по ботам и сервисам: сам следит, пишет первым (утренний бриф, тревога при падении) '
       + 'и чинит только после твоего «Да». Вешает на ботов идеи, как их улучшить.',
+    engines: 'Claude ✓ · Codex ✓ — анализ без инструментов · Grok нет',
   },
   {
     key: 'modWorkbench',

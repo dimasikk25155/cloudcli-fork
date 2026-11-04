@@ -104,3 +104,57 @@ test('a log that merely quotes a completion notice does not close the task', () 
   tracker.apply(line('assistant', [{ type: 'tool_use', id: 'c-3', name: 'get_command_or_subagent_output', input: { task_ids: [P] } }]));
   assert.deepEqual(tracker.apply(line('user', [{ type: 'tool_result', tool_use_id: 'c-3', content: `=== Task ${P} ===\nCommand: pnpm dev\nStatus: completed\nExit Code: 0` }])), []);
 });
+
+test('a running task keeps the command Grok was asked to run, for finding its process («Стоп»)', () => {
+  const P = '01a099b6-dffe-7b11-b3ef-e562bea9f57a';
+  const tracker = createGrokBackgroundTaskTracker({ now: () => 1 });
+  const line = (type: string, content: unknown[]) => ({ type, message: { role: type, content }, parent_tool_use_id: null });
+  tracker.apply(line('assistant', [{ type: 'tool_use', id: 'c-1', name: 'run_terminal_command', input: { command: 'pnpm dev', description: 'Dev server', background: true } }]));
+  tracker.apply(line('user', [{ type: 'tool_result', tool_use_id: 'c-1', content: `<task-id>${P}</task-id>\n<task-type>bash</task-type>\n<status>running</status>` }]));
+  assert.equal(tracker.commandOf(P), 'pnpm dev');
+  assert.equal(tracker.commandOf('other'), null);
+  tracker.apply(line('assistant', [{ type: 'tool_use', id: 'c-2', name: 'kill_command_or_subagent', input: { task_id: P } }]));
+  tracker.apply(line('user', [{ type: 'tool_result', tool_use_id: 'c-2', content: 'killed: task stopped' }]));
+  assert.equal(tracker.commandOf(P), null);
+});
+
+test('live Grok 1.0.70: a JSON «BackgroundTaskStarted» result is a task with its pid; it goes once its process is gone', async () => {
+  // grok-background-live-json.jsonl — a real `--output-format
+  // streaming-messages-json` capture (04.11, isolated HOME; paths and
+  // signatures replaced): `block_until_ms: 0` started `sleep 20; echo a`,
+  // the result is JSON, and no completion notice ever reaches the stream —
+  // Grok tells the model internally.
+  const T = '984d218b-f389-404e-bc8d-4bf1e6722b1b';
+  const tracker = createGrokBackgroundTaskTracker({ now: () => 3 });
+  const changes: string[][] = [];
+  for (const line of await loadLines('grok-background-live-json.jsonl')) {
+    const tasks = tracker.apply(line);
+    if (tasks) changes.push(tasks.map((task) => task.taskId));
+  }
+  assert.deepEqual(changes, [[T]]);
+  assert.deepEqual(tracker.list(), [{ taskId: T, kind: 'bash', description: 'Sleep 20s then echo a', startedAt: 3,
+    toolUseId: 'call-7bbf6f78-904e-4bc9-bf76-4969fcd2c45e-0' }]);
+  assert.equal(tracker.pidOf(T), 78821);
+  assert.equal(tracker.commandOf(T), 'sleep 20; echo a');
+
+  assert.equal(tracker.pruneExited(() => true), null, 'still running — nothing changes');
+  assert.deepEqual(tracker.pruneExited((pid) => pid !== 78821), []);
+  assert.equal(tracker.pidOf(T), null);
+});
+
+test('a JSON report with the task\'s final status closes it', () => {
+  const T = '984d218b-f389-404e-bc8d-4bf1e6722b1b';
+  const tracker = createGrokBackgroundTaskTracker({ now: () => 1 });
+  const line = (type: string, content: unknown[]) => ({ type, message: { role: type, content }, parent_tool_use_id: null });
+  tracker.apply(line('assistant', [{ type: 'tool_use', id: 'c-1', name: 'run_terminal_command', input: { command: 'pnpm dev', block_until_ms: 0 } }]));
+  tracker.apply(line('user', [{ type: 'tool_result', tool_use_id: 'c-1', content: JSON.stringify({ type: 'BackgroundTaskStarted', task_id: T, task_type: 'bash', status: 'running', command: 'pnpm dev', pid: 5 }) }]));
+  tracker.apply(line('assistant', [{ type: 'tool_use', id: 'c-2', name: 'get_command_or_subagent_output', input: { task_ids: [T] } }]));
+  assert.equal(tracker.apply(line('user', [{ type: 'tool_result', tool_use_id: 'c-2', content: JSON.stringify({ tasks: [{ task_id: T, status: 'running' }] }) }])), null);
+  tracker.apply(line('assistant', [{ type: 'tool_use', id: 'c-3', name: 'get_command_or_subagent_output', input: { task_ids: [T] } }]));
+  assert.deepEqual(tracker.apply(line('user', [{ type: 'tool_result', tool_use_id: 'c-3', content: JSON.stringify({ tasks: [{ task_id: T, status: 'completed', exit_code: 0 }] }) }])), []);
+  // A command that merely prints such JSON is not Grok's report.
+  tracker.apply(line('assistant', [{ type: 'tool_use', id: 'c-4', name: 'run_terminal_command', input: { command: 'pnpm dev', block_until_ms: 0 } }]));
+  tracker.apply(line('user', [{ type: 'tool_result', tool_use_id: 'c-4', content: JSON.stringify({ type: 'BackgroundTaskStarted', task_id: 'x2', task_type: 'bash', status: 'running', command: 'pnpm dev' }) }]));
+  tracker.apply(line('assistant', [{ type: 'tool_use', id: 'c-5', name: 'run_terminal_command', input: { command: 'cat report.json' } }]));
+  assert.equal(tracker.apply(line('user', [{ type: 'tool_result', tool_use_id: 'c-5', content: JSON.stringify({ task_id: 'x2', status: 'completed' }) }])), null);
+});

@@ -18,6 +18,11 @@ export type BackgroundTaskView = {
   lastTool?: string;
   /** The Agent call that started it, when the task is a subagent. */
   toolUseId?: string;
+  /**
+   * Codex/Grok: the server found this task's process, so «Стоп» can reach it.
+   * Absent (Claude) — the frame's `stoppable` decides alone.
+   */
+  stoppable?: boolean;
 };
 
 /**
@@ -76,8 +81,14 @@ function readTasks(raw: unknown): BackgroundTaskView[] {
       startedAt: typeof task.startedAt === 'number' ? task.startedAt : Date.now(),
       ...(typeof task.lastTool === 'string' ? { lastTool: task.lastTool } : {}),
       ...(typeof task.toolUseId === 'string' ? { toolUseId: task.toolUseId } : {}),
+      ...(typeof task.stoppable === 'boolean' ? { stoppable: task.stoppable } : {}),
     }];
   });
+}
+
+/** «Стоп» on this row: the engine has a stop and the row was not marked unreachable. */
+export function canStopTask(session: SessionBackgroundTasks, task: BackgroundTaskView): boolean {
+  return session.stoppable && task.stoppable !== false;
 }
 
 export const backgroundTasksStore = {

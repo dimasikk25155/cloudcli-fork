@@ -43,6 +43,8 @@ import {
 import {
     queryCodex,
     abortCodexSession,
+    getCodexBackgroundTasks,
+    stopCodexTask,
 } from './openai-codex.js';
 import {
     spawnOpenCode,
@@ -60,6 +62,7 @@ import {
     spawnGrok,
     abortGrokSession,
     getGrokBackgroundTasks,
+    stopGrokTask,
 } from './grok-cli.js';
 import {
     stripAnsiSequences,
@@ -182,13 +185,18 @@ const chatDependencies = {
         gemini: abortGeminiSession,
         grok: abortGrokSession,
     },
-    // «Стоп» exists only for Claude: a Grok background command is stopped by
-    // Grok itself, Neo3 can only show it (see grok-background-tasks).
+    // «Стоп»: Claude through the SDK's stopTask; Codex and Grok have no such
+    // API — the command's own process under the engine process is stopped,
+    // and a row gets the button only when that process was found
+    // (server/shared/process-tree.ts).
     stopTaskFns: {
         claude: stopClaudeTask,
+        codex: stopCodexTask,
+        grok: stopGrokTask,
     },
     backgroundTasksFns: {
         claude: getClaudeBackgroundTasks,
+        codex: getCodexBackgroundTasks,
         grok: getGrokBackgroundTasks,
     },
     resolveToolApproval,

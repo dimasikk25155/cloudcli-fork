@@ -273,6 +273,8 @@ export type NormalizedMessage = {
   seq?: number;
   /** Server-measured duration, present only for successfully completed runs. */
   completionDurationMs?: number;
+  /** Server-measured thinking of that run; absent when the engine showed no thinking. */
+  thinkingDurationMs?: number;
   role?: 'user' | 'assistant';
   content?: string;
   /**
