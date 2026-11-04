@@ -13,9 +13,9 @@ import type { SafariLiveService, SafariWindowList } from '@/modules/safari-live/
 process.env.JWT_SECRET = 'safari-live-routes-test-secret-0123456789';
 const { closeConnection, initializeDatabase, projectsDb, safariLiveBindingsDb, sessionsDb, userDb } = await import('@/modules/database/index.js');
 // eslint-disable-next-line boundaries/no-unknown -- the real auth middleware: 401/403 exactly as mounted in server/index.js
-const { authenticateToken, generateToken, requireAdmin } = await import('@/middleware/auth.js');
+const { authenticateToken, authenticateWebSocket, generateToken, requireAdmin } = await import('@/middleware/auth.js');
 const { apiErrorHandler } = await import('@/shared/utils.js');
-const { createSafariLiveRouter, readStreamToken } = await import('@/modules/safari-live/index.js');
+const { createSafariLiveRouter, readStreamToken, signStreamToken } = await import('@/modules/safari-live/index.js');
 
 type Reply = { status: number; body: any };
 
@@ -38,7 +38,7 @@ function fakeService(list: () => SafariWindowList, calls: string[]): SafariLiveS
 }
 
 async function withServer(run: (ctx: {
-  call: (method: 'GET' | 'PUT', route: string, options?: { as?: 'admin' | 'member' | 'nobody'; body?: unknown }) => Promise<Reply>;
+  call: (method: 'GET' | 'PUT', route: string, options?: { as?: 'admin' | 'member' | 'nobody'; body?: unknown; bearer?: string }) => Promise<Reply & { refreshed: string | null }>;
   setList: (list: SafariWindowList) => void;
   setModOn: (on: boolean) => void;
   calls: string[];
@@ -90,13 +90,14 @@ async function withServer(run: (ctx: {
       call: async (method, route, options = {}) => {
         const as = options.as ?? 'admin';
         const headers: Record<string, string> = { 'content-type': 'application/json' };
-        if (as !== 'nobody') headers.authorization = `Bearer ${tokens[as]}`;
+        if (options.bearer !== undefined) headers.authorization = `Bearer ${options.bearer}`;
+        else if (as !== 'nobody') headers.authorization = `Bearer ${tokens[as]}`;
         const response = await fetch(`${base}${route}`, {
           method,
           headers,
           body: options.body === undefined ? undefined : JSON.stringify(options.body),
         });
-        return { status: response.status, body: await response.json() };
+        return { status: response.status, body: await response.json(), refreshed: response.headers.get('x-refreshed-token') };
       },
       setList: (next) => { list = next; },
       setModOn: (on) => { modOn = on; },
@@ -200,5 +201,28 @@ test('PUT /sessions/:id with a window that is gone → 404 WINDOW_GONE; a bad bo
     assert.equal((await call('GET', '/sessions/chat')).body.data.binding, null);
     assert.deepEqual(calls, []);
     assert.deepEqual(notified, []);
+  });
+});
+
+test('a stream link token is never a login: as Bearer, as ?token= and as a WebSocket token it is refused', async () => {
+  await withServer(async ({ call, adminId }) => {
+    const streamToken = signStreamToken({ userId: adminId, windowId: 345 });
+    // Sanity: the admin's own login works on the same routes.
+    assert.equal((await call('GET', '/windows')).status, 200);
+
+    for (const route of ['/windows', '/sessions/chat']) {
+      const asBearer = await call('GET', route, { bearer: streamToken });
+      assert.ok([401, 403].includes(asBearer.status), `Bearer on ${route}: ${asBearer.status}`);
+      assert.equal(asBearer.refreshed, null, 'no full login token is handed out');
+
+      const asQuery = await call('GET', `${route}?token=${encodeURIComponent(streamToken)}`, { as: 'nobody' });
+      assert.ok([401, 403].includes(asQuery.status), `?token= on ${route}: ${asQuery.status}`);
+      assert.equal(asQuery.refreshed, null);
+    }
+    assert.equal((await call('PUT', '/sessions/chat', { bearer: streamToken, body: { windowId: 345 } })).status >= 401, true);
+
+    assert.equal(authenticateWebSocket(streamToken), null);
+    // A login token is still not a stream link either.
+    assert.equal(readStreamToken(generateToken({ id: adminId, username: 'dima' })), null);
   });
 });

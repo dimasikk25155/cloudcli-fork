@@ -6,6 +6,8 @@
  * issued only by the admin-only `GET /api/safari-live/sessions/:id`.
  */
 
+import { createHmac } from 'node:crypto';
+
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 
@@ -21,22 +23,28 @@ const SCOPE = 'safari-live';
 const BOUNDARY = 'neo3frame';
 export const STREAM_TOKEN_TTL_SECONDS = 600;
 
-/** Same secret as `server/middleware/auth.js` (env override, else the stored one); read on use. */
-function jwtSecret(): string {
-  return process.env.JWT_SECRET || appConfigDb.getOrCreateJwtSecret();
+/**
+ * Own key derived from the app secret (env override, else the stored one), read on use.
+ * The login check (`authenticateToken` / `authenticateWebSocket`) verifies with the app
+ * secret itself, so a stream link can never pass as a login, and a login can never
+ * open a stream. The viewer id also lives under `viewer`, not `userId`.
+ */
+function streamSecret(): string {
+  const appSecret = process.env.JWT_SECRET || appConfigDb.getOrCreateJwtSecret();
+  return createHmac('sha256', appSecret).update('neo3-safari-live-stream-v1').digest('base64url');
 }
 
 export type StreamTokenPayload = { userId: number; windowId: number };
 
 export function signStreamToken(payload: StreamTokenPayload, ttlSeconds: number = STREAM_TOKEN_TTL_SECONDS): string {
-  return jwt.sign({ scope: SCOPE, userId: payload.userId, windowId: payload.windowId }, jwtSecret(), { expiresIn: ttlSeconds });
+  return jwt.sign({ scope: SCOPE, viewer: payload.userId, windowId: payload.windowId }, streamSecret(), { expiresIn: ttlSeconds, algorithm: 'HS256' });
 }
 
 export function readStreamToken(token: string): StreamTokenPayload | null {
   try {
-    const payload = jwt.verify(String(token || ''), jwtSecret()) as Record<string, unknown>;
+    const payload = jwt.verify(String(token || ''), streamSecret(), { algorithms: ['HS256'] }) as Record<string, unknown>;
     if (!payload || payload.scope !== SCOPE) return null;
-    const userId = Number(payload.userId);
+    const userId = Number(payload.viewer);
     const windowId = Number(payload.windowId);
     if (!Number.isSafeInteger(userId) || userId <= 0 || !Number.isSafeInteger(windowId) || windowId <= 0) return null;
     return { userId, windowId };

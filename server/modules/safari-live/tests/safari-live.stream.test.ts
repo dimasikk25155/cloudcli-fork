@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -13,6 +14,8 @@ import type { SafariLiveService, SafariViewer } from '@/modules/safari-live/inde
 // the auth module is loaded so the test never touches a database.
 const TEST_SECRET = 'safari-live-stream-test-secret-0123456789';
 process.env.JWT_SECRET = TEST_SECRET;
+// The stream key is derived from the app secret (never the app secret itself).
+const STREAM_SECRET = createHmac('sha256', TEST_SECRET).update('neo3-safari-live-stream-v1').digest('base64url');
 const { signStreamToken, readStreamToken, createSafariLiveStreamHandler } = await import('@/modules/safari-live/index.js');
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,9 +70,14 @@ test('stream token: round-trips user and window; another scope, another secret o
   assert.equal(decoded.scope, 'safari-live');
   assert.equal(decoded.exp - decoded.iat, 600);
 
-  assert.equal(readStreamToken(jwt.sign({ scope: 'autopilot-dashboard', userId: 1, windowId: 345 }, TEST_SECRET)), null);
-  assert.equal(readStreamToken(jwt.sign({ scope: 'safari-live', userId: 1, windowId: 345 }, 'other-secret')), null);
-  assert.equal(readStreamToken(jwt.sign({ scope: 'safari-live', userId: 1, windowId: 345, exp: Math.floor(Date.now() / 1000) - 5 }, TEST_SECRET)), null);
+  // A hand-made link with the right key is read (the expected key comes from the derivation rule, not the code).
+  assert.deepEqual(readStreamToken(jwt.sign({ scope: 'safari-live', viewer: 3, windowId: 9 }, STREAM_SECRET)), { userId: 3, windowId: 9 });
+  assert.equal(readStreamToken(jwt.sign({ scope: 'autopilot-dashboard', viewer: 1, windowId: 345 }, STREAM_SECRET)), null);
+  assert.equal(readStreamToken(jwt.sign({ scope: 'safari-live', viewer: 1, windowId: 345 }, 'other-secret')), null);
+  assert.equal(readStreamToken(jwt.sign({ scope: 'safari-live', viewer: 1, windowId: 345 }, TEST_SECRET)), null, 'the app secret itself does not sign links');
+  assert.equal(readStreamToken(jwt.sign({ scope: 'safari-live', viewer: 1, windowId: 345, exp: Math.floor(Date.now() / 1000) - 5 }, STREAM_SECRET)), null);
+  // The link carries no `userId`, so the login check has nothing to take even if it trusted the signature.
+  assert.equal((jwt.decode(token) as Record<string, unknown>).userId, undefined);
   assert.equal(readStreamToken('garbage'), null);
 });
 
@@ -79,7 +87,7 @@ test('GET /sl/:token/stream: bad token → 401, mod off → 409, nothing subscri
     assert.equal(bad.status, 401);
     assert.match(bad.headers.get('content-type') ?? '', /text\/plain/);
 
-    const expired = jwt.sign({ scope: 'safari-live', userId: 1, windowId: 1, exp: Math.floor(Date.now() / 1000) - 5 }, TEST_SECRET);
+    const expired = jwt.sign({ scope: 'safari-live', viewer: 1, windowId: 1, exp: Math.floor(Date.now() / 1000) - 5 }, STREAM_SECRET);
     assert.equal((await fetch(`${base}/sl/${expired}/stream`)).status, 401);
 
     const modOff = await fetch(`${base}/sl/${signStreamToken({ userId: 2, windowId: 9 })}/stream`);
