@@ -7,9 +7,11 @@ export type AutopilotDashboard = {
   url: string | null;
   title: string | null;
   finished: boolean;
+  /** Проект, к которому относится ответ: при смене проекта старый ответ ещё кадр на экране. */
+  projectId: string | null;
 };
 
-const EMPTY: AutopilotDashboard = { available: false, url: null, title: null, finished: false };
+const EMPTY: AutopilotDashboard = { available: false, url: null, title: null, finished: false, projectId: null };
 
 // Пока сборка не началась, `.autopilot/` в проекте нет — папку создаёт агент
 // в первой же фазе, посреди разговора. Одной проверки при открытии проекта не
@@ -48,6 +50,7 @@ export function useAutopilotDashboard(projectId: string | undefined): AutopilotD
         url: urlRef.current,
         title: data.title ?? null,
         finished: Boolean(data.finished),
+        projectId,
       });
     } catch {
       // Сеть моргнула — прошлое состояние честнее, чем «прогона нет».

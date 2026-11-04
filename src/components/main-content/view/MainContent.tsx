@@ -11,6 +11,12 @@ import ProjectStatsPanel from '../../project-stats/view/ProjectStatsPanel';
 import { BrowserUsePanel } from '../../browser-use';
 import AutopilotPanel from '../../autopilot/AutopilotPanel';
 import { useAutopilotDashboard } from '../../autopilot/useAutopilotDashboard';
+import {
+  autopilotRunKey,
+  markAutoOpened,
+  shouldAutoOpenAutopilot,
+  wasAutoOpened,
+} from '../../autopilot/autopilotAutoOpen';
 import type { MainContentProps } from '../types/types';
 import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
@@ -89,6 +95,9 @@ function MainContent({
   const shouldShowBrowserTab = browserUseEnabled;
 
   const autopilot = useAutopilotDashboard(selectedProject?.projectId);
+  const autopilotRun = autopilot.projectId === selectedProject?.projectId
+    ? autopilotRunKey(autopilot.projectId ?? undefined, autopilot.title)
+    : null;
 
   const workbench = useWorkbench(selectedSession?.id ?? null);
   useWorkbenchAccountSync();
@@ -115,6 +124,21 @@ function MainContent({
   useEffect(() => {
     if (!isMobile || !workbenchOn || activeTab !== 'chat') setMobileCanvasOpen(false);
   }, [isMobile, workbenchOn, activeTab]);
+  // Идёт сборка автопилота — её дашборд сам встаёт во вкладку справа, один раз
+  // на сборку. На телефоне холст закрыл бы чат, там только кнопка.
+  const sessionIdForAutopilot = selectedSession?.id ?? null;
+  useEffect(() => {
+    if (isMobile || !workbenchOn || !autopilotRun) return;
+    const open = shouldAutoOpenAutopilot({
+      available: autopilot.available,
+      finished: autopilot.finished,
+      runKey: autopilotRun,
+      alreadyOpened: wasAutoOpened(autopilotRun),
+    });
+    if (!open) return;
+    markAutoOpened(autopilotRun);
+    openWorkbenchTab(sessionIdForAutopilot, { kind: 'autopilot', title: 'Автопилот' });
+  }, [isMobile, workbenchOn, autopilotRun, autopilot.available, autopilot.finished, sessionIdForAutopilot]);
 
   const {
     editingFile,
