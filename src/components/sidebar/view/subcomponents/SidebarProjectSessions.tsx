@@ -16,6 +16,40 @@ import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
 
 import SidebarSessionItem from './SidebarSessionItem';
 
+/**
+ * «Закрепить наверху» toggle drawn inside the card, left of the rank badge.
+ * It lives inside the card link, so it is a span (no button inside <a>) and
+ * swallows pointer/click events: no navigation, no reorder drag.
+ */
+function PinToggle({ sessionId, pinned }: { sessionId: string; pinned: boolean }) {
+  const toggle = () => void (pinned ? sidebarGroupsStore.unpin(sessionId) : sidebarGroupsStore.pin(sessionId));
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-pressed={pinned}
+      aria-label={pinned ? 'Открепить чат' : 'Закрепить чат наверху'}
+      title={pinned ? 'Открепить' : 'Закрепить наверху'}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggle();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          event.stopPropagation();
+          toggle();
+        }
+      }}
+      className={`-mr-1 grid h-4 w-4 flex-shrink-0 cursor-pointer place-items-center rounded hover:bg-accent ${pinned ? 'text-primary' : 'text-muted-foreground opacity-0 focus:opacity-100 group-hover/pin:opacity-100 [@media(hover:none)]:opacity-40'}`}
+    >
+      <Pin className="h-3 w-3" aria-hidden />
+    </span>
+  );
+}
+
 type SidebarProjectSessionsProps = {
   project: Project;
   isExpanded: boolean;
@@ -177,22 +211,13 @@ export default function SidebarProjectSessions({
                   {collapsed ? <ChevronRight className="h-3 w-3" aria-hidden /> : <ChevronDown className="h-3 w-3" aria-hidden />}
                 </button>
               )}
-              {groupsOn && (
-                <button
-                  type="button"
-                  onClick={() => void (pins.includes(String(session.id)) ? sidebarGroupsStore.unpin(String(session.id)) : sidebarGroupsStore.pin(String(session.id)))}
-                  aria-pressed={pins.includes(String(session.id))}
-                  aria-label={pins.includes(String(session.id)) ? 'Открепить чат' : 'Закрепить чат наверху'}
-                  title={pins.includes(String(session.id)) ? 'Открепить' : 'Закрепить наверху'}
-                  className={`absolute right-1 top-1 z-10 grid h-5 w-5 place-items-center rounded hover:bg-accent ${pins.includes(String(session.id)) ? 'text-primary' : 'text-muted-foreground opacity-0 focus:opacity-100 group-hover/pin:opacity-100'}`}
-                >
-                  <Pin className="h-3 w-3" aria-hidden />
-                </button>
-              )}
             <SidebarSessionItem
               project={project}
               session={session}
               index={index}
+              pinControl={groupsOn ? (
+                <PinToggle sessionId={String(session.id)} pinned={pins.includes(String(session.id))} />
+              ) : undefined}
               isDragging={drag?.sessionId === String(session.id)}
               dragOffsetY={drag?.sessionId === String(session.id) ? drag.offsetY : 0}
               onDragPointerDown={(event) => handlePointerDown(event, index, String(session.id))}

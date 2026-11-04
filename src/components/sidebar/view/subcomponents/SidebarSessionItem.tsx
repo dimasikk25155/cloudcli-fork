@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { Check, Edit2, Loader2, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -20,6 +20,8 @@ type SidebarSessionItemProps = {
   session: SessionWithProvider;
   /** Pinned position in the list — shown as the rank badge. */
   index: number;
+  /** «Закрепить наверху» toggle, drawn left of the rank badge. */
+  pinControl?: ReactNode;
   isDragging: boolean;
   dragOffsetY: number;
   onDragPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
@@ -72,6 +74,7 @@ export default function SidebarSessionItem({
   project,
   session,
   index,
+  pinControl,
   isDragging,
   dragOffsetY,
   onDragPointerDown,
@@ -291,6 +294,7 @@ export default function SidebarSessionItem({
           onClick={selectMobileSession}
         >
           <div className="flex items-center gap-2">
+            {!isEditing && pinControl}
             {!isEditing && <RankMark />}
 
             {isEditing ? (
@@ -418,6 +422,7 @@ export default function SidebarSessionItem({
           }}
         >
           <div className="flex w-full min-w-0 items-center gap-2">
+            {pinControl}
             <RankMark />
             <ProviderMark />
             <div className="min-w-0 flex-1">
