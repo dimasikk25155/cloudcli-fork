@@ -6,8 +6,9 @@
  * - One driver watch per page, shared by every viewer; a new viewer gets the last
  *   frame at once; the last viewer leaving stops the watch (the driver unloads the
  *   helper after its idle time).
- * - A viewer of a page that is not open (helper unloaded or restarted) with a
- *   restore address → the page is opened there first.
+ * - A viewer of a page that is not open with a restore address → the page is opened
+ *   there first, but only when the helper is unloaded (idle, died) and the agent did
+ *   not close that page itself: a page the agent is done with never comes back.
  * - Closing the last page while nobody watches unloads the helper at once.
  * - Helper failures of commands reach the caller as `BrowserError`; the list is a state.
  */
@@ -87,6 +88,8 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
   const driver = deps.driver;
 
   const streams = new Map<string, StreamEntry>();
+  /** Pages the agent closed itself: never restored until opened again. */
+  const closedByAgent = new Set<string>();
   let listCache: { at: number; list: SafariWindowList } | null = null;
 
   function unavailable(): BrowserError | null {
@@ -147,6 +150,7 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
     const address = normalizePageUrl(url);
     if (!address) throw new BrowserError('bad_url', BROWSER_TEXT.badUrl);
     const reply = await driver!.request('open', { page: pageId, url: address });
+    closedByAgent.delete(pageId);
     listCache = null;
     return {
       pageId,
@@ -159,6 +163,7 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
   }
 
   async function closePage(pageId: string): Promise<{ closed: boolean; unloaded: boolean }> {
+    closedByAgent.add(pageId);
     if (!driver || !driver.isRunning()) return { closed: false, unloaded: true };
     const reply = await driver.request('close', { page: pageId });
     listCache = null;
@@ -181,8 +186,14 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
     await command('input', pageId, { ...event });
   }
 
+  function canRestore(pageId: string): boolean {
+    return supported && Boolean(driver) && !driver!.isRunning() && !closedByAgent.has(pageId);
+  }
+
   async function startWatching(pageId: string, entry: StreamEntry, restore?: { url: string }): Promise<void> {
     let alive = false;
+    // Decided before anything starts the helper: only an unloaded helper gives the page back.
+    const restorable = Boolean(restore?.url) && canRestore(pageId);
     if (driver!.isRunning()) {
       try {
         const reply = await driver!.request('list', {}, { passive: true });
@@ -192,7 +203,7 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
       }
     }
     if (streams.get(pageId) !== entry || entry.viewers.size === 0) return;
-    if (!alive && restore?.url) {
+    if (!alive && restorable && restore) {
       try {
         await openPage(pageId, restore.url);
         alive = true;
@@ -268,6 +279,7 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
   return {
     listWindows,
     isLoaded: () => Boolean(driver?.isRunning()),
+    canRestore,
     openPage,
     closePage,
     command,

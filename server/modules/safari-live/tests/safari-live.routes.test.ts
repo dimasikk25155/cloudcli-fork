@@ -21,10 +21,17 @@ type Reply = { status: number; body: any };
 
 const page = (pageId: string, title: string, url: string) => ({ pageId, title, url, width: 1280, height: 800 });
 
-function fakeService(list: () => SafariWindowList, calls: string[], inputs: Array<[string, BrowserInput]>, inputError: () => Error | null): SafariLiveService {
+function fakeService(
+  list: () => SafariWindowList,
+  calls: string[],
+  inputs: Array<[string, BrowserInput]>,
+  inputError: () => Error | null,
+  helper: () => { loaded: boolean; closedByAgent: Set<string> },
+): SafariLiveService {
   return {
     listWindows: async () => list(),
-    isLoaded: () => list().windows.length > 0,
+    isLoaded: () => helper().loaded,
+    canRestore: (pageId) => !helper().loaded && !helper().closedByAgent.has(pageId),
     openPage: async () => { calls.push('open'); throw new Error('not used'); },
     closePage: async () => ({ closed: false, unloaded: true }),
     command: async (op) => { calls.push(op); return {}; },
@@ -43,6 +50,8 @@ async function withServer(run: (ctx: {
   call: (method: 'GET' | 'PUT' | 'POST', route: string, options?: { as?: 'admin' | 'member' | 'nobody'; body?: unknown; bearer?: string }) => Promise<Reply & { refreshed: string | null }>;
   setList: (list: SafariWindowList) => void;
   setModOn: (on: boolean) => void;
+  setLoaded: (on: boolean) => void;
+  closedByAgent: Set<string>;
   setInputError: (error: Error | null) => void;
   inputs: Array<[string, BrowserInput]>;
   calls: string[];
@@ -65,6 +74,8 @@ async function withServer(run: (ctx: {
     windows: [page('chat-chat', 'Яндекс', 'https://ya.ru/'), page('chat-other', 'GitHub', 'https://github.com/')],
   };
   let modOn = true;
+  let loaded = true;
+  const closedByAgent = new Set<string>();
   let inputError: Error | null = null;
   const inputs: Array<[string, BrowserInput]> = [];
   const calls: string[] = [];
@@ -77,7 +88,7 @@ async function withServer(run: (ctx: {
   const app = express();
   app.use(express.json());
   app.use('/api/safari-live', authenticateToken, requireAdmin, createSafariLiveRouter({
-    service: fakeService(() => list, calls, inputs, () => inputError),
+    service: fakeService(() => list, calls, inputs, () => inputError, () => ({ loaded, closedByAgent })),
     bindings: safariLiveBindingsDb,
     modOn: () => modOn,
     notify: (userId, sessionId) => { notified.push([userId, sessionId]); },
@@ -108,6 +119,8 @@ async function withServer(run: (ctx: {
       },
       setList: (next) => { list = next; },
       setModOn: (on) => { modOn = on; },
+      setLoaded: (on) => { loaded = on; },
+      closedByAgent,
       setInputError: (error) => { inputError = error; },
       inputs,
       calls,
@@ -168,8 +181,8 @@ test('GET /windows lists browser pages; GET /sessions/:id is empty until a page 
   });
 });
 
-test('PUT /sessions/:id binds the page (by the user) with its address, pings the user, returns a stream link; a gone page with an address is «unloaded» and still streamable', async () => {
-  await withServer(async ({ call, setList, calls, notified, adminId }) => {
+test('PUT /sessions/:id binds the page (by the user) with its address, pings the user, returns a stream link; «unloaded» + link only while the helper is unloaded', async () => {
+  await withServer(async ({ call, setList, setLoaded, closedByAgent, calls, notified, adminId }) => {
     const bound = await call('PUT', '/sessions/chat', { body: { pageId: 'chat-other' } });
     assert.equal(bound.status, 200);
     const view = bound.body.data;
@@ -192,13 +205,32 @@ test('PUT /sessions/:id binds the page (by the user) with its address, pings the
     assert.equal(moved.body.data.binding.url, 'https://github.com/pulls');
     assert.equal(moved.body.data.binding.title, 'GitHub — Pulls');
 
-    // The browser was unloaded: the binding stays, state «unloaded», the link reopens it.
+    // The agent closed the page (browser.close) while the helper still runs: the tab
+    // shows «page closed», no link — nothing reopens the page the agent is done with.
+    setList({ state: 'ok', windows: [page('chat-chat', 'Яндекс', 'https://ya.ru/')] });
+    const closed = await call('GET', '/sessions/chat');
+    assert.equal(closed.body.data.state, 'ok');
+    assert.equal(closed.body.data.windowAlive, false);
+    assert.equal(closed.body.data.binding.pageId, 'chat-other');
+    assert.equal(closed.body.data.streamUrl, null);
+
+    // The closed page was the last one and the helper left memory at once: still closed, no link.
     setList({ state: 'ok', windows: [] });
+    setLoaded(false);
+    closedByAgent.add('chat-other');
+    const closedUnloaded = await call('GET', '/sessions/chat');
+    assert.equal(closedUnloaded.body.data.state, 'ok');
+    assert.equal(closedUnloaded.body.data.streamUrl, null);
+
+    // The helper was unloaded by itself (idle, restart): the binding stays, state «unloaded»,
+    // the link reopens the last page.
+    closedByAgent.clear();
     const unloaded = await call('GET', '/sessions/chat');
     assert.equal(unloaded.body.data.state, 'unloaded');
     assert.equal(unloaded.body.data.windowAlive, false);
     assert.equal(unloaded.body.data.binding.pageId, 'chat-other');
     assert.ok(unloaded.body.data.streamUrl, 'stream link to reopen the last page');
+    assert.deepEqual(calls, [], 'the view itself opens nothing');
 
     // The browser is broken: state comes through, no link.
     setList({ state: 'error', windows: [], message: 'Браузер не установлен' });

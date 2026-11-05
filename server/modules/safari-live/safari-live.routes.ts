@@ -33,13 +33,19 @@ function userIdOf(req: Request): number {
 
 /**
  * What the «Браузер» tab shows for a chat. The stream link is issued when the bound
- * page is open, or when it can be reopened (`unloaded`: the page is gone but its last
- * address is known — subscribing opens it again).
+ * page is open, or when it can be reopened: `unloaded` — the helper is unloaded (idle,
+ * died; not the agent closing this page) and the last address is known, so subscribing
+ * opens it again. A page the agent closed is just gone: no link, nothing reopens it.
  */
-export function buildSafariLiveView(userId: number, binding: SafariBinding | null, list: SafariWindowList): SafariLiveView {
+export function buildSafariLiveView(
+  userId: number,
+  binding: SafariBinding | null,
+  list: SafariWindowList,
+  restorable: (pageId: string) => boolean = () => false,
+): SafariLiveView {
   const live = binding ? list.windows.find((page) => page.pageId === binding.pageId) : undefined;
   const windowAlive = Boolean(live);
-  const state = list.state === 'ok' && binding && !live && binding.url ? 'unloaded' : list.state;
+  const state = list.state === 'ok' && binding && !live && binding.url && restorable(binding.pageId) ? 'unloaded' : list.state;
   const fresh = binding && live && (live.title !== binding.title || (live.url && live.url !== binding.url))
     ? { ...binding, title: live.title || binding.title, url: live.url || binding.url }
     : binding;
@@ -105,6 +111,8 @@ export function createSafariLiveRouter(options: SafariLiveRouterOptions) {
   const { service, bindings, modOn, notify } = options;
   const sessionAccess = options.sessionAccess ?? requireSessionAccess;
   const router = express.Router();
+  // `unloaded` only while the helper is not running and the page was not closed by the agent.
+  const restorable = (pageId: string) => !service.isLoaded() && service.canRestore(pageId);
 
   router.use((req: Request, _res: Response, next: NextFunction) => {
     if (!modOn((req as AuthedRequest).user?.id)) {
@@ -127,7 +135,7 @@ export function createSafariLiveRouter(options: SafariLiveRouterOptions) {
     asyncHandler(async (req, res) => {
       const sessionId = String(req.params.sessionId);
       const list = await service.listWindows();
-      res.json(createApiSuccessResponse(buildSafariLiveView(userIdOf(req), bindings.get(sessionId), list)));
+      res.json(createApiSuccessResponse(buildSafariLiveView(userIdOf(req), bindings.get(sessionId), list, restorable)));
     }),
   );
 
@@ -144,7 +152,7 @@ export function createSafariLiveRouter(options: SafariLiveRouterOptions) {
       const list = await service.listWindows();
       if (list.state !== 'ok') {
         // Nothing to bind to while the browser cannot list pages; the tab shows the state.
-        res.json(createApiSuccessResponse(buildSafariLiveView(userId, bindings.get(sessionId), list)));
+        res.json(createApiSuccessResponse(buildSafariLiveView(userId, bindings.get(sessionId), list, restorable)));
         return;
       }
       const page = list.windows.find((candidate) => candidate.pageId === pageId);
@@ -153,7 +161,7 @@ export function createSafariLiveRouter(options: SafariLiveRouterOptions) {
       }
       const binding = bindings.set(sessionId, { pageId, url: page.url, title: page.title, boundBy: 'user' });
       notify(userId, sessionId);
-      res.json(createApiSuccessResponse(buildSafariLiveView(userId, binding, list)));
+      res.json(createApiSuccessResponse(buildSafariLiveView(userId, binding, list, restorable)));
     }),
   );
 

@@ -32,6 +32,7 @@ function fakeService() {
   const service: SafariLiveService = {
     listWindows: async () => ({ state: 'ok', windows: [...pages.values()] }),
     isLoaded: () => pages.size > 0,
+    canRestore: () => false,
     async openPage(pageId, url) {
       calls.push(['open', pageId, { url }]);
       if (fail) throw fail;

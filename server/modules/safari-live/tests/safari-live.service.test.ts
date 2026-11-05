@@ -246,3 +246,55 @@ test('service: commands and input go to the page; helper errors come back as Bro
   fake.emit({ event: 'navigated', page: 'chat-a', url: 'https://example.com/next', title: 'Next' });
   assert.deepEqual(navigated, [['chat-a', 'https://example.com/next', 'Next']]);
 });
+
+test('service: no reopening of a page the agent closed — not while the helper runs, not after closing the last page unloaded it; a page lost to an unload is restored', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  await service.openPage('chat-a', 'https://example.com/a');
+  await service.openPage('chat-b', 'https://example.com/b');
+
+  // Dima watches chat-a; the agent closes it; the helper keeps running for chat-b.
+  const watching = viewer();
+  service.subscribe('chat-a', watching.value, { url: 'https://example.com/a' });
+  await waitFor(() => fake.watchers.has('chat-a'), 'watch');
+  await service.closePage('chat-a');
+  assert.deepEqual(watching.ends, ['page_gone']);
+  assert.equal(service.isLoaded(), true);
+  assert.equal(service.canRestore('chat-a'), false);
+  const again = viewer();
+  service.subscribe('chat-a', again.value, { url: 'https://example.com/a' });
+  await waitFor(() => again.ends.length > 0, 'end');
+  assert.deepEqual(again.ends, ['page_gone']);
+
+  // The last page closed → unloaded at once; the closed page still is not reopened.
+  await service.closePage('chat-b');
+  assert.equal(service.isLoaded(), false);
+  assert.equal(service.canRestore('chat-b'), false);
+  const late = viewer();
+  service.subscribe('chat-b', late.value, { url: 'https://example.com/b' });
+  await waitFor(() => late.ends.length > 0, 'end');
+  assert.deepEqual(late.ends, ['page_gone']);
+  assert.equal(fake.calls.filter((call) => call.op === 'open').length, 2, 'no reopening');
+
+  // Opened again by the agent → it is a normal page again; then the helper dies → restorable.
+  await service.openPage('chat-b', 'https://example.com/b2');
+  fake.die();
+  assert.equal(service.isLoaded(), false);
+  assert.equal(service.canRestore('chat-b'), true);
+  const back = viewer();
+  service.subscribe('chat-b', back.value, { url: 'https://example.com/b2' });
+  await waitFor(() => fake.watchers.has('chat-b'), 'restored watch');
+  assert.deepEqual(fake.calls.at(-1)?.args, { page: 'chat-b', url: 'https://example.com/b2' });
+});
+
+test('service: a running helper without the page does not reopen it even with an address', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  await service.openPage('chat-other', 'https://example.com/o');
+  assert.equal(service.canRestore('chat-a'), false);
+  const v = viewer();
+  service.subscribe('chat-a', v.value, { url: 'https://example.com/a' });
+  await waitFor(() => v.ends.length > 0, 'end');
+  assert.deepEqual(v.ends, ['page_gone']);
+  assert.equal(fake.calls.filter((call) => call.op === 'open').length, 1);
+});

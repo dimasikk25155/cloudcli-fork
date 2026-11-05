@@ -8,8 +8,8 @@
 export type SafariWindow = { pageId: string; title: string; url: string; width: number; height: number };
 
 /**
- * `unloaded` — the helper is not running (or the page is gone) but the chat has a binding:
- * subscribing to the stream opens its last address again.
+ * `unloaded` — the helper is not running (unloaded by itself, not by the agent closing the page)
+ * and the chat has a binding: subscribing to the stream opens its last address again.
  */
 export type SafariLiveState = 'ok' | 'unloaded' | 'no_permission' | 'unsupported' | 'error';
 
@@ -119,6 +119,11 @@ export type SafariLiveService = {
   listWindows(): Promise<SafariWindowList>;
   /** The helper process is running. */
   isLoaded(): boolean;
+  /**
+   * The page may be reopened at its last address: the helper is unloaded (idle, died) and the
+   * agent did not close this page itself (`closePage`; cleared by the next `openPage`).
+   */
+  canRestore(pageId: string): boolean;
   /** Creates the page if needed and goes to `url` (http/https). Throws `BrowserError`. */
   openPage(pageId: string, url: string): Promise<OpenedPage>;
   /** Closes the page; the last page without viewers unloads the helper at once. */
@@ -129,7 +134,7 @@ export type SafariLiveService = {
   input(pageId: string, input: BrowserInput): Promise<void>;
   /**
    * Live frames of a page; a new viewer gets the last frame at once. `restore.url`: the page
-   * is not open (helper unloaded) → it is opened there first. Returns the unsubscribe function.
+   * is not open and `canRestore` → it is opened there first. Returns the unsubscribe function.
    */
   subscribe(pageId: string, viewer: SafariViewer, restore?: { url: string }): () => void;
   activeStreams(): number;
