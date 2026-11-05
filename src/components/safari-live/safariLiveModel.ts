@@ -103,8 +103,8 @@ export function streamUrlEvent(
 }
 
 /** Новая привязка (другое окно или новое время) — новый ключ, и вкладка может открыться снова. */
-export function safariBindingKey(sessionId: string, binding: { windowId: number; updatedAt: string }): string {
-  return `${sessionId}::${binding.windowId}::${binding.updatedAt}`;
+export function safariBindingKey(sessionId: string, binding: { pageId: string; updatedAt: string }): string {
+  return `${sessionId}::${binding.pageId}::${binding.updatedAt}`;
 }
 
 export function shouldAutoOpenSafari(args: {

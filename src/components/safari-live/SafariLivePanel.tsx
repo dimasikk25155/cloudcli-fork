@@ -100,7 +100,7 @@ export default function SafariLivePanel({ sessionId, isActive: tabActive }: Safa
         });
   const windows = visibleSafariWindows(view?.windows ?? []);
   const showList = modOn && view !== null && view.state === 'ok' && (windows.length > 0 || binding !== null);
-  const boundTitle = windows.find((window) => window.windowId === binding?.windowId)?.title || binding?.title || '';
+  const boundTitle = windows.find((window) => window.pageId === binding?.pageId)?.title || binding?.title || '';
   // Список раскрыт сам, когда выбирать нечего, кроме него.
   const listOpenByDefault = state === 'window_gone' || state === 'pick';
 
@@ -119,14 +119,14 @@ export default function SafariLivePanel({ sessionId, isActive: tabActive }: Safa
             aria-label="Окно Safari"
             data-autofocus={listOpenByDefault ? 'true' : undefined}
             className="max-w-[45%] flex-shrink-0 truncate rounded-md border border-border bg-background px-2 py-1 text-xs"
-            value={binding && windows.some((window) => window.windowId === binding.windowId) ? binding.windowId : ''}
-            onChange={(event) => void select(Number(event.target.value))}
+            value={binding && windows.some((window) => window.pageId === binding.pageId) ? binding.pageId : ''}
+            onChange={(event) => void select(event.target.value)}
           >
             <option value="" disabled>
               {windows.length === 0 ? 'Окон нет' : 'Выбрать окно…'}
             </option>
             {windows.map((window) => (
-              <option key={window.windowId} value={window.windowId}>
+              <option key={window.pageId} value={window.pageId}>
                 {window.title}
               </option>
             ))}

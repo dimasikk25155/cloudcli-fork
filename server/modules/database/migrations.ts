@@ -586,8 +586,12 @@ export const runMigrations = (db: Database) => {
     db.exec(IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL);
     // Sidebar groups and chat pins (sidebar-groups module).
     db.exec(SIDEBAR_GROUPS_TABLE_SCHEMA_SQL);
-    // «Safari вживую»: chat → Safari window binding (safari-live module).
+    // «Браузер вживую»: chat → browser page binding (safari-live module). Older tables
+    // (Safari windows) gain the page and its last address; their old rows are ignored.
     db.exec(SAFARI_LIVE_BINDINGS_TABLE_SCHEMA_SQL);
+    const safariLiveColumnNames = getTableInfo(db, 'safari_live_bindings').map((column) => column.name);
+    addColumnToTableIfNotExists(db, 'safari_live_bindings', safariLiveColumnNames, 'page_id', 'TEXT');
+    addColumnToTableIfNotExists(db, 'safari_live_bindings', safariLiveColumnNames, 'url', 'TEXT');
 
     // «Время размышления»: time the model spent thinking in a run. Older
     // run_durations tables only gain the column here (NULL = not measured).

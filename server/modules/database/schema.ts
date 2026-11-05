@@ -551,14 +551,17 @@ CREATE TABLE IF NOT EXISTS session_pins (
 );
 `;
 
-// «Safari вживую»: which Safari window a chat shows on the workbench canvas.
+// «Браузер вживую»: which page of the Neo3 browser a chat shows on the workbench canvas.
+// `window_id` is left from the Safari version (always 0 now); rows without `page_id` are ignored.
 export const SAFARI_LIVE_BINDINGS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS safari_live_bindings (
  session_id TEXT PRIMARY KEY,
  window_id INTEGER NOT NULL,
  title TEXT NOT NULL DEFAULT '',
  bound_by TEXT NOT NULL,
- updated_at TEXT NOT NULL
+ updated_at TEXT NOT NULL,
+ page_id TEXT,
+ url TEXT
 );
 `;
 

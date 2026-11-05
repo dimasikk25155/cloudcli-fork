@@ -17,8 +17,8 @@ import {
   wasSafariAutoOpened,
 } from './safariLiveModel.js';
 
-const win = (windowId: number, title: string) => ({ windowId, title, onScreen: true, width: 1280, height: 800 });
-const binding = { sessionId: 's1', windowId: 7, title: 'Сайт', boundBy: 'agent' as const, updatedAt: '2026-11-05T01:00:00Z' };
+const win = (id: number, title: string) => ({ pageId: `p${id}`, title, url: `https://example.com/${id}`, width: 1280, height: 800 });
+const binding = { sessionId: 's1', pageId: 'p7', url: 'https://example.com/7', title: 'Сайт', boundBy: 'agent' as const, updatedAt: '2026-11-05T01:00:00Z' };
 const view = (extra: Partial<SafariLiveView> = {}): SafariLiveView => ({
   state: 'ok', binding, windowAlive: true, streamUrl: '/sl/t/stream', windows: [win(7, 'Сайт')], ...extra,
 });
@@ -57,7 +57,7 @@ test('окно закрыто, и обрыв потока после переп�
 });
 
 test('список окон прячет окна без заголовка', () => {
-  assert.deepEqual(visibleSafariWindows([win(1, ''), win(2, '  '), win(3, 'Сайт')]).map((w) => w.windowId), [3]);
+  assert.deepEqual(visibleSafariWindows([win(1, ''), win(2, '  '), win(3, 'Сайт')]).map((w) => w.pageId), ['p3']);
 });
 
 test('у каждого состояния есть русский текст; «Вживую» и «Пауза» — по спецификации', () => {
@@ -72,10 +72,10 @@ test('у каждого состояния есть русский текст; �
 });
 
 test('ключ привязки меняется вместе с окном и временем привязки', () => {
-  const a = safariBindingKey('s1', { windowId: 7, updatedAt: 'T1' });
-  assert.notEqual(a, safariBindingKey('s1', { windowId: 8, updatedAt: 'T1' }));
-  assert.notEqual(a, safariBindingKey('s1', { windowId: 7, updatedAt: 'T2' }));
-  assert.notEqual(a, safariBindingKey('s2', { windowId: 7, updatedAt: 'T1' }));
+  const a = safariBindingKey('s1', { pageId: 'p7', updatedAt: 'T1' });
+  assert.notEqual(a, safariBindingKey('s1', { pageId: 'p8', updatedAt: 'T1' }));
+  assert.notEqual(a, safariBindingKey('s1', { pageId: 'p7', updatedAt: 'T2' }));
+  assert.notEqual(a, safariBindingKey('s2', { pageId: 'p7', updatedAt: 'T1' }));
 });
 
 test('автооткрытие: один раз на привязку, не на телефоне, только админу при включённых модах', () => {

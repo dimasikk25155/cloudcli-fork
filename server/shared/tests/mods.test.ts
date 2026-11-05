@@ -71,7 +71,7 @@ test('every mod of the workbench build names its support in Claude, Codex and Gr
   }
 });
 
-test('answer buttons need «Ждут тебя», artifact editing and Safari live need «Рабочий стол»; no other mod depends on another', () => {
+test('answer buttons need «Ждут тебя», artifact editing and the live browser need «Рабочий стол»; no other mod depends on another', () => {
   const withRequires = MODS.filter((mod) => mod.requires);
   assert.deepEqual(withRequires.map((mod) => [mod.key, mod.requires]).sort(), [
     ['modAnswerButtons', 'modAttention'],
@@ -80,11 +80,13 @@ test('answer buttons need «Ждут тебя», artifact editing and Safari liv
   ]);
 });
 
-test('«Safari вживую» card: last in the registry, title and support in all three engines', () => {
+test('«Браузер вживую» card: last in the registry, title, own invisible browser, support in all three engines', () => {
   assert.equal(MOD_KEYS[MOD_KEYS.length - 1], 'modSafariLive');
   const mod = MODS.find((candidate) => candidate.key === 'modSafariLive');
   assert.ok(mod, 'modSafariLive has a card');
-  assert.equal(mod.title, 'Safari вживую');
+  assert.equal(mod.title, 'Браузер вживую');
+  assert.match(mod.description, /невидим/);
+  assert.doesNotMatch(mod.description, /Safari/);
   assert.equal(mod.requires, 'modWorkbench');
   assert.equal(mod.engines, 'Claude ✓ · Codex ✓ · Grok ✓');
 });

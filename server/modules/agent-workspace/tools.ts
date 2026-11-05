@@ -12,13 +12,17 @@ import { createTeamService } from '../workspace-team/index.js';
 import type { WorkspaceDependencies } from './dependencies.js';
 import { requireWorkspaceProject, createDailyService } from './service.js';
 import { WorkspaceError } from './store.js';
-/** «Safari вживую»: binds the agent's Safari window to its chat (`safari.show`). */
-export type SafariLiveTool = { show(userId: number, sessionId: string, data: Record<string, unknown>): Promise<unknown> };
-export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; safariLive?: SafariLiveTool };
-/** Production `safari.show`, loaded on first use (the module owns helper processes). */
-const defaultSafariLive: SafariLiveTool = {
-    show: async (userId, sessionId, data) => (await import('../safari-live/index.js')).showForAgent(userId, sessionId, data),
+/** «Браузер вживую»: the chat's own page of the invisible Neo3 browser (`browser.*`, `safari.show`). */
+export type BrowserTool = { run(userId: number, sessionId: string, action: string, data: Record<string, unknown>): Promise<unknown> };
+export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; browser?: BrowserTool };
+/** Production browser actions, loaded on first use (the module owns the helper process). */
+const defaultBrowser: BrowserTool = {
+    run: async (userId, sessionId, action, data) => (await import('../safari-live/index.js')).runBrowserAction(userId, sessionId, action, data),
 };
+/** Actions delegated to the browser; `safari.show` is the older name of `browser.open`. */
+const BROWSER_ACTIONS = new Set(['browser.open', 'browser.click', 'browser.type', 'browser.press', 'browser.scroll', 'browser.read', 'browser.eval', 'browser.wait', 'browser.screenshot', 'browser.close', 'safari.show']);
+/** Only the fields browser actions read (never projectId/sessionId: the chat is the caller's). */
+const BROWSER_FIELDS = ['url', 'pageId', 'windowId', 'selector', 'text', 'x', 'y', 'key', 'dy', 'format', 'max', 'js', 'ms', 'submit'];
 /** Same for the services that throw AppError synchronously (groups, settings profile). */
 const sync = <T>(run: () => T): T => {
     try {
@@ -38,14 +42,14 @@ const asWorkspaceError = (error: unknown): never => {
  * `group.*` / `pin.set` only arrange the sidebar (no deletes); `settings.propose` only suggests.
  * `artifact.publish` only shows a file of the chat project in the Neo3 canvas
  * (the source is this chat); nothing leaves the machine.
- * `safari.show` opens a page in the agent's own Safari window (or binds an open one) and shows it in this chat (admin only).
+ * `browser.*` drive this chat's page of the invisible Neo3 browser, shown live in its canvas (admin only).
  */
 export function createWorkspaceTools(deps: WorkspaceDependencies, options: WorkspaceToolsOptions = {}) {
     const documents = createDocumentsService(deps), team = createTeamService(deps), daily = createDailyService(deps);
     const artifacts = () => options.artifacts ?? getArtifactsService();
     const groups = () => options.groups ?? getSidebarGroupsService();
     const profile = () => options.profile ?? getSettingsProfileService();
-    const safariLive = () => options.safariLive ?? defaultSafariLive;
+    const browser = () => options.browser ?? defaultBrowser;
     return {
         call(userId: number, sessionId: string, input: Record<string, unknown>): unknown {
             const projectId = deps.sessionProject?.(userId, sessionId);
@@ -71,6 +75,11 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
                 mail.read(userId, sourceId); // Mailbox ownership is re-read on every use.
                 return mail;
             };
+            if (typeof input.action === 'string' && BROWSER_ACTIONS.has(input.action)) {
+                const picked: Record<string, unknown> = {};
+                for (const field of BROWSER_FIELDS) if (data[field] !== undefined) picked[field] = data[field];
+                return browser().run(userId, sessionId, input.action, picked).catch(asWorkspaceError);
+            }
             switch (input.action) {
                 case 'document.list': return documents.list(userId, projectId);
                 case 'document.read':
@@ -109,14 +118,6 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
                 case 'pin.set': return sync(() => groups().setPin(userId, data.sessionId ?? sessionId, data.pinned !== false));
                 // A suggestion only: the person applies it in «Настройки → Профиль настроек».
                 case 'settings.propose': return sync(() => profile().propose(userId, sessionId, { changes: data.changes, reason: data.reason }));
-                // Shows the agent's Safari window to the user live on the canvas; never brings Safari to the front.
-                case 'safari.show': {
-                    const picked: Record<string, unknown> = {};
-                    if (typeof data.url === 'string') picked.url = data.url;
-                    if (typeof data.windowId === 'number' || typeof data.windowId === 'string') picked.windowId = data.windowId;
-                    if (typeof data.titleContains === 'string') picked.titleContains = data.titleContains;
-                    return safariLive().show(userId, sessionId, picked).catch(asWorkspaceError);
-                }
                 default: throw new WorkspaceError('Операция недоступна агенту: отправку, согласование и публикацию выполняет человек в интерфейсе', 403);
             }
         },

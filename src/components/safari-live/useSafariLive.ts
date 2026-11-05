@@ -9,7 +9,7 @@ export type UseSafariLive = {
   view: SafariLiveView | null;
   /** Запрос не удался (сеть, права) — вкладка покажет «Связь прервалась». */
   failed: boolean;
-  select: (windowId: number) => Promise<void>;
+  select: (pageId: string) => Promise<void>;
   retry: () => Promise<void>;
 };
 
@@ -66,13 +66,13 @@ export function useSafariLive(sessionId: string | null): UseSafariLive {
   }, [sessionId, subscribe, load]);
 
   const select = useCallback(
-    async (windowId: number) => {
+    async (pageId: string) => {
       if (!sessionId) return;
       try {
         const next = await request(sessionId, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ windowId }),
+          body: JSON.stringify({ pageId }),
         });
         if (currentRef.current !== sessionId) return;
         if (next) {
