@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, Play, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bell, BellOff, Loader2, Play, Plus, Trash2 } from 'lucide-react';
 
+import { useModEnabled } from '../../hooks/useModEnabled';
 import { authenticatedFetch } from '../../utils/api';
 
 // Recurring unattended runs (/api/schedules). Strings live here rather than in
@@ -20,7 +21,15 @@ type Schedule = {
   osLabel: string | null;
   lastRunAt: string | null;
   lastStatus: string | null;
+  /** Run goes as this agent (role, memory, engine, folder). */
+  agentId: string | null;
+  /** «Прислать итог»: push + Telegram after every run. */
+  notify: boolean;
+  /** ≤600 chars of the last answer, or the error. */
+  lastResult: string | null;
 };
+
+type AgentOption = { id: string; name: string; provider: string; model: string; projectPath: string };
 
 type HostStatus = { platform: string; supported: boolean };
 
@@ -38,6 +47,8 @@ const EMPTY_FORM = {
   pipelineId: '',
   time: '09:00',
   weekdays: [] as number[],
+  agentId: '',
+  notify: false,
 };
 
 function formatTime(hour: number, minute: number): string {
@@ -53,6 +64,12 @@ function formatWeekdays(weekdays: number[]): string {
 function pipelineName(pipelineId: number | null, options: PipelineOption[]): string {
   const found = options.find((option) => option.id === pipelineId);
   return found ? `сценарий «${found.name}»` : 'сценарий удалён';
+}
+
+function agentLabel(agentId: string | null, options: AgentOption[]): string | null {
+  if (!agentId) return null;
+  const found = options.find((option) => option.id === agentId);
+  return found ? `агент «${found.name}»` : 'агент удалён';
 }
 
 /** SQLite stores CURRENT_TIMESTAMP as UTC without a zone marker. */
@@ -82,6 +99,8 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
   const [host, setHost] = useState<HostStatus | null>(null);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [pipelines, setPipelines] = useState<PipelineOption[]>([]);
+  const agentsOn = useModEnabled('modAgents');
+  const [agents, setAgents] = useState<AgentOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -149,6 +168,34 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
     };
   }, []);
 
+  // Agents are admin-only: for a teammate the request fails and the field stays hidden.
+  useEffect(() => {
+    if (!agentsOn) {
+      setAgents([]);
+      return undefined;
+    }
+    let cancelled = false;
+    authenticatedFetch('/api/agents')
+      .then((response: Response) => (response.ok ? response.json() : null))
+      .then((json: unknown) => {
+        if (cancelled) return;
+        const list = (json as { data?: { agents?: unknown } } | null)?.data?.agents;
+        setAgents(
+          Array.isArray(list)
+            ? list.filter((item): item is AgentOption => Boolean(item && typeof item.id === 'string' && typeof item.name === 'string'))
+            : []
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setAgents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentsOn]);
+
+  const selectedAgent = form.kind === 'prompt' ? agents.find((agent) => agent.id === form.agentId) ?? null : null;
+
   const toggleWeekday = (day: number) => {
     setForm((previous) => ({
       ...previous,
@@ -172,10 +219,14 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
           // project per step, so it keeps no project or prompt of its own.
           ...(form.kind === 'pipeline'
             ? { pipelineId: Number(form.pipelineId) }
-            : { projectPath: form.projectPath, prompt: form.prompt }),
+            : selectedAgent
+              // The agent brings its own folder, engine and model.
+              ? { agentId: selectedAgent.id, prompt: form.prompt }
+              : { projectPath: form.projectPath, prompt: form.prompt }),
           hour: Number.parseInt(hourPart, 10),
           minute: Number.parseInt(minutePart, 10),
           weekdays: form.weekdays,
+          notify: form.notify,
         }),
       });
       if (!response.ok) {
@@ -204,6 +255,24 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
       await load();
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : 'Не удалось переключить расписание');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleNotifyToggle = async (schedule: Schedule) => {
+    setBusyId(schedule.id);
+    try {
+      const response = await authenticatedFetch(`/api/schedules/${schedule.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ notify: !schedule.notify }),
+      });
+      if (!response.ok) {
+        throw new Error(await readError(response, 'Не удалось переключить «Прислать итог»'));
+      }
+      await load();
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : 'Не удалось переключить «Прислать итог»');
     } finally {
       setBusyId(null);
     }
@@ -336,6 +405,30 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
               </div>
             ) : (
               <>
+            {agents.length > 0 && (
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Агент</label>
+                <select
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                  value={form.agentId}
+                  onChange={(event) => setForm({ ...form, agentId: event.target.value })}
+                >
+                  <option value="">Без агента</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name} · {agent.provider} · {agent.model}
+                    </option>
+                  ))}
+                </select>
+                {selectedAgent && (
+                  <p className="mt-1 truncate text-[11px] text-muted-foreground/80" title={selectedAgent.projectPath}>
+                    Роль, память, движок и папка — агента: {selectedAgent.projectPath}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {!selectedAgent && (
             <div>
               <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Проект</label>
               {projects.length > 0 ? (
@@ -362,6 +455,7 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
                 />
               )}
             </div>
+            )}
 
             <div>
               <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Промпт</label>
@@ -409,6 +503,15 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
               </div>
             </div>
 
+            <label className="flex items-center gap-2 text-xs text-foreground">
+              <input
+                type="checkbox"
+                checked={form.notify}
+                onChange={(event) => setForm({ ...form, notify: event.target.checked })}
+              />
+              Прислать итог — пуш и Telegram после каждого прогона
+            </label>
+
             <button
               type="submit"
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
@@ -439,7 +542,7 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
                     {formatWeekdays(schedule.weekdays)} ·{' '}
                     {schedule.kind === 'pipeline'
                       ? pipelineName(schedule.pipelineId, pipelines)
-                      : schedule.projectPath || 'проект не указан'}
+                      : agentLabel(schedule.agentId, agents) ?? (schedule.projectPath || 'проект не указан')}
                   </p>
                 </div>
 
@@ -481,6 +584,21 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
                   <button
                     type="button"
                     className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-accent disabled:opacity-50"
+                    title={schedule.notify ? 'Итог приходит сам — выключить' : 'Прислать итог: пуш и Telegram после прогона'}
+                    aria-label={schedule.notify ? 'Не присылать итог' : 'Прислать итог'}
+                    aria-pressed={schedule.notify}
+                    disabled={busyId === schedule.id}
+                    onClick={() => handleNotifyToggle(schedule)}
+                  >
+                    {schedule.notify ? (
+                      <Bell className="h-3.5 w-3.5 text-primary" />
+                    ) : (
+                      <BellOff className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-accent disabled:opacity-50"
                     title="Запустить сейчас"
                     aria-label="Запустить сейчас"
                     disabled={busyId === schedule.id}
@@ -504,6 +622,15 @@ export default function SchedulesPanel({ className = '' }: { className?: string 
                   </button>
                 </div>
               </div>
+
+              {schedule.lastResult && (
+                <p
+                  className="mt-1.5 line-clamp-3 whitespace-pre-line rounded-md bg-muted/40 px-2 py-1 text-[11px] text-foreground/80"
+                  title={schedule.lastResult}
+                >
+                  {schedule.lastResult}
+                </p>
+              )}
             </div>
           ))}
         </div>

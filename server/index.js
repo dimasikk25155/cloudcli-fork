@@ -91,6 +91,8 @@ import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import { krabikRoutes, startKrabikWatch } from './modules/krabik/index.js';
 import { duetRoutes, startDuetWatch } from './modules/duet/index.js';
 import { agentsRoutes, agentsService } from './modules/agents/index.js';
+import { agentQueueRoutes, startAgentQueueWatch, stopAgentQueueWatch } from './modules/agent-queue/index.js';
+import { startScheduleResultWatch, stopScheduleResultWatch } from './modules/schedules/schedule-result-watch.js';
 import { safariLiveRoutes, safariLiveService, serveSafariLiveStream } from './modules/safari-live/index.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
@@ -373,6 +375,8 @@ app.use('/api/krabik', authenticateToken, requireAdmin, krabikRoutes);
 app.use('/api/duet', authenticateToken, requireAdmin, duetRoutes);
 // «Агенты»: named agents, their memory and a chat with an agent (admin only).
 app.use('/api/agents', authenticateToken, requireAdmin, agentsRoutes);
+// «Конвейер»: queues an agent works through, with verdicts and «брак» (admin only).
+app.use('/api/agent-queue', authenticateToken, requireAdmin, agentQueueRoutes);
 // «Safari вживую»: windows list and chat → Safari window binding (admin only).
 app.use('/api/safari-live', authenticateToken, requireAdmin, safariLiveRoutes);
 // Sticky phone pushes (Consigliere tasks + dead bots). Public by design:
@@ -1736,6 +1740,20 @@ async function startServer() {
             } catch (err) {
                 console.error('[duet] watch failed to start:', err.message);
             }
+
+            // «Конвейер»: очередь пунктов агенту, продолжает с места после рестарта.
+            try {
+                startAgentQueueWatch();
+            } catch (err) {
+                console.error('[agent-queue] watch failed to start:', err.message);
+            }
+
+            // «Расписания» с «Прислать итог»: досылает итог прогона пушем и в Telegram.
+            try {
+                startScheduleResultWatch();
+            } catch (err) {
+                console.error('[schedules] result watch failed to start:', err.message);
+            }
         });
 
         await closeSessionsWatcher();
@@ -1749,6 +1767,12 @@ async function startServer() {
                 await abortAllActiveClaudeSDKSessions();
             } catch (err) {
                 console.error('[Claude SDK] Error interrupting active sessions during shutdown:', err?.message || err);
+            }
+            try {
+                stopAgentQueueWatch();
+                stopScheduleResultWatch();
+            } catch (err) {
+                console.error('[agent-queue] Error stopping watches during shutdown:', err?.message || err);
             }
             try {
                 await browserUseService.stopAllSessions();

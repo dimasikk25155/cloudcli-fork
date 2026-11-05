@@ -203,7 +203,7 @@ export function checkProjectAccess(userId, projectPath) {
  * @param {(event: object) => void} [options.onEvent]  Progress callback, best-effort.
  * @param {boolean} [options.readOnly]  Look, never act: Claude read tools or Codex tool-free source snapshot,
  *        no user permission settings and no MCP (see readOnly in claude-sdk.js).
- * @param {'schedule'|'pipeline'|'telegram'|'api'|'user'|'duet'|'system'} [options.actor]
+ * @param {'schedule'|'pipeline'|'telegram'|'api'|'user'|'duet'|'queue'|'system'} [options.actor]
  *        What triggered this run, for the audit log. A schedule runs on behalf
  *        of a user but was not started by them; without this the feed cannot
  *        tell a nightly job from someone typing. Unset degrades to 'system'.

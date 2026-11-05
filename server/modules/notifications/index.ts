@@ -20,3 +20,5 @@ export {
   planAttentionPush,
 } from '@/modules/notifications/services/attention-push.service.js';
 export type { AttentionPushAction, AttentionPushPlan } from '@/modules/notifications/services/attention-push.service.js';
+export { sendOwnerNotice } from '@/modules/notifications/services/owner-notice.service.js';
+export type { OwnerNotice } from '@/modules/notifications/services/owner-notice.service.js';
