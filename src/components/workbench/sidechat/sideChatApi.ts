@@ -33,14 +33,25 @@ export async function askAside(parentSessionId: string, input: { question: strin
   }
   const created = body.data;
   sideChatStore.setEngine(created.sessionId, {
+    provider: created.provider,
     model: created.model,
     effort: created.effort,
     permissionMode: created.permissionMode,
   });
+  // The chat on the canvas reads its mode chip from the per-session key, as
+  // the main chat does: start it on the mode the side chat was created with.
+  const modeKey = `permissionMode-${created.sessionId}`;
+  if (created.permissionMode && typeof localStorage !== 'undefined' && !localStorage.getItem(modeKey)) {
+    localStorage.setItem(modeKey, created.permissionMode);
+  }
   return created;
 }
 
-/** Opens the side chat as its own tab on the parent's canvas (the caller checked modWorkbench). */
-export function openSideChatTab(parentSessionId: string, created: { sessionId: string; title: string }): void {
-  openWorkbenchTab(parentSessionId, sideChatTabFor(created));
+/**
+ * Opens the side chat as its own tab on the canvas on screen — the parent's,
+ * or the host's when the parent itself is a chat inside a canvas tab (the
+ * caller checked modWorkbench).
+ */
+export function openSideChatTab(canvasSessionId: string | null, created: { sessionId: string; title: string }): void {
+  openWorkbenchTab(canvasSessionId, sideChatTabFor(created));
 }

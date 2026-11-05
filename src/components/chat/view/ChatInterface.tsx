@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
@@ -26,7 +26,10 @@ import {
   useAutoRelay,
   useRelaySuggestion,
 } from '../../relay';
-import { useAttentionItem } from '../../attention/useAttention';
+import { attentionStore, useAttentionItem } from '../../attention/useAttention';
+import { isSeenable } from '../../attention/utils/attentionModel';
+import { createStreamBuffers } from '../utils/streamBuffers';
+import { chatPointerOwner, isEscapeForInstance, whenPageVisible } from '../utils/chatInstance';
 import { lastModelActivityAt, latestTimestamp, promptCacheApplies } from '../../../utils/promptCache';
 
 // Engines whose models share one list in the composer's model chip: picking
@@ -56,6 +59,7 @@ import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
 
 function ChatInterface({
+  embedded,
   selectedProject,
   selectedSession,
   ws,
@@ -81,8 +85,24 @@ function ChatInterface({
   const { user } = useAuth();
 
   const sessionStore = useSessionStore();
-  const streamTimerRef = useRef<number | null>(null);
-  const accumulatedStreamRef = useRef('');
+  // A chat inside a canvas tab (see ChatEmbedding): fixed for the instance's life.
+  const isEmbedded = Boolean(embedded);
+  const chatRootRef = useRef<HTMLDivElement | null>(null);
+  // Who got the last pointerdown (see chatPointerOwner): the document listener
+  // runs first and clears it, then this chat's React handler (which also sees
+  // its portaled menus) claims it.
+  const instanceId = useId();
+  const claimPointer = useCallback(() => chatPointerOwner.claim(instanceId), [instanceId]);
+  useEffect(() => {
+    const release = () => chatPointerOwner.release();
+    document.addEventListener('pointerdown', release, { capture: true });
+    return () => {
+      document.removeEventListener('pointerdown', release, { capture: true });
+      if (chatPointerOwner.current() === instanceId) chatPointerOwner.release();
+    };
+  }, [instanceId]);
+  // Live stream text per session: two chats streaming at once never mix.
+  const [streamBuffers] = useState(createStreamBuffers);
   // When each session's `chat.subscribe` was last sent; idle acks older than
   // a later local request are discarded as stale.
   const statusCheckSentAtRef = useRef(new Map<string, number>());
@@ -91,13 +111,9 @@ function ChatInterface({
   // server replays only the events this client actually missed.
   const lastSeqRef = useRef(new Map<string, number>());
 
-  const resetStreamingState = useCallback(() => {
-    if (streamTimerRef.current) {
-      clearTimeout(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
-    accumulatedStreamRef.current = '';
-  }, []);
+  const resetStreamingState = useCallback((sessionId?: string | null) => {
+    streamBuffers.reset(sessionId);
+  }, [streamBuffers]);
 
   const {
     provider,
@@ -143,6 +159,7 @@ function ChatInterface({
   } = useChatProviderState({
     selectedSession,
     selectedProject,
+    isEmbedded,
   });
 
   // Claude's "plan + bypass" auto-approves ExitPlanMode during the SAME run
@@ -231,10 +248,25 @@ function ChatInterface({
     // Same story for the model and thinking level picked on the empty screen:
     // in-chat picks are session-scoped now, so they need a session to land on.
     void commitSessionModelAndEffort(sessionId);
-    workbenchStore.moveDraftTabs(sessionId); // canvas tabs of the new chat follow it
     onSessionEstablished?.(sessionId, context);
+    if (embedded) {
+      // A canvas tab follows its chat; the route (the main chat) stays put.
+      embedded.onRetarget(sessionId);
+      return;
+    }
+    workbenchStore.moveDraftTabs(sessionId); // canvas tabs of the new chat follow it
     onNavigateToSession?.(sessionId);
-  }, [setCurrentSessionId, commitPermissionModeToSession, commitWorkModeToSession, commitSessionModelAndEffort, onSessionEstablished, onNavigateToSession]);
+  }, [setCurrentSessionId, commitPermissionModeToSession, commitWorkModeToSession, commitSessionModelAndEffort, onSessionEstablished, onNavigateToSession, embedded]);
+
+  // Every "go to another chat" of this instance: the route for the main chat,
+  // the tab itself for a chat on the canvas.
+  const openOtherChat = useCallback((sessionId: string) => {
+    if (embedded) {
+      embedded.onRetarget(sessionId);
+      return;
+    }
+    onNavigateToSession?.(sessionId);
+  }, [embedded, onNavigateToSession]);
 
   const handleComposerModesConsumed = useCallback((sessionId: string) => {
     if (isAutoPlanMode(permissionMode)) {
@@ -301,6 +333,7 @@ function ChatInterface({
     selectedProject,
     selectedSession,
     currentSessionId,
+    embedded,
     provider,
     permissionMode,
     workMode,
@@ -361,6 +394,17 @@ function ChatInterface({
   // turn-end record in «Ждут тебя», whichever is newer. Never from the send.
   // Claude on Anthropic models only (Codex/Grok cache differently).
   const attentionEntry = useAttentionItem(chipsSessionId);
+  // The chat on the canvas is on screen and its turn is over → seen, like the
+  // route's chat (useAttentionSync does that one).
+  const embeddedVisible = Boolean(embedded?.isVisible);
+  useEffect(() => {
+    if (!embeddedVisible || !chipsSessionId || !attentionEntry) return undefined;
+    if (!attentionEntry.unread || !isSeenable(attentionEntry)) return undefined;
+    // Now if the page is shown, otherwise when it comes back.
+    return whenPageVisible(typeof document === 'undefined' ? undefined : document, () => {
+      void attentionStore.markSeen({ sessionIds: [chipsSessionId] });
+    });
+  }, [embeddedVisible, chipsSessionId, attentionEntry]);
   const transcriptModelAt = useMemo(
     () => (chipsSessionId ? lastModelActivityAt(sessionStore.getMessages(chipsSessionId)) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -402,7 +446,10 @@ function ChatInterface({
 
   // Detects half-open sockets (mobile sleep, network blips) that never fire
   // `onclose` and would otherwise freeze the UI mid-run.
+  // One watchdog per page (the main chat's): a forced reconnect re-syncs every
+  // chat through `websocket_reconnected`.
   useConnectionWatchdog({
+    enabled: !isEmbedded,
     isProcessing,
     isConnected,
     getLastFrameAt,
@@ -419,8 +466,8 @@ function ChatInterface({
     refreshTokenUsage,
     pendingPermissionRequests,
     setPendingPermissionRequests,
-    streamTimerRef,
-    accumulatedStreamRef,
+    streamBuffers,
+    isEmbedded,
     lastSeqRef,
     statusCheckSentAtRef,
     onSessionProcessing,
@@ -460,6 +507,10 @@ function ChatInterface({
       if (event.key !== 'Escape' || event.repeat || event.defaultPrevented) {
         return;
       }
+      // Two chats on the page: Esc belongs to the one it was pressed in.
+      if (!isEscapeForInstance(event.target, chatRootRef.current, isEmbedded, { self: instanceId, owner: chatPointerOwner.current() })) {
+        return;
+      }
 
       const now = Date.now();
       const armedAt = escapeArmedAtRef.current;
@@ -489,7 +540,7 @@ function ChatInterface({
     return () => {
       document.removeEventListener('keydown', handleGlobalEscape, { capture: true });
     };
-  }, [canAbortSession, handleAbortSession, clearEscapeArm]);
+  }, [canAbortSession, handleAbortSession, clearEscapeArm, isEmbedded, instanceId]);
 
   useEffect(() => {
     return () => {
@@ -566,6 +617,10 @@ function ChatInterface({
     const providerByModel = new Map<string, typeof provider>();
     const options = visibleModels(provider);
     options.forEach((option) => providerByModel.set(option.value, provider));
+    // A chat on the canvas cannot open «в новом чате»: its own engine only.
+    if (isEmbedded) {
+      return { options, providerByModel };
+    }
 
     COMPOSER_CROSS_ENGINE_PROVIDERS.forEach((candidate) => {
       if (candidate === provider) {
@@ -586,14 +641,14 @@ function ChatInterface({
     });
 
     return { options, providerByModel };
-  }, [providerModelCatalog, provider, currentSessionId, selectedSession?.id, t]);
+  }, [providerModelCatalog, provider, currentSessionId, selectedSession?.id, t, isEmbedded]);
 
   // «Авто-перенос» and «Перенести»: the server moves a grown chat — by the
   // switch or by the button — and this tab follows the open chat to its
   // continuation when the move finishes.
   const followMovedChat = useCallback((childId: string) => {
-    onNavigateToSession?.(childId);
-  }, [onNavigateToSession]);
+    openOtherChat(childId);
+  }, [openOtherChat]);
   const relaySessionId = relayOn ? chipsSessionId : null;
   const autoRelay = useAutoRelay(relaySessionId, followMovedChat);
   // Relay (src/components/relay): the band offers «Перенести в новый чат» once
@@ -651,11 +706,16 @@ function ChatInterface({
 
   return (
     <PermissionContext.Provider value={permissionContextValue}>
-      <div className="flex h-full min-h-0 flex-col">
+      <div
+        ref={chatRootRef}
+        className="flex h-full min-h-0 flex-col"
+        data-chat-root={isEmbedded ? 'embedded' : 'main'}
+        onPointerDownCapture={claimPointer}
+      >
         {threadsOn && (
           <ThreadsBar
             links={currentSessionLinks(selectedSession?.id, selectedProject?.sessions, selectedSession?.links)}
-            onOpenThread={(threadId) => onNavigateToSession?.(threadId)}
+            onOpenThread={openOtherChat}
             unnamedLabel={t('projects.newSession', { ns: 'sidebar', defaultValue: 'Новый сеанс' })}
           />
         )}
@@ -709,6 +769,8 @@ function ChatInterface({
           showRawParameters={showRawParameters}
           showThinking={showThinking}
           selectedProject={selectedProject}
+          isEmbedded={isEmbedded}
+          canvasSessionId={embedded ? embedded.hostSessionId : undefined}
         />
         </div>
 
@@ -795,7 +857,7 @@ function ChatInterface({
             selectProviderModel(targetProvider, nextModel, sessionIdForOverride).catch((error) => {
               console.error('Failed to persist the session model override:', error);
             });
-            if (startsNewChat) {
+            if (startsNewChat && !isEmbedded) {
               onStartNewChat?.();
             }
           }}
@@ -861,7 +923,7 @@ function ChatInterface({
           memorySessionId={chipsSessionId}
           relayBand={(
             <>
-              <SessionHubBar onOpenSession={(sessionId) => onNavigateToSession?.(sessionId)} />
+              {!isEmbedded && <SessionHubBar onOpenSession={(sessionId) => onNavigateToSession?.(sessionId)} />}
               <IdeaCards sessionId={chipsSessionId} isProcessing={isProcessing} />
               <CrabSquadBand chatMessages={chatMessages} sessionId={chipsSessionId} isRunActive={isProcessing} />
               {relayOn && <RelayBand relay={relay} autoRelay={autoRelay} onOpenChat={followMovedChat} />}
@@ -886,7 +948,7 @@ function ChatInterface({
         </div>
       </div>
 
-      <QuickSettingsPanel autoRelay={relaySessionId ? autoRelay : null} showAutoRelay={relayOn} />
+      {!isEmbedded && <QuickSettingsPanel autoRelay={relaySessionId ? autoRelay : null} showAutoRelay={relayOn} />}
 
       <CommandResultModal
         payload={commandModalPayload}

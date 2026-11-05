@@ -1,4 +1,4 @@
-import { bindPendingWorkspaceHandoffs, cancelPendingWorkspaceHandoffs, WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
+import { WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
 import { workspaceApi, workspaceJson } from '../../agent-workspace/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
@@ -42,6 +42,7 @@ import type {
   PermissionMode,
   SessionEstablishedContext,
   WorkMode,
+  ChatEmbedding,
 } from '../types/types';
 import type { Project, ProjectSession, LLMProvider, ProviderModelsCacheInfo } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
@@ -64,6 +65,7 @@ import { resetSessionSteps } from '../utils/stepTimer';
 import { askAdvisor } from '../../workbench/advisor/advisorApi';
 import { askAside, openSideChatTab } from '../../workbench/sidechat/sideChatApi';
 import { openWorkbenchTab } from '../../workbench/useWorkbench';
+import { draftStorageKey, workspaceHandoffsFor } from '../utils/chatInstance';
 
 import { useFileMentions } from './useFileMentions';
 import { useInputHistory } from './useInputHistory';
@@ -82,6 +84,12 @@ interface UseChatComposerStateArgs {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
+  /**
+   * A chat inside a canvas tab: its own draft key (per session), `/btw` and
+   * `/advisor` open their tabs on the host canvas, and the page-wide "put text
+   * in the composer" events are left to the main chat.
+   */
+  embedded?: ChatEmbedding;
   provider: LLMProvider;
   permissionMode: PermissionMode | string;
   workMode: WorkMode;
@@ -296,6 +304,7 @@ export function useChatComposerState({
   selectedProject,
   selectedSession,
   currentSessionId,
+  embedded,
   provider,
   permissionMode,
   workMode,
@@ -326,11 +335,18 @@ export function useChatComposerState({
   setIsUserScrolledUp,
   setPendingPermissionRequests,
 }: UseChatComposerStateArgs) {
+  const isEmbedded = Boolean(embedded);
+  // Draft inputs are keyed by the DB projectId so per-project drafts survive
+  // display-name changes; a chat on the canvas adds its session id.
+  const draftKey = selectedProject
+    ? draftStorageKey(selectedProject.projectId, isEmbedded ? (selectedSession?.id || 'embedded') : null)
+    : null;
+  // Tabs opened by `/btw` and `/advisor` land on the canvas on screen: this
+  // chat's own for the main chat, the host's for a chat inside a canvas tab.
+  const canvasSessionFor = (sessionId: string) => (embedded ? embedded.hostSessionId : sessionId);
   const [input, setInput] = useState(() => {
-    if (typeof window !== 'undefined' && selectedProject) {
-      // Draft inputs are keyed by the DB projectId so per-project drafts
-      // survive display-name changes.
-      return safeLocalStorage.getItem(`draft_input_${selectedProject.projectId}`) || '';
+    if (typeof window !== 'undefined' && draftKey) {
+      return safeLocalStorage.getItem(draftKey) || '';
     }
     return '';
   });
@@ -486,7 +502,7 @@ export function useChatComposerState({
           void askAside(parentSessionId, { question })
             .then((created) => {
               if (workbenchOn) {
-                openSideChatTab(parentSessionId, created);
+                openSideChatTab(canvasSessionFor(parentSessionId), created);
               } else {
                 note(`Побочный чат «${created.title}» создан — он в списке слева, под этим чатом.`);
               }
@@ -520,7 +536,7 @@ export function useChatComposerState({
           }
           const sessionId = currentSessionId;
           if (workbenchOn) {
-            openWorkbenchTab(sessionId, { kind: 'advisor', ref: sessionId, title: 'Советник' });
+            openWorkbenchTab(canvasSessionFor(sessionId), { kind: 'advisor', ref: sessionId, title: 'Советник' });
           } else {
             note('Спрашиваю советника…');
           }
@@ -536,7 +552,8 @@ export function useChatComposerState({
           console.warn('Unknown built-in command action:', action);
       }
     },
-    [onFileOpen, onShowSettings, addMessage, currentSessionId, workbenchOn],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- canvasSessionFor reads only `embedded`
+    [onFileOpen, onShowSettings, addMessage, currentSessionId, workbenchOn, embedded],
   );
 
   const closeCommandModal = useCallback(() => {
@@ -1109,7 +1126,7 @@ export function useChatComposerState({
           textareaRef.current.style.height = 'auto';
         }
         // selectedProject is guaranteed by the guard at the top of handleSubmit.
-        safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+        if (draftKey) safeLocalStorage.removeItem(draftKey);
         recordSentMessage(currentInput, sessionKey);
         return;
       }
@@ -1243,7 +1260,8 @@ export function useChatComposerState({
         });
       }
       try {
-        await bindPendingWorkspaceHandoffs(selectedProject.projectId!, targetSessionId, sessionStorage,
+        // Hand-offs sit in the main chat's draft: a chat on the canvas never binds them.
+        await workspaceHandoffsFor(isEmbedded).bindOnSend(selectedProject.projectId!, targetSessionId, sessionStorage,
           (grantId, sessionId) => workspaceApi('/handoff/' + encodeURIComponent(grantId) + '/bind', workspaceJson('POST', { sessionId })));
         setWorkspaceHandoffError(null);
       } catch (error) {
@@ -1313,7 +1331,7 @@ export function useChatComposerState({
         textareaRef.current.style.height = 'auto';
       }
 
-      safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+      if (draftKey) safeLocalStorage.removeItem(draftKey);
       } finally {
         isSubmittingRef.current = false;
       }
@@ -1334,6 +1352,7 @@ export function useChatComposerState({
       resetCommandMenuState,
       scrollToBottom,
       selectedProject,
+      draftKey,
       sendMessage,
       sessionKey,
       addMessage,
@@ -1341,6 +1360,7 @@ export function useChatComposerState({
       slashCommands,
       screenshotCaptionsFor,
       uploadAttachedImages,
+      isEmbedded,
     ],
   );
 
@@ -1446,40 +1466,45 @@ export function useChatComposerState({
   }, [input]);
 
   useEffect(() => {
+    // The workspace hand-off writes the main chat's draft; a chat on the canvas stays out.
+    if (isEmbedded) return undefined;
     const loadHandoff = (event:Event) => {
       if ((event as CustomEvent<{projectId:string}>).detail?.projectId !== selectedProjectId) return;
-      fillInput(safeLocalStorage.getItem('draft_input_'+selectedProjectId)||'');
+      fillInput(safeLocalStorage.getItem(draftStorageKey(String(selectedProjectId), null))||'');
     };
     window.addEventListener(WORKSPACE_CHAT_EVENT,loadHandoff);
     return () => window.removeEventListener(WORKSPACE_CHAT_EVENT,loadHandoff);
-  },[selectedProjectId,fillInput]);
+  },[selectedProjectId,fillInput,isEmbedded]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
+    if (!draftKey) {
       return;
     }
-    const savedInput = safeLocalStorage.getItem(`draft_input_${selectedProjectId}`) || '';
+    const savedInput = safeLocalStorage.getItem(draftKey) || '';
     setInput((previous) => {
       const next = previous === savedInput ? previous : savedInput;
       inputValueRef.current = next;
       return next;
     });
-  }, [selectedProjectId]);
+  }, [draftKey]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
+    if (!draftKey) {
       return;
     }
     if (input !== '') {
-      safeLocalStorage.setItem(`draft_input_${selectedProjectId}`, input);
+      safeLocalStorage.setItem(draftKey, input);
     } else {
-      safeLocalStorage.removeItem(`draft_input_${selectedProjectId}`);
+      safeLocalStorage.removeItem(draftKey);
     }
-  }, [input, selectedProjectId]);
+  }, [input, draftKey]);
 
   // «Починить сервис» кладёт текст в поле и ждёт Enter.
   // Кнопка готовой работы шлёт короткий ярлык сразу, бриф — только агенту.
   useEffect(() => {
+    // «Починить сервис» and the job buttons fill the main chat only: two
+    // listeners were two sends of one autoSend draft.
+    if (isEmbedded) return undefined;
     const onDraft = (event: Event) => {
       const detail = (event as CustomEvent<ComposerDraftDetail>).detail;
       const text = detail?.text;
@@ -1511,7 +1536,7 @@ export function useChatComposerState({
 
     window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
     return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
-  }, [handleImageFiles, setInput]);
+  }, [handleImageFiles, setInput, isEmbedded]);
 
   // Persist the queued draft under its session's key. Must be defined BEFORE
   // the swap effect below: on a session switch there is one commit where
@@ -1836,8 +1861,8 @@ export function useChatComposerState({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-    if (selectedProject) {
-      safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+    if (draftKey) {
+      safeLocalStorage.removeItem(draftKey);
     }
 
     sendMessage({ type: 'chat.abort', sessionId: targetSessionId });
@@ -1852,8 +1877,8 @@ export function useChatComposerState({
     isAppendPending,
     queuedDraft,
     resetCommandMenuState,
-    selectedProject,
     selectedSession,
+    draftKey,
     sendMessage,
     screenshotCaptionsFor,
     sessionKey,
@@ -1944,7 +1969,7 @@ export function useChatComposerState({
     workspaceHandoffError: workspaceHandoffError && workspaceHandoffError.projectId === selectedProject?.projectId ? workspaceHandoffError.message : null,
     cancelWorkspaceHandoff: () => {
       if (!selectedProject?.projectId) return;
-      cancelPendingWorkspaceHandoffs(selectedProject.projectId, sessionStorage);
+      workspaceHandoffsFor(isEmbedded).cancel(selectedProject.projectId, sessionStorage);
       setWorkspaceHandoffError(null);
     },
     input,

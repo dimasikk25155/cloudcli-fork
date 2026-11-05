@@ -9,6 +9,15 @@
 import type { ReactNode } from 'react';
 
 import type { Project, ProjectSession } from '../../types/app';
+import type { ChatInterfaceProps } from '../chat/types/types';
+
+/** What a chat tab needs to run a real ChatInterface (from MainContent). */
+export type WorkbenchChatRuntime = {
+  processingSessions: ChatInterfaceProps['processingSessions'];
+  onSessionProcessing: ChatInterfaceProps['onSessionProcessing'];
+  onSessionIdle: ChatInterfaceProps['onSessionIdle'];
+  onSessionEstablished?: ChatInterfaceProps['onSessionEstablished'];
+};
 
 export type WorkbenchTabKind =
   | 'inspector'
@@ -53,11 +62,16 @@ export type WorkbenchRenderContext = {
   session: ProjectSession | null;
   /** Opens (or focuses) another tab of the same canvas. */
   openTab: (tab: WorkbenchTabInput) => void;
+  /** Closes this tab. */
   closeTab: () => void;
+  /** Puts another tab in this one's place; the active tab stays the active one. */
+  replaceTab: (tab: WorkbenchTabInput) => void;
   /** This tab is the visible one and the canvas itself is on screen. */
   isActive: boolean;
   /** Opens a project file in the editor (the «Файлы» tab uses it). */
   onFileOpen?: (filePath: string, diff?: unknown) => void;
+  /** What a chat tab needs to run a real ChatInterface (from MainContent). */
+  chatRuntime?: WorkbenchChatRuntime;
 };
 
 /** What decides whether a kind is offered in the «+» menu. */

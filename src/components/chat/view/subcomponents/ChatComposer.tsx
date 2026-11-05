@@ -14,6 +14,7 @@ import type {
 import { Plus, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon, Rocket, ListChecks, HelpCircle, Gauge } from 'lucide-react';
 
 import { useVoiceInput } from '../../hooks/useVoiceInput';
+import { clampMenuLeft } from '../../utils/menuPosition';
 import { useVoiceAvailable } from '../../hooks/useVoiceAvailable';
 import type { QueuedDraft } from '../../hooks/useChatComposerState';
 import type { SessionActivity } from '../../../../hooks/useSessionProtection';
@@ -344,8 +345,10 @@ export default function ChatComposer({
       return;
     }
 
+    // Measured once the menu is on screen; its CSS minimum before that.
+    const width = modelDropdownMenuRef.current?.offsetWidth || 208;
     setModelDropdownPosition({
-      left: rect.left,
+      left: clampMenuLeft(rect.left, width, window.innerWidth),
       top: rect.top - 8,
       maxHeight: Math.max(96, rect.top - 16),
     });
@@ -357,8 +360,10 @@ export default function ChatComposer({
       return;
     }
 
+    // Measured once the menu is on screen; its CSS minimum before that.
+    const width = modeDropdownMenuRef.current?.offsetWidth || 176;
     setModeDropdownPosition({
-      left: rect.left,
+      left: clampMenuLeft(rect.left, width, window.innerWidth),
       top: rect.top - 8,
       maxHeight: Math.max(96, rect.top - 16),
     });
@@ -390,8 +395,11 @@ export default function ChatComposer({
     window.addEventListener('scroll', updateModeDropdownPosition, true);
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     updateModeDropdownPosition();
+    // Again after the menu has rendered: its real width keeps it inside the window.
+    const remeasure = window.requestAnimationFrame(updateModeDropdownPosition);
 
     return () => {
+      window.cancelAnimationFrame(remeasure);
       document.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('resize', updateModeDropdownPosition);
       window.removeEventListener('scroll', updateModeDropdownPosition, true);
@@ -405,8 +413,10 @@ export default function ChatComposer({
       return;
     }
 
+    // Measured once the menu is on screen; its CSS minimum before that.
+    const width = workModeDropdownMenuRef.current?.offsetWidth || 256;
     setWorkModeDropdownPosition({
-      left: rect.left,
+      left: clampMenuLeft(rect.left, width, window.innerWidth),
       top: rect.top - 8,
       maxHeight: Math.max(96, rect.top - 16),
     });
@@ -438,8 +448,11 @@ export default function ChatComposer({
     window.addEventListener('scroll', updateWorkModeDropdownPosition, true);
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     updateWorkModeDropdownPosition();
+    // Again after the menu has rendered: its real width keeps it inside the window.
+    const remeasure = window.requestAnimationFrame(updateWorkModeDropdownPosition);
 
     return () => {
+      window.cancelAnimationFrame(remeasure);
       document.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('resize', updateWorkModeDropdownPosition);
       window.removeEventListener('scroll', updateWorkModeDropdownPosition, true);
@@ -473,8 +486,11 @@ export default function ChatComposer({
     window.addEventListener('scroll', updateModelDropdownPosition, true);
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     updateModelDropdownPosition();
+    // Again after the menu has rendered: its real width keeps it inside the window.
+    const remeasure = window.requestAnimationFrame(updateModelDropdownPosition);
 
     return () => {
+      window.cancelAnimationFrame(remeasure);
       document.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('resize', updateModelDropdownPosition);
       window.removeEventListener('scroll', updateModelDropdownPosition, true);

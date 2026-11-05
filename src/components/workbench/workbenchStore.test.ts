@@ -280,3 +280,38 @@ test('the «Safari» tab survives a reload', () => {
   assert.deepEqual(reloaded.getSession('s1').tabs.map((tab) => tab.kind), ['safari']);
   assert.equal(reloaded.getSession('s1').activeTabId, 'safari');
 });
+
+test('replaceTab with keepActive swaps a hidden chat tab in place and leaves the user on their tab', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'chat', title: 'Старый', ref: 'old' });
+  store.openTab('s1', { kind: 'files', title: 'Файлы' });
+
+  store.replaceTab('s1', 'chat:old', { kind: 'chat', title: 'Новый', ref: 'new' }, { keepActive: true });
+
+  const session = store.getSession('s1');
+  assert.deepEqual(session.tabs.map((tab) => tab.id), ['chat:new', 'files']);
+  assert.equal(session.activeTabId, 'files');
+});
+
+test('replaceTab with keepActive on the active tab keeps the replacement active', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'files', title: 'Файлы' });
+  store.openTab('s1', { kind: 'chat', title: 'Старый', ref: 'old' });
+
+  store.replaceTab('s1', 'chat:old', { kind: 'chat', title: 'Новый', ref: 'new' }, { keepActive: true });
+
+  assert.equal(store.getSession('s1').activeTabId, 'chat:new');
+});
+
+test('replaceTab with keepActive onto an already open tab closes the hidden one and stays put', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.openTab('s1', { kind: 'chat', title: 'Старый', ref: 'old' });
+  store.openTab('s1', { kind: 'chat', title: 'Новый', ref: 'new' });
+  store.openTab('s1', { kind: 'files', title: 'Файлы' });
+
+  store.replaceTab('s1', 'chat:old', { kind: 'chat', title: 'Новый', ref: 'new' }, { keepActive: true });
+
+  const session = store.getSession('s1');
+  assert.deepEqual(session.tabs.map((tab) => tab.id), ['chat:new', 'files']);
+  assert.equal(session.activeTabId, 'files');
+});

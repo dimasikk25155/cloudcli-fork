@@ -28,6 +28,8 @@ const WAKE_THROTTLE_MS = 2_000;
 const HIDDEN_RECONNECT_THRESHOLD_MS = 5_000;
 
 type ConnectionWatchdogOptions = {
+  /** False for a second chat on the page: one watchdog per socket is enough. */
+  enabled?: boolean;
   isProcessing: boolean;
   isConnected: boolean;
   getLastFrameAt: () => number;
@@ -37,6 +39,7 @@ type ConnectionWatchdogOptions = {
 };
 
 export function useConnectionWatchdog({
+  enabled = true,
   isProcessing,
   isConnected,
   getLastFrameAt,
@@ -48,7 +51,7 @@ export function useConnectionWatchdog({
   const hiddenSinceRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!isProcessing || !isConnected) return;
+    if (!enabled || !isProcessing || !isConnected) return;
 
     const timer = setInterval(() => {
       const silentForMs = Date.now() - getLastFrameAt();
@@ -59,9 +62,10 @@ export function useConnectionWatchdog({
     }, STALL_CHECK_INTERVAL_MS);
 
     return () => clearInterval(timer);
-  }, [isProcessing, isConnected, getLastFrameAt, forceReconnect]);
+  }, [enabled, isProcessing, isConnected, getLastFrameAt, forceReconnect]);
 
   useEffect(() => {
+    if (!enabled) return undefined;
     const handleWake = () => {
       if (document.visibilityState !== 'visible') {
         hiddenSinceRef.current = Date.now();
@@ -100,5 +104,5 @@ export function useConnectionWatchdog({
       document.removeEventListener('visibilitychange', handleWake);
       window.removeEventListener('online', handleWake);
     };
-  }, [isProcessing, isConnected, getLastFrameAt, forceReconnect, onWake]);
+  }, [enabled, isProcessing, isConnected, getLastFrameAt, forceReconnect, onWake]);
 }

@@ -34,6 +34,7 @@ import {
   listWorkbenchTabKinds,
   subscribeWorkbenchTabKinds,
   workbenchTabKindsVersion,
+  type WorkbenchChatRuntime,
   type WorkbenchRenderContext,
   type WorkbenchTab,
   type WorkbenchTabKind,
@@ -59,10 +60,12 @@ type WorkbenchCanvasProps = {
   visible?: boolean;
   /** Opens a project file in the editor — for the «Файлы» tab. */
   onFileOpen?: (filePath: string, diff?: unknown) => void;
+  /** Processing map and callbacks for chat tabs (a real ChatInterface runs there). */
+  chatRuntime?: WorkbenchChatRuntime;
 };
 
 /** Tab strip + the active tab's body; the empty canvas says what lands here. */
-export default function WorkbenchCanvas({ project, session, onBack, visible = true, onFileOpen }: WorkbenchCanvasProps) {
+export default function WorkbenchCanvas({ project, session, onBack, visible = true, onFileOpen, chatRuntime }: WorkbenchCanvasProps) {
   const sessionId = session?.id ?? null;
   const { tabs, activeTabId, setActive } = useWorkbench(sessionId);
   // Re-render when a later feature registers its kind.
@@ -86,16 +89,18 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
   const isKeepMounted = (kind: WorkbenchTabKind) => Boolean(getWorkbenchTabKind(kind)?.keepMounted);
   visitedRef.current = markVisitedKeepMounted(visitedRef.current, tabs, activeTabId, isKeepMounted);
   const panes = planCanvasPanes({ tabs, activeTabId, visited: visitedRef.current, isKeepMounted });
-  const contextFor = (isActive: boolean): WorkbenchRenderContext => ({
+  // closeTab closes the tab it was given to: a kept-mounted chat tab may
+  // retarget itself while another tab is the active one.
+  const contextFor = (ownTab: WorkbenchTab, isActive: boolean): WorkbenchRenderContext => ({
     sessionId,
     project,
     session,
     openTab: (tab) => openWorkbenchTab(sessionId, tab),
-    closeTab: () => {
-      if (activeTab) close(activeTab);
-    },
+    closeTab: () => close(ownTab),
+    replaceTab: (tab) => replaceWorkbenchTab(sessionId, ownTab.id, tab, { keepActive: true }),
     isActive: isActive && visible,
     onFileOpen,
+    chatRuntime,
   });
 
   useEffect(() => {
@@ -206,7 +211,7 @@ export default function WorkbenchCanvas({ project, session, onBack, visible = tr
                     }}
                   />
                 </div>
-              ) : def ? def.render(tab, contextFor(!hidden)) : (
+              ) : def ? def.render(tab, contextFor(tab, !hidden)) : (
                 <p className="p-6 text-sm text-muted-foreground">Эта вкладка недоступна в этой версии Neo3.</p>
               )}
             </div>
