@@ -8,6 +8,8 @@ import { AppError } from '@/shared/utils.js';
 import { createWorkspaceStore } from '../store.js';
 import type { WorkspaceDependencies } from '../dependencies.js';
 import { createWorkspaceTools } from '../tools.js';
+import { createSecretRequestsService } from '../../secret-requests/index.js';
+import { modOffMessage } from '../../../../shared/mods.js';
 function fixture() {
     const db = new Database(':memory:');
     db.exec('CREATE TABLE workspace_records(id TEXT PRIMARY KEY,kind TEXT,owner_user_id INTEGER,project_id TEXT,revision INTEGER,payload TEXT,created_at TEXT,updated_at TEXT)');
@@ -253,6 +255,42 @@ test('agent.remember adds a rule to the agent of this chat as "agent"; a chat wi
         assert.throws(() => tools.call(1, 'agent-chat', { action: 'agent.remember', data: { text: '   ' } }), /правил/);
         assert.throws(() => tools.call(2, 'agent-chat', { action: 'agent.remember', data: { text: 'x' } }), (error: { statusCode?: number }) => error.statusCode === 403);
         assert.equal(added.length, 1);
+    }
+    finally {
+        db.close();
+    }
+});
+test('secret.request waits for Dima: the tool answer carries the name, never the value; teammate and switched-off mod are refused', async () => {
+    const { db, deps } = fixture();
+    const value = 'ghp_FakeToolValue_0123456789abcdefABCDEF';
+    try {
+        let modOn = true;
+        const stored: string[] = [];
+        const secretRequests = createSecretRequestsService({
+            isAdmin: (id: number) => id === 1,
+            isModOn: () => modOn,
+            store: async ({ name, value: secret }) => { stored.push(`${name}=${secret}`); return { name }; },
+            waitMs: 5_000,
+        });
+        const tools = createWorkspaceTools({ ...deps, isAdmin: (id: number) => id === 1 }, { secretRequests });
+        const asked = Promise.resolve(tools.call(1, 'session', { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'постинг Samruk' } }));
+        let cards = await secretRequests.list(1);
+        for (let i = 0; cards.length === 0 && i < 100; i += 1) {
+            await new Promise(resolve => setTimeout(resolve, 5));
+            cards = await secretRequests.list(1);
+        }
+        assert.equal(cards[0].name, 'FB_PAGE_TOKEN');
+        await secretRequests.answer(1, cards[0].id, { value });
+        const answer = await asked as { status: string; message: string };
+        assert.equal(answer.status, 'saved');
+        assert.equal(answer.message, 'FB_PAGE_TOKEN сохранён в файле секретов');
+        assert.equal(JSON.stringify(answer).includes(value), false);
+        assert.deepEqual(stored, [`FB_PAGE_TOKEN=${value}`]);
+
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'secret.request', data: { name: 'bad name', why: 'x' } })), (error: { statusCode?: number; constructor: { name: string } }) => error.statusCode === 400 && error.constructor.name === 'WorkspaceError');
+        await assert.rejects(Promise.resolve(tools.call(2, 'session', { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'x' } })), (error: { statusCode?: number }) => error.statusCode === 403);
+        modOn = false;
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'x' } })), (error: { statusCode?: number; message: string }) => error.statusCode === 409 && error.message === modOffMessage('modSecretRequest'));
     }
     finally {
         db.close();

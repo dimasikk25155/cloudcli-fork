@@ -18,10 +18,16 @@ import { WorkspaceError } from './store.js';
 export type SafariLiveTool = { show(userId: number, sessionId: string, data: Record<string, unknown>): Promise<unknown> };
 /** «Агенты»: what `agent.list` / `agent.remember` need from the agents service. */
 export type AgentsTool = Pick<AgentsService, 'list' | 'addRule' | 'agentOfSession'>;
-export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; safariLive?: SafariLiveTool; agents?: AgentsTool; isModOn?: IsModOn };
+/** «Запрос ключа»: the agent asks for a secret by name and waits for Dima's answer (never the value). */
+export type SecretRequestsTool = { request(userId: number, sessionId: string, input: { name: string; why: string }): Promise<unknown> };
+export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; safariLive?: SafariLiveTool; agents?: AgentsTool; secretRequests?: SecretRequestsTool; isModOn?: IsModOn };
 /** Production `safari.show`, loaded on first use (the module owns helper processes). */
 const defaultSafariLive: SafariLiveTool = {
     show: async (userId, sessionId, data) => (await import('../safari-live/index.js')).showForAgent(userId, sessionId, data),
+};
+/** Production `secret.request`, loaded on first use (requests live in that module's memory). */
+const defaultSecretRequests: SecretRequestsTool = {
+    request: async (userId, sessionId, input) => (await import('../secret-requests/index.js')).secretRequestsService.request(userId, sessionId, input),
 };
 /** Same for the services that throw AppError synchronously (groups, settings profile). */
 const sync = <T>(run: () => T): T => {
@@ -43,6 +49,7 @@ const asWorkspaceError = (error: unknown): never => {
  * `artifact.publish` only shows a file of the chat project in the Neo3 canvas
  * (the source is this chat); nothing leaves the machine.
  * `safari.show` opens a page in the agent's own Safari window (or binds an open one) and shows it in this chat (admin only).
+ * `secret.request` asks Dima for a secret by NAME and waits (≤ 10 min); the answer is the name or «отказал», never the value (admin only).
  */
 export function createWorkspaceTools(deps: WorkspaceDependencies, options: WorkspaceToolsOptions = {}) {
     const documents = createDocumentsService(deps), team = createTeamService(deps), daily = createDailyService(deps);
@@ -51,6 +58,7 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
     const profile = () => options.profile ?? getSettingsProfileService();
     const safariLive = () => options.safariLive ?? defaultSafariLive;
     const agents = () => options.agents ?? agentsService;
+    const secretRequests = () => options.secretRequests ?? defaultSecretRequests;
     /** Agents are admin-only and switchable: the other users and a switched-off mod get a plain refusal. */
     const agentsAllowed = (userId: number) => {
         if (!(options.isModOn ?? defaultIsModOn)(userId, 'modAgents'))
@@ -146,6 +154,12 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
                         throw new WorkspaceError('Нужен текст правила: data.text', 400);
                     const memory = sync(() => agents().addRule(userId, agent.id, rule, 'agent'));
                     return { message: `Правило добавлено, версия V${memory.version}`, agent: agent.name, version: memory.version };
+                }
+                // Dima types the value into «Ждут тебя»; it goes only to the secrets file. The agent hears the name.
+                case 'secret.request': {
+                    const name = typeof data.name === 'string' ? data.name : '';
+                    const why = typeof data.why === 'string' ? data.why : '';
+                    return secretRequests().request(userId, sessionId, { name, why }).catch(asWorkspaceError);
                 }
                 default: throw new WorkspaceError('Операция недоступна агенту: отправку, согласование и публикацию выполняет человек в интерфейсе', 403);
             }

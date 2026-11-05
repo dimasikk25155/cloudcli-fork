@@ -290,3 +290,19 @@ test('the agent knows about agents: spawn_thread takes `agent`, workspace_action
     });
   });
 });
+
+test('workspace_action offers secret.request {name, why}: the description says the value never comes back, and the call reaches Neo3', async () => {
+  await withFakeNeo3(() => ({ status: 200, body: { success: true, data: { status: 'saved', name: 'FB_PAGE_TOKEN', message: 'FB_PAGE_TOKEN сохранён в файле секретов' } } }), async (apiUrl, recorded) => {
+    await withClient({ NEO3_THREADS_TOKEN: 'f'.repeat(64), NEO3_THREADS_API_URL: apiUrl }, async (client) => {
+      const list = await client.request('tools/list');
+      const tools = (list.result as { tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }> }).tools;
+      const workspace = tools.find((tool) => tool.name === 'workspace_action')!;
+      assert.ok(workspace.inputSchema.properties.action.enum?.includes('secret.request'));
+      assert.match(workspace.description, /secret\.request \{data:\{name, why\}\}/);
+      assert.match(workspace.description, /never (see|get|receive)s? the value/i);
+      const answer = await client.request('tools/call', { name: 'workspace_action', arguments: { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'постинг' } } });
+      assert.match(textOf(answer.result as Record<string, unknown>), /сохранён в файле секретов/);
+      assert.deepEqual(recorded[0].body, { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'постинг' } });
+    });
+  });
+});

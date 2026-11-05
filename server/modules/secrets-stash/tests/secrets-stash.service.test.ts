@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { stashSecret } from '@/modules/secrets-stash/secrets-stash.service.js';
+import { secretNameExists, stashSecret } from '@/modules/secrets-stash/secrets-stash.service.js';
 
 // The stash writes into Dima's real key file in production, so every check
 // here runs against a throwaway file. Values are fakes of a plausible shape.
@@ -77,5 +77,32 @@ describe('secrets stash', () => {
     ]);
     assert.deepEqual(results.map((r) => r.name).sort(), ['RACE', 'RACE_2']);
     assert.equal(await fs.readFile(file, 'utf8'), `RACE=${FAKE_A}\nRACE_2=${FAKE_B}\n`);
+  });
+  it('onExisting reject: a taken name is refused with SECRET_EXISTS and nothing is written; a free name is written as is', async () => {
+    await fs.writeFile(file, `GITHUB_TOKEN=${FAKE_A}\n`);
+    await assert.rejects(
+      stashSecret({ name: 'GITHUB_TOKEN', value: FAKE_B }, { file, onExisting: 'reject' }),
+      (error: Error & { code?: string; statusCode?: number }) =>
+        error.code === 'SECRET_EXISTS' && error.statusCode === 409 && !error.message.includes(FAKE_B),
+    );
+    assert.equal(await fs.readFile(file, 'utf8'), `GITHUB_TOKEN=${FAKE_A}\n`);
+    assert.deepEqual(await stashSecret({ name: 'OTHER_TOKEN', value: FAKE_B }, { file, onExisting: 'reject' }), { name: 'OTHER_TOKEN' });
+    assert.equal(await fs.readFile(file, 'utf8'), `GITHUB_TOKEN=${FAKE_A}\nOTHER_TOKEN=${FAKE_B}\n`);
+  });
+
+  it('onExisting replace: the line of that name gets the new value in place, duplicates go, the rest stays', async () => {
+    await fs.writeFile(file, `# keys\nexport GITHUB_TOKEN=${FAKE_A}\nKEEP=1\nGITHUB_TOKEN=old\n`, { mode: 0o640 });
+    assert.deepEqual(await stashSecret({ name: 'GITHUB_TOKEN', value: FAKE_B }, { file, onExisting: 'replace' }), { name: 'GITHUB_TOKEN' });
+    assert.equal(await fs.readFile(file, 'utf8'), `# keys\nexport GITHUB_TOKEN=${FAKE_B}\nKEEP=1\n`);
+    assert.equal((await fs.stat(file)).mode & 0o777, 0o640);
+    assert.deepEqual(await stashSecret({ name: 'NEW_ONE', value: FAKE_A }, { file, onExisting: 'replace' }), { name: 'NEW_ONE' });
+    assert.match(await fs.readFile(file, 'utf8'), new RegExp(`NEW_ONE=${FAKE_A}\\n$`));
+  });
+
+  it('secretNameExists answers by name only; a missing file is «no»', async () => {
+    assert.equal(await secretNameExists('GITHUB_TOKEN', { file }), false);
+    await fs.writeFile(file, `# GITHUB_TOKEN=commented\nGITHUB_TOKEN=${FAKE_A}\n`);
+    assert.equal(await secretNameExists('GITHUB_TOKEN', { file }), true);
+    assert.equal(await secretNameExists('COMMENTED', { file }), false);
   });
 });

@@ -8,6 +8,8 @@ import { useModEnabled } from '../../hooks/useModEnabled';
 import MasterSessionSection from '../session-hub/MasterSessionSection';
 
 import MemorySuggestionsHubList from './memory/MemorySuggestionsHubList';
+import SecretRequestsHubList from './secret-requests/SecretRequestsHubList';
+import { secretRequestsStore, useSecretRequests } from './secret-requests/useSecretRequests';
 import { useMemorySuggestions } from './memory/useMemorySuggestions';
 import { useAttention } from './useAttention';
 import type { AttentionHubSection } from './view/AttentionHubView';
@@ -25,13 +27,30 @@ export type AttentionHubSectionsContext = {
  * - «Заметки в вольт» (task 07): proposed vault notes, admins only.
  * - «Дуэт»: решения напарника по ботам (перезапустить / починить / не следить), admins only.
  * - «Мастер-сессия» (мод «Панель диалогов»): ответы на все ждущие вопросы пачкой.
+ * - «Агент просит ключ» (мод «Запрос ключа»): скрытое поле → файл секретов, admins only. First: the agent waits.
  */
 export function useAttentionHubSections(context: AttentionHubSectionsContext = {}): AttentionHubSection[] {
   const memory = useMemorySuggestions();
+  const secretRequests = useSecretRequests();
   const { user } = useAuth();
   const duetOn = useModEnabled('modDuet');
   const duet = useDuetState(user?.role === 'admin' && duetOn, 'hub');
   const sections: AttentionHubSection[] = [];
+
+  // An agent is blocked on this answer (≤ 10 min) — above everything else.
+  if (secretRequests.entries.length > 0) {
+    sections.push({
+      id: 'secret-requests',
+      title: 'Агент просит ключ',
+      count: secretRequests.entries.length,
+      render: () => createElement(SecretRequestsHubList, {
+        entries: secretRequests.entries,
+        onSave: (id: string, value: string, replace: boolean) => void secretRequestsStore.answer(id, value, replace),
+        onDecline: (id: string) => void secretRequestsStore.decline(id),
+        onOpenSession: context.openSession ? (sessionId: string) => void context.openSession?.(sessionId) : undefined,
+      }),
+    });
+  }
   const duetDecisions = pendingDecisions(duet.state);
   const sessionHubOn = useModEnabled('modSessionHub');
   const { items } = useAttention();

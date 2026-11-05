@@ -97,6 +97,7 @@ import { safariLiveRoutes, safariLiveService, serveSafariLiveStream } from './mo
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
+import { secretRequestsRoutes } from './modules/secret-requests/index.js';
 import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
 import { sessionLinksRoutes, btwService } from './modules/session-links/index.js';
 import { codeStatusRoutes } from './modules/code-status/index.js';
@@ -384,6 +385,8 @@ app.use('/api/safari-live', authenticateToken, requireAdmin, safariLiveRoutes);
 app.use('/api/sticky-push', stickyPushRoutes);
 // Secret guard: the composer moves a pasted key into the secrets file. Admin-only.
 app.use('/api/secrets', authenticateToken, requireAdmin, secretsStashRoutes);
+// «Запрос ключа»: an agent asks for a key by name, Dima answers in «Ждут тебя» (admin only).
+app.use('/api/secret-requests', authenticateToken, requireAdmin, secretRequestsRoutes);
 // Reply chips over the composer: local model, best effort, cached per reply.
 app.use('/api/reply-suggestions', authenticateToken, replySuggestionsRoutes);
 app.use('/api/sessions', authenticateToken, sessionLinksRoutes);
