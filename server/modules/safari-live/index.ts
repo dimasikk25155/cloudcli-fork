@@ -1,7 +1,8 @@
 export type * from './safari-live.types.js';
-export { createSafariLiveService, isTitledWindow, normalizePageUrl, parseListResult, SAFARI_TEXT } from './safari-live.service.js';
-export { createHelperRunners, defaultHelperPath } from './safari-live.helper.js';
-export { safariLiveService } from './safari-live.runtime.js';
+export { BrowserError, createBrowserDriver } from './safari-live.browser.js';
+export { createSafariLiveService, chatPageId, normalizePageUrl, BROWSER_TEXT, PAGE_HEIGHT, PAGE_WIDTH } from './safari-live.service.js';
+export { defaultHelperPath, helperInstalled, spawnBrowserHelper } from './safari-live.helper.js';
+export { browserDriver, safariLiveService } from './safari-live.runtime.js';
 export {
   createSafariLiveStreamHandler,
   readStreamToken,
@@ -12,6 +13,6 @@ export {
 export type { StreamTokenPayload } from './safari-live.stream.js';
 export { buildSafariLiveView, createSafariLiveRouter } from './safari-live.routes.js';
 export type { SafariBindingsStore, SafariLiveRouterOptions } from './safari-live.routes.js';
-export { createSafariLiveActions, SAFARI_AGENT_TEXT, showForAgent } from './safari-live.actions.js';
-export type { SafariLiveActionsOptions, SafariShowResult } from './safari-live.actions.js';
+export { BROWSER_AGENT_TEXT, BROWSER_ACTIONS, createSafariLiveActions, runBrowserAction } from './safari-live.actions.js';
+export type { BrowserActionName, SafariLiveActionsOptions } from './safari-live.actions.js';
 export { default as safariLiveRoutes } from './safari-live.default-routes.js';

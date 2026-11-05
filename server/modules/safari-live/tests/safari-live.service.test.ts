@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSafariLiveService } from '@/modules/safari-live/index.js';
-import type {
-  DisplayProcess,
-  HelperResult,
-  SafariRect,
-  StreamEnd,
-  StreamProcess,
-} from '@/modules/safari-live/index.js';
+import { BrowserError } from '../safari-live.browser.js';
+import { createSafariLiveService } from '../safari-live.service.js';
+import type { BrowserDriver, BrowserEvent, BrowserReply, SafariViewer, StreamEnd } from '../safari-live.types.js';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -16,371 +11,290 @@ async function waitFor(condition: () => boolean, what: string, ms = 2_000): Prom
   const until = Date.now() + ms;
   while (!condition()) {
     if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
-    await sleep(5);
+    await sleep(2);
   }
 }
 
-/** Fake `stream` child: the test pushes frames and exits by hand. */
-class FakeStream implements StreamProcess {
-  frameCbs: Array<(jpeg: Buffer) => void> = [];
-  exitCbs: Array<(end: StreamEnd, message?: string) => void> = [];
-  stopped = 0;
-  onFrame(cb: (jpeg: Buffer) => void) { this.frameCbs.push(cb); }
-  onExit(cb: (end: StreamEnd, message?: string) => void) { this.exitCbs.push(cb); }
-  stop() { this.stopped += 1; }
-  frame(text: string) { for (const cb of this.frameCbs) cb(Buffer.from(text)); }
-  exit(end: StreamEnd, message?: string) { for (const cb of this.exitCbs) cb(end, message); }
+/** A fake driver: pages live in a map, like the helper's. */
+function fakeDriver() {
+  const pages = new Map<string, { url: string; title: string }>();
+  const calls: Array<{ op: string; args: Record<string, unknown>; passive: boolean }> = [];
+  const watchers = new Map<string, Set<(jpeg: Buffer) => void>>();
+  const listeners = new Set<(event: BrowserEvent) => void>();
+  let running = false;
+  let stops = 0;
+  let failNext: BrowserError | null = null;
+  const emit = (event: BrowserEvent) => { for (const listener of [...listeners]) listener(event); };
+
+  const driver: BrowserDriver = {
+    async request(op, args = {}, options = {}) {
+      running = true;
+      calls.push({ op, args, passive: Boolean(options.passive) });
+      if (failNext) {
+        const error = failNext;
+        failNext = null;
+        throw error;
+      }
+      const page = String(args.page ?? '');
+      const reply: BrowserReply = {};
+      switch (op) {
+        case 'list':
+          return { pages: [...pages].map(([id, value]) => ({ page: id, ...value, loading: false })) };
+        case 'open':
+          pages.set(page, { url: String(args.url), title: `Title of ${args.url}` });
+          return { url: String(args.url), title: `Title of ${args.url}` };
+        case 'close':
+          if (pages.delete(page)) emit({ event: 'closed', page });
+          return { pages: pages.size };
+        default:
+          if (!pages.has(page)) throw new BrowserError('no_page', 'no such page');
+          return { ...reply, op, url: pages.get(page)!.url, title: pages.get(page)!.title };
+      }
+    },
+    watch(page, onFrame) {
+      running = true;
+      let set = watchers.get(page);
+      if (!set) { set = new Set(); watchers.set(page, set); }
+      set.add(onFrame);
+      return () => {
+        set!.delete(onFrame);
+        if (set!.size === 0) watchers.delete(page);
+      };
+    },
+    onEvent(cb) {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    isRunning: () => running,
+    stop() {
+      stops += 1;
+      running = false;
+      pages.clear();
+      watchers.clear();
+      emit({ event: 'exit', reason: 'stopped', code: null });
+    },
+  };
+  return {
+    driver,
+    pages,
+    calls,
+    watchers,
+    emit,
+    frame: (page: string, text: string) => { for (const cb of [...(watchers.get(page) ?? [])]) cb(Buffer.from(text)); },
+    die: () => { running = false; pages.clear(); watchers.clear(); emit({ event: 'exit', reason: 'died', code: 1 }); },
+    stops: () => stops,
+    setRunning: (on: boolean) => { running = on; },
+    failNext: (error: BrowserError) => { failNext = error; },
+  };
 }
 
-class FakeDisplay implements DisplayProcess {
-  readyCbs: Array<(bounds: SafariRect) => void> = [];
-  exitCbs: Array<(code: number, message?: string) => void> = [];
-  stopped = 0;
-  onReady(cb: (bounds: SafariRect) => void) { this.readyCbs.push(cb); }
-  onExit(cb: (code: number, message?: string) => void) { this.exitCbs.push(cb); }
-  stop() { this.stopped += 1; }
-  ready(bounds: SafariRect) { for (const cb of this.readyCbs) cb(bounds); }
-  exit(code: number, message?: string) { for (const cb of this.exitCbs) cb(code, message); }
-}
-
-const listOk = (windows: unknown[]): HelperResult => ({ code: 0, stdout: `${JSON.stringify({ permission: true, windows })}\n`, stderr: '' });
-
-const WINDOWS = [
-  { windowId: 120, title: 'Яндекс', onScreen: true, width: 1280, height: 800 },
-  { windowId: 345, title: 'GitHub — Pull Request', onScreen: false, width: 1440, height: 900 },
-  { windowId: 200, title: 'github.com/docs', onScreen: true, width: 1000, height: 700 },
-];
-
-test('not a Mac: every call answers «unsupported» and no helper process is started', async () => {
-  let started = 0;
-  const service = createSafariLiveService({
-    platform: 'linux',
-    runList: async () => { started += 1; return listOk(WINDOWS); },
-    spawnStream: () => { started += 1; return new FakeStream(); },
-    spawnDisplay: () => { started += 1; return new FakeDisplay(); },
-    runPlace: async () => { started += 1; return { code: 0, stdout: '{"ok":true}', stderr: '' }; },
-  });
-
-  assert.equal((await service.listWindows()).state, 'unsupported');
-  assert.equal((await service.pickWindow()).window, null);
-  const display = await service.ensureDisplay();
-  assert.equal(display.ok, false);
-  assert.equal(display.ok === false && display.state, 'unsupported');
-  assert.equal((await service.placeOnDisplay(120)).ok, false);
-
+function viewer() {
+  const frames: string[] = [];
   const ends: StreamEnd[] = [];
-  service.subscribe(120, { onFrame: () => assert.fail('no frames off a Mac'), onEnd: (end) => ends.push(end) });
-  await waitFor(() => ends.length > 0, 'the end of the stream');
-  assert.deepEqual(ends, ['error']);
-  assert.equal(service.activeStreams(), 0);
-  assert.equal(started, 0);
+  const value: SafariViewer = { onFrame: (jpeg) => frames.push(jpeg.toString()), onEnd: (end) => ends.push(end) };
+  return { frames, ends, value };
+}
+
+test('service: listing pages never starts the helper; open pages are listed 1280×800 with url and title (polls are passive)', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  assert.deepEqual(await service.listWindows(), { state: 'ok', windows: [] });
+  assert.equal(fake.calls.length, 0, 'not running → nothing asked');
+  assert.equal(service.isLoaded(), false);
+
+  const opened = await service.openPage('chat-a', 'https://example.com/a');
+  assert.deepEqual(opened, { pageId: 'chat-a', url: 'https://example.com/a', title: 'Title of https://example.com/a', width: 1280, height: 800, loading: false });
+  assert.equal(service.isLoaded(), true);
+  const list = await service.listWindows();
+  assert.deepEqual(list, { state: 'ok', windows: [{ pageId: 'chat-a', url: 'https://example.com/a', title: 'Title of https://example.com/a', width: 1280, height: 800 }] });
+  assert.equal(fake.calls.filter((call) => call.op === 'list').every((call) => call.passive), true);
 });
 
-test('listWindows: helper JSON → windows; no permission, a missing helper and garbage become states, not exceptions', async () => {
-  let reply: HelperResult | Error = listOk(WINDOWS);
-  let clock = 1_000;
-  let calls = 0;
-  const service = createSafariLiveService({
-    platform: 'darwin',
-    now: () => clock,
-    listCacheMs: 2_000,
-    runList: async () => {
-      calls += 1;
-      if (reply instanceof Error) throw reply;
-      return reply;
-    },
-  });
+test('service: not on a Mac → unsupported, nothing asked; helper not installed → error state', async () => {
+  const fake = fakeDriver();
+  const linux = createSafariLiveService({ driver: fake.driver, platform: 'linux' });
+  assert.equal((await linux.listWindows()).state, 'unsupported');
+  await assert.rejects(linux.openPage('chat-a', 'https://example.com/'), (error: unknown) => error instanceof BrowserError && error.code === 'unsupported');
+  const v = viewer();
+  linux.subscribe('chat-a', v.value);
+  await waitFor(() => v.ends.length > 0, 'end');
+  assert.deepEqual(v.ends, ['error']);
+  assert.equal(fake.calls.length, 0);
 
-  const ok = await service.listWindows();
-  assert.equal(ok.state, 'ok');
-  assert.deepEqual(ok.windows.map((window) => window.windowId), [120, 345, 200]);
-  assert.equal(ok.windows[1].title, 'GitHub — Pull Request');
-
-  // Within the cache window the helper is not asked again.
-  clock += 1_500;
-  await service.listWindows();
-  assert.equal(calls, 1);
-
-  clock += 1_000;
-  reply = { code: 3, stdout: '{"permission":false,"windows":[]}\n', stderr: '' };
-  const denied = await service.listWindows();
-  assert.equal(denied.state, 'no_permission');
-  assert.deepEqual(denied.windows, []);
-  assert.equal(calls, 2);
-
-  clock += 5_000;
-  reply = { code: 127, stdout: '', stderr: '' };
-  const missing = await service.listWindows();
-  assert.equal(missing.state, 'error');
-  assert.match(missing.message ?? '', /помощник не установлен/);
-
-  clock += 5_000;
-  reply = { code: 0, stdout: 'not json', stderr: '' };
-  assert.equal((await service.listWindows()).state, 'error');
-
-  clock += 5_000;
-  reply = new Error('spawn EACCES');
-  const failed = await service.listWindows();
-  assert.equal(failed.state, 'error');
-  assert.deepEqual(failed.windows, []);
+  const missing = createSafariLiveService({ driver: fake.driver, platform: 'darwin', helperInstalled: () => false });
+  const list = await missing.listWindows();
+  assert.equal(list.state, 'error');
+  assert.match(list.message ?? '', /не установлен/);
 });
 
-test('pickWindow: newest window (largest id), or the newest whose title contains the text, any case', async () => {
-  const service = createSafariLiveService({ platform: 'darwin', runList: async () => listOk(WINDOWS) });
-
-  assert.equal((await service.pickWindow()).window?.windowId, 345);
-  assert.equal((await service.pickWindow('GITHUB')).window?.windowId, 345);
-  assert.equal((await service.pickWindow('docs')).window?.windowId, 200);
-  assert.equal((await service.pickWindow('яндекс')).window?.windowId, 120);
-  const none = await service.pickWindow('нет такого');
-  assert.equal(none.window, null);
-  assert.equal(none.list.state, 'ok');
-
-  const empty = createSafariLiveService({ platform: 'darwin', runList: async () => listOk([]) });
-  assert.equal((await empty.pickWindow()).window, null);
+test('service: a bad address is refused before the helper is asked', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin' });
+  for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'не адрес', '']) {
+    await assert.rejects(service.openPage('chat-a', url), (error: unknown) => error instanceof BrowserError && error.code === 'bad_url');
+  }
+  assert.equal(fake.calls.length, 0);
 });
 
-test('subscribe: one process per window for all viewers, a late viewer gets the last frame, idle stop after the last one leaves', (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const spawned: Array<{ windowId: number; opts: unknown; process: FakeStream }> = [];
-  const service = createSafariLiveService({
-    platform: 'darwin',
-    idleMs: 20_000,
-    spawnStream: (windowId, opts) => {
-      const process = new FakeStream();
-      spawned.push({ windowId, opts, process });
-      return process;
-    },
-  });
-
-  const first: string[] = [];
-  const second: string[] = [];
-  const offFirst = service.subscribe(345, { onFrame: (jpeg) => first.push(jpeg.toString()), onEnd: () => {} });
-  assert.equal(spawned.length, 1);
-  assert.deepEqual(spawned[0].opts, { fps: 3, maxWidth: 1280, quality: 0.6 });
-  spawned[0].process.frame('frame-1');
-
-  const offSecond = service.subscribe(345, { onFrame: (jpeg) => second.push(jpeg.toString()), onEnd: () => {} });
-  assert.equal(spawned.length, 1, 'the second viewer shares the process');
-  assert.deepEqual(second, ['frame-1'], 'a new viewer sees the last frame at once');
-
-  spawned[0].process.frame('frame-2');
-  assert.deepEqual(first, ['frame-1', 'frame-2']);
-  assert.deepEqual(second, ['frame-1', 'frame-2']);
+test('service: one watch per page shared by viewers; a new viewer gets the last frame; the last viewer leaving stops watching', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  await service.openPage('chat-a', 'https://example.com/a');
+  const first = viewer();
+  const stopFirst = service.subscribe('chat-a', first.value);
+  await waitFor(() => fake.watchers.has('chat-a'), 'watch');
+  fake.frame('chat-a', 'F1');
+  const second = viewer();
+  const stopSecond = service.subscribe('chat-a', second.value);
+  assert.deepEqual(second.frames, ['F1'], 'last frame at once');
+  fake.frame('chat-a', 'F2');
+  assert.deepEqual(first.frames, ['F1', 'F2']);
+  assert.deepEqual(second.frames, ['F1', 'F2']);
+  assert.equal(fake.watchers.get('chat-a')?.size, 1, 'one driver watch per page');
   assert.equal(service.activeStreams(), 1);
-
-  offFirst();
-  offSecond();
-  // A viewer coming back inside the idle window keeps the same process.
-  t.mock.timers.tick(10_000);
-  const offThird = service.subscribe(345, { onFrame: () => {}, onEnd: () => {} });
-  t.mock.timers.tick(30_000);
-  assert.equal(spawned[0].process.stopped, 0);
-  assert.equal(spawned.length, 1);
-
-  offThird();
-  t.mock.timers.tick(19_000);
-  assert.equal(spawned[0].process.stopped, 0, 'not before idleMs');
-  t.mock.timers.tick(1_500);
-  assert.equal(spawned[0].process.stopped, 1);
-  assert.equal(service.activeStreams(), 0);
-
-  // A later viewer starts a fresh process.
-  service.subscribe(345, { onFrame: () => {}, onEnd: () => {} });
-  assert.equal(spawned.length, 2);
-  service.stopAll();
-  assert.equal(spawned[1].process.stopped, 1);
-});
-
-test('subscribe: a window that disappears ends every viewer with window_gone; a helper that fails to start ends with error', async () => {
-  const spawned: FakeStream[] = [];
-  let failSpawn = false;
-  const service = createSafariLiveService({
-    platform: 'darwin',
-    spawnStream: () => {
-      if (failSpawn) throw new Error('spawn ENOENT');
-      const process = new FakeStream();
-      spawned.push(process);
-      return process;
-    },
-  });
-
-  const ends: Array<[StreamEnd, string | undefined]> = [];
-  service.subscribe(7, { onFrame: () => {}, onEnd: (end, message) => ends.push([end, message]) });
-  service.subscribe(7, { onFrame: () => {}, onEnd: (end, message) => ends.push([end, message]) });
-  spawned[0].exit('window_gone', 'окно закрыто');
-  assert.deepEqual(ends, [['window_gone', 'окно закрыто'], ['window_gone', 'окно закрыто']]);
-  assert.equal(service.activeStreams(), 0);
-
-  failSpawn = true;
-  const failed: StreamEnd[] = [];
-  assert.doesNotThrow(() => service.subscribe(8, { onFrame: () => {}, onEnd: (end) => failed.push(end) }));
-  await waitFor(() => failed.length > 0, 'the end of the stream');
-  assert.deepEqual(failed, ['error']);
+  stopFirst();
+  assert.ok(fake.watchers.has('chat-a'));
+  stopSecond();
+  assert.equal(fake.watchers.has('chat-a'), false);
   assert.equal(service.activeStreams(), 0);
 });
 
-test('ensureDisplay: the virtual display is created once per server life; a dead one is recreated on the next call', async () => {
-  const displays: FakeDisplay[] = [];
-  const service = createSafariLiveService({
-    platform: 'darwin',
-    spawnDisplay: () => {
-      const display = new FakeDisplay();
-      displays.push(display);
-      return display;
-    },
-  });
-  const bounds = { x: 2560, y: 1440, width: 1920, height: 1200 };
+test('service: unloaded helper + restore address → the page is opened there first, then streamed', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  const v = viewer();
+  service.subscribe('chat-a', v.value, { url: 'https://example.com/last' });
+  await waitFor(() => fake.watchers.has('chat-a'), 'watch after restore');
+  assert.deepEqual(fake.calls.map((call) => [call.op, call.args.url ?? null]), [['open', 'https://example.com/last']]);
+  fake.frame('chat-a', 'BACK');
+  assert.deepEqual(v.frames, ['BACK']);
 
-  const pendingA = service.ensureDisplay();
-  const pendingB = service.ensureDisplay();
-  assert.equal(displays.length, 1, 'concurrent calls share one process');
-  displays[0].ready(bounds);
-  assert.deepEqual(await pendingA, { ok: true, bounds });
-  assert.deepEqual(await pendingB, { ok: true, bounds });
+  // Without a restore address a missing page ends the picture.
+  const lost = viewer();
+  service.subscribe('chat-missing', lost.value);
+  await waitFor(() => lost.ends.length > 0, 'end');
+  assert.deepEqual(lost.ends, ['page_gone']);
+});
 
-  // A second safari.show does not recreate the display.
-  assert.deepEqual(await service.ensureDisplay(), { ok: true, bounds });
-  assert.equal(displays.length, 1);
+test('service: a closed page or a dead helper ends its pictures (page_gone); a stopped helper ends them as stopped', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  await service.openPage('chat-a', 'https://example.com/a');
+  await service.openPage('chat-b', 'https://example.com/b');
+  const a = viewer();
+  const b = viewer();
+  service.subscribe('chat-a', a.value);
+  service.subscribe('chat-b', b.value);
+  await waitFor(() => fake.watchers.size === 2, 'two watches');
+  fake.emit({ event: 'closed', page: 'chat-a' });
+  assert.deepEqual(a.ends, ['page_gone']);
+  assert.deepEqual(b.ends, []);
+  fake.die();
+  assert.deepEqual(b.ends, ['page_gone']);
 
-  // The process died → the next call creates a new display.
-  displays[0].exit(1, 'crashed');
-  const again = service.ensureDisplay();
-  assert.equal(displays.length, 2);
-  displays[1].ready({ ...bounds, x: 1470 });
-  assert.deepEqual(await again, { ok: true, bounds: { ...bounds, x: 1470 } });
-
-  // stopAll removes the display (the helper hides Safari before that).
+  await service.openPage('chat-c', 'https://example.com/c');
+  const c = viewer();
+  service.subscribe('chat-c', c.value);
+  await waitFor(() => fake.watchers.size === 1, 'watch c');
   service.stopAll();
-  assert.equal(displays[1].stopped, 1);
+  assert.deepEqual(c.ends, ['stopped']);
+  assert.equal(service.isLoaded(), false);
 });
 
-test('ensureDisplay: a helper that exits before ready (layout not restored) is a state with a message, and the next call retries', async () => {
-  const displays: FakeDisplay[] = [];
-  const service = createSafariLiveService({
-    platform: 'darwin',
-    spawnDisplay: () => {
-      const display = new FakeDisplay();
-      displays.push(display);
-      return display;
-    },
-  });
+test('service: closing the last page without viewers unloads the helper at once; with another page or a viewer it stays', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  await service.openPage('chat-a', 'https://example.com/a');
+  await service.openPage('chat-b', 'https://example.com/b');
+  assert.deepEqual(await service.closePage('chat-a'), { closed: true, unloaded: false });
+  assert.equal(fake.stops(), 0);
 
-  const first = service.ensureDisplay();
-  displays[0].exit(5, 'раскладка мониторов не восстановилась');
-  const result = await first;
-  assert.equal(result.ok, false);
-  assert.equal(result.ok === false && result.state, 'error');
-  assert.match(result.ok === false ? result.message : '', /раскладка/);
-
-  void service.ensureDisplay();
-  assert.equal(displays.length, 2);
-  service.stopAll();
+  const v = viewer();
+  const stop = service.subscribe('chat-b', v.value);
+  await waitFor(() => fake.watchers.has('chat-b'), 'watch');
+  await service.openPage('chat-c', 'https://example.com/c');
+  assert.deepEqual(await service.closePage('chat-c'), { closed: true, unloaded: false }, 'a viewer keeps it');
+  stop();
+  assert.deepEqual(await service.closePage('chat-b'), { closed: true, unloaded: true });
+  assert.equal(fake.stops(), 1);
+  assert.equal(service.isLoaded(), false);
+  // Nothing running: closing asks nothing.
+  const before = fake.calls.length;
+  assert.deepEqual(await service.closePage('chat-b'), { closed: false, unloaded: true });
+  assert.equal(fake.calls.length, before);
 });
 
-test('placeOnDisplay: the window fills the display; a closed window is window_gone; no display → not ok', async () => {
-  const places: Array<{ windowId: number; rect: SafariRect }> = [];
-  let placeCode = 0;
-  let displayFails = false;
+test('service: commands and input go to the page; helper errors come back as BrowserError; navigation is reported', async () => {
+  const fake = fakeDriver();
+  const navigated: Array<[string, string, string]> = [];
   const service = createSafariLiveService({
+    driver: fake.driver,
     platform: 'darwin',
-    spawnDisplay: () => {
-      const display = new FakeDisplay();
-      setImmediate(() => (displayFails ? display.exit(5, 'нет экрана') : display.ready({ x: 2560, y: 1440, width: 1920, height: 1200 })));
-      return display;
-    },
-    runPlace: async (windowId, rect) => {
-      places.push({ windowId, rect });
-      return placeCode === 0
-        ? { code: 0, stdout: '{"ok":true}\n', stderr: '' }
-        : { code: placeCode, stdout: '', stderr: '{"error":"window_gone","message":"нет окна"}\n' };
-    },
+    listCacheMs: 0,
+    onNavigated: (pageId, url, title) => navigated.push([pageId, url, title]),
   });
+  await service.openPage('chat-a', 'https://example.com/a');
+  const reply = await service.command('click', 'chat-a', { selector: '#go' });
+  assert.equal(reply.op, 'click');
+  assert.deepEqual(fake.calls.at(-1)?.args, { page: 'chat-a', selector: '#go' });
 
-  assert.deepEqual(await service.placeOnDisplay(345), { ok: true });
-  assert.deepEqual(places, [{ windowId: 345, rect: { x: 2560, y: 1440, width: 1920, height: 1200 } }]);
+  await service.input('chat-a', { kind: 'text', text: 'секрет' });
+  assert.deepEqual(fake.calls.at(-1), { op: 'input', args: { page: 'chat-a', kind: 'text', text: 'секрет' }, passive: false });
 
-  placeCode = 4;
-  const gone = await service.placeOnDisplay(999);
-  assert.equal(gone.ok, false);
-  assert.equal(gone.end, 'window_gone');
+  await assert.rejects(service.command('read', 'chat-zzz', { format: 'text' }), (error: unknown) => error instanceof BrowserError && error.code === 'no_page');
 
-  service.stopAll();
-  displayFails = true;
-  const noDisplay = await service.placeOnDisplay(345);
-  assert.equal(noDisplay.ok, false);
-  assert.ok(noDisplay.message);
-  assert.equal(places.length, 2, 'nothing is moved without a display');
+  fake.emit({ event: 'navigated', page: 'chat-a', url: 'https://example.com/next', title: 'Next' });
+  assert.deepEqual(navigated, [['chat-a', 'https://example.com/next', 'Next']]);
 });
 
-test('pickWindow skips untitled windows (the 500×500 service window), like the tab list does', async () => {
-  const service = createSafariLiveService({
-    platform: 'darwin',
-    runList: async () => listOk([
-      { windowId: 120, title: 'Яндекс', onScreen: true, width: 1280, height: 800 },
-      { windowId: 900, title: '', onScreen: false, width: 500, height: 500 },
-      { windowId: 901, title: '   ', onScreen: false, width: 800, height: 600 },
-    ]),
-  });
-  assert.equal((await service.pickWindow()).window?.windowId, 120);
+test('service: no reopening of a page the agent closed — not while the helper runs, not after closing the last page unloaded it; a page lost to an unload is restored', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  await service.openPage('chat-a', 'https://example.com/a');
+  await service.openPage('chat-b', 'https://example.com/b');
 
-  const onlyService = createSafariLiveService({
-    platform: 'darwin',
-    runList: async () => listOk([{ windowId: 900, title: '', onScreen: false, width: 500, height: 500 }]),
-  });
-  const picked = await onlyService.pickWindow();
-  assert.equal(picked.window, null);
-  assert.equal(picked.list.windows.length, 1);
+  // Dima watches chat-a; the agent closes it; the helper keeps running for chat-b.
+  const watching = viewer();
+  service.subscribe('chat-a', watching.value, { url: 'https://example.com/a' });
+  await waitFor(() => fake.watchers.has('chat-a'), 'watch');
+  await service.closePage('chat-a');
+  assert.deepEqual(watching.ends, ['page_gone']);
+  assert.equal(service.isLoaded(), true);
+  assert.equal(service.canRestore('chat-a'), false);
+  const again = viewer();
+  service.subscribe('chat-a', again.value, { url: 'https://example.com/a' });
+  await waitFor(() => again.ends.length > 0, 'end');
+  assert.deepEqual(again.ends, ['page_gone']);
+
+  // The last page closed → unloaded at once; the closed page still is not reopened.
+  await service.closePage('chat-b');
+  assert.equal(service.isLoaded(), false);
+  assert.equal(service.canRestore('chat-b'), false);
+  const late = viewer();
+  service.subscribe('chat-b', late.value, { url: 'https://example.com/b' });
+  await waitFor(() => late.ends.length > 0, 'end');
+  assert.deepEqual(late.ends, ['page_gone']);
+  assert.equal(fake.calls.filter((call) => call.op === 'open').length, 2, 'no reopening');
+
+  // Opened again by the agent → it is a normal page again; then the helper dies → restorable.
+  await service.openPage('chat-b', 'https://example.com/b2');
+  fake.die();
+  assert.equal(service.isLoaded(), false);
+  assert.equal(service.canRestore('chat-b'), true);
+  const back = viewer();
+  service.subscribe('chat-b', back.value, { url: 'https://example.com/b2' });
+  await waitFor(() => fake.watchers.has('chat-b'), 'restored watch');
+  assert.deepEqual(fake.calls.at(-1)?.args, { page: 'chat-b', url: 'https://example.com/b2' });
 });
 
-test('openWindow: the helper opens the agent\'s own new window (or navigates the given one) and the next list is fresh', async () => {
-  const calls: Array<[string, number | undefined]> = [];
-  let windows: unknown[] = [];
-  let lists = 0;
-  const service = createSafariLiveService({
-    platform: 'darwin',
-    now: () => 0,
-    runList: async () => { lists += 1; return listOk(windows); },
-    runOpen: async (url, windowId) => {
-      calls.push([url, windowId]);
-      if (windowId === 404) return { code: 4, stdout: '', stderr: '{"error":"window_gone","message":"нет окна"}\n' };
-      windows = [{ windowId: 777, title: 'Без названия', onScreen: false, width: 1920, height: 1170 }];
-      return { code: 0, stdout: '{"ok":true,"windowId":777}\n', stderr: '' };
-    },
-  });
-  await service.listWindows();
-  assert.deepEqual(await service.openWindow('https://example.com/'), { ok: true, windowId: 777 });
-  assert.deepEqual(calls, [['https://example.com/', undefined]]);
-  // cached list (now() never moves) would not know the new window — openWindow drops the cache
-  assert.equal((await service.listWindows()).windows[0]?.windowId, 777);
-  assert.equal(lists, 2);
-
-  assert.deepEqual(await service.openWindow('https://example.org/', 777), { ok: true, windowId: 777 });
-  const gone = await service.openWindow('https://example.org/', 404);
-  assert.equal(gone.ok, false);
-  assert.equal(!gone.ok && gone.end, 'window_gone');
-
-  const bad = await service.openWindow('file:///etc/passwd');
-  assert.equal(bad.ok, false);
-  assert.equal(calls.length, 3, 'a non-http(s) address never reaches the helper');
-
-  const notMac = createSafariLiveService({ platform: 'linux', runOpen: async () => { throw new Error('must not run'); } });
-  const unsupported = await notMac.openWindow('https://example.com/');
-  assert.equal(!unsupported.ok && unsupported.state, 'unsupported');
-});
-
-test('subscribe: a stream ending with window_gone drops the cached list, so the tab sees «Окно закрыто» at once', async () => {
-  let windows: unknown[] = [{ windowId: 7, title: 'Мой', onScreen: false, width: 1280, height: 800 }];
-  const spawned: FakeStream[] = [];
-  const service = createSafariLiveService({
-    platform: 'darwin',
-    now: () => 0,
-    runList: async () => listOk(windows),
-    spawnStream: () => { const process = new FakeStream(); spawned.push(process); return process; },
-  });
-  assert.equal((await service.listWindows()).windows.length, 1);
-  service.subscribe(7, { onFrame: () => {}, onEnd: () => {} });
-  windows = [];
-  spawned[0].exit('window_gone');
-  assert.equal((await service.listWindows()).windows.length, 0);
+test('service: a running helper without the page does not reopen it even with an address', async () => {
+  const fake = fakeDriver();
+  const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
+  await service.openPage('chat-other', 'https://example.com/o');
+  assert.equal(service.canRestore('chat-a'), false);
+  const v = viewer();
+  service.subscribe('chat-a', v.value, { url: 'https://example.com/a' });
+  await waitFor(() => v.ends.length > 0, 'end');
+  assert.deepEqual(v.ends, ['page_gone']);
+  assert.equal(fake.calls.filter((call) => call.op === 'open').length, 1);
 });

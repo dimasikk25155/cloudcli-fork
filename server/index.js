@@ -378,7 +378,7 @@ app.use('/api/duet', authenticateToken, requireAdmin, duetRoutes);
 app.use('/api/agents', authenticateToken, requireAdmin, agentsRoutes);
 // «Конвейер»: queues an agent works through, with verdicts and «брак» (admin only).
 app.use('/api/agent-queue', authenticateToken, requireAdmin, agentQueueRoutes);
-// «Safari вживую»: windows list and chat → Safari window binding (admin only).
+// «Браузер вживую»: pages of the invisible Neo3 browser, chat → page binding, the user's input (admin only).
 app.use('/api/safari-live', authenticateToken, requireAdmin, safariLiveRoutes);
 // Sticky phone pushes (Consigliere tasks + dead bots). Public by design:
 // the service worker has no JWT, and the Mac/VPS reminder job has only a shared token.
@@ -431,7 +431,7 @@ app.get('/d/:token', serveSharedFile);
 // затирает query, поэтому токен живёт в пути. Подробности в routes/autopilot.js.
 app.use('/api', autopilotRoutes);
 app.get('/ap/:token/:file', serveAutopilotAsset);
-// «Safari вживую»: MJPEG for a plain <img> — no Authorization header, short JWT in the path.
+// «Браузер вживую»: MJPEG for a plain <img> — no Authorization header, short JWT in the path.
 app.get('/sl/:token/stream', serveSafariLiveStream);
 
 // Digital Asset Links for the Android TWA (ru.neo3.claudecli). express.static
@@ -1788,10 +1788,10 @@ async function startServer() {
                 console.error('[Plugins] Error stopping plugins during shutdown:', err?.message || err);
             }
             try {
-                // Hides Safari and removes the invisible «Neo3 Safari» display.
+                // Closes the pages of the invisible browser and stops its helper.
                 safariLiveService.stopAll();
             } catch (err) {
-                console.error('[Safari live] Error stopping capture during shutdown:', err?.message || err);
+                console.error('[Browser live] Error stopping the browser helper during shutdown:', err?.message || err);
             }
             try {
                 await removeLocalServerMarker();

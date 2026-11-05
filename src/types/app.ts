@@ -46,7 +46,7 @@ export type GatewayEventKind =
    */
   | 'sidebar_groups_changed'
   /**
-   * «Safari вживую»: a chat's Safari window binding changed. Carries only
+   * «Браузер вживую»: a chat's browser page binding changed. Carries only
    * `{kind, sessionId}`, sent only to that user's sockets; clients re-read
    * `GET /api/safari-live/sessions/:sessionId`. Not a chat row.
    * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
@@ -61,14 +61,18 @@ export type GatewayEventKind =
   | 'secret_requests_changed';
 
 /**
- * «Safari вживую» — `GET /api/safari-live/sessions/:sessionId`.
+ * «Браузер вживую» (module `safari-live`) — `GET /api/safari-live/sessions/:sessionId`.
  * Mirror of `server/modules/safari-live/safari-live.types.ts`.
+ * A page of the invisible Neo3 browser, fixed 1280×800.
  */
-export type SafariWindow = { windowId: number; title: string; onScreen: boolean; width: number; height: number };
-export type SafariLiveState = 'ok' | 'no_permission' | 'unsupported' | 'error';
+export type SafariWindow = { pageId: string; title: string; url: string; width: number; height: number };
+/** `unloaded` — the browser is not running, the chat's last page reopens when the picture is subscribed. */
+export type SafariLiveState = 'ok' | 'unloaded' | 'no_permission' | 'unsupported' | 'error';
 export type SafariBinding = {
   sessionId: string;
-  windowId: number;
+  pageId: string;
+  /** Last address of the page. */
+  url: string;
   title: string;
   boundBy: 'agent' | 'user';
   updatedAt: string;
@@ -76,8 +80,9 @@ export type SafariBinding = {
 export type SafariLiveView = {
   state: SafariLiveState;
   binding: SafariBinding | null;
+  /** The bound page is open right now. */
   windowAlive: boolean;
-  /** `/sl/<jwt>/stream` (MJPEG for `<img>`) only while the helper works and the window exists. */
+  /** `/sl/<jwt>/stream` (MJPEG for `<img>`): the page is open, or `unloaded` (subscribing reopens it). */
   streamUrl: string | null;
   windows: SafariWindow[];
   message?: string;

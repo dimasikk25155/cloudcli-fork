@@ -5,12 +5,14 @@ import { modOffError } from '@/shared/mods.js';
 import { requireSessionAccess } from '@/shared/require-session-access.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
+import { BrowserError } from './safari-live.browser.js';
+import { PAGE_HEIGHT, PAGE_WIDTH } from './safari-live.service.js';
 import { signStreamToken } from './safari-live.stream.js';
-import type { SafariBinding, SafariLiveService, SafariLiveView, SafariWindowList } from './safari-live.types.js';
+import type { BrowserInput, SafariBinding, SafariLiveService, SafariLiveView, SafariWindowList } from './safari-live.types.js';
 
 export type SafariBindingsStore = {
   get(sessionId: string): SafariBinding | null;
-  set(sessionId: string, input: { windowId: number; title: string; boundBy: 'agent' | 'user' }): SafariBinding;
+  set(sessionId: string, input: { pageId: string; url: string; title: string; boundBy: 'agent' | 'user' }): SafariBinding;
   clear(sessionId: string): void;
 };
 
@@ -30,23 +32,75 @@ function userIdOf(req: Request): number {
 }
 
 /**
- * What the «Safari» tab shows for a chat. The stream link is issued only
- * when the helper works and the bound window still exists.
+ * What the «Браузер» tab shows for a chat. The stream link is issued when the bound
+ * page is open, or when it can be reopened: `unloaded` — the helper is unloaded (idle,
+ * died; not the agent closing this page) and the last address is known, so subscribing
+ * opens it again. A page the agent closed is just gone: no link, nothing reopens it.
  */
-export function buildSafariLiveView(userId: number, binding: SafariBinding | null, list: SafariWindowList): SafariLiveView {
-  const live = binding ? list.windows.find((window) => window.windowId === binding.windowId) : undefined;
+export function buildSafariLiveView(
+  userId: number,
+  binding: SafariBinding | null,
+  list: SafariWindowList,
+  restorable: (pageId: string) => boolean = () => false,
+): SafariLiveView {
+  const live = binding ? list.windows.find((page) => page.pageId === binding.pageId) : undefined;
   const windowAlive = Boolean(live);
+  const state = list.state === 'ok' && binding && !live && binding.url && restorable(binding.pageId) ? 'unloaded' : list.state;
+  const fresh = binding && live && (live.title !== binding.title || (live.url && live.url !== binding.url))
+    ? { ...binding, title: live.title || binding.title, url: live.url || binding.url }
+    : binding;
   const view: SafariLiveView = {
-    state: list.state,
-    binding: binding && live && live.title && live.title !== binding.title ? { ...binding, title: live.title } : binding,
+    state,
+    binding: fresh,
     windowAlive,
-    streamUrl: list.state === 'ok' && binding && windowAlive
-      ? `/sl/${signStreamToken({ userId, windowId: binding.windowId, sessionId: binding.sessionId })}/stream`
+    streamUrl: binding && ((state === 'ok' && windowAlive) || state === 'unloaded')
+      ? `/sl/${signStreamToken({ userId, pageId: binding.pageId, sessionId: binding.sessionId })}/stream`
       : null,
     windows: list.windows,
   };
   if (list.message) view.message = list.message;
   return view;
+}
+
+const INPUT_KINDS = new Set(['click', 'move', 'down', 'up', 'scroll', 'key', 'text']);
+const INPUT_KEYS = new Set(['Enter', 'Tab', 'Backspace', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageDown', 'PageUp']);
+const MAX_INPUT_TEXT = 2_000;
+
+const badInput = () => new AppError('Неверный ввод для браузера', { code: 'BAD_REQUEST', statusCode: 400 });
+
+function coordinate(raw: unknown, max: number): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const value = Number(raw);
+  if (typeof raw !== 'number' || !Number.isFinite(value)) throw badInput();
+  return Math.min(Math.max(value, 0), max);
+}
+
+/** The user's input in page pixels; its content never goes to a message or a log. */
+export function readBrowserInput(body: unknown): BrowserInput {
+  const raw = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const kind = String(raw.kind ?? '');
+  if (!INPUT_KINDS.has(kind)) throw badInput();
+  const input: BrowserInput = { kind: kind as BrowserInput['kind'] };
+  const x = coordinate(raw.x, PAGE_WIDTH);
+  const y = coordinate(raw.y, PAGE_HEIGHT);
+  if (x !== undefined) input.x = x;
+  if (y !== undefined) input.y = y;
+  if (kind === 'click' || kind === 'move' || kind === 'down' || kind === 'up') {
+    if (x === undefined || y === undefined) throw badInput();
+  }
+  if (kind === 'scroll') {
+    if (typeof raw.dy !== 'number' || !Number.isFinite(raw.dy)) throw badInput();
+    input.dy = Math.min(Math.max(raw.dy, -10_000), 10_000);
+  }
+  if (kind === 'key') {
+    if (typeof raw.key !== 'string' || !INPUT_KEYS.has(raw.key)) throw badInput();
+    input.key = raw.key;
+  }
+  if (kind === 'text') {
+    if (typeof raw.text !== 'string' || !raw.text || raw.text.length > MAX_INPUT_TEXT) throw badInput();
+    input.text = raw.text;
+  }
+  return input;
 }
 
 /**
@@ -57,6 +111,8 @@ export function createSafariLiveRouter(options: SafariLiveRouterOptions) {
   const { service, bindings, modOn, notify } = options;
   const sessionAccess = options.sessionAccess ?? requireSessionAccess;
   const router = express.Router();
+  // `unloaded` only while the helper is not running and the page was not closed by the agent.
+  const restorable = (pageId: string) => !service.isLoaded() && service.canRestore(pageId);
 
   router.use((req: Request, _res: Response, next: NextFunction) => {
     if (!modOn((req as AuthedRequest).user?.id)) {
@@ -79,7 +135,7 @@ export function createSafariLiveRouter(options: SafariLiveRouterOptions) {
     asyncHandler(async (req, res) => {
       const sessionId = String(req.params.sessionId);
       const list = await service.listWindows();
-      res.json(createApiSuccessResponse(buildSafariLiveView(userIdOf(req), bindings.get(sessionId), list)));
+      res.json(createApiSuccessResponse(buildSafariLiveView(userIdOf(req), bindings.get(sessionId), list, restorable)));
     }),
   );
 
@@ -89,27 +145,45 @@ export function createSafariLiveRouter(options: SafariLiveRouterOptions) {
     asyncHandler(async (req, res) => {
       const sessionId = String(req.params.sessionId);
       const userId = userIdOf(req);
-      const windowId = Number(req.body?.windowId);
-      if (!Number.isSafeInteger(windowId) || windowId <= 0) {
-        throw new AppError('Нужен windowId окна Safari', { code: 'BAD_REQUEST', statusCode: 400 });
+      const pageId = req.body?.pageId;
+      if (typeof pageId !== 'string' || !pageId.trim() || pageId.length > 200) {
+        throw new AppError('Нужен pageId страницы браузера', { code: 'BAD_REQUEST', statusCode: 400 });
       }
       const list = await service.listWindows();
       if (list.state !== 'ok') {
-        // Nothing to bind to while the helper cannot see windows; the tab shows the state.
-        res.json(createApiSuccessResponse(buildSafariLiveView(userId, bindings.get(sessionId), list)));
+        // Nothing to bind to while the browser cannot list pages; the tab shows the state.
+        res.json(createApiSuccessResponse(buildSafariLiveView(userId, bindings.get(sessionId), list, restorable)));
         return;
       }
-      const window = list.windows.find((candidate) => candidate.windowId === windowId);
-      if (!window) {
-        throw new AppError('Окно Safari закрыто — выбери другое', { code: 'WINDOW_GONE', statusCode: 404 });
+      const page = list.windows.find((candidate) => candidate.pageId === pageId);
+      if (!page) {
+        throw new AppError('Страница закрыта — выбери другую', { code: 'PAGE_GONE', statusCode: 404 });
       }
-      const shown = await service.ensureDisplay();
-      const placed = shown.ok ? await service.placeOnDisplay(windowId) : { ok: false, message: shown.message };
-      const binding = bindings.set(sessionId, { windowId, title: window.title, boundBy: 'user' });
+      const binding = bindings.set(sessionId, { pageId, url: page.url, title: page.title, boundBy: 'user' });
       notify(userId, sessionId);
-      const view = buildSafariLiveView(userId, binding, list);
-      if (!placed.ok && placed.message) view.message = placed.message;
-      res.json(createApiSuccessResponse(view));
+      res.json(createApiSuccessResponse(buildSafariLiveView(userId, binding, list, restorable)));
+    }),
+  );
+
+  // «Управлять»: the user's clicks, wheel and keys go to the chat's page. The body is never logged.
+  router.post(
+    '/sessions/:sessionId/input',
+    sessionAccess,
+    asyncHandler(async (req, res) => {
+      const sessionId = String(req.params.sessionId);
+      const input = readBrowserInput(req.body);
+      const binding = bindings.get(sessionId);
+      if (!binding) throw new AppError('У чата нет страницы браузера', { code: 'NO_PAGE', statusCode: 404 });
+      try {
+        await service.input(binding.pageId, input);
+      } catch (error) {
+        if (error instanceof BrowserError && (error.code === 'no_page' || error.code === 'helper_exit')) {
+          throw new AppError('Страница закрыта — браузер откроет её снова', { code: 'PAGE_GONE', statusCode: 404 });
+        }
+        if (error instanceof BrowserError && error.code === 'bad_args') throw badInput();
+        throw new AppError('Браузер не принял ввод', { code: 'BROWSER_ERROR', statusCode: 502 });
+      }
+      res.status(204).end();
     }),
   );
 

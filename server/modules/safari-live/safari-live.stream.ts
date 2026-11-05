@@ -1,5 +1,5 @@
 /**
- * `GET /sl/:token/stream` — the live picture as MJPEG
+ * `GET /sl/:token/stream` — the live picture of a browser page as MJPEG
  * (`multipart/x-mixed-replace`): the browser draws it in a plain `<img>`.
  * `<img>` sends no Authorization header, so the link carries a short JWT in
  * the path (same idea as the autopilot dashboard `/ap/:token/…`). The token is
@@ -11,7 +11,7 @@ import { createHmac } from 'node:crypto';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 
-import { appConfigDb } from '@/modules/database/index.js';
+import { appConfigDb, safariLiveBindingsDb } from '@/modules/database/index.js';
 import { isModActive } from '@/shared/mods.js';
 
 import { MOD_OFF, modOffMessage } from '../../../shared/mods.js';
@@ -35,10 +35,10 @@ function streamSecret(): string {
 }
 
 /** `sessionId` — the chat whose tab shows the picture: pinged when the picture ends by itself. */
-export type StreamTokenPayload = { userId: number; windowId: number; sessionId?: string };
+export type StreamTokenPayload = { userId: number; pageId: string; sessionId?: string };
 
 export function signStreamToken(payload: StreamTokenPayload, ttlSeconds: number = STREAM_TOKEN_TTL_SECONDS): string {
-  const claims: Record<string, unknown> = { scope: SCOPE, viewer: payload.userId, windowId: payload.windowId };
+  const claims: Record<string, unknown> = { scope: SCOPE, viewer: payload.userId, page: payload.pageId };
   if (payload.sessionId) claims.chat = payload.sessionId;
   return jwt.sign(claims, streamSecret(), { expiresIn: ttlSeconds, algorithm: 'HS256' });
 }
@@ -48,9 +48,9 @@ export function readStreamToken(token: string): StreamTokenPayload | null {
     const payload = jwt.verify(String(token || ''), streamSecret(), { algorithms: ['HS256'] }) as Record<string, unknown>;
     if (!payload || payload.scope !== SCOPE) return null;
     const userId = Number(payload.viewer);
-    const windowId = Number(payload.windowId);
-    if (!Number.isSafeInteger(userId) || userId <= 0 || !Number.isSafeInteger(windowId) || windowId <= 0) return null;
-    return typeof payload.chat === 'string' && payload.chat ? { userId, windowId, sessionId: payload.chat } : { userId, windowId };
+    const pageId = payload.page;
+    if (!Number.isSafeInteger(userId) || userId <= 0 || typeof pageId !== 'string' || !pageId) return null;
+    return typeof payload.chat === 'string' && payload.chat ? { userId, pageId, sessionId: payload.chat } : { userId, pageId };
   } catch {
     return null;
   }
@@ -60,17 +60,19 @@ export type StreamHandlerOptions = {
   service: SafariLiveService;
   modOn: (userId: unknown) => boolean;
   /**
-   * The picture ended by itself (window closed, helper failed): `safari_live_changed` to the
-   * chat of the link, so the tab rereads at once («Окно закрыто» / one resubscribe).
+   * The picture ended by itself (page closed, helper died): `safari_live_changed` to the
+   * chat of the link, so the tab rereads at once (and reopens the last page).
    */
   notify?: (userId: number, sessionId: string) => void;
+  /** Last address of the link's page from the chat's binding: an unloaded browser reopens it. */
+  restoreUrl?: (payload: StreamTokenPayload) => string | null;
 };
 
 export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
   return function serveStream(req: Request, res: Response): void {
     const payload = readStreamToken(String(req.params.token ?? ''));
     if (!payload) {
-      res.status(401).type('text/plain').set('Cache-Control', 'no-store').send('Ссылка на картинку Safari устарела');
+      res.status(401).type('text/plain').set('Cache-Control', 'no-store').send('Ссылка на картинку браузера устарела');
       return;
     }
     if (!options.modOn(payload.userId)) {
@@ -99,7 +101,13 @@ export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
       unsubscribe();
     };
 
-    unsubscribe = options.service.subscribe(payload.windowId, {
+    let restoreAt: string | null = null;
+    try {
+      restoreAt = options.restoreUrl?.(payload) ?? null;
+    } catch {
+      restoreAt = null;
+    }
+    unsubscribe = options.service.subscribe(payload.pageId, {
       onFrame(jpeg) {
         if (closed || waitingForDrain) return;
         const head = `--${BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`;
@@ -121,7 +129,7 @@ export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
           }
         }
       },
-    });
+    }, restoreAt ? { url: restoreAt } : undefined);
     if (closed) unsubscribe();
 
     req.on('close', close);
@@ -133,6 +141,12 @@ export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
 export const serveSafariLiveStream = createSafariLiveStreamHandler({
   service: safariLiveService,
   modOn: (userId) => isModActive(userId as number, 'modSafariLive'),
+  // Only the chat's own binding of exactly this page gives an address.
+  restoreUrl: (payload) => {
+    if (!payload.sessionId) return null;
+    const binding = safariLiveBindingsDb.get(payload.sessionId);
+    return binding && binding.pageId === payload.pageId && binding.url ? binding.url : null;
+  },
   // Lazy: the websocket module is big and imports half the server.
   notify: (userId, sessionId) => {
     void import('@/modules/websocket/index.js')

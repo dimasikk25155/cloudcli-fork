@@ -1,49 +1,40 @@
 /**
- * «Safari вживую»: the one owner of the capture helper processes.
+ * «Браузер вживую»: pages of Neo3's own invisible browser, their live pictures and input.
  *
- * - `list` is cached for `listCacheMs` (the tab and the agent may ask often).
- * - One `stream` process per Safari window, shared by every viewer; a new
- *   viewer gets the last frame at once; the last viewer leaving stops the
- *   process after `idleMs`.
- * - One `display` process (the invisible «Neo3 Safari» monitor) per server
- *   life: creating it shakes the monitor layout for a few seconds, so it is
- *   created on first need and kept; a dead one is recreated on the next call.
- * - Any helper failure is returned as a state with a message, never thrown.
+ * - The helper starts only for real work (open, command, a viewer); listing pages
+ *   while it is not running answers «no pages» without starting it.
+ * - One driver watch per page, shared by every viewer; a new viewer gets the last
+ *   frame at once; the last viewer leaving stops the watch (the driver unloads the
+ *   helper after its idle time).
+ * - A viewer of a page that is not open with a restore address → the page is opened
+ *   there first, but only when the helper is unloaded (idle, died) and the agent did
+ *   not close that page itself: a page the agent is done with never comes back.
+ * - Closing the last page while nobody watches unloads the helper at once.
+ * - Helper failures of commands reach the caller as `BrowserError`; the list is a state.
  */
 
+import { BrowserError } from './safari-live.browser.js';
 import type {
-  DisplayProcess,
-  EnsureDisplayResult,
-  HelperResult,
-  OpenWindowResult,
-  PlaceResult,
+  BrowserInput,
+  BrowserReply,
+  OpenedPage,
   SafariLiveDeps,
   SafariLiveService,
-  SafariLiveState,
-  SafariRect,
   SafariViewer,
   SafariWindow,
   SafariWindowList,
   StreamEnd,
-  StreamProcess,
 } from './safari-live.types.js';
 
-/** Exit code the default helper runners use when the binary is not there. */
-export const HELPER_MISSING_CODE = 127;
+export const PAGE_WIDTH = 1280;
+export const PAGE_HEIGHT = 800;
 
-export const SAFARI_TEXT = {
-  unsupported: 'Safari вживую работает только на Mac',
-  helperMissing: 'Safari вживую: помощник не установлен (scripts/safari-capture/build.sh)',
-  noPermission: 'Нет разрешения «Запись экрана»',
-  failed: 'Помощник Safari не ответил',
-  displayFailed: 'Невидимый экран для Safari не создан',
+export const BROWSER_TEXT = {
+  unsupported: 'Браузер вживую работает только на Mac',
+  helperMissing: 'Браузер не установлен (scripts/neo3-browser/build.sh)',
+  failed: 'Браузер не ответил',
   badUrl: 'Нужен адрес страницы http(s)',
 } as const;
-
-/** Untitled windows (the 500×500 service window of Safari) are not pages: never picked, never listed in the tab. */
-export function isTitledWindow(window: Pick<SafariWindow, 'title'>): boolean {
-  return window.title.trim() !== '';
-}
 
 /** Normalised http(s) address (quotes and spaces percent-encoded), or null. */
 export function normalizePageUrl(raw: unknown): string | null {
@@ -56,150 +47,179 @@ export function normalizePageUrl(raw: unknown): string | null {
   }
 }
 
-function readWindowId(stdout: string): number | null {
-  try {
-    const parsed = JSON.parse(String(stdout || '').trim()) as { windowId?: unknown };
-    const windowId = Number(parsed?.windowId);
-    return Number.isSafeInteger(windowId) && windowId > 0 ? windowId : null;
-  } catch {
-    return null;
-  }
-}
-
-const STREAM_OPTIONS = { fps: 3, maxWidth: 1280, quality: 0.6 };
-
-type HelperError = { error?: string; message?: string };
-
-/** Last JSON line of the helper's stderr (`{"error":…, "message":…}`), if any. */
-export function readHelperError(stderr: string): HelperError {
-  const lines = String(stderr || '').split('\n').map((line) => line.trim()).filter(Boolean);
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    try {
-      const parsed = JSON.parse(lines[index]) as unknown;
-      if (parsed && typeof parsed === 'object') return parsed as HelperError;
-    } catch {
-      // not a JSON line — keep looking
-    }
-  }
-  return {};
-}
-
-function failureText(result: HelperResult): string {
-  if (result.code === HELPER_MISSING_CODE) return SAFARI_TEXT.helperMissing;
-  const parsed = readHelperError(result.stderr);
-  return parsed.message || parsed.error || SAFARI_TEXT.failed;
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error && error.message ? `${SAFARI_TEXT.failed}: ${error.message}` : SAFARI_TEXT.failed;
+/** Page id of a chat's own page. */
+export function chatPageId(sessionId: string): string {
+  return `chat-${sessionId}`;
 }
 
 function toWindow(raw: unknown): SafariWindow | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Record<string, unknown>;
-  const windowId = Number(value.windowId);
-  if (!Number.isSafeInteger(windowId) || windowId <= 0) return null;
+  if (typeof value.page !== 'string' || !value.page) return null;
   return {
-    windowId,
+    pageId: value.page,
     title: typeof value.title === 'string' ? value.title : '',
-    onScreen: value.onScreen === true,
-    width: Number(value.width) || 0,
-    height: Number(value.height) || 0,
+    url: typeof value.url === 'string' ? value.url : '',
+    width: PAGE_WIDTH,
+    height: PAGE_HEIGHT,
   };
 }
 
-/** `neo3-safari-capture list` result → window list state. */
-export function parseListResult(result: HelperResult): SafariWindowList {
-  if (result.code === 3) return { state: 'no_permission', windows: [], message: SAFARI_TEXT.noPermission };
-  if (result.code !== 0) return { state: 'error', windows: [], message: failureText(result) };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(String(result.stdout || '').trim());
-  } catch {
-    return { state: 'error', windows: [], message: SAFARI_TEXT.failed };
-  }
-  const value = (parsed && typeof parsed === 'object' ? parsed : {}) as { permission?: unknown; windows?: unknown };
-  if (value.permission === false) return { state: 'no_permission', windows: [], message: SAFARI_TEXT.noPermission };
-  if (!Array.isArray(value.windows)) return { state: 'error', windows: [], message: SAFARI_TEXT.failed };
-  return { state: 'ok', windows: value.windows.map(toWindow).filter((window): window is SafariWindow => window !== null) };
-}
-
 type StreamEntry = {
-  process: StreamProcess;
   viewers: Set<SafariViewer>;
   lastFrame: Buffer | null;
-  idleTimer: NodeJS.Timeout | null;
+  unwatch: (() => void) | null;
 };
 
-type DisplayEntry = {
-  process: DisplayProcess;
-  bounds: SafariRect | null;
-  pending: Promise<EnsureDisplayResult>;
-};
+function safeEnd(viewer: SafariViewer, end: StreamEnd, message?: string): void {
+  try {
+    viewer.onEnd(end, message);
+  } catch {
+    // a broken viewer must not take the server down
+  }
+}
 
 export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveService {
   const platform = deps.platform ?? process.platform;
   const now = deps.now ?? Date.now;
-  const idleMs = deps.idleMs ?? 20_000;
-  const listCacheMs = deps.listCacheMs ?? 2_000;
-  const displayReadyMs = deps.displayReadyMs ?? 20_000;
+  const listCacheMs = deps.listCacheMs ?? 1_000;
+  const helperInstalled = deps.helperInstalled ?? (() => true);
   const supported = platform === 'darwin';
+  const driver = deps.driver;
 
-  const streams = new Map<number, StreamEntry>();
-  let display: DisplayEntry | null = null;
+  const streams = new Map<string, StreamEntry>();
+  /** Pages the agent closed itself: never restored until opened again. */
+  const closedByAgent = new Set<string>();
   let listCache: { at: number; list: SafariWindowList } | null = null;
 
+  function unavailable(): BrowserError | null {
+    if (!supported) return new BrowserError('unsupported', BROWSER_TEXT.unsupported);
+    if (!driver || !helperInstalled()) return new BrowserError('helper_missing', BROWSER_TEXT.helperMissing);
+    return null;
+  }
+
+  function endEntry(pageId: string, end: StreamEnd, message?: string): void {
+    const entry = streams.get(pageId);
+    if (!entry) return;
+    streams.delete(pageId);
+    entry.unwatch?.();
+    entry.unwatch = null;
+    const viewers = [...entry.viewers];
+    entry.viewers.clear();
+    for (const viewer of viewers) safeEnd(viewer, end, message);
+  }
+
+  driver?.onEvent((event) => {
+    listCache = null;
+    if (event.event === 'closed') {
+      endEntry(event.page, 'page_gone');
+    } else if (event.event === 'exit') {
+      // The watches died with the process; the driver dropped them already.
+      for (const entry of streams.values()) entry.unwatch = null;
+      for (const pageId of [...streams.keys()]) endEntry(pageId, event.reason === 'stopped' ? 'stopped' : 'page_gone');
+    } else if (event.event === 'navigated') {
+      try {
+        deps.onNavigated?.(event.page, event.url, event.title);
+      } catch {
+        // keeping the last address is best effort
+      }
+    }
+  });
+
   async function listWindows(): Promise<SafariWindowList> {
-    if (!supported) return { state: 'unsupported', windows: [], message: SAFARI_TEXT.unsupported };
+    if (!supported) return { state: 'unsupported', windows: [], message: BROWSER_TEXT.unsupported };
+    if (!driver || !helperInstalled()) return { state: 'error', windows: [], message: BROWSER_TEXT.helperMissing };
+    if (!driver.isRunning()) return { state: 'ok', windows: [] };
     if (listCache && now() - listCache.at < listCacheMs) return listCache.list;
     let list: SafariWindowList;
-    if (!deps.runList) {
-      list = { state: 'error', windows: [], message: SAFARI_TEXT.helperMissing };
-    } else {
-      try {
-        list = parseListResult(await deps.runList());
-      } catch (error) {
-        list = { state: 'error', windows: [], message: errorText(error) };
-      }
+    try {
+      const reply = await driver.request('list', {}, { passive: true });
+      const pages = Array.isArray(reply.pages) ? reply.pages : [];
+      list = { state: 'ok', windows: pages.map(toWindow).filter((page): page is SafariWindow => page !== null) };
+    } catch (error) {
+      if (!driver.isRunning()) return { state: 'ok', windows: [] };
+      list = { state: 'error', windows: [], message: error instanceof Error && error.message ? `${BROWSER_TEXT.failed}: ${error.message}` : BROWSER_TEXT.failed };
     }
     listCache = { at: now(), list };
     return list;
   }
 
-  async function pickWindow(titleContains?: string) {
-    const list = await listWindows();
-    const needle = typeof titleContains === 'string' ? titleContains.trim().toLocaleLowerCase() : '';
-    let window: SafariWindow | null = null;
-    for (const candidate of list.windows) {
-      if (!isTitledWindow(candidate)) continue;
-      if (needle && !candidate.title.toLocaleLowerCase().includes(needle)) continue;
-      if (!window || candidate.windowId > window.windowId) window = candidate;
+  async function openPage(pageId: string, url: string): Promise<OpenedPage> {
+    const blocked = unavailable();
+    if (blocked) throw blocked;
+    const address = normalizePageUrl(url);
+    if (!address) throw new BrowserError('bad_url', BROWSER_TEXT.badUrl);
+    const reply = await driver!.request('open', { page: pageId, url: address });
+    closedByAgent.delete(pageId);
+    listCache = null;
+    return {
+      pageId,
+      url: typeof reply.url === 'string' && reply.url ? reply.url : address,
+      title: typeof reply.title === 'string' ? reply.title : '',
+      width: PAGE_WIDTH,
+      height: PAGE_HEIGHT,
+      loading: reply.loading === true,
+    };
+  }
+
+  async function closePage(pageId: string): Promise<{ closed: boolean; unloaded: boolean }> {
+    closedByAgent.add(pageId);
+    if (!driver || !driver.isRunning()) return { closed: false, unloaded: true };
+    const reply = await driver.request('close', { page: pageId });
+    listCache = null;
+    const left = Number(reply.pages);
+    // «Открыл, попользовался, закрыл»: nothing left to show → the helper leaves memory now.
+    if (left === 0 && streams.size === 0) {
+      driver.stop();
+      return { closed: true, unloaded: true };
     }
-    return { window, list };
+    return { closed: true, unloaded: false };
   }
 
-  function endLater(viewer: SafariViewer, end: StreamEnd, message?: string): void {
-    setImmediate(() => {
+  async function command(op: string, pageId: string, args: Record<string, unknown> = {}): Promise<BrowserReply> {
+    const blocked = unavailable();
+    if (blocked) throw blocked;
+    return driver!.request(op, { ...args, page: pageId });
+  }
+
+  async function input(pageId: string, event: BrowserInput): Promise<void> {
+    await command('input', pageId, { ...event });
+  }
+
+  function canRestore(pageId: string): boolean {
+    return supported && Boolean(driver) && !driver!.isRunning() && !closedByAgent.has(pageId);
+  }
+
+  async function startWatching(pageId: string, entry: StreamEntry, restore?: { url: string }): Promise<void> {
+    let alive = false;
+    // Decided before anything starts the helper: only an unloaded helper gives the page back.
+    const restorable = Boolean(restore?.url) && canRestore(pageId);
+    if (driver!.isRunning()) {
       try {
-        viewer.onEnd(end, message);
+        const reply = await driver!.request('list', {}, { passive: true });
+        alive = Array.isArray(reply.pages) && reply.pages.some((page) => toWindow(page)?.pageId === pageId);
       } catch {
-        // a broken viewer must not take the server down
+        alive = false;
       }
-    });
-  }
-
-  function dropEntry(windowId: number, entry: StreamEntry): void {
-    if (entry.idleTimer) clearTimeout(entry.idleTimer);
-    entry.idleTimer = null;
-    if (streams.get(windowId) === entry) streams.delete(windowId);
-  }
-
-  function startStream(windowId: number): StreamEntry {
-    if (!deps.spawnStream) throw new Error(SAFARI_TEXT.helperMissing);
-    const process = deps.spawnStream(windowId, { ...STREAM_OPTIONS });
-    const entry: StreamEntry = { process, viewers: new Set(), lastFrame: null, idleTimer: null };
-    process.onFrame((jpeg) => {
-      if (streams.get(windowId) !== entry) return;
+    }
+    if (streams.get(pageId) !== entry || entry.viewers.size === 0) return;
+    if (!alive && restorable && restore) {
+      try {
+        await openPage(pageId, restore.url);
+        alive = true;
+      } catch (error) {
+        if (streams.get(pageId) === entry) endEntry(pageId, 'error', error instanceof Error ? error.message : undefined);
+        return;
+      }
+    }
+    if (streams.get(pageId) !== entry) return;
+    if (!alive) {
+      endEntry(pageId, 'page_gone');
+      return;
+    }
+    if (entry.viewers.size === 0) return;
+    entry.unwatch = driver!.watch(pageId, (jpeg) => {
+      if (streams.get(pageId) !== entry) return;
       entry.lastFrame = jpeg;
       for (const viewer of [...entry.viewers]) {
         try {
@@ -209,44 +229,21 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
         }
       }
     });
-    process.onExit((end, message) => {
-      if (streams.get(windowId) !== entry) return;
-      dropEntry(windowId, entry);
-      // The tab rereads the view right after: it must see the window gone, not a 2 s old list.
-      if (end === 'window_gone') listCache = null;
-      const viewers = [...entry.viewers];
-      entry.viewers.clear();
-      for (const viewer of viewers) {
-        try {
-          viewer.onEnd(end, message);
-        } catch {
-          // ignore
-        }
-      }
-    });
-    return entry;
   }
 
-  function subscribe(windowId: number, viewer: SafariViewer): () => void {
-    if (!supported) {
-      endLater(viewer, 'error', SAFARI_TEXT.unsupported);
+  function subscribe(pageId: string, viewer: SafariViewer, restore?: { url: string }): () => void {
+    const blocked = unavailable();
+    if (blocked) {
+      setImmediate(() => safeEnd(viewer, 'error', blocked.message));
       return () => {};
     }
-    let entry = streams.get(windowId);
+    let entry = streams.get(pageId);
+    const fresh = !entry;
     if (!entry) {
-      try {
-        entry = startStream(windowId);
-      } catch (error) {
-        endLater(viewer, 'error', errorText(error));
-        return () => {};
-      }
-      streams.set(windowId, entry);
+      entry = { viewers: new Set(), lastFrame: null, unwatch: null };
+      streams.set(pageId, entry);
     }
     const current = entry;
-    if (current.idleTimer) {
-      clearTimeout(current.idleTimer);
-      current.idleTimer = null;
-    }
     current.viewers.add(viewer);
     if (current.lastFrame) {
       try {
@@ -255,121 +252,39 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
         // ignore
       }
     }
+    if (fresh) {
+      startWatching(pageId, current, restore).catch((error: unknown) => {
+        if (streams.get(pageId) === current) endEntry(pageId, 'error', error instanceof Error ? error.message : undefined);
+      });
+    }
     let subscribed = true;
     return () => {
       if (!subscribed) return;
       subscribed = false;
       current.viewers.delete(viewer);
-      if (current.viewers.size > 0 || streams.get(windowId) !== current || current.idleTimer) return;
-      current.idleTimer = setTimeout(() => {
-        current.idleTimer = null;
-        if (current.viewers.size > 0 || streams.get(windowId) !== current) return;
-        dropEntry(windowId, current);
-        current.process.stop();
-      }, idleMs);
-      current.idleTimer.unref?.();
+      if (current.viewers.size > 0 || streams.get(pageId) !== current) return;
+      streams.delete(pageId);
+      current.unwatch?.();
+      current.unwatch = null;
     };
-  }
-
-  function ensureDisplay(): Promise<EnsureDisplayResult> {
-    if (!supported) return Promise.resolve({ ok: false, state: 'unsupported', message: SAFARI_TEXT.unsupported });
-    if (display) return display.pending;
-    if (!deps.spawnDisplay) {
-      return Promise.resolve({ ok: false, state: 'error', message: SAFARI_TEXT.helperMissing });
-    }
-    let process: DisplayProcess;
-    try {
-      process = deps.spawnDisplay();
-    } catch (error) {
-      return Promise.resolve({ ok: false, state: 'error', message: errorText(error) });
-    }
-    let settle: (result: EnsureDisplayResult) => void = () => {};
-    const pending = new Promise<EnsureDisplayResult>((resolve) => { settle = resolve; });
-    const entry: DisplayEntry = { process, bounds: null, pending };
-    display = entry;
-    let settled = false;
-    const finish = (result: EnsureDisplayResult) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(readyTimer);
-      settle(result);
-    };
-    const readyTimer = setTimeout(() => {
-      if (display === entry) display = null;
-      process.stop();
-      finish({ ok: false, state: 'error', message: `${SAFARI_TEXT.displayFailed}: нет ответа` });
-    }, displayReadyMs);
-    readyTimer.unref?.();
-    process.onReady((bounds) => {
-      entry.bounds = bounds;
-      finish({ ok: true, bounds });
-    });
-    process.onExit((code, message) => {
-      if (display === entry) display = null;
-      const state: SafariLiveState = code === 3 ? 'no_permission' : 'error';
-      const text = code === HELPER_MISSING_CODE
-        ? SAFARI_TEXT.helperMissing
-        : `${SAFARI_TEXT.displayFailed}${message ? `: ${message}` : ''}`;
-      finish({ ok: false, state, message: text });
-    });
-    return pending;
-  }
-
-  async function placeOnDisplay(windowId: number): Promise<PlaceResult> {
-    const shown = await ensureDisplay();
-    if (!shown.ok) return { ok: false, end: shown.state === 'no_permission' ? 'no_permission' : 'error', message: shown.message };
-    if (!deps.runPlace) return { ok: false, end: 'error', message: SAFARI_TEXT.helperMissing };
-    try {
-      const result = await deps.runPlace(windowId, { ...shown.bounds });
-      if (result.code === 0) return { ok: true };
-      if (result.code === 4) return { ok: false, end: 'window_gone', message: failureText(result) };
-      return { ok: false, end: 'error', message: failureText(result) };
-    } catch (error) {
-      return { ok: false, end: 'error', message: errorText(error) };
-    }
-  }
-
-  async function openWindow(url: string, windowId?: number): Promise<OpenWindowResult> {
-    if (!supported) return { ok: false, state: 'unsupported', message: SAFARI_TEXT.unsupported };
-    const address = normalizePageUrl(url);
-    if (!address) return { ok: false, state: 'error', message: SAFARI_TEXT.badUrl };
-    if (!deps.runOpen) return { ok: false, state: 'error', message: SAFARI_TEXT.helperMissing };
-    try {
-      const result = await deps.runOpen(address, windowId);
-      listCache = null;
-      if (result.code === 0) {
-        const opened = readWindowId(result.stdout);
-        if (opened) return { ok: true, windowId: opened };
-        return { ok: false, state: 'error', message: SAFARI_TEXT.failed };
-      }
-      if (result.code === 4) return { ok: false, state: 'error', end: 'window_gone', message: failureText(result) };
-      return { ok: false, state: 'error', message: failureText(result) };
-    } catch (error) {
-      return { ok: false, state: 'error', message: errorText(error) };
-    }
   }
 
   function stopAll(): void {
-    for (const [windowId, entry] of [...streams]) {
-      dropEntry(windowId, entry);
-      entry.viewers.clear();
-      entry.process.stop();
-    }
-    if (display) {
-      const entry = display;
-      display = null;
-      entry.process.stop();
-    }
+    // Ends every picture as `stopped` through the driver's exit event.
+    driver?.stop();
+    for (const pageId of [...streams.keys()]) endEntry(pageId, 'stopped');
     listCache = null;
   }
 
   return {
     listWindows,
-    pickWindow,
+    isLoaded: () => Boolean(driver?.isRunning()),
+    canRestore,
+    openPage,
+    closePage,
+    command,
+    input,
     subscribe,
-    ensureDisplay,
-    placeOnDisplay,
-    openWindow,
     activeStreams: () => streams.size,
     stopAll,
   };

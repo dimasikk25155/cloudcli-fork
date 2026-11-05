@@ -1,34 +1,56 @@
 /**
- * `workspace_action` `safari.show` — the agent of a chat shows its Safari window:
- * `{url}` opens the page in the agent's OWN new window (never Dima's front window),
- * `{windowId, url}` navigates that window, `{windowId}` / `{titleContains}` bind an open one.
- * The window moves onto the invisible «Neo3 Safari» display (fully drawn, never in front of
- * Dima) and the «Safari» tab opens on the canvas. Admin only; refusals are plain texts for the agent.
+ * `workspace_action` `browser.*` — the agent of a chat drives its own page of the Neo3
+ * invisible browser (nothing appears on the Mac; the user watches it live in the
+ * «Браузер» tab of the canvas). `safari.show` is kept as a synonym of `browser.open`
+ * for older instructions. Admin only; refusals are plain texts for the agent.
  */
+
+import { mkdir, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { safariLiveBindingsDb } from '@/modules/database/index.js';
 import { isModActive, modOffError } from '@/shared/mods.js';
 import { isAdminUser } from '@/shared/project-access.js';
 import { AppError } from '@/shared/utils.js';
 
+import { BrowserError } from './safari-live.browser.js';
 import type { SafariBindingsStore } from './safari-live.routes.js';
 import { safariLiveService } from './safari-live.runtime.js';
-import { isTitledWindow, normalizePageUrl } from './safari-live.service.js';
-import type { EnsureDisplayResult, OpenWindowResult, SafariLiveService, SafariWindow, SafariWindowList } from './safari-live.types.js';
+import { chatPageId, normalizePageUrl } from './safari-live.service.js';
+import type { BrowserReply, SafariLiveService } from './safari-live.types.js';
 
-export const SAFARI_AGENT_TEXT = {
-  adminOnly: 'Safari вживую доступен только администратору',
-  noWindows: 'Окон Safari нет — открой страницу в своём окне: safari.show {data:{url:"<адрес>"}} (не open -a Safari: он кладёт страницу в окно Димы)',
-  noPermission: 'Нет разрешения «Запись экрана» — скажи Диме одной строкой',
-  unsupported: 'Safari вживую работает только на Mac',
+export const BROWSER_ACTIONS = [
+  'browser.open',
+  'browser.click',
+  'browser.type',
+  'browser.press',
+  'browser.scroll',
+  'browser.read',
+  'browser.eval',
+  'browser.wait',
+  'browser.screenshot',
+  'browser.close',
+  'safari.show',
+] as const;
+
+export type BrowserActionName = (typeof BROWSER_ACTIONS)[number];
+
+const KEYS = ['Enter', 'Tab', 'Backspace', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageDown', 'PageUp'];
+const DEFAULT_READ_MAX = 20_000;
+const MAX_READ = 100_000;
+const MAX_SCRIPT = 100_000;
+
+export const BROWSER_AGENT_TEXT = {
+  adminOnly: 'Браузер доступен только администратору',
+  unsupported: 'Браузер вживую работает только на Mac',
   badUrl: 'Нужен адрес страницы http(s) в data.url',
-  badWindowId: 'windowId — номер окна Safari (целое число из ответа safari.show)',
-  shown: (title: string, windowId: number) =>
-    `Окно «${title}» (windowId ${windowId}) показано Диме справа в Neo3 вживую (невидимый экран). `
-    + `Следующую страницу открывай в нём же: safari.show {data:{windowId:${windowId}, url:"<адрес>"}}. Safari вперёд не выводи и не прячь.`,
+  noPage: 'Страницы нет — сначала browser.open {data:{url:"<адрес>"}}',
+  closeHint: 'Закончишь со страницей — сразу browser.close.',
+  opened: (title: string, url: string, loading: boolean) =>
+    `Открыта «${title || url}» (${url})${loading ? ', ещё загружается' : ''}. Дима видит страницу справа в Neo3, вкладка «Браузер». `
+    + 'Закончишь со страницей — сразу browser.close.',
 } as const;
-
-export type SafariShowResult = { windowId: number; title: string; message: string };
 
 export type SafariLiveActionsOptions = {
   service: SafariLiveService;
@@ -36,118 +58,181 @@ export type SafariLiveActionsOptions = {
   modOn: (userId: number) => boolean;
   isAdmin: (userId: number) => boolean;
   notify: (userId: number, sessionId: string) => void;
+  /** Writes a screenshot, returns its path. Default `~/.cloudcli/browser-shots/<sessionId>/<time>.jpg`. */
+  saveShot?: (sessionId: string, jpeg: Buffer) => Promise<string>;
 };
 
 const refuse = (message: string, statusCode: number, code: string) => new AppError(message, { code, statusCode });
 
-function unavailable(message: string | undefined): AppError {
-  return refuse(`Safari вживую недоступен: ${message || 'помощник не ответил'}. Скажи Диме одной строкой`, 503, 'SAFARI_LIVE_ERROR');
+async function defaultSaveShot(sessionId: string, jpeg: Buffer): Promise<string> {
+  const folder = path.join(os.homedir(), '.cloudcli', 'browser-shots', sessionId.replace(/[^A-Za-z0-9_-]/g, '_') || 'chat');
+  await mkdir(folder, { recursive: true });
+  const file = path.join(folder, `${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`);
+  await writeFile(file, jpeg);
+  return file;
 }
 
-/** A list the agent can pick from, else the refusal text for it. */
-function assertListUsable(list: SafariWindowList): void {
-  if (list.state === 'unsupported') throw refuse(SAFARI_AGENT_TEXT.unsupported, 409, 'UNSUPPORTED');
-  if (list.state === 'no_permission') throw refuse(SAFARI_AGENT_TEXT.noPermission, 409, 'NO_PERMISSION');
-  if (list.state !== 'ok') throw unavailable(list.message);
-}
-
-function openRefusal(opened: Exclude<OpenWindowResult, { ok: true }>, windowId?: number): AppError {
-  if (opened.state === 'unsupported') return refuse(SAFARI_AGENT_TEXT.unsupported, 409, 'UNSUPPORTED');
-  if (opened.state === 'no_permission') return refuse(SAFARI_AGENT_TEXT.noPermission, 409, 'NO_PERMISSION');
-  if (opened.end === 'window_gone') {
-    return refuse(`Окно Safari ${windowId ?? ''} закрылось — открой страницу в новом окне: safari.show {data:{url:"<адрес>"}}`, 404, 'WINDOW_GONE');
+/** Helper failure → a refusal the agent can act on. */
+function refusalFor(error: unknown): AppError {
+  if (error instanceof AppError) return error;
+  if (!(error instanceof BrowserError)) {
+    return refuse(`Браузер не ответил: ${error instanceof Error ? error.message : 'ошибка'}. Скажи Диме одной строкой`, 502, 'BROWSER_ERROR');
   }
-  return unavailable(opened.message);
+  switch (error.code) {
+    case 'unsupported': return refuse(BROWSER_AGENT_TEXT.unsupported, 409, 'UNSUPPORTED');
+    case 'helper_missing': return refuse(`${error.message} — скажи Диме одной строкой`, 503, 'BROWSER_MISSING');
+    case 'bad_url': return refuse(BROWSER_AGENT_TEXT.badUrl, 400, 'BAD_URL');
+    case 'no_page':
+    case 'helper_exit': return refuse(BROWSER_AGENT_TEXT.noPage, 404, 'NO_PAGE');
+    case 'no_element': return refuse('Элемент не найден на странице — проверь selector/text через browser.read', 404, 'NO_ELEMENT');
+    case 'timeout': return refuse('Не дождался: страница или элемент не появились вовремя', 504, 'TIMEOUT');
+    case 'js_error': return refuse(`Ошибка скрипта на странице: ${error.message}`, 400, 'JS_ERROR');
+    case 'navigation_failed': return refuse(`Страница не открылась: ${error.message}`, 502, 'NAVIGATION_FAILED');
+    case 'bad_args': return refuse(`Неверные данные для браузера: ${error.message}`, 400, 'BAD_REQUEST');
+    default: return refuse(`Браузер не ответил (${error.code}). Скажи Диме одной строкой`, 502, 'BROWSER_ERROR');
+  }
 }
 
-function readWindowIdInput(raw: unknown): number | undefined {
-  if (raw === undefined || raw === null || raw === '') return undefined;
-  const windowId = Number(raw);
-  if (!Number.isSafeInteger(windowId) || windowId <= 0) throw refuse(SAFARI_AGENT_TEXT.badWindowId, 400, 'BAD_REQUEST');
-  return windowId;
-}
+const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value : undefined);
+const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
+const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
+const where = (reply: BrowserReply) => ({ url: String(reply.url ?? ''), title: String(reply.title ?? '') });
 
 export function createSafariLiveActions(options: SafariLiveActionsOptions) {
   const { service, bindings, modOn, isAdmin, notify } = options;
+  const saveShot = options.saveShot ?? defaultSaveShot;
 
-  /**
-   * Which window to show: `url` alone → a NEW window of the agent (never Dima's front window);
-   * `windowId` (+ `url` → navigate it) → that window; else the newest titled window,
-   * or the newest whose title contains `titleContains`.
-   */
-  async function resolveTarget(data: Record<string, unknown>): Promise<{ target: SafariWindow; shown: EnsureDisplayResult | null }> {
-    const url = data.url === undefined || data.url === null || data.url === '' ? undefined : normalizePageUrl(data.url);
-    if (url === null) throw refuse(SAFARI_AGENT_TEXT.badUrl, 400, 'BAD_URL');
-    const windowId = readWindowIdInput(data.windowId);
+  /** Page the chat works on: its binding (the user or `safari.show {pageId}` may point it elsewhere), else its own. */
+  const pageOf = (sessionId: string) => bindings.get(sessionId)?.pageId ?? chatPageId(sessionId);
 
-    if (url && windowId === undefined) {
-      // The display first: the new window then spends no time on Dima's screen.
-      const shown = await service.ensureDisplay();
-      const opened = await service.openWindow(url);
-      if (!opened.ok) throw openRefusal(opened);
-      return { target: { windowId: opened.windowId, title: url, onScreen: false, width: 0, height: 0 }, shown };
-    }
-    if (windowId !== undefined) {
-      if (url) {
-        const opened = await service.openWindow(url, windowId);
-        if (!opened.ok) throw openRefusal(opened, windowId);
-      }
-      const list = await service.listWindows();
-      assertListUsable(list);
-      const found = list.windows.find((candidate) => candidate.windowId === windowId);
-      if (!found) {
-        throw refuse(`Окна Safari с windowId ${windowId} нет — открой страницу в новом окне: safari.show {data:{url:"<адрес>"}}`, 404, 'WINDOW_NOT_FOUND');
-      }
-      return { target: { ...found, title: found.title.trim() || url || found.title }, shown: null };
-    }
-
-    const titleContains = typeof data.titleContains === 'string' ? data.titleContains.trim() : '';
-    const { window, list } = await service.pickWindow(titleContains || undefined);
-    assertListUsable(list);
-    if (!window) {
-      const titled = list.windows.filter(isTitledWindow);
-      if (titleContains && titled.length > 0) {
-        const titles = titled.map((candidate) => `«${candidate.title}»`).join(', ');
-        throw refuse(`Окна Safari с «${titleContains}» в заголовке нет. Открытые окна: ${titles}`, 404, 'WINDOW_NOT_FOUND');
-      }
-      throw refuse(SAFARI_AGENT_TEXT.noWindows, 404, 'NO_WINDOWS');
-    }
-    return { target: window, shown: null };
-  }
-
-  async function showForAgent(userId: number, sessionId: string, data: Record<string, unknown> = {}): Promise<SafariShowResult> {
-    if (!isAdmin(userId)) throw refuse(SAFARI_AGENT_TEXT.adminOnly, 403, 'FORBIDDEN');
-    if (!modOn(userId)) throw modOffError('modSafariLive');
-
-    const resolved = await resolveTarget(data);
-    const window = resolved.target;
-    const shown = resolved.shown ?? await service.ensureDisplay();
-    if (!shown.ok) {
-      bindings.set(sessionId, { windowId: window.windowId, title: window.title, boundBy: 'agent' });
-      notify(userId, sessionId);
-      throw refuse(
-        `Окно «${window.title}» (windowId ${window.windowId}) привязано к чату, но невидимый экран не создан (${shown.message}) — картинка может быть пустой. Safari вперёд не выводи; скажи Диме одной строкой`,
-        502,
-        'DISPLAY_FAILED',
-      );
-    }
-    const placed = await service.placeOnDisplay(window.windowId);
-    if (!placed.ok && placed.end === 'window_gone') {
-      throw refuse(`Окно Safari «${window.title}» закрылось, пока его переносили — открой страницу заново и повтори safari.show`, 404, 'WINDOW_GONE');
-    }
-    bindings.set(sessionId, { windowId: window.windowId, title: window.title, boundBy: 'agent' });
+  async function open(userId: number, sessionId: string, rawUrl: unknown) {
+    const url = normalizePageUrl(rawUrl);
+    if (!url) throw refuse(BROWSER_AGENT_TEXT.badUrl, 400, 'BAD_URL');
+    const pageId = chatPageId(sessionId);
+    const page = await service.openPage(pageId, url);
+    bindings.set(sessionId, { pageId, url: page.url, title: page.title, boundBy: 'agent' });
     notify(userId, sessionId);
-    if (!placed.ok) {
-      throw refuse(
-        `Окно «${window.title}» (windowId ${window.windowId}) привязано к чату, но не перенесено на невидимый экран (${placed.message || 'ошибка'}) — картинка может быть пустой. Safari вперёд не выводи; скажи Диме одной строкой`,
-        502,
-        'PLACE_FAILED',
-      );
-    }
-    return { windowId: window.windowId, title: window.title, message: SAFARI_AGENT_TEXT.shown(window.title, window.windowId) };
+    return { pageId, url: page.url, title: page.title, loading: page.loading, message: BROWSER_AGENT_TEXT.opened(page.title, page.url, page.loading) };
   }
 
-  return { showForAgent };
+  /** `safari.show {pageId}` (or the older `windowId`) — show an already open page in this chat. */
+  async function bindOpenPage(userId: number, sessionId: string, wanted: string) {
+    const list = await service.listWindows();
+    const page = list.windows.find((candidate) => candidate.pageId === wanted);
+    if (!page) {
+      const open = list.windows.map((candidate) => `«${candidate.pageId}»`).join(', ');
+      throw refuse(`Страницы ${wanted} нет${open ? ` (открыты: ${open})` : ''} — открой её: browser.open {data:{url:"<адрес>"}}`, 404, 'NO_PAGE');
+    }
+    bindings.set(sessionId, { pageId: page.pageId, url: page.url, title: page.title, boundBy: 'agent' });
+    notify(userId, sessionId);
+    return { pageId: page.pageId, url: page.url, title: page.title, loading: false, message: BROWSER_AGENT_TEXT.opened(page.title, page.url, false) };
+  }
+
+  async function perform(userId: number, sessionId: string, action: string, data: Record<string, unknown>): Promise<unknown> {
+    const pageId = () => pageOf(sessionId);
+    switch (action) {
+      case 'browser.open':
+        return open(userId, sessionId, data.url);
+
+      case 'safari.show': {
+        if (data.url !== undefined && data.url !== null && data.url !== '') return open(userId, sessionId, data.url);
+        const wanted = text(data.pageId) ?? (data.windowId !== undefined && data.windowId !== null ? String(data.windowId) : undefined);
+        return bindOpenPage(userId, sessionId, wanted ?? chatPageId(sessionId));
+      }
+
+      case 'browser.click': {
+        const args: Record<string, unknown> = {};
+        const x = finite(data.x);
+        const y = finite(data.y);
+        if (x !== undefined && y !== undefined) Object.assign(args, { x, y });
+        else if (text(data.selector)) args.selector = data.selector;
+        else if (text(data.text)) args.text = data.text;
+        else throw refuse('Нужен data.selector, data.text или data.x и data.y', 400, 'BAD_REQUEST');
+        const reply = await service.command('click', pageId(), args);
+        return { ...where(reply), x: reply.x, y: reply.y };
+      }
+
+      case 'browser.type': {
+        if (typeof data.text !== 'string' || !data.text) throw refuse('Нужен data.text', 400, 'BAD_REQUEST');
+        const args: Record<string, unknown> = { text: data.text };
+        if (text(data.selector)) args.selector = data.selector;
+        let reply = await service.command('type', pageId(), args);
+        if (data.submit === true) reply = await service.command('press', pageId(), { key: 'Enter' });
+        // The typed text is not echoed back.
+        return { ...where(reply), typed: data.text.length, submitted: data.submit === true };
+      }
+
+      case 'browser.press': {
+        if (typeof data.key !== 'string' || !KEYS.includes(data.key)) throw refuse(`data.key — одна из клавиш: ${KEYS.join(', ')}`, 400, 'BAD_REQUEST');
+        return where(await service.command('press', pageId(), { key: data.key }));
+      }
+
+      case 'browser.scroll': {
+        const args: Record<string, unknown> = { dy: clamp(finite(data.dy) ?? 600, -20_000, 20_000) };
+        const x = finite(data.x);
+        const y = finite(data.y);
+        if (x !== undefined && y !== undefined) Object.assign(args, { x, y });
+        return where(await service.command('scroll', pageId(), args));
+      }
+
+      case 'browser.read': {
+        const format = data.format === undefined ? 'text' : data.format;
+        if (format !== 'text' && format !== 'html' && format !== 'links') throw refuse('data.format — text, html или links', 400, 'BAD_REQUEST');
+        const max = Math.round(clamp(finite(data.max) ?? DEFAULT_READ_MAX, 100, MAX_READ));
+        const args: Record<string, unknown> = { format, max };
+        if (text(data.selector)) args.selector = data.selector;
+        const reply = await service.command('read', pageId(), args);
+        const result: Record<string, unknown> = { ...where(reply), content: String(reply.content ?? ''), truncated: reply.truncated === true };
+        if (reply.truncated === true) result.message = `Обрезано до ${max} символов — сузь data.selector или подними data.max (до ${MAX_READ})`;
+        return result;
+      }
+
+      case 'browser.eval': {
+        if (typeof data.js !== 'string' || !data.js.trim() || data.js.length > MAX_SCRIPT) throw refuse('Нужен data.js — выражение или код JavaScript', 400, 'BAD_REQUEST');
+        const reply = await service.command('eval', pageId(), { js: data.js });
+        return reply.truncated === true ? { result: reply.result, truncated: true } : { result: reply.result };
+      }
+
+      case 'browser.wait': {
+        const args: Record<string, unknown> = {};
+        if (text(data.selector)) args.selector = data.selector;
+        const ms = finite(data.ms);
+        if (ms !== undefined) args.ms = Math.round(clamp(ms, 0, 30_000));
+        const reply = await service.command('wait', pageId(), args);
+        return { ...where(reply), found: reply.found === true || undefined };
+      }
+
+      case 'browser.screenshot': {
+        const reply = await service.command('snapshot', pageId(), { maxWidth: 1280, quality: 0.8 });
+        if (typeof reply.jpeg !== 'string' || !reply.jpeg) throw refuse('Снимок не получился — повтори', 502, 'BROWSER_ERROR');
+        const file = await saveShot(sessionId, Buffer.from(reply.jpeg, 'base64'));
+        return { path: file, width: reply.width, height: reply.height, message: `Снимок страницы: ${file}` };
+      }
+
+      case 'browser.close': {
+        const closed = await service.closePage(pageId());
+        return {
+          ...closed,
+          message: closed.unloaded ? 'Страница закрыта, браузер выгружен из памяти' : 'Страница закрыта',
+        };
+      }
+
+      default:
+        throw refuse('Неизвестное действие браузера', 400, 'BAD_REQUEST');
+    }
+  }
+
+  async function run(userId: number, sessionId: string, action: string, data: Record<string, unknown> = {}): Promise<unknown> {
+    if (!isAdmin(userId)) throw refuse(BROWSER_AGENT_TEXT.adminOnly, 403, 'FORBIDDEN');
+    if (!modOn(userId)) throw modOffError('modSafariLive');
+    try {
+      return await perform(userId, sessionId, action, data);
+    } catch (error) {
+      throw refusalFor(error);
+    }
+  }
+
+  return { run };
 }
 
 const productionActions = createSafariLiveActions({
@@ -163,5 +248,5 @@ const productionActions = createSafariLiveActions({
   },
 });
 
-/** Production `safari.show` used by `workspace_action`. */
-export const showForAgent = productionActions.showForAgent;
+/** Production `browser.*` / `safari.show` used by `workspace_action`. */
+export const runBrowserAction = productionActions.run;

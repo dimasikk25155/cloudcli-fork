@@ -184,35 +184,46 @@ test('settings.propose stores a suggestion through the profile service and chang
         db.close();
     }
 });
-test('safari.show passes this chat, url, windowId and titleContains to Safari live; its refusals keep their status for the agent', async () => {
+test('browser.* and safari.show go to the browser with this chat and only browser fields; its refusals keep their status for the agent', async () => {
     const { db, deps, revoke } = fixture();
     try {
-        const calls: Array<[number, string, Record<string, unknown>]> = [];
+        const calls: Array<[number, string, string, Record<string, unknown>]> = [];
         let refusal: AppError | null = null;
-        const safariLive = {
-            show: async (userId: number, sessionId: string, data: Record<string, unknown>) => {
-                calls.push([userId, sessionId, data]);
+        const browser = {
+            run: async (userId: number, sessionId: string, action: string, data: Record<string, unknown>) => {
+                calls.push([userId, sessionId, action, data]);
                 if (refusal) throw refusal;
-                return { windowId: 345, title: 'Kwork', message: 'Окно «Kwork» показано Диме справа в Neo3 вживую' };
+                return { pageId: 'chat-session', url: 'https://kwork.ru/', title: 'Kwork', message: 'Открыта «Kwork»' };
             },
         };
-        const tools = createWorkspaceTools(deps, { safariLive });
-        const shown = await tools.call(1, 'session', { action: 'safari.show', data: { titleContains: 'kwork' } }) as { windowId: number; message: string };
-        assert.equal(shown.windowId, 345);
-        assert.match(shown.message, /вживую/);
-        await tools.call(1, 'session', { action: 'safari.show' });
-        await tools.call(1, 'session', { action: 'safari.show', data: { url: 'https://example.com/', windowId: 345, other: 'x' } });
-        assert.deepEqual(calls, [[1, 'session', { titleContains: 'kwork' }], [1, 'session', {}], [1, 'session', { url: 'https://example.com/', windowId: 345 }]]);
+        const tools = createWorkspaceTools(deps, { browser });
+        const opened = await tools.call(1, 'session', { action: 'browser.open', data: { url: 'https://kwork.ru/' } }) as { pageId: string };
+        assert.equal(opened.pageId, 'chat-session');
+        await tools.call(1, 'session', { action: 'browser.click', data: { selector: '#go', projectId: 'other', sessionId: 'x' } });
+        await tools.call(1, 'session', { action: 'browser.type', data: { text: 'q', selector: '#q', submit: true } });
+        for (const action of ['browser.press', 'browser.scroll', 'browser.read', 'browser.eval', 'browser.wait', 'browser.screenshot', 'browser.close']) {
+            await tools.call(1, 'session', { action });
+        }
+        await tools.call(1, 'session', { action: 'safari.show', data: { url: 'https://example.com/', windowId: 'chat-x' } });
+        assert.deepEqual(calls.slice(0, 3), [
+            [1, 'session', 'browser.open', { url: 'https://kwork.ru/' }],
+            [1, 'session', 'browser.click', { selector: '#go' }],
+            [1, 'session', 'browser.type', { text: 'q', selector: '#q', submit: true }],
+        ]);
+        assert.deepEqual(calls.at(-1), [1, 'session', 'safari.show', { url: 'https://example.com/', windowId: 'chat-x' }]);
+        assert.equal(calls.length, 11);
 
-        refusal = new AppError('Safari вживую доступен только администратору', { code: 'FORBIDDEN', statusCode: 403 });
-        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'safari.show' })), (error: { statusCode?: number; message: string; constructor: { name: string } }) => error.statusCode === 403 && /администратору/.test(error.message) && error.constructor.name === 'WorkspaceError');
+        refusal = new AppError('Браузер доступен только администратору', { code: 'FORBIDDEN', statusCode: 403 });
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'browser.read' })), (error: { statusCode?: number; message: string; constructor: { name: string } }) => error.statusCode === 403 && /администратору/.test(error.message) && error.constructor.name === 'WorkspaceError');
         refusal = new AppError('Мод выключен', { code: 'MOD_OFF', statusCode: 409 });
         await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'safari.show' })), (error: { statusCode?: number }) => error.statusCode === 409);
+        // An unknown browser action is not delegated.
+        assert.throws(() => tools.call(1, 'session', { action: 'browser.download' }), (error: { statusCode?: number }) => error.statusCode === 403);
 
-        // A chat the user no longer has access to never reaches Safari live.
+        // A chat the user no longer has access to never reaches the browser.
         revoke();
-        assert.throws(() => tools.call(1, 'session', { action: 'safari.show' }), (error: { statusCode?: number }) => error.statusCode === 403);
-        assert.equal(calls.length, 5);
+        assert.throws(() => tools.call(1, 'session', { action: 'browser.open', data: { url: 'https://kwork.ru/' } }), (error: { statusCode?: number }) => error.statusCode === 403);
+        assert.equal(calls.length, 13);
     }
     finally {
         db.close();

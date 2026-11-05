@@ -250,7 +250,7 @@ export type GatewayEventKind =
    */
   | 'sidebar_groups_changed'
   /**
-   * «Safari вживую»: a chat's Safari window binding changed. Carries only
+   * «Браузер вживую»: a chat's browser page binding changed. Carries only
    * `{kind, sessionId}`, sent only to that user's sockets; clients re-read
    * `GET /api/safari-live/sessions/:sessionId`. Not a chat row.
    * Mirrored in `src/types/app.ts` `GatewayEventKind`.
