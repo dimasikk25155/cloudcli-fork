@@ -27,7 +27,7 @@ import { isAdminUser } from '@/shared/project-access.js';
 import { AppError } from '@/shared/utils.js';
 
 import { withAgentBrief } from '../../../shared/agent-brief.js';
-import { parseVerdict, VERDICT_INSTRUCTION, type QueueVerdict } from '../../../shared/queue-verdict.js';
+import { NO_FAIL_REASON, parseVerdict, VERDICT_INSTRUCTION, type QueueVerdict } from '../../../shared/queue-verdict.js';
 
 // ---------------------------------------------------------------------------
 // Limits
@@ -314,7 +314,8 @@ export function createAgentQueueService(dependencies: AgentQueueDependencies = {
   }
 
   async function attempt(queue: AgentQueueRow, agent: QueueAgent, item: AgentQueueItemRow, brief: string): Promise<void> {
-    const previousFail = item.verdict === 'fail' && item.reason ? item.reason : null;
+    // A FAIL is always retried with a reason — an old row may hold an empty one.
+    const previousFail = item.verdict === 'fail' ? (item.reason || NO_FAIL_REASON) : null;
     const prompt = withAgentBrief(brief, buildQueueTask(queue.template, item.input, previousFail));
     let verdict: QueueVerdict;
     let answer = '';

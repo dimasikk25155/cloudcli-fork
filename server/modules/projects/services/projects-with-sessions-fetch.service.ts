@@ -5,6 +5,7 @@ import { agentsDb, projectsDb, sessionsDb, userProjectAccessDb, type SessionLink
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { linksForRows, type SessionLinks } from '@/modules/session-links/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
+import { isAdminUser } from '@/shared/project-access.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -19,7 +20,10 @@ type SessionSummary = {
   effort: string | null;
   /** Chat links (relay / thread) for the sidebar; `{children: []}` when none. */
   links: SessionLinks;
-  /** «Агенты»: name of the agent this chat belongs to; absent for other chats. */
+  /**
+   * «Агенты»: name of the agent this chat belongs to; absent for other chats
+   * and always absent for a non-admin requester (agents are an admin tool).
+   */
   agentName?: string;
 };
 
@@ -92,6 +96,20 @@ type SessionPaginationOptions = {
   limit?: number;
   offset?: number;
 };
+
+type SessionSummaryOptions = {
+  includeArchived?: boolean;
+  /** Mark chats of an agent with `agentName` — only for an admin requester. */
+  agentNames?: boolean;
+};
+
+/**
+ * Agent labels go only to an admin (role read from the database by
+ * `isAdminUser`, not from the token). No requester → no labels (fail-closed).
+ */
+function showsAgentNames(requestingUser?: RequestingUser): boolean {
+  return Boolean(requestingUser) && isAdminUser({ id: requestingUser?.id });
+}
 
 type ProjectSessionsPageResult = {
   sessions: SessionSummary[];
@@ -168,10 +186,12 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
 }
 
 /** Rows → sidebar summaries with their chat links. */
-function mapSessionRowsToSummaries(rows: Array<SessionRepositoryRow & SessionLinkRow>, options: { includeArchived?: boolean } = {}): SessionSummary[] {
+function mapSessionRowsToSummaries(rows: Array<SessionRepositoryRow & SessionLinkRow>, options: SessionSummaryOptions = {}): SessionSummary[] {
   // Rows already carry parent_session_id / relation: only parents and children are read.
-  const links = linksForRows(rows, options);
-  const agentNames = agentsDb.agentNamesForSessions(rows.map((row) => row.session_id));
+  const links = linksForRows(rows, { includeArchived: options.includeArchived });
+  const agentNames = options.agentNames
+    ? agentsDb.agentNamesForSessions(rows.map((row) => row.session_id))
+    : new Map<string, string>();
   return rows.map((row) => {
     const summary: SessionSummary = {
       ...mapSessionRowToSummary(row),
@@ -183,11 +203,11 @@ function mapSessionRowsToSummaries(rows: Array<SessionRepositoryRow & SessionLin
   });
 }
 
-function readProjectSessionsIncludingArchived(projectPath: string): ProjectSessionsPageResult {
+function readProjectSessionsIncludingArchived(projectPath: string, agentNames: boolean): ProjectSessionsPageResult {
   const rows = sessionsDb.getSessionsByProjectPathIncludingArchived(projectPath);
 
   return {
-    sessions: mapSessionRowsToSummaries(rows, { includeArchived: true }),
+    sessions: mapSessionRowsToSummaries(rows, { includeArchived: true, agentNames }),
     total: rows.length,
     hasMore: false,
   };
@@ -198,7 +218,7 @@ function readProjectSessionsIncludingArchived(projectPath: string): ProjectSessi
  */
 function readProjectSessionsPageByPath(
   projectPath: string,
-  options: SessionPaginationOptions = {},
+  options: SessionPaginationOptions & { agentNames?: boolean } = {},
 ): ProjectSessionsPageResult {
   const pagination = normalizeSessionPagination(options);
   const rows = sessionsDb.getSessionsByProjectPathPage(
@@ -209,7 +229,7 @@ function readProjectSessionsPageByPath(
   const total = sessionsDb.countSessionsByProjectPath(projectPath);
 
   return {
-    sessions: mapSessionRowsToSummaries(rows),
+    sessions: mapSessionRowsToSummaries(rows, { agentNames: options.agentNames }),
     total,
     hasMore: pagination.offset + rows.length < total,
   };
@@ -247,6 +267,7 @@ export async function getProjectsWithSessions(
     isStarred?: number;
   }>;
   const projectRows = filterProjectRowsForRequester(allProjectRows, options.requestingUser);
+  const agentNames = showsAgentNames(options.requestingUser);
   const totalProjects = projectRows.length;
   const projects: ProjectListItem[] = [];
   let processedProjects = 0;
@@ -272,6 +293,7 @@ export async function getProjectsWithSessions(
     const sessionsPage = readProjectSessionsPageByPath(projectPath, {
       limit: options.sessionsLimit,
       offset: options.sessionsOffset,
+      agentNames,
     });
 
     projects.push({
@@ -316,6 +338,7 @@ export async function getArchivedProjectsWithSessions(
     isStarred?: number;
   }>;
   const projectRows = filterProjectRowsForRequester(allProjectRows, options.requestingUser);
+  const agentNames = showsAgentNames(options.requestingUser);
 
   const archivedProjects: ArchivedProjectListItem[] = [];
 
@@ -325,7 +348,7 @@ export async function getArchivedProjectsWithSessions(
         ? row.custom_project_name
         : await generateDisplayName(path.basename(row.project_path) || row.project_path, row.project_path);
 
-    const sessionsPage = readProjectSessionsIncludingArchived(row.project_path);
+    const sessionsPage = readProjectSessionsIncludingArchived(row.project_path, agentNames);
 
     archivedProjects.push({
       projectId: row.project_id,
@@ -346,11 +369,13 @@ export async function getArchivedProjectsWithSessions(
 }
 
 /**
- * Loads one paginated session slice for a specific project id.
+ * Loads one paginated session slice for a specific project id. The caller has
+ * already checked access to the project; `requestingUser` only decides
+ * whether agent labels are included (admins only).
  */
 export async function getProjectSessionsPage(
   projectId: string,
-  options: SessionPaginationOptions = {},
+  options: SessionPaginationOptions & { requestingUser?: RequestingUser } = {},
 ): Promise<ProjectSessionsPageApiView> {
   const projectRow = projectsDb.getProjectById(projectId);
   if (!projectRow) {
@@ -360,7 +385,11 @@ export async function getProjectSessionsPage(
     });
   }
 
-  const sessionsPage = readProjectSessionsPageByPath(projectRow.project_path, options);
+  const sessionsPage = readProjectSessionsPageByPath(projectRow.project_path, {
+    limit: options.limit,
+    offset: options.offset,
+    agentNames: showsAgentNames(options.requestingUser),
+  });
   return {
     projectId: projectRow.project_id,
     sessions: sessionsPage.sessions,

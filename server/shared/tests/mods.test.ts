@@ -77,13 +77,14 @@ test('every mod of the workbench build names its support in Claude, Codex and Gr
   }
 });
 
-test('answer buttons need «Ждут тебя», artifact editing and Safari live need «Рабочий стол», the queue needs agents; no other mod depends on another', () => {
+test('answer buttons and key requests need «Ждут тебя», artifact editing and Safari live need «Рабочий стол», the queue needs agents; no other mod depends on another', () => {
   const withRequires = MODS.filter((mod) => mod.requires);
   assert.deepEqual(withRequires.map((mod) => [mod.key, mod.requires]).sort(), [
     ['modAgentQueue', 'modAgents'],
     ['modAnswerButtons', 'modAttention'],
     ['modArtifactEditor', 'modWorkbench'],
     ['modSafariLive', 'modWorkbench'],
+    ['modSecretRequest', 'modAttention'],
   ]);
 });
 

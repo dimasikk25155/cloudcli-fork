@@ -1,6 +1,7 @@
 /**
  * «ВЕРДИКТ»: the self-check line every queue answer ends with
- * (`ВЕРДИКТ: OK` or `ВЕРДИКТ: FAIL — причина`). No line = FAIL «нет вердикта».
+ * (`ВЕРДИКТ: OK` or `ВЕРДИКТ: FAIL — причина`). No line = FAIL «нет вердикта»;
+ * FAIL with an empty reason = «причина не указана» — брак always says why.
  * No database here.
  */
 
@@ -11,6 +12,8 @@ export const VERDICT_INSTRUCTION = '\n\nПеред ответом проверь
   + '«ВЕРДИКТ: OK», если всё сделано и проверено, или «ВЕРДИКТ: FAIL — причина», если нет.';
 
 const NO_VERDICT = 'нет вердикта';
+/** Reason of a FAIL the agent left empty. */
+export const NO_FAIL_REASON = 'причина не указана';
 
 // «ВЕРДИКТ: FAIL — причина»; VERDICT in Latin, OK in Cyrillic, «-», «–», «—» or «:» before the reason.
 const VERDICT_LINE = /^(?:ВЕРДИКТ|VERDICT)\s*[:：]?\s*(OK|ОК|FAIL)(?![\p{L}\p{N}])\s*(?:[—–\-:]\s*)?(.*)$/iu;
@@ -27,7 +30,8 @@ export function parseVerdict(text: string): QueueVerdict {
     const match = VERDICT_LINE.exec(bare(lines[index]));
     if (!match) continue;
     const verdict = match[1].toUpperCase() === 'FAIL' ? 'fail' : 'ok';
-    return { verdict, reason: bare(match[2] ?? '') };
+    const reason = bare(match[2] ?? '');
+    return { verdict, reason: verdict === 'fail' && !reason ? NO_FAIL_REASON : reason };
   }
   return { verdict: 'fail', reason: NO_VERDICT };
 }

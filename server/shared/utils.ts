@@ -104,13 +104,34 @@ export class AppError extends Error {
   }
 }
 
+/** `express.json()` could not parse the body (`type: 'entity.parse.failed'`). */
+function isJsonParseFailure(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { type?: unknown }).type === 'entity.parse.failed';
+}
+
 /**
- * The app's global error middleware (last in `server/index.js`): AppError →
+ * The app's global error middleware (last in `server/index.js`): broken JSON
+ * body → 400 INVALID_JSON without the body in the log; AppError →
  * its status and `{success:false, error:{code, message, details}}`; anything
  * else → 500 INTERNAL_ERROR. Exported so route tests answer exactly as production.
  * Four parameters on purpose: Express tells error middleware by its arity.
  */
-export function apiErrorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+export function apiErrorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
+  // Broken JSON from `express.json()`: the error carries the raw body (`err.body`)
+  // and its message may quote a piece of it — e.g. a key typed into «Запрос ключа».
+  // Neither goes to the log or the answer.
+  if (isJsonParseFailure(err)) {
+    console.error(`[api] invalid JSON body (${req.method})`);
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'INVALID_JSON',
+        message: 'Тело запроса — не JSON',
+      },
+    });
+    return;
+  }
+
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
       success: false,

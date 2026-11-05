@@ -184,6 +184,19 @@ describe('secret requests', () => {
     await assert.rejects(service.list(ADMIN), (error: { code?: string }) => error.code === 'MOD_OFF');
   });
 
+  it('«Ждут тебя» switched off: secret.request is refused at once with the mod-off text instead of hanging with no card to answer', async () => {
+    const { service, mods, captured } = setup({ waitMs: 60_000 });
+    mods.set('modAttention', false);
+    const started = Date.now();
+    await assert.rejects(
+      service.request(ADMIN, 'chat-1', { name: 'GOOD_NAME', why: 'x' }),
+      (error: { code?: string; message: string }) => error.code === 'MOD_OFF' && error.message === modOffMessage('modSecretRequest'),
+    );
+    assert.ok(Date.now() - started < 1_000, 'answered right away, not after the wait');
+    assert.deepEqual(captured.notices, [], 'no push for a card nobody can see');
+    await assert.rejects(service.list(ADMIN), (error: { code?: string }) => error.code === 'MOD_OFF');
+  });
+
   it('an unknown or foreign request id is «нет такого запроса»', async () => {
     const { service } = setup({ isAdmin: () => true });
     void service.request(ADMIN, 'chat-1', { name: 'OWN_KEY', why: 'x' });

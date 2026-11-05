@@ -254,6 +254,8 @@ export const MODS: readonly ModDef[] = [
     description:
       'Агент просит ключ по имени, ты вводишь значение в скрытое поле в «Ждут тебя» — оно уходит в файл секретов. '
       + 'Агент узнаёт только имя, значение не видит никогда. Только администратору.',
+    // The card lives in «Ждут тебя»: without it the agent would wait for an answer nobody can give.
+    requires: 'modAttention',
     engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
 ];

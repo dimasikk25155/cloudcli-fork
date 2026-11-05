@@ -23,6 +23,13 @@ test('case does not matter, the Latin VERDICT works too, markdown around the lin
   assert.equal(parseVerdict('**ВЕРДИКТ: OK**').verdict, 'ok');
 });
 
+test('FAIL without a reason always carries one: «причина не указана»', () => {
+  for (const line of ['ВЕРДИКТ: FAIL', 'ВЕРДИКТ: FAIL —', 'ВЕРДИКТ: FAIL - ', '**VERDICT: fail**']) {
+    assert.deepEqual(parseVerdict(`Готово.\n${line}`), { verdict: 'fail', reason: 'причина не указана' }, line);
+  }
+  assert.deepEqual(parseVerdict('ВЕРДИКТ: OK'), { verdict: 'ok', reason: '' }, 'OK needs no reason');
+});
+
 test('no verdict line → fail «нет вердикта»', () => {
   assert.deepEqual(parseVerdict('Сделал всё, что мог.'), { verdict: 'fail', reason: 'нет вердикта' });
   assert.deepEqual(parseVerdict(''), { verdict: 'fail', reason: 'нет вердикта' });

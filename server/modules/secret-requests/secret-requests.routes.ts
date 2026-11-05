@@ -1,14 +1,14 @@
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 
-import { isModOn, modOffError } from '@/shared/mods.js';
+import { isModActive, modOffError } from '@/shared/mods.js';
 import { asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
 import type { SecretRequestsService } from './secret-requests.service.js';
 
 export type SecretRequestsRouterOptions = {
   service: SecretRequestsService;
-  /** «Запрос ключа» works for this user (default: `modSecretRequest`). */
+  /** «Запрос ключа» works for this user (default: `modSecretRequest` with the «Ждут тебя» it requires). */
   modOn?: (userId: unknown) => boolean;
 };
 
@@ -26,11 +26,11 @@ function userIdOf(req: Request): number {
  *   secrets file and is dropped from the request body right after;
  * - `POST /:id/decline` → `{message}`.
  *
- * Mod «Запрос ключа» off → 409 MOD_OFF.
+ * Mod «Запрос ключа» (or «Ждут тебя» it requires) off → 409 MOD_OFF.
  */
 export function createSecretRequestsRouter(options: SecretRequestsRouterOptions) {
   const { service } = options;
-  const modOn = options.modOn ?? ((userId: unknown) => isModOn(userId as number, 'modSecretRequest'));
+  const modOn = options.modOn ?? ((userId: unknown) => isModActive(userId as number, 'modSecretRequest'));
   const router = express.Router();
 
   router.use((req: Request, _res: Response, next: NextFunction) => {

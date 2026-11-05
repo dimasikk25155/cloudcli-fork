@@ -51,7 +51,14 @@ export type GatewayEventKind =
    * `GET /api/safari-live/sessions/:sessionId`. Not a chat row.
    * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
    */
-  | 'safari_live_changed';
+  | 'safari_live_changed'
+  /**
+   * «Запрос ключа»: an agent's key requests changed. Без содержимого
+   * (`{kind}`, ни имени, ни значения), sent only to that admin's sockets;
+   * clients re-read `GET /api/secret-requests`. Not a chat row.
+   * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
+   */
+  | 'secret_requests_changed';
 
 /**
  * «Safari вживую» — `GET /api/safari-live/sessions/:sessionId`.

@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { isModOn as defaultIsModOn, modOffError, type IsModOn } from '@/shared/mods.js';
+import { isModActive, isModOn as defaultIsModOn, modOffError, type IsModOn } from '@/shared/mods.js';
 import { AppError } from '@/shared/utils.js';
 
 export const SECRET_REQUEST_NAME_RE = /^[A-Z][A-Z0-9_]{2,63}$/;
@@ -114,7 +114,9 @@ export function createSecretRequestsService(deps: SecretRequestsDependencies) {
 
   function allow(userId: number): void {
     if (!deps.isAdmin(userId)) refuse('ADMIN_ONLY', 'Ключи просит и сохраняет только администратор', 403);
-    if (!isModOn(userId, 'modSecretRequest')) throw modOffError('modSecretRequest');
+    // `requires: 'modAttention'`: without «Ждут тебя» there is no card to answer —
+    // the agent gets the refusal now instead of waiting 10 minutes for nothing.
+    if (!isModActive(userId, 'modSecretRequest', isModOn)) throw modOffError('modSecretRequest');
   }
 
   function prune(): void {

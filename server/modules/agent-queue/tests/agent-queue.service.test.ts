@@ -235,6 +235,21 @@ test('FAIL is redone with the reason of the previous attempt; OK finishes the it
   });
 });
 
+test('FAIL with no reason: the item shows «причина не указана» and the retry gets it as the reason of the previous attempt', async () => {
+  await withWorld(async (world) => {
+    const { service, adminId, agentId, calls } = world;
+    world.setAnswer(() => 'Не вышло.\nВЕРДИКТ: FAIL');
+    const queue = service.create(adminId, { agentId, template: '{{item}}', items: ['Nokian'], maxAttempts: 2 });
+
+    await drain(world);
+    assert.equal(calls.length, 2, 'the empty-reason FAIL is retried');
+    assert.ok(calls[1].prompt.includes('Прошлая попытка не прошла проверку: причина не указана'), 'the retry knows the previous attempt failed');
+    const [item] = service.get(adminId, queue.id).items;
+    assert.equal(item.status, 'rejected');
+    assert.equal(item.reason, 'причина не указана');
+  });
+});
+
 test('after the attempt limit the item goes to «брак» with the last reason and excerpt; no verdict = FAIL', async () => {
   await withWorld(async (world) => {
     const { service, adminId, agentId, calls } = world;
