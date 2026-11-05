@@ -572,8 +572,9 @@ func runOpen() {
             "on run argv",
             "tell application \"Safari\" to set URL of current tab of window id ((item 1 of argv) as integer) to (item 2 of argv)",
             "end run",
-        ], [String(id), address]) != nil else {
-            if safariWindowHasTabs(id) != true { fail("window_gone", "Safari window \(id) closed", .windowGone) }
+        ], [String(id), address], timeout: 11) != nil else {
+            // `set URL` can block until a heavy page loads; only a confirmed «no tabs» means closed.
+            if safariWindowHasTabs(id) == false { fail("window_gone", "Safari window \(id) closed", .windowGone) }
             fail("capture_failed", "Safari did not open the page", .other)
         }
         printLine(json(["ok": true, "windowId": id]))
