@@ -17,7 +17,7 @@ import mime from 'mime-types';
 
 import { WORKSPACES_ROOT, apiErrorHandler, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
+import { createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -90,6 +90,7 @@ import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import { krabikRoutes, startKrabikWatch } from './modules/krabik/index.js';
 import { duetRoutes, startDuetWatch } from './modules/duet/index.js';
+import { agentsRoutes, agentsService } from './modules/agents/index.js';
 import { safariLiveRoutes, safariLiveService, serveSafariLiveStream } from './modules/safari-live/index.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
@@ -221,6 +222,8 @@ improvementIdeas.setRunControl(createIdeaRunControl(chatDependencies));
 btwService.setRunControl(createAutoRelayRunControl(chatDependencies));
 // Master session sends text answers through the threads run control.
 setMasterSessionRunControl(createThreadRunControl(chatDependencies));
+// «Агенты»: the first message of a chat with an agent goes through the same gateway.
+agentsService.setRunControl(createAgentRunControl(chatDependencies));
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {
@@ -368,6 +371,8 @@ app.use('/api/vps/ingest', vpsIngestRouter);
 app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
 app.use('/api/krabik', authenticateToken, requireAdmin, krabikRoutes);
 app.use('/api/duet', authenticateToken, requireAdmin, duetRoutes);
+// «Агенты»: named agents, their memory and a chat with an agent (admin only).
+app.use('/api/agents', authenticateToken, requireAdmin, agentsRoutes);
 // «Safari вживую»: windows list and chat → Safari window binding (admin only).
 app.use('/api/safari-live', authenticateToken, requireAdmin, safariLiveRoutes);
 // Sticky phone pushes (Consigliere tasks + dead bots). Public by design:

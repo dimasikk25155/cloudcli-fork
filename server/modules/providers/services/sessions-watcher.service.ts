@@ -5,7 +5,7 @@ import { promises as fsPromises } from 'node:fs';
 import chokidar, { type FSWatcher } from 'chokidar';
 
 import { codexHome } from '@/shared/codex-paths.js';
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { agentsDb, projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { broadcastProjectEvent } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
@@ -149,6 +149,12 @@ function queuePendingWatcherUpdate(
   schedulePendingWatcherFlush();
 }
 
+/** «Агенты»: `{agentName}` for a chat of an agent, nothing for other chats. */
+function agentNameOf(sessionId: string): { agentName?: string } {
+  const name = agentsDb.agentOfSession(sessionId)?.name;
+  return name ? { agentName: name } : {};
+}
+
 /**
  * Builds one `session_upserted` delta event for a provider-native session id.
  *
@@ -181,6 +187,8 @@ async function buildSessionUpsertedEvent(updatedProviderSessionId: string): Prom
       createdAt: row.created_at ?? row.updated_at ?? new Date().toISOString(),
       lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
       links: linksOfRow(row),
+      // «Агенты»: the sidebar marks a chat of an agent with its name.
+      ...agentNameOf(row.session_id),
     },
     project: project
       ? {

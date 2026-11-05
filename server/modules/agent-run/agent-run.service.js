@@ -72,7 +72,7 @@ export function resolveRunEngine({
  * value collapses to 'system' rather than being written through, so a typo
  * cannot silently create a new actor class nobody ever filters on.
  */
-const KNOWN_ACTORS = new Set(['user', 'schedule', 'pipeline', 'telegram', 'api', 'git-helper', 'duet', 'system']);
+export const KNOWN_ACTORS = new Set(['user', 'schedule', 'pipeline', 'telegram', 'api', 'git-helper', 'duet', 'queue', 'system']);
 
 /**
  * Collects engine output instead of streaming it to an HTTP response.

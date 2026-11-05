@@ -34,6 +34,9 @@ export const MOD_KEYS = [
   'modDiagnostics',
   'modArtifactEditor',
   'modSafariLive',
+  'modAgents',
+  'modAgentQueue',
+  'modSecretRequest',
 ] as const;
 
 export type ModKey = (typeof MOD_KEYS)[number];
@@ -226,6 +229,31 @@ export const MODS: readonly ModDef[] = [
       'Вкладка «Safari» на холсте: живая картинка окна Safari, в котором работает агент чата, 2–4 раза в секунду. '
       + 'Только смотреть — Safari вперёд не выходит. Только Mac и только администратору.',
     requires: 'modWorkbench',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
+  },
+  {
+    key: 'modAgents',
+    title: 'Агенты',
+    description:
+      'Именованные агенты с ролью, правилами самопроверки, движком, папкой проекта, файлами-знаниями и памятью правил. '
+      + 'Чат с агентом одной кнопкой, штаб зовёт агентов помощниками, расписание — от имени агента. Только администратору.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — роль приходит скрытым блоком в первом сообщении',
+  },
+  {
+    key: 'modAgentQueue',
+    title: 'Конвейер',
+    description:
+      'Очередь пунктов, которую разбирают 1–3 агента параллельно: каждый ответ кончается строкой «ВЕРДИКТ», '
+      + 'брак переделывается, очередь продолжается после перезапуска, итог приходит сам. Только администратору.',
+    requires: 'modAgents',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — Claude ждёт, пока 5-часовой лимит разрешит',
+  },
+  {
+    key: 'modSecretRequest',
+    title: 'Запрос ключа',
+    description:
+      'Агент просит ключ по имени, ты вводишь значение в скрытое поле в «Ждут тебя» — оно уходит в файл секретов. '
+      + 'Агент узнаёт только имя, значение не видит никогда. Только администратору.',
     engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
 ];

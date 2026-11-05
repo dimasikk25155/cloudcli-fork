@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb, userProjectAccessDb, type SessionLinkRow } from '@/modules/database/index.js';
+import { agentsDb, projectsDb, sessionsDb, userProjectAccessDb, type SessionLinkRow } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { linksForRows, type SessionLinks } from '@/modules/session-links/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
@@ -19,6 +19,8 @@ type SessionSummary = {
   effort: string | null;
   /** Chat links (relay / thread) for the sidebar; `{children: []}` when none. */
   links: SessionLinks;
+  /** «Агенты»: name of the agent this chat belongs to; absent for other chats. */
+  agentName?: string;
 };
 
 type SessionRepositoryRow = {
@@ -169,10 +171,16 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
 function mapSessionRowsToSummaries(rows: Array<SessionRepositoryRow & SessionLinkRow>, options: { includeArchived?: boolean } = {}): SessionSummary[] {
   // Rows already carry parent_session_id / relation: only parents and children are read.
   const links = linksForRows(rows, options);
-  return rows.map((row) => ({
-    ...mapSessionRowToSummary(row),
-    links: links.get(row.session_id) ?? { children: [] },
-  }));
+  const agentNames = agentsDb.agentNamesForSessions(rows.map((row) => row.session_id));
+  return rows.map((row) => {
+    const summary: SessionSummary = {
+      ...mapSessionRowToSummary(row),
+      links: links.get(row.session_id) ?? { children: [] },
+    };
+    const agentName = agentNames.get(row.session_id);
+    if (agentName) summary.agentName = agentName;
+    return summary;
+  });
 }
 
 function readProjectSessionsIncludingArchived(projectPath: string): ProjectSessionsPageResult {

@@ -21,6 +21,7 @@ export type AuditActor =
   | 'api'
   | 'git-helper'
   | 'duet'
+  | 'queue'
   | 'system';
 
 /**

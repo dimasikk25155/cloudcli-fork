@@ -580,6 +580,95 @@ CREATE TABLE IF NOT EXISTS improvement_ideas (
 CREATE INDEX IF NOT EXISTS idx_improvement_ideas_session ON improvement_ideas(session_id);
 `;
 
+// «Агенты»: named agents with a role, self-check rules, an engine and a
+// project folder (agents module). One name per user, case-insensitive.
+export const AGENTS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS agents (
+ id TEXT PRIMARY KEY NOT NULL,
+ user_id INTEGER NOT NULL,
+ name TEXT NOT NULL,
+ role TEXT NOT NULL,
+ checks TEXT NOT NULL DEFAULT '',
+ provider TEXT NOT NULL,
+ model TEXT NOT NULL,
+ effort TEXT,
+ project_path TEXT NOT NULL,
+ files TEXT NOT NULL DEFAULT '[]',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_user_name ON agents(user_id, name COLLATE NOCASE);
+`;
+
+// Agent memory with versions: every add or removal makes the next version
+// (Vn = max(version_added, version_removed)); version n = rules alive at n.
+export const AGENT_RULES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS agent_rules (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ agent_id TEXT NOT NULL,
+ text TEXT NOT NULL,
+ added_by TEXT NOT NULL DEFAULT 'user',
+ created_at TEXT NOT NULL,
+ removed_at TEXT,
+ version_added INTEGER NOT NULL,
+ version_removed INTEGER,
+ FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_rules_agent ON agent_rules(agent_id);
+`;
+
+// Which chat belongs to which agent (chat with an agent, agent thread, queue
+// item). No foreign key to sessions: a chat row may be created later or gone.
+export const AGENT_SESSIONS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS agent_sessions (
+ session_id TEXT PRIMARY KEY NOT NULL,
+ agent_id TEXT NOT NULL,
+ user_id INTEGER NOT NULL,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent ON agent_sessions(agent_id);
+`;
+
+// «Конвейер»: a queue of items worked by an agent (agent-queue module).
+export const AGENT_QUEUES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS agent_queues (
+ id TEXT PRIMARY KEY NOT NULL,
+ user_id INTEGER NOT NULL,
+ agent_id TEXT NOT NULL,
+ title TEXT NOT NULL,
+ template TEXT NOT NULL,
+ parallel INTEGER NOT NULL DEFAULT 1,
+ max_attempts INTEGER NOT NULL DEFAULT 2,
+ status TEXT NOT NULL DEFAULT 'running',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ finished_at TEXT,
+ notified_at TEXT,
+ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_queues_user ON agent_queues(user_id);
+CREATE INDEX IF NOT EXISTS idx_agent_queues_status ON agent_queues(status);
+CREATE TABLE IF NOT EXISTS agent_queue_items (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ queue_id TEXT NOT NULL,
+ position INTEGER NOT NULL,
+ input TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending',
+ attempts INTEGER NOT NULL DEFAULT 0,
+ pass INTEGER NOT NULL DEFAULT 1,
+ verdict TEXT,
+ reason TEXT,
+ excerpt TEXT,
+ session_id TEXT,
+ manual INTEGER NOT NULL DEFAULT 0,
+ updated_at TEXT NOT NULL,
+ FOREIGN KEY (queue_id) REFERENCES agent_queues(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_queue_items_queue ON agent_queue_items(queue_id, status, position);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -670,6 +759,10 @@ ${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
 ${IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL}
 ${SIDEBAR_GROUPS_TABLE_SCHEMA_SQL}
 ${SAFARI_LIVE_BINDINGS_TABLE_SCHEMA_SQL}
+${AGENTS_TABLE_SCHEMA_SQL}
+${AGENT_RULES_TABLE_SCHEMA_SQL}
+${AGENT_SESSIONS_TABLE_SCHEMA_SQL}
+${AGENT_QUEUES_TABLE_SCHEMA_SQL}
 
 ${LAST_SCANNED_AT_SQL}
 
