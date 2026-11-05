@@ -85,3 +85,27 @@
 - Один тест: `T=$(mktemp -d) && HOME=$T DATABASE_PATH=$T/auth.db node_modules/.bin/tsx --tsconfig server/tsconfig.json --test --test-timeout=30000 <путь.test.ts>`.
 - Клиент в изоляции: `node_modules/.bin/vite build --outDir "$(mktemp -d /tmp/neo3-client-check.XXXXXX)"`.
 - Не трогать: `cloudcli-fork/` и другие worktree, `dist/`, `dist-server/`, `~/.claude*`, `~/.codex`, `~/.cloudcli` (кроме временных HOME в тестах), LaunchAgents, боевой сервер.
+
+## Что построили готовые таски
+
+### T01 (агенты, фундамент) — коммит 8b9785ff
+- `agentsService` / `createAgentsService({listModels?, createSession?, broadcastUpsert?, newId?})` из `@/modules/agents/index.js`: `list(userId)`, `get(userId,id)`, `create`, `update`, `remove`, `findByName(userId,name): AgentView|null`, `rules(userId,id): AgentRulesView`, `addRule(userId,id,text,by:'user'|'agent')`, `removeRule(userId,id,ruleId)`, `briefFor(userId,agentId): string`, `startChat(userId,agentId,task): Promise<{sessionId}>`, `agentOfSession(sessionId): {id,name}|null`, `setRunControl`. Ошибки — AppError: ADMIN_ONLY 403, AGENT_NOT_FOUND 404, AGENT_NAME_TAKEN 409, RULE_LIMIT 409. Все методы, кроме `agentOfSession`, для не-админа → ADMIN_ONLY.
+- `AgentView` = поля агента без userId + `rulesVersion`; `AgentRulesView = {version, rules:[{id,text,versionAdded,addedBy}], history:[{version, added?, removed?, by?}]}` (новые сверху).
+- `agentsDb` (`@/modules/database/index.js`): create, get, listByUser, findByName, update, delete, listRules, rulesVersion, liveRuleCount, addRule, removeRule, linkSession, unlinkSession, `agentOfSession(id): {id,name,userId}|null`, `agentNamesForSessions(ids): Map`.
+- `createAgentRunControl(deps)` из `@/modules/websocket/index.js` → `{start({sessionId,userId,content,options}): boolean}`; доступ `{kind:'agent',userId}`.
+- `shared/agent-brief.ts`: `AgentBriefInput`, `buildAgentBrief`, `withAgentBrief`; `shared/queue-verdict.ts`: `QueueVerdict`, `parseVerdict`, `VERDICT_INSTRUCTION`; `KNOWN_ACTORS` (с `queue`) из `@/modules/agent-run/index.js`.
+- Таблицы `agent_queues`, `agent_queue_items` созданы по §4 (репозиториев нет — их пишет T03); `schedules` += `agent_id, notify, last_result, notified_at`. Сайдбар: `agentName?` только у чатов агента.
+- Оговорки: уникальность имени без регистра для кириллицы держит сервис (не индекс); списки моделей скопированы из threads, чтобы не было цикла threads↔agents; первый прогон чата агента идёт в режиме разрешений движка по умолчанию; фильтр ленты аудита (`governance.routes.ts`) про актор `queue` не знает — дописывает T03.
+
+### T02 (панель «Агенты», штаб)
+- `spawn_thread{agent?}`: явные provider/model приоритетнее агента; effort агента — если движок и модель не менялись; заголовок «<агент>: …»; тред в `agent_sessions`; ошибки `AGENT_NOT_FOUND` 404 (со списком имён), `MOD_OFF` 409, `ADMIN_ONLY`.
+- `ThreadsDependencies.agents?`; `WorkspaceToolsOptions` += `agents?`, `isModOn?` (по умолчанию — боевые синглтоны).
+- `workspace_action agent.list` → `{agents:[{name, role, provider, model}], note?}`; `agent.remember {data:{text}}` → `{message, agent, version}`. Действия добавляются в `server/modules/agent-workspace/tools.ts` (switch по action) и описываются в `server/threads-mcp.ts`.
+- Клиент: `src/components/agents/AgentsPanel.tsx({onOpenChat?})`; меню — `AGENTS_PANEL` в `src/components/sidebar/view/subcomponents/SidebarFooter.tsx` (образец для `QUEUE_PANEL`: тип ключа панели, whitelist `?panel=`, переход из пуша, рендер); метка агента — `src/components/sidebar/utils/agentLabel.ts`.
+
+### T03 (конвейер — сервер, рутины) — коммит b22148fc
+- `/api/agent-queue` (authenticateToken + requireAdmin; `modAgentQueue` или `modAgents` выкл → 409 MOD_OFF): `GET /` → `{queues: QueueSummary[]}`; `POST /` `{agentId, title?, template?, items: string[] | строка с переводами строк, parallel? 1..3 = 1, maxAttempts? 1..4 = 2}` → `{queue}`; `GET /:id` → `{queue: QueueView}`; `POST /:id/pause|resume|stop|retry-rejected` → `{queue}`; `POST /items/:itemId/mark-ok` → `{queue}`; `DELETE /:id` → `{removed:true}`.
+- `QueueSummary = {id, agentId, agentName|null, title, template, parallel, maxAttempts, status: running|paused|stopped|done, createdAt, updatedAt, finishedAt, counts:{pending,running,ok,rejected,total}}`; `QueueView = QueueSummary + items[]`; пункт `{id, position, input, status: pending|running|ok|rejected, attempts, pass, verdict: ok|fail|null, reason, excerpt (≤1000), sessionId, manual: boolean, updatedAt}`.
+- Ошибки: NO_ITEMS / TOO_MANY_ITEMS / ITEM_TOO_LONG / QUEUE_INVALID (400), QUEUE_STATE / NO_REJECTED / ITEM_STATE (409), QUEUE_NOT_FOUND / ITEM_NOT_FOUND / AGENT_NOT_FOUND (404), ADMIN_ONLY (403). «Стоп» окончательный.
+- Уведомления: `sendOwnerNotice({userId, code, title, body, severity?, meta?, icon?})` из `@/modules/notifications/index.js` — пуш + Telegram; `queue.done` → `/?panel=queue` (тег `queue:<id>`), `schedule.result` → `/?panel=schedules`. Сторожа `startAgentQueueWatch`/`stopAgentQueueWatch`, `startScheduleResultWatch`/`stopScheduleResultWatch` в `server/index.js`.
+- Расписания API: `agentId: string|null`, `notify: boolean`, `lastResult: string|null`; с агентом `projectPath` не нужен; `schedulesDb`, `pipelinesDb` в баррели БД.
