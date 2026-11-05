@@ -7,8 +7,10 @@
  *   frame at once; the last viewer leaving stops the watch (the driver unloads the
  *   helper after its idle time).
  * - A viewer of a page that is not open with a restore address → the page is opened
- *   there first, but only when the helper is unloaded (idle, died) and the agent did
- *   not close that page itself: a page the agent is done with never comes back.
+ *   there first (helper unloaded, died, or running for other pages), then the viewer is
+ *   told it came back (`onRestored`: the tab rereads «Вживую» and the page list). A page
+ *   the agent closed never comes back: its binding has no address (kept in the database,
+ *   survives restarts) and this process remembers it too.
  * - Closing the last page while nobody watches unloads the helper at once.
  * - Helper failures of commands reach the caller as `BrowserError`; the list is a state.
  */
@@ -20,6 +22,7 @@ import type {
   OpenedPage,
   SafariLiveDeps,
   SafariLiveService,
+  SafariRestore,
   SafariViewer,
   SafariWindow,
   SafariWindowList,
@@ -187,12 +190,11 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
   }
 
   function canRestore(pageId: string): boolean {
-    return supported && Boolean(driver) && !driver!.isRunning() && !closedByAgent.has(pageId);
+    return supported && Boolean(driver) && !closedByAgent.has(pageId);
   }
 
-  async function startWatching(pageId: string, entry: StreamEntry, restore?: { url: string }): Promise<void> {
+  async function startWatching(pageId: string, entry: StreamEntry, restore?: SafariRestore): Promise<void> {
     let alive = false;
-    // Decided before anything starts the helper: only an unloaded helper gives the page back.
     const restorable = Boolean(restore?.url) && canRestore(pageId);
     if (driver!.isRunning()) {
       try {
@@ -203,10 +205,12 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
       }
     }
     if (streams.get(pageId) !== entry || entry.viewers.size === 0) return;
+    let restored = false;
     if (!alive && restorable && restore) {
       try {
         await openPage(pageId, restore.url);
         alive = true;
+        restored = true;
       } catch (error) {
         if (streams.get(pageId) === entry) endEntry(pageId, 'error', error instanceof Error ? error.message : undefined);
         return;
@@ -229,9 +233,16 @@ export function createSafariLiveService(deps: SafariLiveDeps = {}): SafariLiveSe
         }
       }
     });
+    if (restored) {
+      try {
+        restore?.onRestored?.();
+      } catch {
+        // the ping is best effort
+      }
+    }
   }
 
-  function subscribe(pageId: string, viewer: SafariViewer, restore?: { url: string }): () => void {
+  function subscribe(pageId: string, viewer: SafariViewer, restore?: SafariRestore): () => void {
     const blocked = unavailable();
     if (blocked) {
       setImmediate(() => safeEnd(viewer, 'error', blocked.message));

@@ -27,6 +27,19 @@ scripts/neo3-browser/build.sh --force
   Прокрутка — жест колеса began/changed/ended; если WebKit проглотил его (сразу после загрузки), помощник
   прокручивает скриптом ближайший прокручиваемый блок под точкой.
 - Кадры — `takeSnapshot` по `DispatchSourceTimer` (App Nap отключён `beginActivity`).
+- Окно страницы прибито к (-20000,-20000): любые `setFrame`/`constrainFrameRect` возвращают его туда
+  (05.11 запрос геолокации WebKit выдвигал окно на экран).
+
+## Что странице нельзя
+
+- Адреса — только http(s) и about: одна проверка схемы в `decidePolicyFor navigationAction` (ссылки,
+  редиректы, скрипты, фреймы, `open`) и в `createWebViewWith` (`window.open`/`target=_blank` открываются
+  в той же странице, только http(s)). `file:` не грузится никак — диск странице недоступен.
+- Камера и микрофон (`requestMediaCapturePermission` → deny), геолокация (приватный
+  `_webView:requestGeolocationPermissionForOrigin:…` → `WKPermissionDecision.deny`; именно deny, а не
+  BOOL: 0 — это `.prompt`, и WebKit показывает своё окно), `navigator.share` (убран скриптом до страницы).
+  Уведомления, alert/confirm/prompt, печать, выбор файла без делегата WebKit сам гасит молча (проверено 05.11).
+  Системных окон macOS нет.
 
 ## Протокол: `neo3-browser serve`
 

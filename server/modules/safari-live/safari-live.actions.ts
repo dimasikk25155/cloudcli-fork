@@ -210,7 +210,10 @@ export function createSafariLiveActions(options: SafariLiveActionsOptions) {
       }
 
       case 'browser.close': {
-        const closed = await service.closePage(pageId());
+        const closing = pageId();
+        // Marked before closing: the picture ending pings the tab, and it must already see «closed».
+        bindings.markClosed(closing);
+        const closed = await service.closePage(closing);
         return {
           ...closed,
           message: closed.unloaded ? 'Страница закрыта, браузер выгружен из памяти' : 'Страница закрыта',

@@ -4,13 +4,13 @@ import { useModEnabled } from '../../hooks/useModEnabled';
 
 import {
   STREAM_RECOVERY_START,
+  browserPageLabel,
   STREAM_RESUBSCRIBE_MS,
   nextStreamRecovery,
   panelStateFor,
   safariBindingKey,
   SAFARI_STATE_TEXT,
   streamUrlEvent,
-  visibleSafariWindows,
   type SafariPanelState,
   type StreamRecoveryEvent,
 } from './safariLiveModel';
@@ -62,14 +62,16 @@ export default function SafariLivePanel({ sessionId, isActive: tabActive }: Safa
   const streamUrl = view?.streamUrl ?? null;
   const binding = view?.binding ?? null;
   const bindingKey = sessionId && binding ? safariBindingKey(sessionId, binding) : null;
-  const lastLinkRef = useRef<{ url: string | null; bindingKey: string | null } | null>(null);
+  // «Выгружен — открою»: страница вернулась, сервер прислал `safari_live_changed` — новая ссылка не обрыв.
+  const reopening = view?.state === 'unloaded';
+  const lastLinkRef = useRef<{ url: string | null; bindingKey: string | null; reopening: boolean } | null>(null);
   useEffect(() => {
-    const next = { url: streamUrl, bindingKey };
+    const next = { url: streamUrl, bindingKey, reopening };
     const event = streamUrlEvent(lastLinkRef.current, next, expectingUrlRef.current);
     if (lastLinkRef.current?.url !== next.url) expectingUrlRef.current = false;
     lastLinkRef.current = next;
     if (event) dispatch(event);
-  }, [streamUrl, bindingKey]);
+  }, [streamUrl, bindingKey, reopening]);
 
   // Вкладка снова на виду — свежая попытка.
   useEffect(() => {
@@ -107,9 +109,10 @@ export default function SafariLivePanel({ sessionId, isActive: tabActive }: Safa
   const showImage = (state === 'live' || state === 'unloaded') && streamUrl !== null;
   const controlOn = control && showImage;
   const inputHandlers = useBrowserInput(sessionId, controlOn, imageRef, surfaceRef);
-  const windows = visibleSafariWindows(view?.windows ?? []);
-  const showList = modOn && view !== null && view.state === 'ok' && (windows.length > 0 || binding !== null);
-  const boundTitle = windows.find((window) => window.pageId === binding?.pageId)?.title || binding?.title || '';
+  const windows = view?.windows ?? [];
+  const showList = modOn && view !== null && (view.state === 'ok' || view.state === 'unloaded') && (windows.length > 0 || binding !== null);
+  const boundPage = windows.find((window) => window.pageId === binding?.pageId);
+  const boundTitle = (boundPage ? browserPageLabel(boundPage) : '') || binding?.title || binding?.url || '';
   // Список раскрыт сам, когда выбирать нечего, кроме него.
   const listOpenByDefault = state === 'window_gone' || state === 'pick';
 
@@ -136,7 +139,7 @@ export default function SafariLivePanel({ sessionId, isActive: tabActive }: Safa
             </option>
             {windows.map((window) => (
               <option key={window.pageId} value={window.pageId}>
-                {window.title}
+                {browserPageLabel(window)}
               </option>
             ))}
           </select>

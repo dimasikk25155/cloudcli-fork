@@ -6,13 +6,19 @@ import type { SafariLiveView } from '../../types/app';
 import { authenticatedFetch } from '../../utils/api';
 import { openWorkbenchTab } from '../workbench/useWorkbench';
 
-import { markSafariAutoOpened, safariBindingKey, shouldAutoOpenSafari, wasSafariAutoOpened } from './safariLiveModel';
+import {
+  BROWSER_TAB_TITLE,
+  markSafariAutoOpened,
+  safariBindingKey,
+  shouldAutoOpenSafari,
+  wasSafariAutoOpened,
+} from './safariLiveModel';
 
 type AutoOpenOptions = { isMobile: boolean; workbenchOn: boolean; modOn: boolean; isAdmin: boolean };
 
 /**
- * Агент вызвал `safari.show` → сервер шлёт `safari_live_changed` этого чата →
- * вкладка «Safari» встаёт справа один раз на привязку (на телефоне не встаёт).
+ * Агент открыл страницу (`browser.open`) → сервер шлёт `safari_live_changed` этого чата →
+ * вкладка «Браузер» встаёт справа один раз на привязку (на телефоне не встаёт).
  */
 export function useSafariLiveAutoOpen(sessionId: string | null, options: AutoOpenOptions): void {
   const { subscribe } = useWebSocket();
@@ -40,7 +46,7 @@ export function useSafariLiveAutoOpen(sessionId: string | null, options: AutoOpe
           });
           if (!open || !key || cancelled) return;
           markSafariAutoOpened(key);
-          openWorkbenchTab(sessionId, { kind: 'safari', title: 'Safari' });
+          openWorkbenchTab(sessionId, { kind: 'safari', title: BROWSER_TAB_TITLE });
         } catch {
           // Сеть моргнула — вкладку можно открыть из «+».
         }

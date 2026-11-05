@@ -20,6 +20,9 @@ function memoryBindings(): SafariBindingsStore & { rows: Map<string, SafariBindi
       rows.set(sessionId, row);
       return row;
     },
+    markClosed: (pageId) => {
+      for (const [sessionId, row] of rows) if (row.pageId === pageId) rows.set(sessionId, { ...row, url: '' });
+    },
     clear: (sessionId) => { rows.delete(sessionId); },
   };
 }
@@ -164,14 +167,21 @@ test('browser.screenshot saves a JPEG of the chat\'s page and answers with its p
   assert.deepEqual(ctx.shots, [['s1', 'JPEG']]);
 });
 
-test('browser.close closes the chat\'s page and says when the browser left memory; the binding keeps the last address', async () => {
+test('browser.close closes the chat\'s page and says when the browser left memory; the binding is marked closed (no address) for every chat showing it', async () => {
   const ctx = setup();
   await ctx.run(1, 's1', 'browser.open', { url: 'https://example.com/' });
+  await ctx.run(1, 's2', 'safari.show', { pageId: 'chat-s1' });
   const closed = await ctx.run(1, 's1', 'browser.close', {}) as Record<string, unknown>;
   assert.equal(closed.unloaded, true);
   assert.match(String(closed.message), /выгружен/);
   assert.deepEqual(ctx.calls.at(-1), ['close', 'chat-s1', {}]);
-  assert.equal(ctx.bindings.get('s1')?.url, 'https://example.com/');
+  // Nothing reopens a page the agent is done with — not a viewer, not a restart.
+  assert.equal(ctx.bindings.get('s1')?.url, '');
+  assert.equal(ctx.bindings.get('s1')?.pageId, 'chat-s1');
+  assert.equal(ctx.bindings.get('s2')?.url, '');
+  // Opened again → a normal binding with its address.
+  await ctx.run(1, 's1', 'browser.open', { url: 'https://example.com/again' });
+  assert.equal(ctx.bindings.get('s1')?.url, 'https://example.com/again');
 });
 
 test('safari.show {pageId} binds an already open page; an unknown page is a clear refusal', async () => {

@@ -81,3 +81,26 @@ test('safari_live_bindings migration: an older table (Safari windows) gains page
     assert.deepEqual(safariLiveBindingsDb.get('old-chat'), bound);
   });
 });
+
+test('safari_live_bindings: a page the agent closed is marked in every chat bound to it (empty address, title kept) and stays so after a restart', async () => {
+  await withDatabase(null, async () => {
+    safariLiveBindingsDb.set('chat-1', { pageId: 'chat-chat-1', url: 'https://example.com/', title: 'Пример', boundBy: 'agent' });
+    safariLiveBindingsDb.set('chat-2', { pageId: 'chat-chat-1', url: 'https://example.com/', title: 'Пример', boundBy: 'user' });
+    safariLiveBindingsDb.set('chat-3', { pageId: 'chat-chat-3', url: 'https://example.org/', title: 'Другая', boundBy: 'agent' });
+
+    safariLiveBindingsDb.markClosed('chat-chat-1');
+    assert.equal(safariLiveBindingsDb.get('chat-1')?.url, '');
+    assert.equal(safariLiveBindingsDb.get('chat-1')?.title, 'Пример');
+    assert.equal(safariLiveBindingsDb.get('chat-1')?.pageId, 'chat-chat-1');
+    assert.equal(safariLiveBindingsDb.get('chat-2')?.url, '');
+    assert.equal(safariLiveBindingsDb.get('chat-3')?.url, 'https://example.org/', 'another page is untouched');
+
+    closeConnection();
+    await initializeDatabase();
+    assert.equal(safariLiveBindingsDb.get('chat-1')?.url, '', 'closed survives a restart');
+
+    // Opened again by the agent → a normal binding with an address.
+    safariLiveBindingsDb.set('chat-1', { pageId: 'chat-chat-1', url: 'https://example.com/again', title: 'Снова', boundBy: 'agent' });
+    assert.equal(safariLiveBindingsDb.get('chat-1')?.url, 'https://example.com/again');
+  });
+});

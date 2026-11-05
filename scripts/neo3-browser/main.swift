@@ -86,6 +86,12 @@ func num(_ args: [String: Any], _ key: String) -> Double? {
 
 func clamp(_ value: Double, _ low: Double, _ high: Double) -> Double { min(max(value, low), high) }
 
+/// The only addresses a page may load: http(s) and about (blank, srcdoc). Never `file:`.
+func allowedPageURL(_ url: URL?) -> Bool {
+    guard let scheme = url?.scheme?.lowercased() else { return false }
+    return scheme == "http" || scheme == "https" || scheme == "about"
+}
+
 /// JSON-safe copy of a JavaScript result (dates → ISO strings, unknown → description).
 func jsonSafe(_ value: Any?) -> Any {
     guard let value else { return NSNull() }
@@ -172,6 +178,9 @@ return root.innerText || '';
 
 let EXISTS_JS = "return !!document.querySelector(selector);"
 
+/// Page APIs that would show a system window of macOS: removed before any page script runs.
+let NO_SYSTEM_UI_JS = "for (const name of ['share', 'canShare']) { try { delete Navigator.prototype[name]; } catch (e) {} }"
+
 /// Scroll positions under a point: window + every scrollable ancestor (to see whether a wheel moved anything).
 let SCROLL_STATE_JS = """
 const parts = [window.scrollX, window.scrollY];
@@ -193,9 +202,21 @@ return true;
 
 // MARK: - Page
 
+let OFFSCREEN_FRAME = NSRect(x: -20000, y: -20000, width: PAGE_WIDTH, height: PAGE_HEIGHT)
+
+/// The page window never leaves its place far off every screen: whatever moves or resizes it
+/// (WebKit presenting something, AppKit constraining) gets the off-screen frame back.
 final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { OFFSCREEN_FRAME }
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) { super.setFrame(OFFSCREEN_FRAME, display: flag) }
+    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+        super.setFrame(OFFSCREEN_FRAME, display: displayFlag, animate: false)
+    }
+    override func setFrameOrigin(_ point: NSPoint) { super.setFrameOrigin(OFFSCREEN_FRAME.origin) }
+    override func setFrameTopLeftPoint(_ point: NSPoint) { super.setFrameOrigin(OFFSCREEN_FRAME.origin) }
+    override func center() {}
 }
 
 @MainActor
@@ -222,6 +243,9 @@ final class Page: NSObject, WKNavigationDelegate, WKUIDelegate {
         self.browser = browser
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        // Web Share opens the system share picker (seen on macOS 26): the page gets no `navigator.share`.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: NO_SYSTEM_UI_JS, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT), configuration: configuration)
         // Without this SPI an off-screen window is "occluded": the page goes hidden and stops drawing.
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
@@ -232,7 +256,7 @@ final class Page: NSObject, WKNavigationDelegate, WKUIDelegate {
             diag("occlusion SPI is missing: the picture may not update")
         }
         let window = KeyableWindow(
-            contentRect: NSRect(x: -20000, y: -20000, width: PAGE_WIDTH, height: PAGE_HEIGHT),
+            contentRect: OFFSCREEN_FRAME,
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.hasShadow = false
@@ -318,13 +342,56 @@ final class Page: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    // `target=_blank` and window.open: one page per chat — open in this page.
+    // The one scheme check of every navigation (links, redirects, scripts, frames, `open`):
+    // only http(s) and about. `file:` and the rest never load — the page cannot reach the disk.
+    nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        MainActor.assumeIsolated {
+            if allowedPageURL(navigationAction.request.url) {
+                decisionHandler(.allow)
+                return
+            }
+            decisionHandler(.cancel)
+            diag("a navigation to a scheme other than http(s)/about was refused")
+            // The main page itself was sent there while an `open` waits: answer it now.
+            if navigationAction.targetFrame?.isMainFrame ?? true, loading {
+                finishLoad(HelperError(code: "navigation_failed", message: "only http(s) addresses are allowed"))
+            }
+        }
+    }
+
+    // `target=_blank` and window.open: one page per chat — open in this page (http(s) only;
+    // the load passes the same scheme check above).
     nonisolated func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                              for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         MainActor.assumeIsolated {
-            if let target = navigationAction.request.url { webView.load(URLRequest(url: target)) }
+            if let target = navigationAction.request.url, allowedPageURL(target), target.scheme?.lowercased() != "about" {
+                webView.load(URLRequest(url: target))
+            }
         }
         return nil
+    }
+
+    // Camera, microphone: refused here, so macOS never shows its own permission window.
+    nonisolated func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                             initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                             decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void) {
+        MainActor.assumeIsolated { decisionHandler(.deny) }
+    }
+
+    // Geolocation — WebKit's private UI delegate. Without it (or answering `.prompt`) WebKit shows
+    // its own permission window and pulls the page window onto the screen (seen on macOS 26).
+    // This one takes a `WKPermissionDecision`, not a BOOL: 0 would be `.prompt`.
+    @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
+    nonisolated func requestGeolocationPermission(_ webView: WKWebView, origin: WKSecurityOrigin, frame: WKFrameInfo,
+                                                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        decisionHandler(.deny)
+    }
+
+    @objc(_webView:requestGeolocationPermissionForFrame:decisionHandler:)
+    nonisolated func requestGeolocationPermission(_ webView: WKWebView, frame: WKFrameInfo,
+                                                  decisionHandler: @escaping (Bool) -> Void) {
+        decisionHandler(false)
     }
 
     nonisolated func webViewDidClose(_ webView: WKWebView) {
@@ -560,8 +627,7 @@ final class Browser {
         switch op {
         case "open":
             guard let id = str(args, "page"), !id.isEmpty, id.count <= 200 else { throw badArgs("page is required") }
-            guard let raw = str(args, "url"), let target = URL(string: raw),
-                  let scheme = target.scheme?.lowercased(), ["http", "https", "about"].contains(scheme) else {
+            guard let raw = str(args, "url"), let target = URL(string: raw), allowedPageURL(target) else {
                 throw badArgs("url must be http(s)")
             }
             let page = pages[id] ?? {

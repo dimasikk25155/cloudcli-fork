@@ -1,5 +1,5 @@
 /**
- * «Safari вживую»: чистая логика вкладки — какое состояние показать, как
+ * «Браузер вживую»: чистая логика вкладки — какое состояние показать, как
  * называется привязка и когда вкладка сама встаёт справа. Без React.
  */
 import type { SafariLiveView, SafariWindow } from '../../types/app';
@@ -20,9 +20,9 @@ export type SafariPanelState =
 export const SAFARI_STATE_TEXT: Record<SafariPanelState, string> = {
   live: 'Вживую',
   paused: 'Пауза — вкладка не на виду',
-  window_gone: 'Окно закрыто — выбери другое',
+  window_gone: 'Страница закрыта — выбери другую',
   unloaded: 'Браузер выгружен — открою последнюю страницу',
-  no_windows: 'Окон Safari нет — агент ещё не открывал страницу',
+  no_windows: 'Страниц нет — агент ещё ничего не открывал',
   no_permission:
     'Нужно разрешение: Системные настройки → Конфиденциальность и безопасность → Запись экрана → включить для node',
   mod_off: 'Мод выключен',
@@ -32,9 +32,12 @@ export const SAFARI_STATE_TEXT: Record<SafariPanelState, string> = {
   pick: 'Выбери страницу в списке',
 };
 
-/** Служебное окно Safari (500×500) приходит без заголовка — в списке его не показываем. */
-export function visibleSafariWindows<T extends Pick<SafariWindow, 'title'>>(windows: T[]): T[] {
-  return windows.filter((window) => window.title.trim() !== '');
+/** Заголовок вкладки холста (в интерфейсе слова Safari нет). */
+export const BROWSER_TAB_TITLE = 'Браузер';
+
+/** Как страница называется в списке: заголовок, а пока его нет — адрес. */
+export function browserPageLabel(page: Pick<SafariWindow, 'pageId' | 'title' | 'url'>): string {
+  return page.title.trim() || page.url || page.pageId;
 }
 
 export function panelStateFor(
@@ -46,7 +49,7 @@ export function panelStateFor(
   if (view.state === 'unsupported') return 'unsupported';
   if (view.state === 'no_permission') return 'no_permission';
   if (view.state === 'error') return 'error';
-  if (!view.binding) return visibleSafariWindows(view.windows).length === 0 ? 'no_windows' : 'pick';
+  if (!view.binding) return view.windows.length === 0 ? 'no_windows' : 'pick';
   // Браузер выгружен, привязка есть: подписка на поток сама поднимет последнюю страницу.
   const reopening = view.state === 'unloaded' && view.streamUrl !== null;
   if (!view.windowAlive && !reopening) return 'window_gone';
@@ -92,18 +95,21 @@ export function nextStreamRecovery(state: StreamRecovery, event: StreamRecoveryE
 
 /**
  * Ссылка на картинку сменилась. Сервер шлёт `safari_live_changed`, когда поток кончился сам
- * (окно закрыто, сбой помощника), — вкладка перечитывает вид и получает новую ссылку на ту же
+ * (страница закрыта, сбой помощника), — вкладка перечитывает вид и получает новую ссылку на ту же
  * привязку: это обрыв. Своя переподписка или «Повторить» (`expected`) — не обрыв; другая
- * привязка — начать заново; ссылки нет (окно закрыто) — вкладка просто покажет состояние.
+ * привязка — начать заново; ссылки нет (страница закрыта) — вкладка просто покажет состояние.
+ * Тот же кадр приходит, когда выгруженная страница вернулась (`reopening` → живая) — это не
+ * обрыв, а «Вживую».
  */
 export function streamUrlEvent(
-  prev: { url: string | null; bindingKey: string | null } | null,
-  next: { url: string | null; bindingKey: string | null },
+  prev: { url: string | null; bindingKey: string | null; reopening?: boolean } | null,
+  next: { url: string | null; bindingKey: string | null; reopening?: boolean },
   expected: boolean,
 ): StreamRecoveryEvent | null {
   if (!prev) return null;
   if (prev.bindingKey !== next.bindingKey) return 'reset';
   if (!prev.url || !next.url || prev.url === next.url || expected) return null;
+  if (prev.reopening && !next.reopening) return null;
   return 'break';
 }
 
@@ -236,6 +242,22 @@ export function wheelToScrollDy(deltaY: number, deltaMode: number): number {
   const factor = deltaMode === 1 ? 16 : deltaMode === 2 ? BROWSER_PAGE_HEIGHT : 1;
   const dy = Math.round(deltaY * factor);
   return Math.max(-MAX_SCROLL_DY, Math.min(MAX_SCROLL_DY, dy)) || 0;
+}
+
+/** В страницу уходит только левая кнопка (касание и перо — тоже 0); правая и средняя — нет. */
+export function isPrimaryPointerButton(button: number): boolean {
+  return button === 0;
+}
+
+/**
+ * Касание сорвалось (`pointercancel`, потерян захват) при нажатой кнопке — отпустить её в последней
+ * известной точке, иначе страница думает, что кнопка зажата, и каждое движение тащит выделение.
+ */
+export function pointerReleaseInput(
+  pressed: boolean,
+  lastPoint: Point | null,
+): { kind: 'up'; x: number; y: number } | null {
+  return pressed && lastPoint ? { kind: 'up', x: lastPoint.x, y: lastPoint.y } : null;
 }
 
 export function shouldSendMove(lastSentAt: number | null, now: number): boolean {

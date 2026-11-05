@@ -8,8 +8,8 @@
 export type SafariWindow = { pageId: string; title: string; url: string; width: number; height: number };
 
 /**
- * `unloaded` — the helper is not running (unloaded by itself, not by the agent closing the page)
- * and the chat has a binding: subscribing to the stream opens its last address again.
+ * `unloaded` — the chat's page is not open (the helper was unloaded or lost it, the agent did not
+ * close it) and its binding keeps the last address: subscribing to the stream opens it again.
  */
 export type SafariLiveState = 'ok' | 'unloaded' | 'no_permission' | 'unsupported' | 'error';
 
@@ -40,6 +40,9 @@ export type SafariLiveView = {
 };
 
 export type SafariViewer = { onFrame(jpeg: Buffer): void; onEnd(end: StreamEnd, message?: string): void };
+
+/** Last address of a page that is not open; `onRestored` — it was opened there again and is being watched. */
+export type SafariRestore = { url: string; onRestored?: () => void };
 
 // ---- helper process and driver (`safari-live.browser.ts`) ----
 
@@ -120,8 +123,9 @@ export type SafariLiveService = {
   /** The helper process is running. */
   isLoaded(): boolean;
   /**
-   * The page may be reopened at its last address: the helper is unloaded (idle, died) and the
-   * agent did not close this page itself (`closePage`; cleared by the next `openPage`).
+   * The page may be reopened at its last address when it is not open (helper unloaded, died, or
+   * running for other pages): the agent did not close it in this process (`closePage`; cleared by
+   * the next `openPage`). Across restarts a closed page is told by its binding without an address.
    */
   canRestore(pageId: string): boolean;
   /** Creates the page if needed and goes to `url` (http/https). Throws `BrowserError`. */
@@ -134,9 +138,10 @@ export type SafariLiveService = {
   input(pageId: string, input: BrowserInput): Promise<void>;
   /**
    * Live frames of a page; a new viewer gets the last frame at once. `restore.url`: the page
-   * is not open and `canRestore` → it is opened there first. Returns the unsubscribe function.
+   * is not open and `canRestore` → it is opened there first, then `restore.onRestored()`.
+   * Returns the unsubscribe function.
    */
-  subscribe(pageId: string, viewer: SafariViewer, restore?: { url: string }): () => void;
+  subscribe(pageId: string, viewer: SafariViewer, restore?: SafariRestore): () => void;
   activeStreams(): number;
   stopAll(): void;
 };

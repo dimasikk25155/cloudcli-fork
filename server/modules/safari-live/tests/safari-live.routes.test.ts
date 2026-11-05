@@ -31,7 +31,7 @@ function fakeService(
   return {
     listWindows: async () => list(),
     isLoaded: () => helper().loaded,
-    canRestore: (pageId) => !helper().loaded && !helper().closedByAgent.has(pageId),
+    canRestore: (pageId) => !helper().closedByAgent.has(pageId),
     openPage: async () => { calls.push('open'); throw new Error('not used'); },
     closePage: async () => ({ closed: false, unloaded: true }),
     command: async (op) => { calls.push(op); return {}; },
@@ -181,7 +181,7 @@ test('GET /windows lists browser pages; GET /sessions/:id is empty until a page 
   });
 });
 
-test('PUT /sessions/:id binds the page (by the user) with its address, pings the user, returns a stream link; «unloaded» + link only while the helper is unloaded', async () => {
+test('PUT /sessions/:id binds the page (by the user) with its address, pings the user, returns a stream link; a lost page → «unloaded» + link, a page the agent closed → no link, also after a restart', async () => {
   await withServer(async ({ call, setList, setLoaded, closedByAgent, calls, notified, adminId }) => {
     const bound = await call('PUT', '/sessions/chat', { body: { pageId: 'chat-other' } });
     assert.equal(bound.status, 200);
@@ -205,26 +205,35 @@ test('PUT /sessions/:id binds the page (by the user) with its address, pings the
     assert.equal(moved.body.data.binding.url, 'https://github.com/pulls');
     assert.equal(moved.body.data.binding.title, 'GitHub — Pulls');
 
-    // The agent closed the page (browser.close) while the helper still runs: the tab
-    // shows «page closed», no link — nothing reopens the page the agent is done with.
+    // The page was lost while the helper keeps running for another chat (not closed by the
+    // agent): «unloaded» + link — opening the tab brings it back.
     setList({ state: 'ok', windows: [page('chat-chat', 'Яндекс', 'https://ya.ru/')] });
+    const lost = await call('GET', '/sessions/chat');
+    assert.equal(lost.body.data.state, 'unloaded');
+    assert.equal(lost.body.data.windowAlive, false);
+    assert.ok(lost.body.data.streamUrl, 'stream link to reopen the lost page');
+
+    // The agent closed the page (browser.close marks the binding): the tab shows «page
+    // closed», no link — nothing reopens the page the agent is done with.
+    safariLiveBindingsDb.markClosed('chat-other');
+    closedByAgent.add('chat-other');
     const closed = await call('GET', '/sessions/chat');
     assert.equal(closed.body.data.state, 'ok');
     assert.equal(closed.body.data.windowAlive, false);
     assert.equal(closed.body.data.binding.pageId, 'chat-other');
     assert.equal(closed.body.data.streamUrl, null);
 
-    // The closed page was the last one and the helper left memory at once: still closed, no link.
+    // Server restart: the process forgot, the binding did not — still closed, no link.
     setList({ state: 'ok', windows: [] });
     setLoaded(false);
-    closedByAgent.add('chat-other');
-    const closedUnloaded = await call('GET', '/sessions/chat');
-    assert.equal(closedUnloaded.body.data.state, 'ok');
-    assert.equal(closedUnloaded.body.data.streamUrl, null);
-
-    // The helper was unloaded by itself (idle, restart): the binding stays, state «unloaded»,
-    // the link reopens the last page.
     closedByAgent.clear();
+    const restarted = await call('GET', '/sessions/chat');
+    assert.equal(restarted.body.data.state, 'ok');
+    assert.equal(restarted.body.data.streamUrl, null);
+
+    // A page with its address and the helper unloaded by itself (idle, restart): «unloaded»,
+    // the link reopens the last page.
+    safariLiveBindingsDb.set('chat', { pageId: 'chat-other', url: 'https://github.com/pulls', title: 'GitHub — Pulls', boundBy: 'user' });
     const unloaded = await call('GET', '/sessions/chat');
     assert.equal(unloaded.body.data.state, 'unloaded');
     assert.equal(unloaded.body.data.windowAlive, false);

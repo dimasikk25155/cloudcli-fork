@@ -74,6 +74,14 @@ export const safariLiveBindingsDb = {
       .run(input.url ?? '', input.title ?? '', pageId);
   },
 
+  /**
+   * The agent closed the page (`browser.close`): every chat bound to it forgets the address,
+   * so nothing reopens it — not a viewer, not a restart. The next `set` with an address undoes it.
+   */
+  markClosed(pageId: string): void {
+    getConnection().prepare("UPDATE safari_live_bindings SET url = '' WHERE page_id = ?").run(pageId);
+  },
+
   clear(sessionId: string): void {
     getConnection().prepare('DELETE FROM safari_live_bindings WHERE session_id = ?').run(sessionId);
   },

@@ -8,7 +8,7 @@ import test from 'node:test';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 
-import type { SafariLiveService, SafariViewer } from '@/modules/safari-live/index.js';
+import type { SafariLiveService, SafariRestore, SafariViewer } from '@/modules/safari-live/index.js';
 
 // The stream link carries a short JWT signed with the app secret; set it before
 // the auth module is loaded so the test never touches a database.
@@ -30,10 +30,10 @@ async function waitFor(condition: () => boolean, what: string, ms = 3_000): Prom
 
 function fakeService() {
   const viewers = new Map<SafariViewer, string>();
-  const restores: Array<{ url: string } | null> = [];
+  const restores: Array<SafariRestore | null> = [];
   let unsubscribed = 0;
   const service = {
-    subscribe(pageId: string, viewer: SafariViewer, restore?: { url: string }) {
+    subscribe(pageId: string, viewer: SafariViewer, restore?: SafariRestore) {
       viewers.set(viewer, pageId);
       restores.push(restore ?? null);
       return () => {
@@ -180,10 +180,24 @@ test('GET /sl/:token/stream: the chat of the link gives the restore address for 
       controller.abort();
       await waitFor(() => fake.viewers.size === 0, 'gone');
     }
-    assert.deepEqual(fake.restores, [{ url: 'https://example.com/last' }, null]);
+    assert.deepEqual(fake.restores.map((restore) => (restore ? { url: restore.url } : null)), [{ url: 'https://example.com/last' }, null]);
   }, undefined, (payload) => {
     asked.push({ pageId: payload.pageId, sessionId: payload.sessionId });
     return payload.pageId === 'chat-s1' ? 'https://example.com/last' : null;
   });
   assert.deepEqual(asked, [{ pageId: 'chat-s1', sessionId: 's1' }, { pageId: 'chat-other', sessionId: 's1' }]);
+});
+
+test('GET /sl/:token/stream: a page reopened at its address pings the chat of the link (the tab turns «Вживую» and lists the page)', async () => {
+  const pings: Array<[number, string]> = [];
+  await withServer(() => true, async (base, fake) => {
+    const controller = new AbortController();
+    await fetch(`${base}/sl/${signStreamToken({ userId: 1, pageId: 'chat-s1', sessionId: 's1' })}/stream`, { signal: controller.signal });
+    await waitFor(() => fake.viewers.size > 0, 'a viewer');
+    assert.deepEqual(pings, [], 'no ping before the page is back');
+    fake.restores[0]?.onRestored?.();
+    assert.deepEqual(pings, [[1, 's1']]);
+    controller.abort();
+    await waitFor(() => fake.viewers.size === 0, 'gone');
+  }, (userId, sessionId) => { pings.push([userId, sessionId]); }, () => 'https://example.com/last');
 });
