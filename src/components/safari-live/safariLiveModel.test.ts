@@ -7,7 +7,11 @@ import {
   STREAM_RECOVERY_START,
   STREAM_STABLE_MS,
   SAFARI_STATE_TEXT,
+  keyboardEventToInput,
   nextStreamRecovery,
+  pointerToPagePoint,
+  shouldSendMove,
+  wheelToScrollDy,
   streamUrlEvent,
   markSafariAutoOpened,
   panelStateFor,
@@ -139,4 +143,75 @@ test('streamUrlEvent: a new link for the same binding that the tab did not ask f
 test('panelStateFor: a pending resubscribe shows loading, not a dead picture', () => {
   assert.equal(panelStateFor(view(), { isActive: true, modOn: true, reconnecting: true }), 'loading');
   assert.equal(panelStateFor(view({ windowAlive: false, streamUrl: null }), { isActive: true, modOn: true, reconnecting: true }), 'window_gone');
+});
+
+// ---- Браузер: ввод Димы («Управлять») ----
+
+test('координаты: картинка вписана по ширине и прижата к верху — поле только снизу', () => {
+  // Блок 640×600, кадр 1280×800 → кадр 640×400 у верха, ниже пустое поле.
+  const box = { width: 640, height: 600 };
+  const natural = { width: 1280, height: 800 };
+  assert.deepEqual(pointerToPagePoint({ x: 320, y: 200 }, box, natural), { x: 640, y: 400 });
+  assert.deepEqual(pointerToPagePoint({ x: 0, y: 0 }, box, natural), { x: 0, y: 0 });
+  assert.deepEqual(pointerToPagePoint({ x: 640, y: 400 }, box, natural), { x: 1280, y: 800 });
+  assert.equal(pointerToPagePoint({ x: 100, y: 450 }, box, natural), null);
+});
+
+test('координаты: узкий кадр вписан по высоте — поля слева и справа, сверху нет', () => {
+  // Блок 1000×400, кадр 1280×800 → масштаб 0.5, кадр 640×400, поля по 180.
+  const box = { width: 1000, height: 400 };
+  const natural = { width: 1280, height: 800 };
+  assert.equal(pointerToPagePoint({ x: 100, y: 100 }, box, natural), null);
+  assert.equal(pointerToPagePoint({ x: 830, y: 100 }, box, natural), null);
+  assert.deepEqual(pointerToPagePoint({ x: 180, y: 0 }, box, natural), { x: 0, y: 0 });
+  assert.deepEqual(pointerToPagePoint({ x: 500, y: 200 }, box, natural), { x: 640, y: 400 });
+});
+
+test('координаты: кадр меньше страницы (сжатый) масштабируется к 1280×800; clamp прижимает к краю', () => {
+  const box = { width: 640, height: 400 };
+  const natural = { width: 640, height: 400 };
+  assert.deepEqual(pointerToPagePoint({ x: 160, y: 100 }, box, natural), { x: 320, y: 200 });
+  assert.deepEqual(pointerToPagePoint({ x: 700, y: -20 }, box, natural, { clamp: true }), { x: 1280, y: 0 });
+  assert.equal(pointerToPagePoint({ x: 700, y: -20 }, box, natural), null);
+  assert.equal(pointerToPagePoint({ x: 10, y: 10 }, { width: 0, height: 0 }, natural), null);
+  assert.equal(pointerToPagePoint({ x: 10, y: 10 }, box, { width: 0, height: 0 }), null);
+});
+
+test('клавиши: печатные символы — text, служебные — key, остальное — ничего', () => {
+  const k = (key: string, extra = {}) => keyboardEventToInput({ key, ctrlKey: false, metaKey: false, altKey: false, ...extra });
+  assert.deepEqual(k('a'), { kind: 'text', text: 'a' });
+  assert.deepEqual(k('Я'), { kind: 'text', text: 'Я' });
+  assert.deepEqual(k(' '), { kind: 'text', text: ' ' });
+  assert.deepEqual(k('A', { shiftKey: true }), { kind: 'text', text: 'A' });
+  for (const key of ['Enter', 'Tab', 'Backspace', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']) {
+    assert.deepEqual(k(key), { kind: 'key', key });
+  }
+  assert.equal(k('Shift'), null);
+  assert.equal(k('F5'), null);
+  assert.equal(k('Dead'), null);
+  assert.equal(k('r', { metaKey: true }), null);
+  assert.equal(k('c', { ctrlKey: true }), null);
+});
+
+test('колесо: строки и страницы приводятся к пикселям и ограничиваются', () => {
+  assert.equal(wheelToScrollDy(120, 0), 120);
+  assert.equal(wheelToScrollDy(3, 1), 48);
+  assert.equal(wheelToScrollDy(1, 2), 800);
+  assert.equal(wheelToScrollDy(99999, 0), 2000);
+  assert.equal(wheelToScrollDy(-99999, 0), -2000);
+  assert.equal(wheelToScrollDy(0.2, 0), 0);
+});
+
+test('move не чаще ~20 раз в секунду', () => {
+  assert.equal(shouldSendMove(null, 1000), true);
+  assert.equal(shouldSendMove(1000, 1030), false);
+  assert.equal(shouldSendMove(1000, 1050), true);
+});
+
+test('состояние «выгружен»: привязка есть, поток открывается и поднимает страницу', () => {
+  const unloaded = view({ state: 'unloaded', windowAlive: false, windows: [] });
+  assert.equal(panelStateFor(unloaded, on), 'unloaded');
+  assert.equal(panelStateFor(unloaded, { ...on, isActive: false }), 'paused');
+  assert.equal(SAFARI_STATE_TEXT.unloaded, 'Браузер выгружен — открою последнюю страницу');
+  assert.equal(panelStateFor(view({ state: 'unloaded', windowAlive: false, streamUrl: null }), on), 'window_gone');
 });

@@ -8,6 +8,7 @@ export type SafariPanelState =
   | 'live'
   | 'paused'
   | 'window_gone'
+  | 'unloaded'
   | 'no_windows'
   | 'no_permission'
   | 'mod_off'
@@ -20,6 +21,7 @@ export const SAFARI_STATE_TEXT: Record<SafariPanelState, string> = {
   live: 'Вживую',
   paused: 'Пауза — вкладка не на виду',
   window_gone: 'Окно закрыто — выбери другое',
+  unloaded: 'Браузер выгружен — открою последнюю страницу',
   no_windows: 'Окон Safari нет — агент ещё не открывал страницу',
   no_permission:
     'Нужно разрешение: Системные настройки → Конфиденциальность и безопасность → Запись экрана → включить для node',
@@ -27,7 +29,7 @@ export const SAFARI_STATE_TEXT: Record<SafariPanelState, string> = {
   unsupported: 'Только на Mac',
   error: 'Связь с картинкой прервалась',
   loading: 'Загрузка…',
-  pick: 'Выбери окно Safari в списке',
+  pick: 'Выбери страницу в списке',
 };
 
 /** Служебное окно Safari (500×500) приходит без заголовка — в списке его не показываем. */
@@ -45,10 +47,13 @@ export function panelStateFor(
   if (view.state === 'no_permission') return 'no_permission';
   if (view.state === 'error') return 'error';
   if (!view.binding) return visibleSafariWindows(view.windows).length === 0 ? 'no_windows' : 'pick';
-  if (!view.windowAlive) return 'window_gone';
+  // Браузер выгружен, привязка есть: подписка на поток сама поднимет последнюю страницу.
+  const reopening = view.state === 'unloaded' && view.streamUrl !== null;
+  if (!view.windowAlive && !reopening) return 'window_gone';
   if (opts.streamBroken) return 'error';
   if (!opts.isActive) return 'paused';
   if (opts.reconnecting) return 'loading';
+  if (reopening) return 'unloaded';
   return view.streamUrl ? 'live' : 'loading';
 }
 
@@ -158,4 +163,81 @@ export function markSafariAutoOpened(key: string, storage: AutoOpenStorage | nul
   } catch {
     // Хранилище недоступно — в худшем случае вкладка откроется ещё раз.
   }
+}
+
+// ---- Ввод Димы в режиме «Управлять» ----
+
+/** Размер страницы в невидимом браузере — в этих пикселях помощник принимает координаты. */
+export const BROWSER_PAGE_WIDTH = 1280;
+export const BROWSER_PAGE_HEIGHT = 800;
+/** `move` уходит не чаще ~20 раз в секунду. */
+export const MOVE_MIN_INTERVAL_MS = 50;
+
+type Size = { width: number; height: number };
+type Point = { x: number; y: number };
+
+/**
+ * Точка указателя в CSS-пикселях блока `<img>` (`object-contain object-top`) → пиксели страницы
+ * 1280×800. Кадр вписан в блок с сохранением пропорций, по горизонтали по центру, по вертикали
+ * у верха; вне нарисованного кадра (поля) — `null`, а с `clamp` точка прижимается к краю кадра
+ * (нужно, чтобы отпустить кнопку за границей при перетаскивании).
+ */
+export function pointerToPagePoint(
+  point: Point,
+  box: Size,
+  natural: Size,
+  options: { clamp?: boolean } = {},
+): Point | null {
+  if (!(box.width > 0 && box.height > 0 && natural.width > 0 && natural.height > 0)) return null;
+  const scale = Math.min(box.width / natural.width, box.height / natural.height);
+  const drawnWidth = natural.width * scale;
+  const drawnHeight = natural.height * scale;
+  const offsetX = (box.width - drawnWidth) / 2;
+  let localX = point.x - offsetX;
+  let localY = point.y;
+  const outside = localX < 0 || localY < 0 || localX > drawnWidth || localY > drawnHeight;
+  if (outside) {
+    if (!options.clamp) return null;
+    localX = Math.min(Math.max(localX, 0), drawnWidth);
+    localY = Math.min(Math.max(localY, 0), drawnHeight);
+  }
+  return {
+    x: Math.round((localX / drawnWidth) * BROWSER_PAGE_WIDTH),
+    y: Math.round((localY / drawnHeight) * BROWSER_PAGE_HEIGHT),
+  };
+}
+
+export type BrowserKeyInput = { kind: 'key'; key: string } | { kind: 'text'; text: string };
+
+const SPECIAL_KEYS = new Set([
+  'Enter', 'Tab', 'Backspace', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown',
+]);
+
+/**
+ * Клавиша → ввод для помощника: служебные — `key`, печатный символ — `text`. Сочетания с Ctrl/Cmd/Alt
+ * и прочие клавиши (Shift, F-ряд, Dead) не отправляются — `null`, и Neo3 их не перехватывает.
+ */
+export function keyboardEventToInput(event: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+}): BrowserKeyInput | null {
+  if (event.ctrlKey || event.metaKey || event.altKey) return null;
+  if (SPECIAL_KEYS.has(event.key)) return { kind: 'key', key: event.key };
+  if (event.key.length > 0 && Array.from(event.key).length === 1) return { kind: 'text', text: event.key };
+  return null;
+}
+
+const MAX_SCROLL_DY = 2000;
+
+/** Колесо → смещение в пикселях (`deltaMode` 0 — пиксели, 1 — строки, 2 — страницы). */
+export function wheelToScrollDy(deltaY: number, deltaMode: number): number {
+  const factor = deltaMode === 1 ? 16 : deltaMode === 2 ? BROWSER_PAGE_HEIGHT : 1;
+  const dy = Math.round(deltaY * factor);
+  return Math.max(-MAX_SCROLL_DY, Math.min(MAX_SCROLL_DY, dy)) || 0;
+}
+
+export function shouldSendMove(lastSentAt: number | null, now: number): boolean {
+  return lastSentAt === null || now - lastSentAt >= MOVE_MIN_INTERVAL_MS;
 }
