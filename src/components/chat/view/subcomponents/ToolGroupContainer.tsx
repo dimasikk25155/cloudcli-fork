@@ -75,20 +75,33 @@ export default function ToolGroupContainer({
 }: ToolGroupContainerProps) {
   const { t } = useTranslation('chat');
   const [isExpanded, setIsExpanded] = useState(false);
-  const config = group.isMixed ? null : getToolConfig(group.toolName).input;
-  const label = group.isMixed
-    ? t('toolGroup.mixedLabel', { defaultValue: 'Tools' })
-    : config?.label || group.toolName;
+  const isSteps = Boolean(group.isTaskNotifications);
+  const config = group.isMixed || isSteps ? null : getToolConfig(group.toolName).input;
+  const label = isSteps
+    ? t('toolGroup.stepsLabel', { defaultValue: 'Steps' })
+    : group.isMixed
+      ? t('toolGroup.mixedLabel', { defaultValue: 'Tools' })
+      : config?.label || group.toolName;
   const borderClass = config?.colorScheme?.border || 'border-border';
   const iconClass = config?.colorScheme?.icon || 'text-muted-foreground';
-  const icon = group.isMixed ? '⚙' : getToolGroupIcon(config?.icon, group.toolName);
+  const icon = isSteps ? '•' : group.isMixed ? '⚙' : getToolGroupIcon(config?.icon, group.toolName);
 
   // A run that still has a resultless call is live; a failed call inside it is
   // worth surfacing on the collapsed row, otherwise errors hide behind the chevron.
-  const isRunning = isRunActive && group.messages.some((message) => !message.toolResult);
-  const hasError = group.messages.some((message) => message.toolResult?.isError);
+  // Step notifications never carry a result — they are finished facts.
+  const isRunning = !isSteps && isRunActive && group.messages.some((message) => !message.toolResult);
+  const hasError = isSteps
+    ? group.messages.some((message) => message.taskStatus === 'failed')
+    : group.messages.some((message) => message.toolResult?.isError);
 
   const preview = useMemo(() => {
+    // Steps: the latest one says what is happening now.
+    if (isSteps) {
+      const last = group.messages[group.messages.length - 1];
+      return String(last?.content || '').trim();
+    }
+
+
     // Mixed runs read better as a list of tool names; same-tool runs as their inputs.
     if (group.isMixed) {
       const names: string[] = [];
@@ -113,7 +126,7 @@ export default function ToolGroupContainer({
     }
 
     return extraCount > 0 ? `${previewText}, +${extraCount} more` : previewText;
-  }, [group.isMixed, group.messages]);
+  }, [isSteps, group.isMixed, group.messages]);
 
   return (
     <div className="chat-message tool px-3 sm:px-0" data-message-timestamp={group.timestamp || undefined}>

@@ -10,6 +10,8 @@ export interface ToolGroupItem {
   /** Tool name when the whole run is one tool, empty string when the run mixes tools. */
   toolName: string;
   isMixed: boolean;
+  /** A run of step/background-task notifications rather than tool calls. */
+  isTaskNotifications?: boolean;
   messages: ChatMessage[];
   timestamp: ChatMessage['timestamp'];
 }
@@ -40,6 +42,15 @@ function rendersNothing(message: ChatMessage, showThinking: boolean): boolean {
   return Boolean(message.isThinking && !showThinking);
 }
 
+// A subagent at work reports each of its steps as a one-line notification in
+// the main transcript. Two or more in a row fold behind one chevron; a single
+// line («background command finished») stays visible.
+export const TASK_NOTIFICATION_GROUP_THRESHOLD = 2;
+
+function isTaskNotificationMessage(message: ChatMessage): boolean {
+  return Boolean(message.isTaskNotification);
+}
+
 export function groupConsecutiveTools(
   messages: ChatMessage[],
   showThinking: boolean = true,
@@ -49,6 +60,39 @@ export function groupConsecutiveTools(
 
   while (index < messages.length) {
     const message = messages[index];
+
+    if (isTaskNotificationMessage(message)) {
+      const run: ChatMessage[] = [message];
+      let nextIndex = index + 1;
+      while (nextIndex < messages.length) {
+        const candidate = messages[nextIndex];
+        if (rendersNothing(candidate, showThinking)) {
+          nextIndex += 1;
+          continue;
+        }
+        if (isTaskNotificationMessage(candidate)) {
+          run.push(candidate);
+          nextIndex += 1;
+          continue;
+        }
+        break;
+      }
+
+      if (run.length >= TASK_NOTIFICATION_GROUP_THRESHOLD) {
+        items.push({
+          _isGroup: true,
+          toolName: '',
+          isMixed: false,
+          isTaskNotifications: true,
+          messages: run,
+          timestamp: message.timestamp,
+        });
+      } else {
+        items.push(...run);
+      }
+      index = nextIndex;
+      continue;
+    }
 
     if (!isGroupableToolMessage(message)) {
       items.push(message);

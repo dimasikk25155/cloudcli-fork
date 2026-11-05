@@ -59,3 +59,34 @@ test('subagent containers stay outside groups', () => {
   assert.equal(isToolGroupItem(items[0]), false);
   assert.equal(isToolGroupItem(items[1]), true);
 });
+
+const step = (content: string, taskStatus = 'completed') =>
+  ({ type: 'assistant', timestamp: 1, content, isTaskNotification: true, taskStatus }) as any;
+
+test('two or more step notifications in a row fold into one collapsed group', () => {
+  const items = groupConsecutiveTools([step('Fetch status'), step('Diff pages'), step('Hash assets')], true);
+  assert.equal(items.length, 1);
+  assert.equal(isToolGroupItem(items[0]) && items[0].isTaskNotifications, true);
+  assert.equal(isToolGroupItem(items[0]) && items[0].messages.length, 3);
+});
+
+test('a single step notification stays visible on its own', () => {
+  const items = groupConsecutiveTools([text('hi'), step('Background command done'), text('ok')], true);
+  assert.equal(items.length, 3);
+  assert.equal(isToolGroupItem(items[1]), false);
+});
+
+test('step notifications and tool calls form separate groups', () => {
+  const items = groupConsecutiveTools([tool('Bash'), step('a'), step('b'), tool('Read')], true);
+  assert.equal(items.length, 3);
+  assert.equal(isToolGroupItem(items[0]) && !items[0].isTaskNotifications, true);
+  assert.equal(isToolGroupItem(items[1]) && items[1].isTaskNotifications, true);
+  assert.equal(isToolGroupItem(items[2]) && !items[2].isTaskNotifications, true);
+});
+
+test('hidden reasoning between steps does not split the run', () => {
+  const thinking = { type: 'assistant', timestamp: 1, content: 'x', isThinking: true } as any;
+  const items = groupConsecutiveTools([step('a'), thinking, step('b')], false);
+  assert.equal(items.length, 1);
+  assert.equal(isToolGroupItem(items[0]) && items[0].messages.length, 2);
+});
