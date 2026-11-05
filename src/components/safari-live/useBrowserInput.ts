@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef } from 'react';
-import type { KeyboardEvent, PointerEvent, RefObject } from 'react';
+import type { KeyboardEvent, MouseEvent, PointerEvent, RefObject } from 'react';
 
 import { authenticatedFetch } from '../../utils/api';
 
-import { keyboardEventToInput, pointerToPagePoint, shouldSendMove, wheelToScrollDy } from './safariLiveModel';
+import {
+  isPrimaryPointerButton,
+  keyboardEventToInput,
+  pointerReleaseInput,
+  pointerToPagePoint,
+  shouldSendMove,
+  wheelToScrollDy,
+} from './safariLiveModel';
 
 type InputBody = { kind: 'down' | 'up' | 'move' | 'scroll' | 'key' | 'text'; x?: number; y?: number; dy?: number; key?: string; text?: string };
 
@@ -13,7 +20,9 @@ const MAX_PENDING_MOVES = 2;
 /**
  * Ввод Димы в невидимый браузер («Управлять»): указатель, колесо и клавиатура уходят на
  * `POST /api/safari-live/sessions/:id/input` в координатах страницы 1280×800. Пока `enabled`,
- * ввод не доходит до Neo3 (`preventDefault`). Вводимый текст нигде не логируется.
+ * ввод не доходит до Neo3 (`preventDefault`). В страницу идёт только левая кнопка; правый клик
+ * гасится целиком (ни меню страницы, ни меню Neo3 поверх). Сорванное касание (`pointercancel`,
+ * потерян захват) отпускает кнопку. Вводимый текст нигде не логируется.
  */
 export function useBrowserInput(
   sessionId: string | null,
@@ -81,10 +90,13 @@ export function useBrowserInput(
     (event: PointerEvent<HTMLDivElement>) => {
       if (!enabled) return;
       event.preventDefault();
+      event.stopPropagation();
       event.currentTarget.focus();
+      if (!isPrimaryPointerButton(event.button) || draggingRef.current) return;
       const point = toPagePoint(event, false);
       if (!point) return;
       draggingRef.current = true;
+      lastPointRef.current = point;
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
       } catch {
@@ -100,15 +112,37 @@ export function useBrowserInput(
       if (!enabled || !draggingRef.current) return;
       event.preventDefault();
       draggingRef.current = false;
-      const point = toPagePoint(event, true);
+      const point = toPagePoint(event, true) ?? lastPointRef.current;
       if (point) send({ kind: 'up', x: point.x, y: point.y });
     },
     [enabled, toPagePoint, send],
   );
 
+  // Касание сорвалось или захват потерян, пока кнопка нажата: отпустить её в последней точке.
+  const onPointerCancel = useCallback(() => {
+    const release = pointerReleaseInput(draggingRef.current, lastPointRef.current);
+    draggingRef.current = false;
+    if (release) send(release);
+  }, [send]);
+
+  // Правый клик: ни меню страницы, ни меню Neo3 поверх картинки.
+  const onContextMenu = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (!enabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    [enabled],
+  );
+
   const onPointerMove = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
       if (!enabled) return;
+      // Левая уже отпущена (отпустили за окном, аккорд кнопок) — отпустить и в странице.
+      if (draggingRef.current && (event.buttons & 1) === 0) {
+        onPointerCancel();
+        return;
+      }
       const now = Date.now();
       if (!shouldSendMove(lastMoveAtRef.current, now) || pendingMovesRef.current >= MAX_PENDING_MOVES) return;
       const point = toPagePoint(event, draggingRef.current);
@@ -123,7 +157,7 @@ export function useBrowserInput(
         pendingMovesRef.current -= 1;
       });
     },
-    [enabled, toPagePoint, send],
+    [enabled, toPagePoint, send, onPointerCancel],
   );
 
   const onKeyDown = useCallback(
@@ -138,5 +172,18 @@ export function useBrowserInput(
     [enabled, send],
   );
 
-  return { onPointerDown, onPointerUp, onPointerMove, onKeyDown };
+  // «Управлять» выключили посреди нажатия — кнопку в странице тоже отпустить.
+  useEffect(() => {
+    if (!enabled) onPointerCancel();
+  }, [enabled, onPointerCancel]);
+
+  return {
+    onPointerDown,
+    onPointerUp,
+    onPointerMove,
+    onPointerCancel,
+    onLostPointerCapture: onPointerCancel,
+    onContextMenu,
+    onKeyDown,
+  };
 }

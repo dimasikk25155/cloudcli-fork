@@ -287,14 +287,30 @@ test('service: no reopening of a page the agent closed — not while the helper 
   assert.deepEqual(fake.calls.at(-1)?.args, { page: 'chat-b', url: 'https://example.com/b2' });
 });
 
-test('service: a running helper without the page does not reopen it even with an address', async () => {
+test('service: a page lost while the helper keeps running (started by another chat or command) is reopened at its address; the viewer is told it came back', async () => {
   const fake = fakeDriver();
   const service = createSafariLiveService({ driver: fake.driver, platform: 'darwin', listCacheMs: 0 });
   await service.openPage('chat-other', 'https://example.com/o');
-  assert.equal(service.canRestore('chat-a'), false);
+  assert.equal(service.isLoaded(), true);
+  assert.equal(service.canRestore('chat-a'), true, 'not closed by the agent');
   const v = viewer();
-  service.subscribe('chat-a', v.value, { url: 'https://example.com/a' });
-  await waitFor(() => v.ends.length > 0, 'end');
-  assert.deepEqual(v.ends, ['page_gone']);
-  assert.equal(fake.calls.filter((call) => call.op === 'open').length, 1);
+  let restored = 0;
+  service.subscribe('chat-a', v.value, { url: 'https://example.com/a', onRestored: () => { restored += 1; } });
+  await waitFor(() => fake.watchers.has('chat-a'), 'restored watch');
+  assert.deepEqual(fake.calls.filter((call) => call.op === 'open').map((call) => call.args), [
+    { page: 'chat-other', url: 'https://example.com/o' },
+    { page: 'chat-a', url: 'https://example.com/a' },
+  ]);
+  assert.equal(restored, 1, 'the tab is pinged once the page is back');
+  assert.deepEqual(v.ends, []);
+  fake.frame('chat-a', 'BACK');
+  assert.deepEqual(v.frames, ['BACK']);
+
+  // An open page is just watched: nothing reopened, no ping.
+  const second = viewer();
+  let pinged = 0;
+  service.subscribe('chat-other', second.value, { url: 'https://example.com/o', onRestored: () => { pinged += 1; } });
+  await waitFor(() => fake.watchers.has('chat-other'), 'watch');
+  assert.equal(fake.calls.filter((call) => call.op === 'open').length, 2);
+  assert.equal(pinged, 0);
 });

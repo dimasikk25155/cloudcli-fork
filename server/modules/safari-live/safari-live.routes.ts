@@ -13,6 +13,8 @@ import type { BrowserInput, SafariBinding, SafariLiveService, SafariLiveView, Sa
 export type SafariBindingsStore = {
   get(sessionId: string): SafariBinding | null;
   set(sessionId: string, input: { pageId: string; url: string; title: string; boundBy: 'agent' | 'user' }): SafariBinding;
+  /** The agent closed the page: every binding to it loses its address — nothing reopens it, even after a restart. */
+  markClosed(pageId: string): void;
   clear(sessionId: string): void;
 };
 
@@ -33,9 +35,10 @@ function userIdOf(req: Request): number {
 
 /**
  * What the «Браузер» tab shows for a chat. The stream link is issued when the bound
- * page is open, or when it can be reopened: `unloaded` — the helper is unloaded (idle,
- * died; not the agent closing this page) and the last address is known, so subscribing
- * opens it again. A page the agent closed is just gone: no link, nothing reopens it.
+ * page is open, or when it can be reopened: `unloaded` — the page is not open (the helper
+ * was unloaded, died, or runs for other pages), the agent did not close it and the last
+ * address is known, so subscribing opens it again. A page the agent closed has no address
+ * in its binding (`markClosed`): no link, nothing reopens it, even after a restart.
  */
 export function buildSafariLiveView(
   userId: number,
@@ -111,8 +114,9 @@ export function createSafariLiveRouter(options: SafariLiveRouterOptions) {
   const { service, bindings, modOn, notify } = options;
   const sessionAccess = options.sessionAccess ?? requireSessionAccess;
   const router = express.Router();
-  // `unloaded` only while the helper is not running and the page was not closed by the agent.
-  const restorable = (pageId: string) => !service.isLoaded() && service.canRestore(pageId);
+  // `unloaded`: the bound page is not open (helper unloaded, died or running for other pages),
+  // the agent did not close it, and the binding keeps an address (`buildSafariLiveView`).
+  const restorable = (pageId: string) => service.canRestore(pageId);
 
   router.use((req: Request, _res: Response, next: NextFunction) => {
     if (!modOn((req as AuthedRequest).user?.id)) {

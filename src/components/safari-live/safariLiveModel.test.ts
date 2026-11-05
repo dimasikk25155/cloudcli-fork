@@ -17,7 +17,10 @@ import {
   panelStateFor,
   safariBindingKey,
   shouldAutoOpenSafari,
-  visibleSafariWindows,
+  BROWSER_TAB_TITLE,
+  browserPageLabel,
+  isPrimaryPointerButton,
+  pointerReleaseInput,
   wasSafariAutoOpened,
 } from './safariLiveModel.js';
 
@@ -49,9 +52,9 @@ test('состояния сервера: нет разрешения, не Mac, 
   assert.equal(panelStateFor(view({ state: 'error', streamUrl: null }), on), 'error');
 });
 
-test('нет привязки: окон нет → «Окон нет», окна есть → выбор; служебное окно без заголовка не считается', () => {
+test('нет привязки: страниц нет → «Страниц нет», страницы есть → выбор; страница без заголовка тоже страница', () => {
   assert.equal(panelStateFor(view({ binding: null, streamUrl: null, windows: [] }), on), 'no_windows');
-  assert.equal(panelStateFor(view({ binding: null, streamUrl: null, windows: [win(1, '')] }), on), 'no_windows');
+  assert.equal(panelStateFor(view({ binding: null, streamUrl: null, windows: [win(1, '')] }), on), 'pick');
   assert.equal(panelStateFor(view({ binding: null, streamUrl: null, windows: [win(2, 'A')] }), on), 'pick');
 });
 
@@ -60,15 +63,23 @@ test('окно закрыто, и обрыв потока после переп�
   assert.equal(panelStateFor(view(), { ...on, streamBroken: true }), 'error');
 });
 
-test('список окон прячет окна без заголовка', () => {
-  assert.deepEqual(visibleSafariWindows([win(1, ''), win(2, '  '), win(3, 'Сайт')]).map((w) => w.pageId), ['p3']);
+test('страница в списке — под заголовком, без заголовка — под своим адресом', () => {
+  assert.equal(browserPageLabel(win(3, 'Сайт')), 'Сайт');
+  assert.equal(browserPageLabel(win(1, '')), 'https://example.com/1');
+  assert.equal(browserPageLabel(win(2, '  ')), 'https://example.com/2');
+  assert.equal(browserPageLabel({ pageId: 'chat-x', title: '', url: '' }), 'chat-x');
+});
+
+test('в интерфейсе нет слова Safari: вкладка «Браузер», ни один текст состояния не говорит Safari', () => {
+  assert.equal(BROWSER_TAB_TITLE, 'Браузер');
+  for (const text of Object.values(SAFARI_STATE_TEXT)) assert.doesNotMatch(text, /safari/i);
 });
 
 test('у каждого состояния есть русский текст; «Вживую» и «Пауза» — по спецификации', () => {
   assert.equal(SAFARI_STATE_TEXT.live, 'Вживую');
   assert.equal(SAFARI_STATE_TEXT.paused, 'Пауза — вкладка не на виду');
-  assert.equal(SAFARI_STATE_TEXT.window_gone, 'Окно закрыто — выбери другое');
-  assert.match(SAFARI_STATE_TEXT.no_windows, /^Окон Safari нет/);
+  assert.equal(SAFARI_STATE_TEXT.window_gone, 'Страница закрыта — выбери другую');
+  assert.equal(SAFARI_STATE_TEXT.no_windows, 'Страниц нет — агент ещё ничего не открывал');
   assert.match(SAFARI_STATE_TEXT.no_permission, /Запись экрана/);
   assert.equal(SAFARI_STATE_TEXT.mod_off, 'Мод выключен');
   assert.equal(SAFARI_STATE_TEXT.unsupported, 'Только на Mac');
@@ -138,6 +149,22 @@ test('streamUrlEvent: a new link for the same binding that the tab did not ask f
   assert.equal(streamUrlEvent(a, { ...a, url: '/sl/b/stream' }, true), null, 'our own resubscribe / «Повторить»');
   assert.equal(streamUrlEvent(a, { url: '/sl/c/stream', bindingKey: 's1::9::t2' }, false), 'reset', 'another window bound');
   assert.equal(streamUrlEvent(a, { ...a, url: null }, false), null, 'window gone → the tab shows «Окно закрыто», not a resubscribe');
+});
+
+test('streamUrlEvent: the page came back after «выгружен» — the new link is the live picture, not a break', () => {
+  const reopening = { url: '/sl/a/stream', bindingKey: 's1::7::t1', reopening: true };
+  const live = { url: '/sl/b/stream', bindingKey: 's1::7::t1', reopening: false };
+  assert.equal(streamUrlEvent(reopening, live, false), null);
+  assert.equal(streamUrlEvent({ ...live, url: '/sl/z/stream' }, live, false), 'break', 'a live picture ending is still a break');
+});
+
+test('«Управлять»: в страницу уходит только левая кнопка; сорванное касание отпускает кнопку в последней точке', () => {
+  assert.equal(isPrimaryPointerButton(0), true);
+  assert.equal(isPrimaryPointerButton(2), false, 'right click stays out of the page');
+  assert.equal(isPrimaryPointerButton(1), false);
+  assert.deepEqual(pointerReleaseInput(true, { x: 10, y: 20 }), { kind: 'up', x: 10, y: 20 });
+  assert.equal(pointerReleaseInput(false, { x: 10, y: 20 }), null, 'nothing pressed — nothing to release');
+  assert.equal(pointerReleaseInput(true, null), null);
 });
 
 test('panelStateFor: a pending resubscribe shows loading, not a dead picture', () => {

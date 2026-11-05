@@ -60,8 +60,9 @@ export type StreamHandlerOptions = {
   service: SafariLiveService;
   modOn: (userId: unknown) => boolean;
   /**
-   * The picture ended by itself (page closed, helper died): `safari_live_changed` to the
-   * chat of the link, so the tab rereads at once (and reopens the last page).
+   * The picture ended by itself (page closed, helper died) or its page was reopened at the
+   * last address: `safari_live_changed` to the chat of the link, so the tab rereads at once
+   * (reopens the last page / shows «Вживую» with the page in the list).
    */
   notify?: (userId: number, sessionId: string) => void;
   /** Last address of the link's page from the chat's binding: an unloaded browser reopens it. */
@@ -101,6 +102,16 @@ export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
       unsubscribe();
     };
 
+    // The page came back (restored) or the picture ended by itself: the tab rereads its view.
+    const pingChat = () => {
+      if (!payload.sessionId) return;
+      try {
+        options.notify?.(payload.userId, payload.sessionId);
+      } catch {
+        // a failed ping must not break the response
+      }
+    };
+
     let restoreAt: string | null = null;
     try {
       restoreAt = options.restoreUrl?.(payload) ?? null;
@@ -121,15 +132,9 @@ export function createSafariLiveStreamHandler(options: StreamHandlerOptions) {
         if (closed) return;
         close();
         res.end();
-        if (end !== 'stopped' && payload.sessionId) {
-          try {
-            options.notify?.(payload.userId, payload.sessionId);
-          } catch {
-            // a failed ping must not break the response
-          }
-        }
+        if (end !== 'stopped') pingChat();
       },
-    }, restoreAt ? { url: restoreAt } : undefined);
+    }, restoreAt ? { url: restoreAt, onRestored: pingChat } : undefined);
     if (closed) unsubscribe();
 
     req.on('close', close);
