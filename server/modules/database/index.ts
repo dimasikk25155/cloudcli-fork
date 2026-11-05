@@ -2,6 +2,18 @@ export { initializeDatabase } from '@/modules/database/init-db.js';
 export { runDurationsDb, answerHash } from './repositories/run-durations.db.js';
 export type { RunDurationRow } from './repositories/run-durations.db.js';
 export { closeConnection, getConnection, getDatabasePath } from '@/modules/database/connection.js';
+export { agentQueueDb } from '@/modules/database/repositories/agent-queue.db.js';
+export type {
+  AgentQueueCounts,
+  AgentQueueInsert,
+  AgentQueueItemResult,
+  AgentQueueItemRow,
+  AgentQueueItemStatus,
+  AgentQueueRow,
+  AgentQueueStatus,
+} from '@/modules/database/repositories/agent-queue.db.js';
+export { agentsDb } from '@/modules/database/repositories/agents.db.js';
+export type { AgentInsert, AgentOfSession, AgentPatch, AgentRow, AgentRuleRow } from '@/modules/database/repositories/agents.db.js';
 export { answerTokensDb } from '@/modules/database/repositories/answer-tokens.db.js';
 export type { AnswerTokenRow } from '@/modules/database/repositories/answer-tokens.db.js';
 export { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
@@ -29,6 +41,9 @@ export { notificationPreferencesDb } from '@/modules/database/repositories/notif
 export { projectsDb } from '@/modules/database/repositories/projects.db.js';
 export { providerPreferencesDb } from '@/modules/database/repositories/provider-preferences.js';
 export { pushSubscriptionsDb } from '@/modules/database/repositories/push-subscriptions.js';
+export { schedulesDb } from '@/modules/database/repositories/schedules.db.js';
+export type { CreateScheduleInput, ScheduleKind, ScheduleRow, UpdateScheduleInput } from '@/modules/database/repositories/schedules.db.js';
+export { pipelinesDb } from '@/modules/database/repositories/pipelines.db.js';
 export { safariLiveBindingsDb } from '@/modules/database/repositories/safari-live-bindings.db.js';
 export type { SafariLiveBindingRow } from '@/modules/database/repositories/safari-live-bindings.db.js';
 export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';

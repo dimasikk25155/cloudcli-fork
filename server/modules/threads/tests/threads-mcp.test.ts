@@ -112,7 +112,7 @@ test('initialize and tools/list expose thread tools and scoped workspace tool wi
     const tools = (list.result as { tools: Array<{ name: string; inputSchema: { properties: Record<string, unknown>; required?: string[] } }> }).tools;
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
     assert.deepEqual([...byName.keys()].sort(), ['message_thread', 'spawn_thread', 'stop_thread', 'thread_status', 'workspace_action']);
-    assert.deepEqual(Object.keys(byName.get('spawn_thread')!.inputSchema.properties).sort(), ['model', 'prompt', 'provider', 'title']);
+    assert.deepEqual(Object.keys(byName.get('spawn_thread')!.inputSchema.properties).sort(), ['agent', 'model', 'prompt', 'provider', 'title']);
     assert.deepEqual(byName.get('spawn_thread')!.inputSchema.required, ['prompt']);
     assert.deepEqual(Object.keys(byName.get('thread_status')!.inputSchema.properties).sort(), ['threadId', 'wait']);
     assert.deepEqual(byName.get('message_thread')!.inputSchema.required?.sort(), ['text', 'threadId']);
@@ -269,6 +269,40 @@ test('workspace_action offers safari.show: the description tells the agent to op
       assert.notEqual((answer.result as Record<string, unknown>).isError, true);
       assert.match(textOf(answer.result as Record<string, unknown>), /вживую/);
       assert.deepEqual(recorded[0].body, { action: 'safari.show', data: { titleContains: 'kwork' } });
+    });
+  });
+});
+
+test('the agent knows about agents: spawn_thread takes `agent`, workspace_action offers agent.list and agent.remember, and `agent` reaches the server', async () => {
+  await withFakeNeo3(() => ({ status: 200, body: { success: true, data: { threadId: 't1' } } }), async (apiUrl, recorded) => {
+    await withClient({ NEO3_THREADS_TOKEN: 'f'.repeat(64), NEO3_THREADS_API_URL: apiUrl }, async (client) => {
+      const list = await client.request('tools/list');
+      const tools = (list.result as { tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }> }).tools;
+      const spawn = tools.find((tool) => tool.name === 'spawn_thread')!;
+      assert.ok('agent' in spawn.inputSchema.properties);
+      assert.match(spawn.description, /agent.list/);
+      const workspace = tools.find((tool) => tool.name === 'workspace_action')!;
+      assert.ok(workspace.inputSchema.properties.action.enum?.includes('agent.list'));
+      assert.ok(workspace.inputSchema.properties.action.enum?.includes('agent.remember'));
+      assert.match(workspace.description, /agent\.remember \{data:\{text\}\}/);
+      await client.request('tools/call', { name: 'spawn_thread', arguments: { prompt: 'p', agent: 'Критик' } });
+      assert.deepEqual(recorded[0].body, { prompt: 'p', agent: 'Критик' });
+    });
+  });
+});
+
+test('workspace_action offers secret.request {name, why}: the description says the value never comes back, and the call reaches Neo3', async () => {
+  await withFakeNeo3(() => ({ status: 200, body: { success: true, data: { status: 'saved', name: 'FB_PAGE_TOKEN', message: 'FB_PAGE_TOKEN сохранён в файле секретов' } } }), async (apiUrl, recorded) => {
+    await withClient({ NEO3_THREADS_TOKEN: 'f'.repeat(64), NEO3_THREADS_API_URL: apiUrl }, async (client) => {
+      const list = await client.request('tools/list');
+      const tools = (list.result as { tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }> }).tools;
+      const workspace = tools.find((tool) => tool.name === 'workspace_action')!;
+      assert.ok(workspace.inputSchema.properties.action.enum?.includes('secret.request'));
+      assert.match(workspace.description, /secret\.request \{data:\{name, why\}\}/);
+      assert.match(workspace.description, /never (see|get|receive)s? the value/i);
+      const answer = await client.request('tools/call', { name: 'workspace_action', arguments: { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'постинг' } } });
+      assert.match(textOf(answer.result as Record<string, unknown>), /сохранён в файле секретов/);
+      assert.deepEqual(recorded[0].body, { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'постинг' } });
     });
   });
 });

@@ -7,7 +7,9 @@
  *   - the file is replaced atomically (tmp + rename), so a crash mid-write can
  *     never leave Dima's key file half-written;
  *   - a name taken by a different value gets `_2`, `_3`, …; the same value
- *     under the same name is reused instead of duplicated.
+ *     under the same name is reused instead of duplicated (the default, used by
+ *     the composer). «Запрос ключа» asks for the exact name instead:
+ *     `onExisting: 'reject'` refuses a taken name, `'replace'` rewrites its line.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -23,14 +25,22 @@ const MAX_SUFFIX = 99;
 
 export class StashError extends Error {
   readonly statusCode: number;
+  /** Set for refusals a caller tells apart (`SECRET_EXISTS`). */
+  readonly code: string | undefined;
 
-  constructor(message: string, statusCode = 400) {
+  constructor(message: string, statusCode = 400, code?: string) {
     // Messages are fixed strings: nothing derived from the value goes in here.
     super(message);
     this.name = 'StashError';
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
+
+/** What to do when the name is already in the file. */
+export type StashOnExisting = 'suffix' | 'reject' | 'replace';
+
+export type StashOptions = { file?: string; onExisting?: StashOnExisting };
 
 export function resolveSecretsFile(): string {
   return process.env.NEO3_SECRETS_FILE || path.join(os.homedir(), 'Antigravity Project', '.secrets.env');
@@ -117,6 +127,27 @@ async function writeAtomically(file: string, content: string, mode: number): Pro
   }
 }
 
+/**
+ * The file with every line of `name` replaced by one new line (in the place of
+ * the first one, `export ` kept); comments and other names stay as they were.
+ */
+function replaceEntry(content: string, name: string, value: string): string {
+  let written = false;
+  const lines: string[] = [];
+  for (const line of content.split('\n')) {
+    const match = /^\s*#/.test(line) ? null : line.match(LINE);
+    if (!match || match[1] !== name) {
+      lines.push(line);
+      continue;
+    }
+    if (written) continue;
+    written = true;
+    lines.push(`${/^\s*export\s+/.test(line) ? 'export ' : ''}${name}=${encodeValue(value)}`);
+  }
+  const next = lines.join('\n');
+  return next.endsWith('\n') ? next : `${next}\n`;
+}
+
 // One read-modify-write at a time: two quick stashes must not both pick the
 // same free name and drop one of the values.
 let queue: Promise<unknown> = Promise.resolve();
@@ -129,9 +160,10 @@ function serialized<T>(task: () => Promise<T>): Promise<T> {
 
 export async function stashSecret(
   input: { name?: unknown; value?: unknown },
-  options: { file?: string } = {},
+  options: StashOptions = {},
 ): Promise<{ name: string }> {
   const { name, value } = validate(input);
+  const onExisting = options.onExisting ?? 'suffix';
 
   return serialized(async () => {
     const file = await realTarget(options.file ?? resolveSecretsFile());
@@ -143,7 +175,17 @@ export async function stashSecret(
     }
 
     const entries = parseEntries(existing.content);
-    for (let suffix = 1; suffix <= MAX_SUFFIX; suffix += 1) {
+    if (onExisting !== 'suffix' && entries.has(name)) {
+      if (onExisting === 'reject') throw new StashError('Такой ключ уже есть', 409, 'SECRET_EXISTS');
+      try {
+        await writeAtomically(file, replaceEntry(existing.content, name, value), existing.mode ?? 0o600);
+      } catch {
+        throw new StashError('Не удалось записать файл секретов', 500);
+      }
+      return { name };
+    }
+    const lastSuffix = onExisting === 'suffix' ? MAX_SUFFIX : 1;
+    for (let suffix = 1; suffix <= lastSuffix; suffix += 1) {
       const candidate = suffix === 1 ? name : `${name}_${suffix}`;
       if (candidate.length > MAX_NAME_LENGTH + 4) break;
       const current = entries.get(candidate);
@@ -161,4 +203,15 @@ export async function stashSecret(
     }
     throw new StashError('Все варианты имени заняты — выбери другое имя', 409);
   });
+}
+
+/** Is there a line for this name in the secrets file? Reads names only; any failure → false. */
+export async function secretNameExists(name: string, options: { file?: string } = {}): Promise<boolean> {
+  try {
+    const file = await realTarget(options.file ?? resolveSecretsFile());
+    const { content } = await readIfExists(file);
+    return parseEntries(content).has(name);
+  } catch {
+    return false;
+  }
 }

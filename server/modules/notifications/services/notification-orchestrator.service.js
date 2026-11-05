@@ -326,6 +326,38 @@ function buildNotificationPayload(event) {
     };
   }
 
+  // «Конвейер» (server/modules/agent-queue): очередь закончилась — «N OK, M брак».
+  if (normalizedEvent.code === 'queue.done') {
+    const queueId = String(normalizedEvent.meta?.queueId || 'none');
+    return {
+      title: String(normalizedEvent.meta?.title || 'Конвейер'),
+      body: clipBody(String(normalizedEvent.meta?.body || '')),
+      data: {
+        code: 'queue.done',
+        tag: `queue:${queueId}`,
+        panel: 'queue',
+        urlPath: '/?panel=queue',
+        provider: 'system'
+      }
+    };
+  }
+
+  // «Расписания» с «Прислать итог» (server/modules/schedules): итог прогона или ошибка.
+  if (normalizedEvent.code === 'schedule.result') {
+    const scheduleId = String(normalizedEvent.meta?.scheduleId || 'none');
+    return {
+      title: String(normalizedEvent.meta?.title || 'Расписание'),
+      body: clipBody(String(normalizedEvent.meta?.body || '')),
+      data: {
+        code: 'schedule.result',
+        tag: `schedule:${scheduleId}`,
+        panel: 'schedules',
+        urlPath: '/?panel=schedules',
+        provider: 'system'
+      }
+    };
+  }
+
   // Auto-relay (server/modules/auto-relay): the chat moved itself, or could not.
   if (normalizedEvent.code === 'auto_relay.done' || normalizedEvent.code === 'auto_relay.failed') {
     const done = normalizedEvent.code === 'auto_relay.done';

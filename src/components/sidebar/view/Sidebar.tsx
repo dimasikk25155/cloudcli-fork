@@ -139,6 +139,24 @@ function Sidebar({
   // «Ждут тебя» off in «Встроенные моды»: no hub, no hub button.
   const attentionOn = useModEnabled('modAttention');
 
+  // Push «Агент просит ключ NAME» opens «Ждут тебя»: `/?panel=attention` on load,
+  // or the service worker's `notification:navigate` in an already open window.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('panel') === 'attention') {
+      setAttentionHubOpen(true);
+    }
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return undefined;
+    }
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'notification:navigate' && event.data?.panel === 'attention') {
+        setAttentionHubOpen(true);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
+
   // Hub row → the session inside its own project, the same way the archive
   // opens a session: select the project, then the session.
   const openAttentionSession = useCallback((item: AttentionItem) => {

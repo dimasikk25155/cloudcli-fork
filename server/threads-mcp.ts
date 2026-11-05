@@ -45,11 +45,11 @@ const threadsOff = (process.env.NEO3_THREADS_OFF || '').trim() === '1';
 const tools: ToolDefinition[] = [
   {
     name: 'workspace_action',
-    description: 'Work in this chat project only. Read handed-off mail, prepare reply drafts, create/revise documents, search opted-in knowledge and prepare assignments/tasks. Never sends, approves or publishes outside Neo3. Mail needs an explicit handoff bound to this chat. data contains action fields; id and revision identify an existing record. artifact.publish {data:{path, title?}} shows a project file (HTML infographic/slides/dashboard, Markdown, PDF, image, Jev report.html) large in the Neo3 canvas with versions and the user\'s comments, source = this chat; path is inside the project (relative to it or absolute). artifact.list lists published artifacts of the project. Sidebar order (never deletes anything): group.list; group.create {data:{name}}; group.rename {data:{id,name}}; group.add / group.remove {data:{id,itemType:\'project\'|\'session\',itemId}}; pin.set {data:{sessionId?,pinned}}. settings.propose {data:{changes:{key:value},reason}} only suggests interface/theme/mod settings: the person reviews and applies it in Settings. Safari: safari.show {data:{url}} opens the page in your own NEW Safari window (never the user\'s window), moves it onto an invisible display and shows it live in the Neo3 canvas of this chat; it returns windowId. Next pages go into the same window: safari.show {data:{windowId, url}}. safari.show {data:{windowId}} or {data:{titleContains}} binds an already open window of yours. never use open -a Safari (it puts the page into the user\'s front window); never bring Safari to the front and do not hide it.',
+    description: 'Work in this chat project only. Read handed-off mail, prepare reply drafts, create/revise documents, search opted-in knowledge and prepare assignments/tasks. Never sends, approves or publishes outside Neo3. Mail needs an explicit handoff bound to this chat. data contains action fields; id and revision identify an existing record. artifact.publish {data:{path, title?}} shows a project file (HTML infographic/slides/dashboard, Markdown, PDF, image, Jev report.html) large in the Neo3 canvas with versions and the user\'s comments, source = this chat; path is inside the project (relative to it or absolute). artifact.list lists published artifacts of the project. Sidebar order (never deletes anything): group.list; group.create {data:{name}}; group.rename {data:{id,name}}; group.add / group.remove {data:{id,itemType:\'project\'|\'session\',itemId}}; pin.set {data:{sessionId?,pinned}}. settings.propose {data:{changes:{key:value},reason}} only suggests interface/theme/mod settings: the person reviews and applies it in Settings. Safari: safari.show {data:{url}} opens the page in your own NEW Safari window (never the user\'s window), moves it onto an invisible display and shows it live in the Neo3 canvas of this chat; it returns windowId. Next pages go into the same window: safari.show {data:{windowId, url}}. safari.show {data:{windowId}} or {data:{titleContains}} binds an already open window of yours. never use open -a Safari (it puts the page into the user\'s front window); never bring Safari to the front and do not hide it. Agents (the owner\'s named helpers with a role, memory, engine and model): agent.list returns the team (name, first line of the role, provider, model); agent.remember {data:{text}} adds a rule to the memory of the agent THIS chat belongs to (e.g. "до 4 переделок") — every next chat of that agent gets it; a chat without an agent answers "не привязан к агенту". Keys: secret.request {data:{name, why}} asks the user (Dima) for a secret you need — name like FB_PAGE_TOKEN (^[A-Z][A-Z0-9_]{2,63}$), why = what it is for, he sees it; he types the value into a hidden field in Neo3 and it goes straight into the secrets file (by default ~/Antigravity Project/.secrets.env). You never see the value: the call waits up to 10 minutes and answers "NAME сохранён в файле секретов" (read it from that file by name, never print it) or "Дима отказал"; "Дима пока не ответил — спроси позже" means ask again later with the same name. Never ask the user to paste a key into the chat.',
     inputSchema: {
       type:'object',
       properties:{
-        action:{type:'string',enum:['document.list','document.read','document.create','document.revise','knowledge.search','assignment.list','assignment.read','assignment.create','assignment.update','project.users','task.create','mail.read','mail.draft','artifact.publish','artifact.list','group.list','group.create','group.rename','group.add','group.remove','pin.set','settings.propose','safari.show']},
+        action:{type:'string',enum:['document.list','document.read','document.create','document.revise','knowledge.search','assignment.list','assignment.read','assignment.create','assignment.update','project.users','task.create','mail.read','mail.draft','artifact.publish','artifact.list','group.list','group.create','group.rename','group.add','group.remove','pin.set','settings.propose','safari.show','agent.list','agent.remember','secret.request']},
         id:{type:'string'},revision:{type:'number'},data:{type:'object'},
       },
       required:['action'],
@@ -64,6 +64,7 @@ const tools: ToolDefinition[] = [
       'provider: "grok" (default) | "claude" | "codex" | "local" (free local model on the Claude engine).',
       'Models: grok-4.7, grok-4.7-build-fast; claude opus[1m], sonnet[1m], fable, local-qwen35-9b, local-ornith-9b;',
       'codex — catalog models of the astra/sol families. At most 3 threads work at once; a thread cannot open threads.',
+      'agent: the name of one of the owner\'s agents (see workspace_action agent.list, e.g. "Критик") — the thread gets that agent\'s role, memory and checks and, unless you pass provider/model, its engine and model; its title starts with the agent name. Unknown name → error with the names that exist.',
       'The prompt must be self-contained: the thread does not see this conversation.',
       'Returns threadId. When the user is idle and all threads are done, Neo3 sends you one «Треды готовы» message.',
     ].join(' '),
@@ -73,7 +74,8 @@ const tools: ToolDefinition[] = [
         prompt: { type: 'string', description: 'Complete task for the thread (it does not see this chat).' },
         title: { type: 'string', description: 'Short chat name shown in the sidebar.' },
         provider: { type: 'string', enum: ['grok', 'claude', 'codex', 'local'], description: 'Engine; default grok.' },
-        model: { type: 'string', description: 'Model id of that engine; default per engine.' },
+        model: { type: 'string', description: 'Model id of that engine; default per engine (with agent: the agent\'s model).' },
+        agent: { type: 'string', description: 'Name of an agent (workspace_action agent.list); the thread works in its role and memory.' },
       },
       required: ['prompt'],
     },
@@ -154,7 +156,10 @@ async function callTool(name: string, args: Record<string, unknown>) {
   }
 
   const input = pickArguments(name, args);
-  const waitSec = name === 'thread_status' && typeof input.wait === 'number' ? Math.min(Math.max(input.wait, 0), MAX_WAIT_SEC) : 0;
+  // secret.request waits on the server for the user's answer (≤ MAX_WAIT_SEC), like thread_status with wait.
+  const waitSec = name === 'thread_status' && typeof input.wait === 'number'
+    ? Math.min(Math.max(input.wait, 0), MAX_WAIT_SEC)
+    : name === 'workspace_action' && input.action === 'secret.request' ? MAX_WAIT_SEC : 0;
   let response: Response;
   try {
     response = await fetch(`${apiUrl}/tools/${encodeURIComponent(name)}`, {

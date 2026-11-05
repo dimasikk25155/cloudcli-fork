@@ -1,5 +1,6 @@
 import AgentWorkspacePanel from '../../../agent-workspace/AgentWorkspacePanel';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Settings,
   AlertTriangle,
@@ -14,6 +15,8 @@ import {
   Car,
   Shell,
   Music2,
+  Users,
+  ListChecks,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM } from '../../../../constants/config';
@@ -32,6 +35,8 @@ import AppIcon from '../../../app-icon/AppIcon';
 import type { ProjectGlyph } from '../../../app-icon/projectIconSpec';
 import { useAuth } from '../../../auth';
 import PixelCrab from '../../../crabs/PixelCrab';
+import AgentsPanel from '../../../agents/AgentsPanel';
+import AgentQueuePanel from '../../../agent-queue/AgentQueuePanel';
 import KrabikPanel from '../../../krabik/KrabikPanel';
 import DuetPanel from '../../../duet/DuetPanel';
 import { useModEnabled } from '../../../../hooks/useModEnabled';
@@ -67,6 +72,12 @@ const KRABIK_PANEL = { key: 'krabik', label: 'Агент крабик', shortLab
 // «Дуэт» — напарник по ботам и сервисам (мод modDuet), только админу.
 const DUET_PANEL = { key: 'duet', label: 'Дуэт', shortLabel: 'Дуэт', icon: Music2 } as const;
 
+// «Агенты» — именованные помощники с ролью и памятью (мод modAgents), только админу.
+const AGENTS_PANEL = { key: 'agents', label: 'Агенты', shortLabel: 'Агенты', icon: Users } as const;
+
+// «Конвейер» — очередь пунктов агенту с вердиктами (мод modAgentQueue, требует modAgents), только админу.
+const QUEUE_PANEL = { key: 'queue', label: 'Конвейер', shortLabel: 'Конвейер', icon: ListChecks } as const;
+
 /** Значок Крабика в меню: пиксельный краб на плитке того же размера, что AppIcon sm. */
 function KrabikMenuIcon({ light = false }: { light?: boolean }) {
   return (
@@ -85,6 +96,8 @@ const APP_ICON: Record<string, { background: string; foreground: string; glyph: 
   governance: { background: '#14532D', foreground: '#DCFCE7', glyph: 'shield' },
   server: { background: '#1C3A70', foreground: '#E8F0FF', glyph: 'server' },
   duet: { background: '#0F4C45', foreground: '#D7FBF3', glyph: 'music' },
+  agents: { background: '#6B2D5C', foreground: '#FBE4F4', glyph: 'user' },
+  queue: { background: '#7A3E12', foreground: '#FDE7D2', glyph: 'tasks' },
   settings: { background: '#3A3A3A', foreground: '#F3F3F0', glyph: 'settings' },
 };
 
@@ -102,7 +115,9 @@ type FeaturePanelKey =
   | (typeof FEATURE_PANELS)[number]['key']
   | typeof SERVER_PANEL.key
   | typeof KRABIK_PANEL.key
-  | typeof DUET_PANEL.key;
+  | typeof DUET_PANEL.key
+  | typeof AGENTS_PANEL.key
+  | typeof QUEUE_PANEL.key;
 
 type SidebarFooterProps = {
   restartRequired: boolean;
@@ -126,10 +141,14 @@ export default function SidebarFooter({
   const isOwner = !IS_PLATFORM && user?.role === 'admin';
   const krabikOn = useModEnabled('modKrabikAgent');
   const duetOn = useModEnabled('modDuet');
+  const agentsOn = useModEnabled('modAgents');
+  // «Конвейер» требует «Агентов»: без них пункт скрыт, как и на сервере (MOD_OFF).
+  const queueOn = useModEnabled('modAgentQueue') && agentsOn;
+  const navigate = useNavigate();
   const { isDarkMode } = useTheme();
   const lightTiles = !isDarkMode;
   const panels = isOwner
-    ? [...HUB_PANELS, ...FEATURE_PANELS, SERVER_PANEL, ...(duetOn ? [DUET_PANEL] : []), ...(krabikOn ? [KRABIK_PANEL] : [])]
+    ? [...HUB_PANELS, ...FEATURE_PANELS, SERVER_PANEL, ...(duetOn ? [DUET_PANEL] : []), ...(agentsOn ? [AGENTS_PANEL] : []), ...(queueOn ? [QUEUE_PANEL] : []), ...(krabikOn ? [KRABIK_PANEL] : [])]
     : [...HUB_PANELS, ...FEATURE_PANELS];
 
   useEffect(() => {
@@ -137,7 +156,7 @@ export default function SidebarFooter({
     const fromQuery = params.get('panel');
     if (fromQuery === 'agent-workspace' || fromQuery === 'consigliere' || fromQuery === 'mazda' || fromQuery === 'schedules'
       || fromQuery === 'pipelines' || fromQuery === 'governance' || fromQuery === 'server'
-      || fromQuery === 'krabik' || fromQuery === 'duet') {
+      || fromQuery === 'krabik' || fromQuery === 'duet' || fromQuery === 'agents' || fromQuery === 'queue') {
       setOpenPanel(fromQuery);
     }
   }, []);
@@ -149,7 +168,8 @@ export default function SidebarFooter({
     const onMessage = (event: MessageEvent) => {
       const panel = event.data?.panel;
       if (event.data?.type === 'notification:navigate' && (
-        panel === 'server' || panel === 'consigliere' || panel === 'krabik' || panel === 'duet'
+        panel === 'server' || panel === 'consigliere' || panel === 'krabik' || panel === 'duet' || panel === 'agents'
+        || panel === 'queue'
       )) {
         setOpenPanel(panel);
       }
@@ -367,6 +387,18 @@ export default function SidebarFooter({
       {openPanel === 'duet' && isOwner && duetOn && (
         <PanelModal title="Дуэт" icon={Music2} onClose={() => setOpenPanel(null)} contentClassName="md:max-w-3xl">
           <DuetPanel />
+        </PanelModal>
+      )}
+      {openPanel === 'agents' && isOwner && agentsOn && (
+        <PanelModal title="Агенты" icon={Users} onClose={() => setOpenPanel(null)} contentClassName="md:max-w-3xl">
+          {/* Созданный чат открываем сразу, панель при этом уходит с экрана. */}
+          <AgentsPanel onOpenChat={(sessionId) => { setOpenPanel(null); navigate(`/session/${sessionId}`); }} />
+        </PanelModal>
+      )}
+      {openPanel === 'queue' && isOwner && queueOn && (
+        <PanelModal title="Конвейер" icon={ListChecks} onClose={() => setOpenPanel(null)} contentClassName="md:max-w-3xl">
+          {/* Чат исполнителя открываем сразу, панель при этом уходит с экрана. */}
+          <AgentQueuePanel onOpenChat={(sessionId) => { setOpenPanel(null); navigate(`/session/${sessionId}`); }} />
         </PanelModal>
       )}
       {openPanel === 'krabik' && isOwner && krabikOn && (

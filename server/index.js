@@ -17,7 +17,7 @@ import mime from 'mime-types';
 
 import { WORKSPACES_ROOT, apiErrorHandler, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
+import { createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -90,10 +90,14 @@ import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import { krabikRoutes, startKrabikWatch } from './modules/krabik/index.js';
 import { duetRoutes, startDuetWatch } from './modules/duet/index.js';
+import { agentsRoutes, agentsService } from './modules/agents/index.js';
+import { agentQueueRoutes, startAgentQueueWatch, stopAgentQueueWatch } from './modules/agent-queue/index.js';
+import { startScheduleResultWatch, stopScheduleResultWatch } from './modules/schedules/schedule-result-watch.js';
 import { safariLiveRoutes, safariLiveService, serveSafariLiveStream } from './modules/safari-live/index.js';
 import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
+import { secretRequestsRoutes } from './modules/secret-requests/index.js';
 import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
 import { sessionLinksRoutes, btwService } from './modules/session-links/index.js';
 import { codeStatusRoutes } from './modules/code-status/index.js';
@@ -221,6 +225,8 @@ improvementIdeas.setRunControl(createIdeaRunControl(chatDependencies));
 btwService.setRunControl(createAutoRelayRunControl(chatDependencies));
 // Master session sends text answers through the threads run control.
 setMasterSessionRunControl(createThreadRunControl(chatDependencies));
+// «Агенты»: the first message of a chat with an agent goes through the same gateway.
+agentsService.setRunControl(createAgentRunControl(chatDependencies));
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {
@@ -368,6 +374,10 @@ app.use('/api/vps/ingest', vpsIngestRouter);
 app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
 app.use('/api/krabik', authenticateToken, requireAdmin, krabikRoutes);
 app.use('/api/duet', authenticateToken, requireAdmin, duetRoutes);
+// «Агенты»: named agents, their memory and a chat with an agent (admin only).
+app.use('/api/agents', authenticateToken, requireAdmin, agentsRoutes);
+// «Конвейер»: queues an agent works through, with verdicts and «брак» (admin only).
+app.use('/api/agent-queue', authenticateToken, requireAdmin, agentQueueRoutes);
 // «Safari вживую»: windows list and chat → Safari window binding (admin only).
 app.use('/api/safari-live', authenticateToken, requireAdmin, safariLiveRoutes);
 // Sticky phone pushes (Consigliere tasks + dead bots). Public by design:
@@ -375,6 +385,8 @@ app.use('/api/safari-live', authenticateToken, requireAdmin, safariLiveRoutes);
 app.use('/api/sticky-push', stickyPushRoutes);
 // Secret guard: the composer moves a pasted key into the secrets file. Admin-only.
 app.use('/api/secrets', authenticateToken, requireAdmin, secretsStashRoutes);
+// «Запрос ключа»: an agent asks for a key by name, Dima answers in «Ждут тебя» (admin only).
+app.use('/api/secret-requests', authenticateToken, requireAdmin, secretRequestsRoutes);
 // Reply chips over the composer: local model, best effort, cached per reply.
 app.use('/api/reply-suggestions', authenticateToken, replySuggestionsRoutes);
 app.use('/api/sessions', authenticateToken, sessionLinksRoutes);
@@ -1731,6 +1743,20 @@ async function startServer() {
             } catch (err) {
                 console.error('[duet] watch failed to start:', err.message);
             }
+
+            // «Конвейер»: очередь пунктов агенту, продолжает с места после рестарта.
+            try {
+                startAgentQueueWatch();
+            } catch (err) {
+                console.error('[agent-queue] watch failed to start:', err.message);
+            }
+
+            // «Расписания» с «Прислать итог»: досылает итог прогона пушем и в Telegram.
+            try {
+                startScheduleResultWatch();
+            } catch (err) {
+                console.error('[schedules] result watch failed to start:', err.message);
+            }
         });
 
         await closeSessionsWatcher();
@@ -1744,6 +1770,12 @@ async function startServer() {
                 await abortAllActiveClaudeSDKSessions();
             } catch (err) {
                 console.error('[Claude SDK] Error interrupting active sessions during shutdown:', err?.message || err);
+            }
+            try {
+                stopAgentQueueWatch();
+                stopScheduleResultWatch();
+            } catch (err) {
+                console.error('[agent-queue] Error stopping watches during shutdown:', err?.message || err);
             }
             try {
                 await browserUseService.stopAllSessions();

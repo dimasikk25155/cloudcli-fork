@@ -8,6 +8,8 @@ import { AppError } from '@/shared/utils.js';
 import { createWorkspaceStore } from '../store.js';
 import type { WorkspaceDependencies } from '../dependencies.js';
 import { createWorkspaceTools } from '../tools.js';
+import { createSecretRequestsService } from '../../secret-requests/index.js';
+import { modOffMessage } from '../../../../shared/mods.js';
 function fixture() {
     const db = new Database(':memory:');
     db.exec('CREATE TABLE workspace_records(id TEXT PRIMARY KEY,kind TEXT,owner_user_id INTEGER,project_id TEXT,revision INTEGER,payload TEXT,created_at TEXT,updated_at TEXT)');
@@ -211,6 +213,84 @@ test('safari.show passes this chat, url, windowId and titleContains to Safari li
         revoke();
         assert.throws(() => tools.call(1, 'session', { action: 'safari.show' }), (error: { statusCode?: number }) => error.statusCode === 403);
         assert.equal(calls.length, 5);
+    }
+    finally {
+        db.close();
+    }
+});
+test('agent.list shows the owner\'s team (role = first line); a non-admin gets an empty list with a note; the switched-off mod answers with its text', () => {
+    const { db, deps } = fixture();
+    try {
+        const team = [{ id: 'a1', name: 'Критик', role: 'Ищешь слабые места.\nВторая строка роли', provider: 'claude', model: 'sonnet[1m]' }];
+        let modOn = true;
+        const agents = { list: (userId: number) => (userId === 1 ? team : []), addRule: () => { throw new Error('not here'); }, agentOfSession: () => null };
+        const asAdmin = { ...deps, isAdmin: (id: number) => id === 1 };
+        const tools = createWorkspaceTools(asAdmin, { agents: agents as never, isModOn: () => modOn });
+        const listed = tools.call(1, 'session', { action: 'agent.list' }) as { agents: unknown[] };
+        assert.deepEqual(listed.agents, [{ name: 'Критик', role: 'Ищешь слабые места.', provider: 'claude', model: 'sonnet[1m]' }]);
+        const denied = tools.call(2, 'session', { action: 'agent.list' }) as { agents: unknown[]; note: string };
+        assert.deepEqual(denied.agents, []);
+        assert.match(denied.note, /администратор/);
+        modOn = false;
+        assert.throws(() => tools.call(1, 'session', { action: 'agent.list' }), (error: { statusCode?: number; message: string }) => error.statusCode === 409 && /выключен/.test(error.message));
+    }
+    finally {
+        db.close();
+    }
+});
+test('agent.remember adds a rule to the agent of this chat as "agent"; a chat without agent and a non-admin are refused', () => {
+    const { db, deps } = fixture();
+    try {
+        const added: Array<[number, string, string, string]> = [];
+        const agents = {
+            list: () => [],
+            agentOfSession: (sessionId: string) => (sessionId === 'agent-chat' ? { id: 'a1', name: 'Художник' } : null),
+            addRule: (userId: number, agentId: string, text: string, by: string) => { added.push([userId, agentId, text, by]); return { version: 3 }; },
+        };
+        const tools = createWorkspaceTools({ ...deps, isAdmin: (id: number) => id === 1 }, { agents: agents as never, isModOn: () => true });
+        const done = tools.call(1, 'agent-chat', { action: 'agent.remember', data: { text: '  не писать CDEK на этикетке ' } }) as { message: string };
+        assert.match(done.message, /Правило добавлено, версия V3/);
+        assert.deepEqual(added, [[1, 'a1', 'не писать CDEK на этикетке', 'agent']]);
+        assert.throws(() => tools.call(1, 'plain-chat', { action: 'agent.remember', data: { text: 'x' } }), /не привязан к агенту/);
+        assert.throws(() => tools.call(1, 'agent-chat', { action: 'agent.remember', data: { text: '   ' } }), /правил/);
+        assert.throws(() => tools.call(2, 'agent-chat', { action: 'agent.remember', data: { text: 'x' } }), (error: { statusCode?: number }) => error.statusCode === 403);
+        assert.equal(added.length, 1);
+    }
+    finally {
+        db.close();
+    }
+});
+test('secret.request waits for Dima: the tool answer carries the name, never the value; teammate and switched-off mod are refused', async () => {
+    const { db, deps } = fixture();
+    const value = 'ghp_FakeToolValue_0123456789abcdefABCDEF';
+    try {
+        let modOn = true;
+        const stored: string[] = [];
+        const secretRequests = createSecretRequestsService({
+            isAdmin: (id: number) => id === 1,
+            isModOn: () => modOn,
+            store: async ({ name, value: secret }) => { stored.push(`${name}=${secret}`); return { name }; },
+            waitMs: 5_000,
+        });
+        const tools = createWorkspaceTools({ ...deps, isAdmin: (id: number) => id === 1 }, { secretRequests });
+        const asked = Promise.resolve(tools.call(1, 'session', { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'постинг Samruk' } }));
+        let cards = await secretRequests.list(1);
+        for (let i = 0; cards.length === 0 && i < 100; i += 1) {
+            await new Promise(resolve => setTimeout(resolve, 5));
+            cards = await secretRequests.list(1);
+        }
+        assert.equal(cards[0].name, 'FB_PAGE_TOKEN');
+        await secretRequests.answer(1, cards[0].id, { value });
+        const answer = await asked as { status: string; message: string };
+        assert.equal(answer.status, 'saved');
+        assert.equal(answer.message, 'FB_PAGE_TOKEN сохранён в файле секретов');
+        assert.equal(JSON.stringify(answer).includes(value), false);
+        assert.deepEqual(stored, [`FB_PAGE_TOKEN=${value}`]);
+
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'secret.request', data: { name: 'bad name', why: 'x' } })), (error: { statusCode?: number; constructor: { name: string } }) => error.statusCode === 400 && error.constructor.name === 'WorkspaceError');
+        await assert.rejects(Promise.resolve(tools.call(2, 'session', { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'x' } })), (error: { statusCode?: number }) => error.statusCode === 403);
+        modOn = false;
+        await assert.rejects(Promise.resolve(tools.call(1, 'session', { action: 'secret.request', data: { name: 'FB_PAGE_TOKEN', why: 'x' } })), (error: { statusCode?: number; message: string }) => error.statusCode === 409 && error.message === modOffMessage('modSecretRequest'));
     }
     finally {
         db.close();

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
 import { improvementIdeas, createIdeaCollector } from '@/modules/improvement-ideas/index.js';
-import { projectsDb, sessionsDb, runDurationsDb, answerHash } from '@/modules/database/index.js';
+import { agentsDb, projectsDb, sessionsDb, runDurationsDb, answerHash } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
 import { linksOfRow } from '@/modules/session-links/index.js';
 import { sessionAttention } from '@/modules/session-attention/index.js';
@@ -91,6 +91,12 @@ const MAX_BUFFERED_EVENTS_PER_RUN = 5000;
  */
 const runs = new Map<string, ChatRun>();
 
+/** «Агенты»: `{agentName}` for a chat of an agent, nothing for other chats. */
+function agentNameOf(sessionId: string): { agentName?: string } {
+  const name = agentsDb.agentOfSession(sessionId)?.name;
+  return name ? { agentName: name } : {};
+}
+
 async function broadcastCanonicalSessionUpsert(appSessionId: string): Promise<void> {
   const row = sessionsDb.getSessionById(appSessionId);
   if (!row || row.isArchived) {
@@ -115,6 +121,8 @@ async function broadcastCanonicalSessionUpsert(appSessionId: string): Promise<vo
       createdAt: row.created_at ?? row.updated_at ?? new Date().toISOString(),
       lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
       links: linksOfRow(row),
+      // «Агенты»: the sidebar marks a chat of an agent with its name.
+      ...agentNameOf(row.session_id),
     },
     project: project
       ? {

@@ -1,5 +1,6 @@
 export {
   DEFAULT_UNATTENDED_PROVIDER,
+  KNOWN_ACTORS,
   RunCollector,
   SUPPORTED_PROVIDERS,
   checkProjectAccess,

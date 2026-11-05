@@ -27,6 +27,14 @@ export type ScheduleRow = {
   os_label: string | null;
   last_run_at: string | null;
   last_status: string | null;
+  /** Agent the run goes as (role, memory, engine, folder); null — plain prompt. */
+  agent_id: string | null;
+  /** 1 — «Прислать итог»: the server watch pushes the result of every run. */
+  notify: number;
+  /** ≤600 chars of the answer, or the error text, of the last run. */
+  last_result: string | null;
+  /** `last_run_at` of the run whose result was already sent. */
+  notified_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -42,6 +50,8 @@ export type CreateScheduleInput = {
   minute: number;
   weekdays?: string;
   enabled?: boolean;
+  agentId?: string | null;
+  notify?: boolean;
 };
 
 export type UpdateScheduleInput = {
@@ -54,12 +64,15 @@ export type UpdateScheduleInput = {
   minute?: number;
   weekdays?: string;
   enabled?: boolean;
+  agentId?: string | null;
+  notify?: boolean;
 };
 
 const SELECT_COLUMNS = `
   id, user_id, name, kind, project_path, prompt, pipeline_id,
   hour, minute, weekdays, enabled, os_label,
-  last_run_at, last_status, created_at, updated_at
+  last_run_at, last_status, agent_id, notify, last_result, notified_at,
+  created_at, updated_at
 `;
 
 // Column name per accepted patch key, so the dynamic UPDATE below can never
@@ -74,6 +87,8 @@ const UPDATABLE_COLUMNS: Record<keyof UpdateScheduleInput, string> = {
   minute: 'minute',
   weekdays: 'weekdays',
   enabled: 'enabled',
+  agentId: 'agent_id',
+  notify: 'notify',
 };
 
 export const schedulesDb = {
@@ -106,8 +121,8 @@ export const schedulesDb = {
     const row = db
       .prepare(
         `INSERT INTO schedules
-           (user_id, name, kind, project_path, prompt, pipeline_id, hour, minute, weekdays, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (user_id, name, kind, project_path, prompt, pipeline_id, hour, minute, weekdays, enabled, agent_id, notify)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING ${SELECT_COLUMNS}`
       )
       .get(
@@ -120,7 +135,9 @@ export const schedulesDb = {
         input.hour,
         input.minute,
         input.weekdays ?? '',
-        input.enabled === false ? 0 : 1
+        input.enabled === false ? 0 : 1,
+        input.agentId ?? null,
+        input.notify ? 1 : 0
       ) as ScheduleRow;
     return row;
   },
@@ -133,7 +150,7 @@ export const schedulesDb = {
       const value = patch[key];
       if (value === undefined) continue;
       assignments.push(`${column} = ?`);
-      values.push(key === 'enabled' ? (value ? 1 : 0) : value);
+      values.push(key === 'enabled' || key === 'notify' ? (value ? 1 : 0) : value);
     }
 
     if (assignments.length === 0) {
@@ -161,11 +178,31 @@ export const schedulesDb = {
     db.prepare('UPDATE schedules SET os_label = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(osLabel, id);
   },
 
-  markRun(id: number, status: string): void {
+  /** Records a run: status (`ok` / `error: …` / `агент удалён`) and its result (≤600 chars). */
+  markRun(id: number, status: string, result: string | null = null): void {
     const db = getConnection();
     db.prepare(
-      'UPDATE schedules SET last_run_at = CURRENT_TIMESTAMP, last_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run(status.slice(0, 500), id);
+      `UPDATE schedules SET last_run_at = CURRENT_TIMESTAMP, last_status = ?, last_result = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    ).run(status.slice(0, 500), result === null ? null : result.slice(0, 600), id);
+  },
+
+  /** «Прислать итог» on and a run newer than the last sent one. */
+  listToNotify(): ScheduleRow[] {
+    const db = getConnection();
+    return db
+      .prepare(
+        `SELECT ${SELECT_COLUMNS} FROM schedules
+         WHERE notify = 1 AND last_run_at IS NOT NULL AND (notified_at IS NULL OR last_run_at > notified_at)
+         ORDER BY id`
+      )
+      .all() as ScheduleRow[];
+  },
+
+  /** Remembers which run (its `last_run_at`) was already reported. */
+  markNotified(id: number, runAt: string | null): void {
+    const db = getConnection();
+    db.prepare('UPDATE schedules SET notified_at = ? WHERE id = ?').run(runAt, id);
   },
 
   remove(id: number): boolean {

@@ -2,6 +2,10 @@ import { Database } from 'better-sqlite3';
 
 import {
   WORKSPACE_RECORDS_SCHEMA_SQL,
+  AGENT_QUEUES_TABLE_SCHEMA_SQL,
+  AGENT_RULES_TABLE_SCHEMA_SQL,
+  AGENT_SESSIONS_TABLE_SCHEMA_SQL,
+  AGENTS_TABLE_SCHEMA_SQL,
   ANSWER_TOKENS_TABLE_SCHEMA_SQL,
   APP_CONFIG_TABLE_SCHEMA_SQL,
   AUDIT_LOG_GUARD_SQL,
@@ -588,6 +592,20 @@ export const runMigrations = (db: Database) => {
     db.exec(SIDEBAR_GROUPS_TABLE_SCHEMA_SQL);
     // «Safari вживую»: chat → Safari window binding (safari-live module).
     db.exec(SAFARI_LIVE_BINDINGS_TABLE_SCHEMA_SQL);
+    // «Агенты» and «Конвейер» (agents, agent-queue modules).
+    db.exec(AGENTS_TABLE_SCHEMA_SQL);
+    db.exec(AGENT_RULES_TABLE_SCHEMA_SQL);
+    db.exec(AGENT_SESSIONS_TABLE_SCHEMA_SQL);
+    db.exec(AGENT_QUEUES_TABLE_SCHEMA_SQL);
+    // Routines: a schedule may run as an agent and send its result to Dima
+    // (schedules module). The table predates these columns on every install.
+    if (tableExists(db, 'schedules')) {
+      const scheduleColumnNames = getTableInfo(db, 'schedules').map((column) => column.name);
+      addColumnToTableIfNotExists(db, 'schedules', scheduleColumnNames, 'agent_id', 'TEXT');
+      addColumnToTableIfNotExists(db, 'schedules', scheduleColumnNames, 'notify', 'INTEGER NOT NULL DEFAULT 0');
+      addColumnToTableIfNotExists(db, 'schedules', scheduleColumnNames, 'last_result', 'TEXT');
+      addColumnToTableIfNotExists(db, 'schedules', scheduleColumnNames, 'notified_at', 'TEXT');
+    }
 
     // «Время размышления»: time the model spent thinking in a run. Older
     // run_durations tables only gain the column here (NULL = not measured).

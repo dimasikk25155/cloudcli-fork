@@ -1,3 +1,5 @@
+import { agentsService, type AgentsService } from '@/modules/agents/index.js';
+import { isModOn as defaultIsModOn, modOffMessage, type IsModOn } from '@/shared/mods.js';
 import { AppError } from '@/shared/utils.js';
 
 import type { WorkspaceSource } from '../../../shared/agent-workspace.js';
@@ -14,10 +16,18 @@ import { requireWorkspaceProject, createDailyService } from './service.js';
 import { WorkspaceError } from './store.js';
 /** «Safari вживую»: binds the agent's Safari window to its chat (`safari.show`). */
 export type SafariLiveTool = { show(userId: number, sessionId: string, data: Record<string, unknown>): Promise<unknown> };
-export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; safariLive?: SafariLiveTool };
+/** «Агенты»: what `agent.list` / `agent.remember` need from the agents service. */
+export type AgentsTool = Pick<AgentsService, 'list' | 'addRule' | 'agentOfSession'>;
+/** «Запрос ключа»: the agent asks for a secret by name and waits for Dima's answer (never the value). */
+export type SecretRequestsTool = { request(userId: number, sessionId: string, input: { name: string; why: string }): Promise<unknown> };
+export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; safariLive?: SafariLiveTool; agents?: AgentsTool; secretRequests?: SecretRequestsTool; isModOn?: IsModOn };
 /** Production `safari.show`, loaded on first use (the module owns helper processes). */
 const defaultSafariLive: SafariLiveTool = {
     show: async (userId, sessionId, data) => (await import('../safari-live/index.js')).showForAgent(userId, sessionId, data),
+};
+/** Production `secret.request`, loaded on first use (requests live in that module's memory). */
+const defaultSecretRequests: SecretRequestsTool = {
+    request: async (userId, sessionId, input) => (await import('../secret-requests/index.js')).secretRequestsService.request(userId, sessionId, input),
 };
 /** Same for the services that throw AppError synchronously (groups, settings profile). */
 const sync = <T>(run: () => T): T => {
@@ -39,6 +49,7 @@ const asWorkspaceError = (error: unknown): never => {
  * `artifact.publish` only shows a file of the chat project in the Neo3 canvas
  * (the source is this chat); nothing leaves the machine.
  * `safari.show` opens a page in the agent's own Safari window (or binds an open one) and shows it in this chat (admin only).
+ * `secret.request` asks Dima for a secret by NAME and waits (≤ 10 min); the answer is the name or «отказал», never the value (admin only).
  */
 export function createWorkspaceTools(deps: WorkspaceDependencies, options: WorkspaceToolsOptions = {}) {
     const documents = createDocumentsService(deps), team = createTeamService(deps), daily = createDailyService(deps);
@@ -46,6 +57,14 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
     const groups = () => options.groups ?? getSidebarGroupsService();
     const profile = () => options.profile ?? getSettingsProfileService();
     const safariLive = () => options.safariLive ?? defaultSafariLive;
+    const agents = () => options.agents ?? agentsService;
+    const secretRequests = () => options.secretRequests ?? defaultSecretRequests;
+    /** Agents are admin-only and switchable: the other users and a switched-off mod get a plain refusal. */
+    const agentsAllowed = (userId: number) => {
+        if (!(options.isModOn ?? defaultIsModOn)(userId, 'modAgents'))
+            throw new WorkspaceError(`${modOffMessage('modAgents')}. Агентов сейчас нет.`, 409);
+        return deps.isAdmin(userId);
+    };
     return {
         call(userId: number, sessionId: string, input: Record<string, unknown>): unknown {
             const projectId = deps.sessionProject?.(userId, sessionId);
@@ -116,6 +135,31 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
                     if (typeof data.windowId === 'number' || typeof data.windowId === 'string') picked.windowId = data.windowId;
                     if (typeof data.titleContains === 'string') picked.titleContains = data.titleContains;
                     return safariLive().show(userId, sessionId, picked).catch(asWorkspaceError);
+                }
+                // The team of the owner: names, first line of the role, engine — to pick helpers for spawn_thread{agent}.
+                case 'agent.list': {
+                    if (!agentsAllowed(userId))
+                        return { agents: [], note: 'Агентами управляет только администратор — у этого пользователя их нет' };
+                    return { agents: sync(() => agents().list(userId)).map(agent => ({ name: agent.name, role: agent.role.split('\n')[0].trim().slice(0, 120), provider: agent.provider, model: agent.model })) };
+                }
+                // A rule for the agent of THIS chat; it reaches every next chat of that agent.
+                case 'agent.remember': {
+                    if (!agentsAllowed(userId))
+                        throw new WorkspaceError('Память агентов ведёт только администратор', 403);
+                    const agent = agents().agentOfSession(sessionId);
+                    if (!agent)
+                        throw new WorkspaceError('Этот чат не привязан к агенту — запоминать некуда', 404);
+                    const rule = typeof data.text === 'string' ? data.text.trim() : '';
+                    if (!rule)
+                        throw new WorkspaceError('Нужен текст правила: data.text', 400);
+                    const memory = sync(() => agents().addRule(userId, agent.id, rule, 'agent'));
+                    return { message: `Правило добавлено, версия V${memory.version}`, agent: agent.name, version: memory.version };
+                }
+                // Dima types the value into «Ждут тебя»; it goes only to the secrets file. The agent hears the name.
+                case 'secret.request': {
+                    const name = typeof data.name === 'string' ? data.name : '';
+                    const why = typeof data.why === 'string' ? data.why : '';
+                    return secretRequests().request(userId, sessionId, { name, why }).catch(asWorkspaceError);
                 }
                 default: throw new WorkspaceError('Операция недоступна агенту: отправку, согласование и публикацию выполняет человек в интерфейсе', 403);
             }

@@ -27,6 +27,7 @@ const KNOWN_ACTORS: AuditActor[] = [
   'api',
   'git-helper',
   'duet',
+  'queue',
   'system',
 ];
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
-import { projectsDb, sessionLinksDb, sessionsDb, sessionThreadsDb } from '@/modules/database/index.js';
+import { agentsDb, projectsDb, sessionLinksDb, sessionsDb, sessionThreadsDb } from '@/modules/database/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '@/modules/governance/index.js';
 import {
   pendingAnswers,
@@ -21,6 +21,7 @@ import { beginServiceTurn } from '@/shared/service-turns.js';
 
 import { isRelayRequestText } from '../../../../shared/relay-rules.js';
 import type { ThreadRunControl } from '@/modules/threads/index.js';
+import type { AgentRunControl } from '@/modules/agents/index.js';
 import { backgroundConsoleOn, chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities, readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -205,13 +206,27 @@ type ChatSendStart = { started: false } | { started: true; finished: Promise<voi
  *   `pendingAnswers` against the same project-access rule before delivery.
  * - `thread` / `auto-relay`: runs the server starts for a chat's user (see
  *   canStartLinkedRun).
+ * - `agent`: the first message of a chat with a Neo3 agent (see
+ *   canStartAgentRun).
  */
 type ChatSendAccess =
   | { kind: 'socket' }
   | { kind: 'verified-answer' }
   | { kind: 'idea'; userId: number }
   | { kind: 'thread'; userId: number; parentSessionId: string }
-  | { kind: 'auto-relay'; userId: number; parentSessionId: string };
+  | { kind: 'auto-relay'; userId: number; parentSessionId: string }
+  | { kind: 'agent'; userId: number };
+
+/**
+ * `agent` access («Агенты»): an admin, with access to the chat's project now,
+ * and the chat belongs to one of his own agents (agent_sessions).
+ */
+function canStartAgentRun(access: { userId: number }, sessionId: string): boolean {
+  if (!isAdminUser({ id: access.userId }) || !canAccessSession({ id: access.userId }, sessionId)) {
+    return false;
+  }
+  return agentsDb.agentOfSession(sessionId)?.userId === access.userId;
+}
 
 /**
  * `thread` access (agent threads): the actor is the parent chat's user, checked
@@ -310,6 +325,8 @@ function beginChatSend(
       ? !isAdminUser({ id: access.userId }) || !canAccessSession({ id: access.userId }, sessionId)
       : access.kind === 'thread'
       ? !canStartThreadRun(access, sessionId)
+      : access.kind === 'agent'
+      ? !canStartAgentRun(access, sessionId)
       : access.kind === 'auto-relay' && !canStartLinkedRun(access, sessionId, 'relay');
   if (accessDenied) {
     sendProtocolError(
@@ -381,7 +398,7 @@ function beginChatSend(
 
   // Auto-relay repeats a person's engine settings (model, effort, mode, tools)
   // on its own turns; only runs a person started count.
-  if (access.kind === 'socket' || access.kind === 'idea') {
+  if (access.kind === 'socket' || access.kind === 'idea' || access.kind === 'agent') {
     rememberRunOptions(sessionId, clientOptions);
   }
 
@@ -863,6 +880,37 @@ export function createThreadRunControl(dependencies: ChatWebSocketDependencies):
     },
     abort(sessionId, actorUserId) {
       return abortSessionRun(sessionId, dependencies, actorUserId);
+    },
+  };
+}
+
+/**
+ * The chat gateway's side of «Агенты»: the first message of a chat with an
+ * agent (hidden role + task) is an ordinary run — registry, indicator, Stop,
+ * «Ждут тебя» — started without a socket for the admin who pressed the
+ * button (`agent` access). «Агенты» switched off → nothing starts.
+ */
+export function createAgentRunControl(dependencies: ChatWebSocketDependencies): AgentRunControl {
+  return {
+    start({ sessionId, userId, content, options }) {
+      if (!(dependencies.isModOn ?? isModOn)(userId, 'modAgents')) return false;
+      const start = beginChatSend(
+        createDetachedConnection(),
+        userId,
+        null,
+        { sessionId, content, options },
+        dependencies,
+        { kind: 'agent', userId },
+      );
+      if (start.started) {
+        void start.finished.catch((error: unknown) => {
+          console.error('[Chat] Agent run failed', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
+      return start.started;
     },
   };
 }

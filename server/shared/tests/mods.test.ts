@@ -9,7 +9,7 @@ import { createIsModOn, isModOn } from '@/shared/mods.js';
 
 import { MODS, MOD_KEYS, modDefault } from '../../../shared/mods.js';
 
-// The twenty-four keys written out by hand; `subagentCrabs` keeps its old name.
+// The twenty-seven keys written out by hand; `subagentCrabs` keeps its old name.
 const EXPECTED_KEYS = [
   'modAttention',
   'modAnswerButtons',
@@ -35,7 +35,13 @@ const EXPECTED_KEYS = [
   'modDiagnostics',
   'modArtifactEditor',
   'modSafariLive',
+  'modAgents',
+  'modAgentQueue',
+  'modSecretRequest',
 ];
+
+// Mods of the Grok Bot build (05.11.2026).
+const GROKBOT_BUILD_KEYS = ['modAgents', 'modAgentQueue', 'modSecretRequest'];
 
 // Mods of the workbench build (04.11.2026): each card says how it works in every engine.
 const WORKBENCH_BUILD_KEYS = [
@@ -50,9 +56,9 @@ const WORKBENCH_BUILD_KEYS = [
   'modSafariLive',
 ];
 
-test('the mod registry lists exactly the twenty-four mods, each with a title and a description', () => {
+test('the mod registry lists exactly the twenty-seven mods, each with a title and a description', () => {
   assert.deepEqual([...MOD_KEYS].sort(), [...EXPECTED_KEYS].sort());
-  assert.equal(MODS.length, 24);
+  assert.equal(MODS.length, 27);
   for (const mod of MODS) {
     assert.ok(mod.title.trim().length > 0, `${mod.key} has a title`);
     assert.ok(mod.description.trim().length > 0, `${mod.key} has a description`);
@@ -71,17 +77,31 @@ test('every mod of the workbench build names its support in Claude, Codex and Gr
   }
 });
 
-test('answer buttons need «Ждут тебя», artifact editing and Safari live need «Рабочий стол»; no other mod depends on another', () => {
+test('answer buttons and key requests need «Ждут тебя», artifact editing and Safari live need «Рабочий стол», the queue needs agents; no other mod depends on another', () => {
   const withRequires = MODS.filter((mod) => mod.requires);
   assert.deepEqual(withRequires.map((mod) => [mod.key, mod.requires]).sort(), [
+    ['modAgentQueue', 'modAgents'],
     ['modAnswerButtons', 'modAttention'],
     ['modArtifactEditor', 'modWorkbench'],
     ['modSafariLive', 'modWorkbench'],
+    ['modSecretRequest', 'modAttention'],
   ]);
 });
 
-test('«Safari вживую» card: last in the registry, title and support in all three engines', () => {
-  assert.equal(MOD_KEYS[MOD_KEYS.length - 1], 'modSafariLive');
+test('Grok Bot build: «Агенты», «Конвейер», «Запрос ключа» close the registry, each in plain Russian for all three engines', () => {
+  assert.deepEqual(MOD_KEYS.slice(-3), GROKBOT_BUILD_KEYS);
+  const titles = GROKBOT_BUILD_KEYS.map((key) => MODS.find((candidate) => candidate.key === key)?.title);
+  assert.deepEqual(titles, ['Агенты', 'Конвейер', 'Запрос ключа']);
+  for (const key of GROKBOT_BUILD_KEYS) {
+    const mod = MODS.find((candidate) => candidate.key === key)!;
+    assert.match(mod.description, /[а-яё]/i, `${key}: description is Russian`);
+    for (const engine of ['Claude', 'Codex', 'Grok']) {
+      assert.ok((mod.engines ?? '').includes(engine), `${key}: the engines line mentions ${engine}`);
+    }
+  }
+});
+
+test('«Safari вживую» card: title and support in all three engines', () => {
   const mod = MODS.find((candidate) => candidate.key === 'modSafariLive');
   assert.ok(mod, 'modSafariLive has a card');
   assert.equal(mod.title, 'Safari вживую');

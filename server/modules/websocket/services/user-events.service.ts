@@ -10,6 +10,9 @@ const SIDEBAR_GROUPS_CHANGED = 'sidebar_groups_changed';
 /** «Safari вживую»: a chat's Safari window binding changed; re-read GET. Not a chat row. */
 const SAFARI_LIVE_CHANGED = 'safari_live_changed';
 
+/** «Запрос ключа»: the open key requests changed; re-read GET. No names, no values. Not a chat row. */
+const SECRET_REQUESTS_CHANGED = 'secret_requests_changed';
+
 function sameUser(socketUserId: string | number | null, userId: number): boolean {
   return socketUserId !== null && Number(socketUserId) === userId;
 }
@@ -45,4 +48,13 @@ export function notifySidebarGroupsChanged(userId: number): void {
  */
 export function notifySafariLiveChanged(userId: number, sessionId: string): void {
   sendToUser(userId, { kind: SAFARI_LIVE_CHANGED, sessionId });
+}
+
+/**
+ * «Запрос ключа»: an agent asked for a key, or a request was answered. The
+ * frame is only `{kind}`; the client re-reads `GET /api/secret-requests`
+ * (admin only). Names, reasons and values never travel in it.
+ */
+export function notifySecretRequestsChanged(userId: number): void {
+  sendToUser(userId, { kind: SECRET_REQUESTS_CHANGED });
 }
