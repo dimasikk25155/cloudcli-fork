@@ -17,12 +17,14 @@
  * unless it already read them through thread_status.
  */
 
-import { sessionAttentionDb, sessionLinksDb, sessionsDb, sessionThreadsDb } from '@/modules/database/index.js';
+import { agentsDb, sessionAttentionDb, sessionLinksDb, sessionsDb, sessionThreadsDb } from '@/modules/database/index.js';
+import { agentsService as defaultAgentsService, type AgentsService, type AgentView } from '@/modules/agents/index.js';
 import { assertCanLinkNewChild, linkSession } from '@/modules/session-links/index.js';
 import { isModOn as defaultIsModOn, MOD_OFF, modOffMessage, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession } from '@/shared/project-access.js';
 import type { LLMProvider } from '@/shared/types.js';
 
+import { withAgentBrief } from '../../../shared/agent-brief.js';
 import { lastReplyTurn, type ReplyTurnMessage } from '../../../shared/reply-turn.js';
 import { threadTokens as defaultThreadTokens, type ThreadTokenOwner, type ThreadTokens } from './thread-tokens.js';
 
@@ -120,6 +122,8 @@ export type ThreadsDependencies = {
   pollMs?: number;
   /** «Треды» switched off for the user → no new thread or message; running ones finish. */
   isModOn?: IsModOn;
+  /** «Агенты»: the helpers `spawn_thread{agent}` opens by name. */
+  agents?: Pick<AgentsService, 'findByName' | 'list' | 'briefFor'>;
 };
 
 export class ThreadsError extends Error {
@@ -221,6 +225,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   const now = dependencies.now ?? (() => new Date());
   const attentionOf = dependencies.attentionOf ?? defaultAttentionOf;
   const isModOn = dependencies.isModOn ?? defaultIsModOn;
+  const agents = dependencies.agents ?? defaultAgentsService;
   const fetchMessages = dependencies.fetchMessages ?? defaultFetchMessages;
   const checkClaudeLimit = dependencies.checkClaudeLimit ?? defaultCheckClaudeLimit;
   const listModels = dependencies.listModels ?? defaultListModels;
@@ -282,6 +287,36 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
       refuse('THREAD_NOT_FOUND', 'У этого чата нет такого треда', 404);
     }
     return row;
+  }
+
+  /**
+   * The agent a `spawn_thread{agent}` names, or undefined without `agent`.
+   * Mod «Агенты» off → MOD_OFF; unknown name → AGENT_NOT_FOUND with the names;
+   * non-admin → the agents service refuses (ADMIN_ONLY).
+   */
+  function resolveAgent(owner: ThreadTokenOwner, rawName: unknown): AgentView | undefined {
+    const name = readString(rawName);
+    if (!name) return undefined;
+    if (!isModOn(owner.userId, 'modAgents')) {
+      refuse(MOD_OFF, `${modOffMessage('modAgents')}. Сделай работу сам или открой обычный тред без agent.`, 409);
+    }
+    try {
+      const found = agents.findByName(owner.userId, name);
+      if (found) return found;
+      const names = agents.list(owner.userId).map((agent) => agent.name);
+      refuse(
+        'AGENT_NOT_FOUND',
+        `Агента «${name}» нет. ${names.length ? `Есть: ${names.join(', ')}` : 'Агентов пока нет — их создаёт человек в панели «Агенты»'}`,
+        404,
+      );
+    } catch (error) {
+      if (error instanceof ThreadsError) throw error;
+      const known = error as { code?: unknown; message?: unknown; statusCode?: unknown };
+      if (typeof known.code === 'string') {
+        refuse(known.code, typeof known.message === 'string' ? known.message : 'Агенты недоступны', typeof known.statusCode === 'number' ? known.statusCode : 403);
+      }
+      throw error;
+    }
   }
 
   async function resolveEngine(rawProvider: string, rawModel: string): Promise<{ provider: ThreadProvider; model: string }> {
@@ -408,7 +443,14 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   }
 
   async function openThread(owner: ThreadTokenOwner, prompt: string, input: Record<string, unknown>): Promise<SpawnThreadResult> {
-    const { provider, model } = await resolveEngine(readString(input.provider), readString(input.model));
+    const agent = resolveAgent(owner, input.agent);
+    const explicitProvider = readString(input.provider);
+    const { provider, model } = await resolveEngine(
+      explicitProvider || agent?.provider || '',
+      readString(input.model) || (agent && (!explicitProvider || explicitProvider === agent.provider) ? agent.model : ''),
+    );
+    // The agent's effort belongs to its own engine and model only.
+    const agentEffort = agent?.effort && provider === agent.provider && model === agent.model ? agent.effort : null;
     if (provider === 'claude' && !isLocalModel(model)) {
       const guard = await checkClaudeLimit();
       if (guard.blocked) {
@@ -433,7 +475,8 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
     const { sessionsService } = await import('@/modules/providers/index.js');
     const created = sessionsService.createAppSession(provider, projectPath);
     const threadId = created.sessionId;
-    const title = clip(readString(input.title) || titleFromPrompt(prompt), TITLE_MAX);
+    const baseTitle = readString(input.title) || titleFromPrompt(prompt);
+    const title = clip(agent ? `${agent.name}: ${baseTitle}` : baseTitle, TITLE_MAX);
     const stamp = now().toISOString();
     try {
       linkSession({ childSessionId: threadId, parentSessionId: owner.sessionId, relation: 'thread', user });
@@ -450,18 +493,24 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
         seen_at: null,
         notified_at: null,
       });
+      if (agent) agentsDb.linkSession(threadId, agent.id, owner.userId);
     } catch (error) {
+      if (agent) agentsDb.unlinkSession(threadId);
       sessionThreadsDb.delete(threadId);
       sessionsDb.deleteSessionById(threadId);
       throw error;
     }
 
+    // The role and memory travel as a hidden block the chat never shows (story 3).
+    const content = agent ? withAgentBrief(agents.briefFor(owner.userId, agent.id), prompt) : prompt;
     const options: Record<string, unknown> = { model, projectPath };
     if (owner.permissionMode) options.permissionMode = owner.permissionMode;
+    if (agentEffort) options.effort = agentEffort;
     // Local models spend no subscription: the 5-hour guard is not theirs.
     if (isLocalModel(model)) options.usageGuardOverride = true;
-    const started = startRun({ sessionId: threadId, userId: owner.userId, parentSessionId: owner.sessionId, content: prompt, options });
+    const started = startRun({ sessionId: threadId, userId: owner.userId, parentSessionId: owner.sessionId, content, options });
     if (!started) {
+      if (agent) agentsDb.unlinkSession(threadId);
       sessionThreadsDb.delete(threadId);
       sessionsDb.deleteSessionById(threadId);
       refuse('RUN_NOT_STARTED', 'Тред создан, но прогон не запустился — попробуй ещё раз', 500);

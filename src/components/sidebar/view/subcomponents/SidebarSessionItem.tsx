@@ -7,6 +7,7 @@ import { Badge, Tooltip, buttonVariants } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
+import { agentLabel } from '../../utils/agentLabel';
 import type { SessionLinkRef } from '../../../../../shared/session-links';
 import { createSessionViewModel, getSessionLinkLines } from '../../utils/utils';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
@@ -158,12 +159,18 @@ export default function SidebarSessionItem({
 
   // Called as a function (not <Component/>) so the captions keep their DOM between renders.
   const renderSessionLinks = (alsoSelectProject: boolean) => {
-    if (linkLines.length === 0) {
+    const agentCaption = agentLabel(session.agentName);
+    if (linkLines.length === 0 && !agentCaption) {
       return null;
     }
     const expanded = linkLines.find((line) => line.key === openLinkList && line.targets.length > 1);
     return (
       <div className="mt-0.5 flex min-w-0 flex-col gap-0.5">
+        {agentCaption && (
+          <span data-session-agent className="block min-w-0 truncate py-0.5 text-[11px] leading-tight text-primary">
+            {agentCaption}
+          </span>
+        )}
         {linkLines.map((line) => (
           <span
             key={line.key}

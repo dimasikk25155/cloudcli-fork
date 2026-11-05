@@ -140,6 +140,8 @@ export interface ProjectSession {
   // Chat links from the server (relay = continuation, thread): parent and
   // children of this session, see shared/session-links.ts.
   links?: SessionLinks;
+  // Name of the agent (panel «Агенты») this chat belongs to; set by the server only for agent chats.
+  agentName?: string;
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.
   __projectId?: string;

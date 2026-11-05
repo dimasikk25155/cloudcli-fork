@@ -1,3 +1,5 @@
+import { agentsService, type AgentsService } from '@/modules/agents/index.js';
+import { isModOn as defaultIsModOn, modOffMessage, type IsModOn } from '@/shared/mods.js';
 import { AppError } from '@/shared/utils.js';
 
 import type { WorkspaceSource } from '../../../shared/agent-workspace.js';
@@ -14,7 +16,9 @@ import { requireWorkspaceProject, createDailyService } from './service.js';
 import { WorkspaceError } from './store.js';
 /** «Safari вживую»: binds the agent's Safari window to its chat (`safari.show`). */
 export type SafariLiveTool = { show(userId: number, sessionId: string, data: Record<string, unknown>): Promise<unknown> };
-export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; safariLive?: SafariLiveTool };
+/** «Агенты»: what `agent.list` / `agent.remember` need from the agents service. */
+export type AgentsTool = Pick<AgentsService, 'list' | 'addRule' | 'agentOfSession'>;
+export type WorkspaceToolsOptions = MailOptions & { artifacts?: ArtifactsService; groups?: SidebarGroupsService; profile?: SettingsProfileService; safariLive?: SafariLiveTool; agents?: AgentsTool; isModOn?: IsModOn };
 /** Production `safari.show`, loaded on first use (the module owns helper processes). */
 const defaultSafariLive: SafariLiveTool = {
     show: async (userId, sessionId, data) => (await import('../safari-live/index.js')).showForAgent(userId, sessionId, data),
@@ -46,6 +50,13 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
     const groups = () => options.groups ?? getSidebarGroupsService();
     const profile = () => options.profile ?? getSettingsProfileService();
     const safariLive = () => options.safariLive ?? defaultSafariLive;
+    const agents = () => options.agents ?? agentsService;
+    /** Agents are admin-only and switchable: the other users and a switched-off mod get a plain refusal. */
+    const agentsAllowed = (userId: number) => {
+        if (!(options.isModOn ?? defaultIsModOn)(userId, 'modAgents'))
+            throw new WorkspaceError(`${modOffMessage('modAgents')}. Агентов сейчас нет.`, 409);
+        return deps.isAdmin(userId);
+    };
     return {
         call(userId: number, sessionId: string, input: Record<string, unknown>): unknown {
             const projectId = deps.sessionProject?.(userId, sessionId);
@@ -116,6 +127,25 @@ export function createWorkspaceTools(deps: WorkspaceDependencies, options: Works
                     if (typeof data.windowId === 'number' || typeof data.windowId === 'string') picked.windowId = data.windowId;
                     if (typeof data.titleContains === 'string') picked.titleContains = data.titleContains;
                     return safariLive().show(userId, sessionId, picked).catch(asWorkspaceError);
+                }
+                // The team of the owner: names, first line of the role, engine — to pick helpers for spawn_thread{agent}.
+                case 'agent.list': {
+                    if (!agentsAllowed(userId))
+                        return { agents: [], note: 'Агентами управляет только администратор — у этого пользователя их нет' };
+                    return { agents: sync(() => agents().list(userId)).map(agent => ({ name: agent.name, role: agent.role.split('\n')[0].trim().slice(0, 120), provider: agent.provider, model: agent.model })) };
+                }
+                // A rule for the agent of THIS chat; it reaches every next chat of that agent.
+                case 'agent.remember': {
+                    if (!agentsAllowed(userId))
+                        throw new WorkspaceError('Память агентов ведёт только администратор', 403);
+                    const agent = agents().agentOfSession(sessionId);
+                    if (!agent)
+                        throw new WorkspaceError('Этот чат не привязан к агенту — запоминать некуда', 404);
+                    const rule = typeof data.text === 'string' ? data.text.trim() : '';
+                    if (!rule)
+                        throw new WorkspaceError('Нужен текст правила: data.text', 400);
+                    const memory = sync(() => agents().addRule(userId, agent.id, rule, 'agent'));
+                    return { message: `Правило добавлено, версия V${memory.version}`, agent: agent.name, version: memory.version };
                 }
                 default: throw new WorkspaceError('Операция недоступна агенту: отправку, согласование и публикацию выполняет человек в интерфейсе', 403);
             }
