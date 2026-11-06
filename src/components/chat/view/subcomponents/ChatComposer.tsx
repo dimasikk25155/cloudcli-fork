@@ -15,6 +15,7 @@ import { Plus, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon, Rocket, ListChec
 
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { clampMenuLeft } from '../../utils/menuPosition';
+import { composerSubmitAction } from '../../utils/composerSubmitAction';
 import { useVoiceAvailable } from '../../hooks/useVoiceAvailable';
 import type { QueuedDraft } from '../../hooks/useChatComposerState';
 import type { SessionActivity } from '../../../../hooks/useSessionProtection';
@@ -552,7 +553,10 @@ export default function ChatComposer({
     hasQueuedDraft,
   });
   const canQueueDraft = isLoading && Boolean(input.trim());
-  const submitAriaLabel = canQueueDraft
+  const submitAction = composerSubmitAction({ isRecording, canQueueDraft, isLoading });
+  // Sending during a run lands in the queue, typed or dictated.
+  const showsQueueAction = isLoading && (submitAction === 'queue' || submitAction === 'voice-send');
+  const submitAriaLabel = showsQueueAction
     ? hasQueuedDraft
       ? t('input.queue.update', { defaultValue: 'Update queued message' })
       : t('input.queue.sendNext', { defaultValue: 'Queue next message' })
@@ -1003,18 +1007,18 @@ export default function ChatComposer({
             )}
             <PromptInputSubmit
               onClick={
-                canQueueDraft
+                submitAction === 'voice-send'
                   ? (e: MouseEvent<HTMLButtonElement>) => {
                       e.preventDefault();
-                      onSubmit(e);
+                      voiceStop({ send: true });
                     }
-                  : isLoading
-                    ? onAbortSession
-                    : isRecording
-                      ? (e: MouseEvent<HTMLButtonElement>) => {
-                          e.preventDefault();
-                          voiceStop({ send: true });
-                        }
+                  : submitAction === 'queue'
+                    ? (e: MouseEvent<HTMLButtonElement>) => {
+                        e.preventDefault();
+                        onSubmit(e);
+                      }
+                    : submitAction === 'abort'
+                      ? onAbortSession
                       : undefined
               }
               disabled={isLoading ? false : isRecording ? false : isTranscribing ? true : !input.trim()}
@@ -1024,7 +1028,7 @@ export default function ChatComposer({
             >
               {isTranscribing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
-              ) : canQueueDraft ? (
+              ) : showsQueueAction ? (
                 <ArrowUpIcon className="h-4 w-4" />
               ) : undefined}
             </PromptInputSubmit>
