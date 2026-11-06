@@ -17,7 +17,7 @@ import mime from 'mime-types';
 
 import { WORKSPACES_ROOT, apiErrorHandler, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
+import { broadcastProjectEvent, createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -104,7 +104,7 @@ import { codeStatusRoutes } from './modules/code-status/index.js';
 // «Рабочий стол» (сборка 04.11.2026): модули смонтированы здесь один раз,
 // их роуты наполняют свои таски без правки этого файла.
 import { masterSessionRoutes, setMasterSessionRunControl } from './modules/master-session/index.js';
-import { artifactsRoutes } from './modules/artifacts/index.js';
+import { artifactsRoutes, setArtifactsChangedListener } from './modules/artifacts/index.js';
 import { sidebarGroupsRoutes } from './modules/sidebar-groups/index.js';
 import { settingsProfileRoutes } from './modules/settings-profile/index.js';
 import { diagnosticsRoutes } from './modules/diagnostics/index.js';
@@ -212,6 +212,12 @@ const chatDependencies = {
 // Answers from any channel (UI, push, Telegram) reach the engines through the
 // same delivery the chat websocket uses.
 pendingAnswers.setEngine(createPermissionAnswerEngine(chatDependencies));
+
+// «Результаты»: a new version of any artifact (agent publish, auto-publish of a
+// written page, manual edit) refreshes the list and the open tab of the project.
+setArtifactsChangedListener(({ projectId, artifactId }) => {
+  broadcastProjectEvent(JSON.stringify({ kind: 'artifacts_changed', projectId, artifactId, timestamp: new Date().toISOString() }), projectId);
+});
 
 // Agent threads (neo3-threads MCP): thread runs and the «Треды готовы» message
 // go through the same chat gateway — registry, indicator, Stop.

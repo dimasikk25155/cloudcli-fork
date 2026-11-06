@@ -78,3 +78,17 @@ export function formatBytes(size: number): string {
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} КБ`;
   return `${(size / (1024 * 1024)).toFixed(1)} МБ`;
 }
+
+/**
+ * `artifacts_changed` frame for this project (and this artifact, when given).
+ * A reconnect counts too: a frame may have been missed while offline.
+ */
+export function isArtifactsChangeFor(
+  event: { kind?: string; projectId?: unknown; artifactId?: unknown },
+  projectId: string,
+  artifactId?: string,
+): boolean {
+  if (event.kind === 'websocket_reconnected') return true;
+  if (event.kind !== 'artifacts_changed' || event.projectId !== projectId) return false;
+  return artifactId === undefined || event.artifactId === artifactId;
+}

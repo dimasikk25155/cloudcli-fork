@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { isAutoArtifactPath, toolChangedPaths } from '../../../../shared/artifacts.js';
+
 import {
   artifactTabForPath,
   commentStatusLabel,
+  isArtifactsChangeFor,
   pendingArtifactPath,
   rectFromDrag,
   sendTarget,
@@ -53,4 +56,36 @@ test('line diff marks removed and added lines and keeps the common ones', () => 
   ]);
   assert.deepEqual(lineDiff('', 'x'), [{ type: 'added', text: 'x' }]);
   assert.deepEqual(lineDiff('same', 'same'), [{ type: 'same', text: 'same' }]);
+});
+
+test('artifacts_changed: only this project (and artifact, when asked); a reconnect re-reads', () => {
+  const frame = { kind: 'artifacts_changed', projectId: 'p', artifactId: 'a1' };
+  assert.equal(isArtifactsChangeFor(frame, 'p'), true);
+  assert.equal(isArtifactsChangeFor(frame, 'other'), false);
+  assert.equal(isArtifactsChangeFor(frame, 'p', 'a1'), true);
+  assert.equal(isArtifactsChangeFor(frame, 'p', 'a2'), false);
+  assert.equal(isArtifactsChangeFor({ kind: 'attention_changed', projectId: 'p' }, 'p'), false);
+  assert.equal(isArtifactsChangeFor({ kind: 'websocket_reconnected' }, 'p', 'a1'), true);
+});
+
+test('auto «Результаты»: HTML and SVG of the project, not dot/build folders', () => {
+  assert.equal(isAutoArtifactPath('index.html'), true);
+  assert.equal(isAutoArtifactPath('docs/demo/deck.HTM'), true);
+  assert.equal(isAutoArtifactPath('img/logo.svg'), true);
+  assert.equal(isAutoArtifactPath('src/app.tsx'), false);
+  assert.equal(isAutoArtifactPath('notes.md'), false);
+  assert.equal(isAutoArtifactPath('.autopilot/run/dashboard.html'), false);
+  assert.equal(isAutoArtifactPath('web/node_modules/x/index.html'), false);
+  assert.equal(isAutoArtifactPath('dist/index.html'), false);
+  assert.equal(isAutoArtifactPath('../outside.html'), false);
+  assert.equal(isAutoArtifactPath(''), false);
+});
+
+test('toolChangedPaths: Claude, Codex (both shapes), Grok; other tools none', () => {
+  assert.deepEqual(toolChangedPaths('Write', { file_path: '/p/a.html' }), ['/p/a.html']);
+  assert.deepEqual(toolChangedPaths('FileChanges', [{ path: 'a.html' }, { path: 'b.svg', moveTo: 'c.svg' }]), ['a.html', 'b.svg', 'c.svg']);
+  assert.deepEqual(toolChangedPaths('FileChanges', { changes: [{ path: 'a.html' }] }), ['a.html']);
+  assert.deepEqual(toolChangedPaths('write_file', '{"path":"/p/g.html"}'), ['/p/g.html']);
+  assert.deepEqual(toolChangedPaths('Bash', { command: 'echo > x.html' }), []);
+  assert.deepEqual(toolChangedPaths(undefined, {}), []);
 });

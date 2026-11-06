@@ -158,3 +158,70 @@ export function buildArtifactCommentsMessage(input: {
   ];
   return lines.join('\n');
 }
+
+// Tools that change files, by engine, and where each keeps the path.
+const CLAUDE_FILE_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+const GROK_FILE_TOOLS: ReadonlySet<string> = new Set(['search_replace', 'write', 'write_file', 'edit_file', 'create_file']);
+/** Codex `file_change` item, normalized by the Codex provider. */
+export const CODEX_FILE_TOOL = 'FileChanges';
+
+function parseToolInput(input: unknown): unknown {
+  if (typeof input !== 'string') return input;
+  try {
+    return JSON.parse(input);
+  } catch {
+    return null;
+  }
+}
+
+const pathOf = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+function codexChangePaths(input: unknown): string[] {
+  // History: `{changes: [{kind, path, moveTo?}], patch}`; live stream: the array itself.
+  const changes = Array.isArray(input) ? input : (input as { changes?: unknown } | null)?.changes;
+  if (!Array.isArray(changes)) return [];
+  const paths: string[] = [];
+  for (const change of changes) {
+    if (!change || typeof change !== 'object') continue;
+    const entry = change as Record<string, unknown>;
+    for (const candidate of [entry.path, entry.moveTo, entry.move_path]) {
+      const found = pathOf(candidate);
+      if (found) paths.push(found);
+    }
+  }
+  return paths;
+}
+
+/**
+ * Files one tool call changes: Claude (Edit/Write/MultiEdit/NotebookEdit),
+ * Codex (FileChanges, history and live shapes) and Grok (search_replace/write…).
+ * Other tools — none. Shared by the inspector and the server's auto-publish.
+ */
+export function toolChangedPaths(toolName: string | null | undefined, toolInput: unknown): string[] {
+  if (!toolName) return [];
+  const input = parseToolInput(toolInput);
+  if (toolName === CODEX_FILE_TOOL) return codexChangePaths(input);
+  if (!CLAUDE_FILE_TOOLS.has(toolName) && !GROK_FILE_TOOLS.has(toolName)) return [];
+  if (!input || typeof input !== 'object') return [];
+  const fields = input as Record<string, unknown>;
+  const found = pathOf(fields.file_path) ?? pathOf(fields.notebook_path) ?? pathOf(fields.path) ?? pathOf(fields.target_file);
+  return found ? [found] : [];
+}
+
+/** Build output and dependencies: generated, never a result of the chat. */
+const AUTO_SKIP_SEGMENT = /^(?:node_modules|dist|dist-server|build|out|coverage|vendor|bower_components)$/i;
+
+/**
+ * A file the agent wrote that goes to «Результаты» by itself: an HTML page
+ * (slides included) or an SVG picture — what the canvas shows and «Правка»
+ * edits. The path is relative to the project root; not inside dot folders
+ * (`.autopilot`, `.claude`, … — the file preview never serves them) nor
+ * build/dependency folders.
+ */
+export function isAutoArtifactPath(relPath: string | null | undefined): boolean {
+  if (!relPath) return false;
+  const clean = relPath.trim().replace(/\\/g, '/');
+  if (!/\.(?:html?|svg)$/i.test(clean)) return false;
+  const folders = clean.split('/').slice(0, -1);
+  return !folders.some((segment) => segment.startsWith('.') || AUTO_SKIP_SEGMENT.test(segment));
+}

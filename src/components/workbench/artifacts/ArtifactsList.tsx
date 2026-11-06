@@ -5,6 +5,7 @@ import { isJevReportPath, type ArtifactKind, type ArtifactListItem } from '../..
 import type { WorkbenchRenderContext } from '../workbenchTabs';
 
 import { artifactsApi } from './artifactsApi';
+import { useArtifactsChanged } from './useArtifactsChanged';
 
 const KIND_LABELS: Record<ArtifactKind, string> = {
   html: 'Страница', slides: 'Слайды', markdown: 'Документ', pdf: 'PDF', image: 'Картинка', other: 'Файл',
@@ -39,6 +40,8 @@ export default function ArtifactsList({ context }: { context: WorkbenchRenderCon
   }, [projectId]);
 
   useEffect(() => { void load(); }, [load]);
+  // New pages of the agent and new versions show up by themselves.
+  useArtifactsChanged(projectId, () => { void load(); });
 
   const open = (item: { id: string; title: string }) => context.openTab({ kind: 'artifact', ref: item.id, title: item.title });
 

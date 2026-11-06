@@ -2,6 +2,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
+import { getArtifactAutoPublish } from '@/modules/artifacts/index.js';
 import { improvementIdeas, createIdeaCollector } from '@/modules/improvement-ideas/index.js';
 import { agentsDb, projectsDb, sessionsDb, runDurationsDb, answerHash } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
@@ -258,6 +259,14 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   run.events.push(outbound);
   if (run.events.length > MAX_BUFFERED_EVENTS_PER_RUN) {
     run.events.splice(0, run.events.length - MAX_BUFFERED_EVENTS_PER_RUN);
+  }
+
+  // «Результаты» fill themselves: HTML/SVG the agent writes become artifacts
+  // of this chat, for every engine. Never breaks the stream.
+  try {
+    void getArtifactAutoPublish().observe(run, outbound)?.catch(() => undefined);
+  } catch (error) {
+    console.warn('[ChatRunRegistry] Artifact auto-publish failed', error instanceof Error ? error.message : String(error));
   }
 
   // "Ждут тебя": every engine's events pass here, so the session status is fed

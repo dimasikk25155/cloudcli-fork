@@ -58,7 +58,15 @@ export type GatewayEventKind =
    * clients re-read `GET /api/secret-requests`. Not a chat row.
    * Mirrored in `server/shared/types.ts` `GatewayEventKind`.
    */
-  | 'secret_requests_changed';
+  | 'secret_requests_changed'
+  /**
+   * «Результаты»: an artifact of a project got a new version (published,
+   * auto-published after the agent wrote it, changed, restored, edited).
+   * `{kind, projectId, artifactId, timestamp}` — no content; sent to sockets
+   * that may see the project; clients re-read the list / the open artifact.
+   * Not a chat row. Mirrored in `server/shared/types.ts` `GatewayEventKind`.
+   */
+  | 'artifacts_changed';
 
 /**
  * «Браузер вживую» (module `safari-live`) — `GET /api/safari-live/sessions/:sessionId`.

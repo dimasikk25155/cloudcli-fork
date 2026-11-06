@@ -59,6 +59,11 @@ export type ArtifactsDependencies = {
    * the editor's copy of a page served at the real path of the file.
    */
   documentGrant?: (input: { root: string; relPath: string; html: string; userId: number; projectId: string }) => { token: string; url: string };
+  /**
+   * An artifact got a new version (published, changed, restored, edited).
+   * Production sends the content-free `artifacts_changed` frame to the project.
+   */
+  onChanged?: (event: { projectId: string; artifactId: string }) => void;
 };
 
 export type SaveEditInput = { content: unknown; baseVersionN: unknown };
@@ -278,8 +283,8 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
       await fs.mkdir(path.dirname(snapshotPath(artifact.id, snapshotFile)), { recursive: true });
       await fs.writeFile(snapshotPath(artifact.id, snapshotFile), current.data);
     }
-    return store.transaction(() => {
-      const updated = store.update<ArtifactPayload>(artifact.id, artifact.revision, { ...artifact.payload, latestVersion: n });
+    const updated = store.transaction(() => {
+      const next = store.update<ArtifactPayload>(artifact.id, artifact.revision, { ...artifact.payload, latestVersion: n });
       store.create<ArtifactVersionPayload>({
         kind: ARTIFACT_VERSION_KIND,
         ownerUserId: userId,
@@ -295,8 +300,14 @@ export function createArtifactsService(deps: ArtifactsDependencies) {
           ...(extra.restoredFrom !== undefined ? { restoredFrom: extra.restoredFrom } : {}),
         },
       });
-      return updated;
+      return next;
     });
+    try {
+      deps.onChanged?.({ projectId, artifactId: artifact.id });
+    } catch {
+      // A missed notice only delays the list; the version is saved.
+    }
+    return updated;
   }
 
   async function detailOf(projectRoot: string, projectId: string, artifact: WorkspaceRecord<ArtifactPayload>): Promise<ArtifactDetail> {

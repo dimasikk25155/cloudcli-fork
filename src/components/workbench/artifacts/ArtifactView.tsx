@@ -42,6 +42,7 @@ import { artifactsApi } from './artifactsApi';
 import { lineDiff } from './lineDiff';
 import RegionLayer from './RegionLayer';
 import { useArtifactContent } from './useArtifactContent';
+import { useArtifactsChanged } from './useArtifactsChanged';
 
 const timeLabel = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 const btn = 'inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50';
@@ -107,6 +108,24 @@ export default function ArtifactView({ artifactId, context }: { artifactId: stri
   // Opening the tab is the change check: a new version appears if the file changed.
   useEffect(() => { void refresh(false); }, [refresh]);
 
+  // One silent check of the file: a new version is shown, the agent's one is announced.
+  const checkForUpdate = useCallback(async (isCancelled: () => boolean = () => false) => {
+    const before = detailRef.current?.artifact.latestVersion ?? null;
+    try {
+      const next = await artifactsApi.refresh(projectId, artifactId);
+      if (isCancelled()) return;
+      const shown = detailRef.current;
+      if (!shown || next.changed || next.artifact.latestVersion !== shown.artifact.latestVersion || next.file.exists !== shown.file.exists) apply(next);
+      const update = detectAgentUpdate(before, { latestVersion: next.artifact.latestVersion, versions: next.versions });
+      if (update) setAgentUpdate((current) => ({ from: current?.from ?? update.from, to: update.to }));
+    } catch {
+      // a missed check — the next one comes on schedule or with the next change
+    }
+  }, [apply, artifactId, projectId]);
+
+  // The server says this artifact got a new version (the agent wrote the file).
+  useArtifactsChanged(projectId, () => { void checkForUpdate(); }, artifactId);
+
   // The agent's new version is caught by checking the file: every 5 s for 10 min
   // after «Попросить агента», otherwise every 30 s while the page is visible.
   useEffect(() => {
@@ -119,17 +138,7 @@ export default function ArtifactView({ artifactId, context }: { artifactId: stri
       if (delay !== null) timer = window.setTimeout(() => void check(), delay);
     };
     const check = async () => {
-      const before = detailRef.current?.artifact.latestVersion ?? null;
-      try {
-        const next = await artifactsApi.refresh(projectId, artifactId);
-        if (cancelled) return;
-        const shown = detailRef.current;
-        if (!shown || next.changed || next.artifact.latestVersion !== shown.artifact.latestVersion || next.file.exists !== shown.file.exists) apply(next);
-        const update = detectAgentUpdate(before, { latestVersion: next.artifact.latestVersion, versions: next.versions });
-        if (update) setAgentUpdate((current) => ({ from: current?.from ?? update.from, to: update.to }));
-      } catch {
-        // a missed check — the next one comes on schedule
-      }
+      await checkForUpdate(() => cancelled);
       if (!cancelled) schedule();
     };
     const onVisibility = () => {
@@ -142,7 +151,7 @@ export default function ArtifactView({ artifactId, context }: { artifactId: stri
       window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [apply, artifactId, askTick, editorOn, projectId]);
+  }, [artifactId, askTick, checkForUpdate, editorOn]);
 
   // An ask parked for this chat (it was not open when asked): send it now.
   useEffect(() => {

@@ -10,6 +10,8 @@ import { getArtifactsService } from './artifacts.runtime.js';
 export { createArtifactsService, ARTIFACT_KIND, ARTIFACT_VERSION_KIND, ARTIFACT_COMMENT_KIND } from './artifacts.service.js';
 export type { ArtifactsService, ArtifactsDependencies, ArtifactsFs, SaveEditInput, EditorPreviewInput } from './artifacts.service.js';
 export { createArtifactsRouter } from './artifacts.routes.js';
-export { getArtifactsService } from './artifacts.runtime.js';
+export { getArtifactsService, getArtifactAutoPublish, setArtifactsChangedListener } from './artifacts.runtime.js';
+export { createArtifactAutoPublish } from './artifacts-auto.js';
+export type { ArtifactAutoPublish, AutoPublishRun } from './artifacts-auto.js';
 
 export const artifactsRoutes = createArtifactsRouter(getArtifactsService);
