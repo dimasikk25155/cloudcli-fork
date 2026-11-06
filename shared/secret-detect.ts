@@ -24,13 +24,12 @@ export type SecretKind =
   | 'github'
   | 'aws'
   | 'slack'
-  | 'stripe'
-  | 'elevenlabs'
   | 'telegram'
   | 'jwt'
   | 'url-credentials'
   | 'assignment'
   | 'password'
+  | 'service'
   | 'generic';
 
 export type SecretFinding = {
@@ -41,6 +40,8 @@ export type SecretFinding = {
   end: number;
   /** Variable name for .secrets.env; always matches SECRET_NAME_PATTERN. */
   suggestedName: string;
+  /** Which service the key belongs to («ключ Groq»), when the format says so. */
+  label?: string;
 };
 
 /** The only names the stash and the dialog accept. */
@@ -53,19 +54,23 @@ const KIND_LABELS: Record<SecretKind, string> = {
   github: 'токен GitHub',
   aws: 'ключ AWS',
   slack: 'токен Slack',
-  stripe: 'ключ Stripe',
-  elevenlabs: 'ключ ElevenLabs',
   telegram: 'токен Telegram-бота',
   jwt: 'JWT-токен',
   'url-credentials': 'пароль в ссылке',
   assignment: 'ключ или токен',
   password: 'пароль',
+  service: 'ключ сервиса',
   generic: 'что-то похожее на ключ',
 };
 
 /** Human label in Russian: «Похоже, в сообщении <label>». */
 export function describeSecretKind(kind: SecretKind): string {
   return KIND_LABELS[kind] ?? 'секрет';
+}
+
+/** Label for one finding: the service name when known, else the kind. */
+export function describeFinding(finding: Pick<SecretFinding, 'kind' | 'label'>): string {
+  return finding.label ?? describeSecretKind(finding.kind);
 }
 
 const DEFAULT_NAMES: Partial<Record<SecretKind, string>> = {
@@ -75,8 +80,6 @@ const DEFAULT_NAMES: Partial<Record<SecretKind, string>> = {
   github: 'GITHUB_TOKEN',
   aws: 'AWS_ACCESS_KEY_ID',
   slack: 'SLACK_TOKEN',
-  stripe: 'STRIPE_SECRET_KEY',
-  elevenlabs: 'ELEVENLABS_API_KEY',
   telegram: 'TELEGRAM_BOT_TOKEN',
   jwt: 'JWT_TOKEN',
   assignment: 'SECRET',
@@ -104,20 +107,78 @@ type Rule = {
    * an unquoted value that looks like an identifier or expression is skipped.
    */
   skipCodeValues?: boolean;
+  /** Service label and variable name (`service` rules). */
+  label?: string;
+  name?: string;
 };
+
+/**
+ * Keys a service recognises by their prefix — caught even when pasted alone,
+ * with no "key"/"token" word nearby. Formats come from the services' docs and
+ * public secret-scanner rule sets; lengths are lower bounds on purpose, so a
+ * format that grows a few characters keeps matching. The value must still
+ * look random (see looksRandom), so `re_compile_pattern` stays quiet.
+ * Keep `_` and `-` straight: OpenAI is `sk-…`, ElevenLabs is `sk_…`.
+ */
+const SERVICE_KEYS: Array<[label: string, name: string, pattern: RegExp]> = [
+  ['ключ OpenRouter', 'OPENROUTER_API_KEY', /\bsk-or-v1-[a-f0-9]{64}\b/g],
+  ['ключ ElevenLabs', 'ELEVENLABS_API_KEY', /\bsk_[a-f0-9]{48}\b/g],
+  ['ключ Stripe', 'STRIPE_SECRET_KEY', /\b[rs]k_(?:live|test)_[A-Za-z0-9]{20,}/g],
+  ['секрет вебхука Stripe', 'STRIPE_WEBHOOK_SECRET', /\bwhsec_[A-Za-z0-9+/=]{24,}/g],
+  ['ключ Groq', 'GROQ_API_KEY', /\bgsk_[A-Za-z0-9]{40,}/g],
+  ['ключ xAI (Grok)', 'XAI_API_KEY', /\bxai-[A-Za-z0-9]{40,}/g],
+  ['ключ Google (Gemini, Maps…)', 'GOOGLE_API_KEY', /\bAIza[0-9A-Za-z_-]{30,}/g],
+  ['секрет OAuth Google', 'GOOGLE_CLIENT_SECRET', /\bGOCSPX-[A-Za-z0-9_-]{20,}/g],
+  ['токен доступа Google', 'GOOGLE_ACCESS_TOKEN', /\bya29\.[A-Za-z0-9_-]{30,}/g],
+  ['токен GitHub', 'GITHUB_TOKEN', /\bgithub_pat_[A-Za-z0-9_]{40,}/g],
+  ['токен GitLab', 'GITLAB_TOKEN', /\bglpat-[A-Za-z0-9_-]{20,}/g],
+  ['токен Hugging Face', 'HF_TOKEN', /\bhf_[A-Za-z0-9]{30,}/g],
+  ['токен Replicate', 'REPLICATE_API_TOKEN', /\br8_[A-Za-z0-9]{30,}/g],
+  ['ключ Perplexity', 'PERPLEXITY_API_KEY', /\bpplx-[A-Za-z0-9]{40,}/g],
+  ['ключ Tavily', 'TAVILY_API_KEY', /\btvly-(?:dev-|prod-)?[A-Za-z0-9]{24,}/g],
+  ['ключ Firecrawl', 'FIRECRAWL_API_KEY', /\bfc-[a-f0-9]{32}\b/g],
+  ['ключ Fireworks', 'FIREWORKS_API_KEY', /\bfw_[A-Za-z0-9]{20,}/g],
+  ['ключ Resend', 'RESEND_API_KEY', /\bre_[A-Za-z0-9]{6,}_[A-Za-z0-9]{16,}/g],
+  ['вебхук Slack', 'SLACK_WEBHOOK_URL', /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]{20,}/g],
+  ['вебхук Discord', 'DISCORD_WEBHOOK_URL', /https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]{50,}/g],
+  ['токен Discord-бота', 'DISCORD_BOT_TOKEN', /\b[MNO][A-Za-z0-9_-]{23,27}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}/g],
+  ['ключ SendGrid', 'SENDGRID_API_KEY', /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{30,}/g],
+  ['ключ Twilio', 'TWILIO_API_KEY', /\bSK[0-9a-f]{32}\b/g],
+  ['ключ Mailgun', 'MAILGUN_API_KEY', /\bkey-[0-9a-f]{32}\b/g],
+  ['токен Shopify', 'SHOPIFY_ACCESS_TOKEN', /\bshp(?:at|ca|pa|ss)_[a-fA-F0-9]{32}\b/g],
+  ['токен npm', 'NPM_TOKEN', /\bnpm_[A-Za-z0-9]{36,}/g],
+  ['токен PyPI', 'PYPI_TOKEN', /\bpypi-[A-Za-z0-9_-]{50,}/g],
+  ['токен Supabase', 'SUPABASE_ACCESS_TOKEN', /\bsbp_[a-f0-9]{40}\b/g],
+  ['секретный ключ Supabase', 'SUPABASE_SECRET_KEY', /\bsb_secret_[A-Za-z0-9_-]{20,}/g],
+  ['токен DigitalOcean', 'DIGITALOCEAN_TOKEN', /\bdo[opr]_v1_[a-f0-9]{64}\b/g],
+  ['ключ Linear', 'LINEAR_API_KEY', /\blin_api_[A-Za-z0-9]{32,}/g],
+  ['токен Notion', 'NOTION_TOKEN', /\b(?:ntn_[A-Za-z0-9]{40,}|secret_[A-Za-z0-9]{43})\b/g],
+  ['токен Figma', 'FIGMA_TOKEN', /\bfigd_[A-Za-z0-9_-]{30,}/g],
+  ['токен Airtable', 'AIRTABLE_TOKEN', /\bpat[A-Za-z0-9]{14}\.[a-f0-9]{64}\b/g],
+  ['ключ Postman', 'POSTMAN_API_KEY', /\bPMAK-[a-f0-9]{24}-[a-f0-9]{34}\b/g],
+  ['токен Atlassian', 'ATLASSIAN_API_TOKEN', /\bATATT3[A-Za-z0-9_=-]{100,}/g],
+  ['токен Sentry', 'SENTRY_AUTH_TOKEN', /\bsntry[su]_[A-Za-z0-9+/=_]{40,}/g],
+  ['OAuth-токен Яндекса', 'YANDEX_OAUTH_TOKEN', /\by0_[A-Za-z0-9_-]{40,}/g],
+  ['ключ Yandex Cloud', 'YANDEX_API_KEY', /\bAQVN[A-Za-z0-9_-]{30,}/g],
+  ['IAM-токен Yandex Cloud', 'YANDEX_IAM_TOKEN', /\bt1\.[A-Za-z0-9_-]+=*\.[A-Za-z0-9_-]{80,}/g],
+  ['токен VK', 'VK_TOKEN', /\bvk1\.a\.[A-Za-z0-9_-]{50,}/g],
+  ['токен Facebook / Meta', 'META_ACCESS_TOKEN', /\bEAA[A-Za-z0-9]{80,}/g],
+  ['ключ сервиса', 'API_KEY', /\bsk_[A-Za-z0-9_-]{32,}/g],
+];
 
 // Ordered from most to least specific: when two rules claim overlapping text
 // the earlier one wins (an `sk-ant-…` key is "Anthropic", not "OpenAI").
-// The first ten mirror secret-scrub's patterns one-to-one.
+// Apart from SERVICE_KEYS and Bearer, these mirror secret-scrub's patterns.
 const RULES: Rule[] = [
   {
     kind: 'private-key',
     pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   },
   { kind: 'anthropic', pattern: /sk-ant-[A-Za-z0-9_-]{20,}/g },
+  ...SERVICE_KEYS.map(([label, name, pattern]): Rule => ({ kind: 'service', pattern, label, name })),
   { kind: 'openai', pattern: /\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}/g },
   { kind: 'github', pattern: /\bgh[pousr]_[A-Za-z0-9]{30,}/g },
-  { kind: 'aws', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
+  { kind: 'aws', pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { kind: 'slack', pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },
   { kind: 'telegram', pattern: /(?<![\d:])\d{8,12}:AA[A-Za-z0-9_-]{30,}/g },
   { kind: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g },
@@ -151,11 +212,14 @@ const RULES: Rule[] = [
     quoteGroup: 3,
     skipCodeValues: true,
   },
-  // Keys that are often pasted alone, with no "key"/"token" word nearby.
-  { kind: 'stripe', pattern: /\b[rs]k_(?:live|test)_[A-Za-z0-9]{20,}/g },
-  { kind: 'elevenlabs', pattern: /\bsk_[a-f0-9]{48}\b/g },
-  // Any other `sk_…` secret key (Resend-style and similar).
-  { kind: 'generic', pattern: /\bsk_[A-Za-z0-9_-]{32,}/g },
+  {
+    kind: 'service',
+    // `Authorization: Bearer …` copied from curl or devtools.
+    pattern: /\bBearer\s+([A-Za-z0-9._~+/-]{20,}=*)/g,
+    valueGroup: 1,
+    label: 'токен в заголовке Authorization',
+    name: 'BEARER_TOKEN',
+  },
 ];
 
 // Generic case: a 32+ char hex/base64-ish run close to a key-ish word.
@@ -249,6 +313,11 @@ function looksLikeCode(value: string, context: ValueContext): boolean {
   return false;
 }
 
+/** Real keys mix in digits or switch case at random; `re_compile_pattern` does neither. */
+function looksRandom(value: string): boolean {
+  return /\d/.test(value) || looksRandomMixedCase(value);
+}
+
 function isPlaceholder(value: string): boolean {
   return PLACEHOLDER.test(value);
 }
@@ -273,6 +342,7 @@ function collectRuleCandidates(text: string, out: Candidate[]): void {
         if (value.length < 6) continue;
       }
       if (isPlaceholder(value)) continue;
+      if (rule.kind === 'service' && !looksRandom(value)) continue;
       // A quoted value is a literal; Cyrillic keywords (`пароль:`) are prose.
       const quoted = rule.quoteGroup ? Boolean(match[rule.quoteGroup]) : false;
       const proseKeyword = rule.nameGroup ? /[^\x00-\x7F]/.test(match[rule.nameGroup] ?? '') : false;
@@ -292,6 +362,7 @@ function collectRuleCandidates(text: string, out: Candidate[]): void {
       const end = start + value.length;
 
       let suggestedName: string | null = null;
+      if (rule.name) suggestedName = nameTypedBefore(text, start) ?? rule.name;
       const typedName = rule.nameGroup ? match[rule.nameGroup] ?? '' : '';
       if (typedName && (!rule.compoundNameOnly || /[_.-]/.test(typedName))) {
         suggestedName = toEnvName(typedName);
@@ -309,6 +380,7 @@ function collectRuleCandidates(text: string, out: Candidate[]): void {
         start,
         end,
         suggestedName: suggestedName ?? DEFAULT_NAMES[rule.kind] ?? 'SECRET',
+        ...(rule.label ? { label: rule.label } : {}),
         priority,
       });
     }
@@ -342,6 +414,25 @@ function collectGenericCandidates(text: string, out: Candidate[]): void {
   }
 }
 
+// A key from a service with no prefix (Mistral, Cohere, Cloudflare…) pasted
+// alone on its line. Needs digits plus both cases and must not read as words:
+// hex hashes, PascalCase names and snake/kebab identifiers stay quiet.
+const BARE_LINE = /^[ \t]*([A-Za-z0-9_+=-]{24,256})[ \t]*$/gm;
+// Words of 2+ letters, ACRONYMS and numbers; each piece is taken whole, so the
+// check is linear and a random string (single letters between digits) fails.
+const WORDY = /^(?:(?:[A-Z]?[a-z]{2,}(?![a-z])|[A-Z]{2,}(?![A-Za-z])|\d+(?!\d))[_-]?)+$/;
+
+function collectBareLineCandidates(text: string, out: Candidate[]): void {
+  BARE_LINE.lastIndex = 0;
+  for (const match of text.matchAll(BARE_LINE)) {
+    const value = match[1];
+    if (!/\d/.test(value) || !/[a-z]/.test(value) || !/[A-Z]/.test(value)) continue;
+    if (WORDY.test(value)) continue;
+    const start = (match.index ?? 0) + match[0].indexOf(value);
+    out.push({ kind: 'generic', start, end: start + value.length, suggestedName: 'API_KEY', priority: RULES.length + 1 });
+  }
+}
+
 /**
  * Lists credentials found in `text`, ordered by position, non-overlapping.
  * Never throws; non-string input yields no findings.
@@ -353,6 +444,7 @@ export function detectSecrets(text: string): SecretFinding[] {
   try {
     collectRuleCandidates(text, candidates);
     collectGenericCandidates(text, candidates);
+    collectBareLineCandidates(text, candidates);
   } catch {
     return [];
   }
@@ -366,7 +458,7 @@ export function detectSecrets(text: string): SecretFinding[] {
 
   return accepted
     .sort((a, b) => a.start - b.start)
-    .map(({ kind, start, end, suggestedName }) => ({ kind, start, end, suggestedName }));
+    .map(({ kind, start, end, suggestedName, label }) => ({ kind, start, end, suggestedName, ...(label ? { label } : {}) }));
 }
 
 /**

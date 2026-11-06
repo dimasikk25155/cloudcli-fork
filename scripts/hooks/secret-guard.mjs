@@ -35,7 +35,7 @@
  * Test: node --test scripts/hooks/secret-guard.test.mjs
  */
 
-import { describeSecretKind, detectSecrets } from '../../shared/secret-detect.ts';
+import { describeFinding, detectSecrets } from '../../shared/secret-detect.ts';
 
 const SECRETS_FILE_HINT = '~/Antigravity Project/.secrets.env';
 
@@ -49,10 +49,10 @@ function buildReason(findings) {
   const seen = new Set();
   const lines = [];
   for (const finding of findings) {
-    const key = `${finding.kind}:${finding.suggestedName}`;
+    const key = `${describeFinding(finding)}:${finding.suggestedName}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    lines.push(`- ${describeSecretKind(finding.kind)} → $${finding.suggestedName}`);
+    lines.push(`- ${describeFinding(finding)} → $${finding.suggestedName}`);
   }
   return [
     'Похоже, в промпте секрет — промпт не отправлен:',

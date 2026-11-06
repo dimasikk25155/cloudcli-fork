@@ -9,7 +9,7 @@
 
 import {
   SECRET_NAME_PATTERN,
-  describeSecretKind,
+  describeFinding,
   detectSecrets,
   redact,
   replaceFindings,
@@ -70,7 +70,7 @@ function groupByValue(text: string, findings: SecretFinding[]): Group[] {
     }
     groups.set(value, {
       value,
-      item: { kind: finding.kind, label: describeSecretKind(finding.kind), suggestedName: finding.suggestedName },
+      item: { kind: finding.kind, label: describeFinding(finding), suggestedName: finding.suggestedName },
       findingIndexes: [index],
     });
   });
