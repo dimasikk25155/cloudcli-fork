@@ -140,3 +140,27 @@ test('real assignments next to code-looking ones are still caught', () => {
     assert.ok(secretSpanIsCovered(text, secret), `missed: ${text}`);
   }
 });
+
+test('keys pasted alone, with no "key" word nearby, are caught by their prefix', () => {
+  const eleven = `sk_${'a1b2c3d4e5f6'.repeat(4)}`;
+  const stripe = `sk_live_${'Ab12Cd34'.repeat(3)}`;
+  const other = `sk_${'Xy9'.repeat(12)}`;
+  const cases: Array<{ text: string; secret: string; kind: string; name: string }> = [
+    {
+      text: `${eleven} Add ElevenLabs to my project: run \`npx -y @elevenlabs/cli@latest onboard init\``,
+      secret: eleven,
+      kind: 'elevenlabs',
+      name: 'ELEVENLABS_API_KEY',
+    },
+    { text: `вот ${stripe}`, secret: stripe, kind: 'stripe', name: 'STRIPE_SECRET_KEY' },
+    { text: other, secret: other, kind: 'generic', name: 'API_KEY' },
+  ];
+  for (const { text, secret, kind, name } of cases) {
+    const [finding] = detectSecrets(text);
+    assert.ok(finding, `nothing found in: ${text}`);
+    assert.equal(text.slice(finding.start, finding.end), secret);
+    assert.equal(finding.kind, kind);
+    assert.equal(finding.suggestedName, name);
+  }
+  assert.deepEqual(detectSecrets('переменная sk_short и task_runner_config'), []);
+});

@@ -24,6 +24,8 @@ export type SecretKind =
   | 'github'
   | 'aws'
   | 'slack'
+  | 'stripe'
+  | 'elevenlabs'
   | 'telegram'
   | 'jwt'
   | 'url-credentials'
@@ -51,6 +53,8 @@ const KIND_LABELS: Record<SecretKind, string> = {
   github: 'токен GitHub',
   aws: 'ключ AWS',
   slack: 'токен Slack',
+  stripe: 'ключ Stripe',
+  elevenlabs: 'ключ ElevenLabs',
   telegram: 'токен Telegram-бота',
   jwt: 'JWT-токен',
   'url-credentials': 'пароль в ссылке',
@@ -71,6 +75,8 @@ const DEFAULT_NAMES: Partial<Record<SecretKind, string>> = {
   github: 'GITHUB_TOKEN',
   aws: 'AWS_ACCESS_KEY_ID',
   slack: 'SLACK_TOKEN',
+  stripe: 'STRIPE_SECRET_KEY',
+  elevenlabs: 'ELEVENLABS_API_KEY',
   telegram: 'TELEGRAM_BOT_TOKEN',
   jwt: 'JWT_TOKEN',
   assignment: 'SECRET',
@@ -145,6 +151,11 @@ const RULES: Rule[] = [
     quoteGroup: 3,
     skipCodeValues: true,
   },
+  // Keys that are often pasted alone, with no "key"/"token" word nearby.
+  { kind: 'stripe', pattern: /\b[rs]k_(?:live|test)_[A-Za-z0-9]{20,}/g },
+  { kind: 'elevenlabs', pattern: /\bsk_[a-f0-9]{48}\b/g },
+  // Any other `sk_…` secret key (Resend-style and similar).
+  { kind: 'generic', pattern: /\bsk_[A-Za-z0-9_-]{32,}/g },
 ];
 
 // Generic case: a 32+ char hex/base64-ish run close to a key-ish word.
