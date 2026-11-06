@@ -36,6 +36,7 @@ import DuetPanel from '../../../duet/DuetPanel';
 import { useModEnabled } from '../../../../hooks/useModEnabled';
 
 import SidebarMenuItems, { type SidebarMenuItem } from './SidebarMenuItems';
+import { shouldCollapseMenu } from './sidebarMenuState';
 
 // Entry points for the unattended-work features. Labels are Russian in place:
 // these panels ship ahead of their translation namespaces. The Telegram bot
@@ -85,6 +86,8 @@ type SidebarFooterProps = {
   restartRequired: boolean;
   currentVersion: string;
   onShowSettings: () => void;
+  /** Phone drawer shown? `undefined` on a computer (see sidebarMenuState). */
+  drawerOpen?: boolean;
   t: TFunction;
 };
 
@@ -92,11 +95,19 @@ export default function SidebarFooter({
   restartRequired,
   currentVersion,
   onShowSettings,
+  drawerOpen,
   t,
 }: SidebarFooterProps) {
   const [showNightshift, setShowNightshift] = useState(false);
   const [openPanel, setOpenPanel] = useState<FeaturePanelKey | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // The phone drawer is hidden, not unmounted: fold «Меню» on each opening.
+  // Adjusted during render (not in an effect) so the grid never flashes open.
+  const [seenDrawerOpen, setSeenDrawerOpen] = useState(drawerOpen);
+  if (seenDrawerOpen !== drawerOpen) {
+    setSeenDrawerOpen(drawerOpen);
+    if (shouldCollapseMenu(seenDrawerOpen, drawerOpen)) setMenuOpen(false);
+  }
   const { items: attention } = usePlannerAttention();
   const overdueCount = attention.length;
   const { user } = useAuth();
@@ -190,7 +201,7 @@ export default function SidebarFooter({
       {/* Settings */}
       <div className="nav-divider" />
 
-      {/* «Меню» on every width, collapsed on every mount by design: permanent
+      {/* «Меню» on every width, collapsed on mount and on every phone-drawer opening: permanent
           rows pushed the session list up on a computer, and on a phone a row
           of 13 tiny tiles cut every label to «З…». Open: rows on a computer,
           big tiles 4 across on a phone. */}

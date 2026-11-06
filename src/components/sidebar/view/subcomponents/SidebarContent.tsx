@@ -114,6 +114,7 @@ type SidebarContentProps = {
   onShowSettings: () => void;
   onGoHome?: () => void;
   onOpenAttention?: () => void;
+  drawerOpen?: boolean;
   projectListProps: SidebarProjectListProps;
   t: TFunction;
 };
@@ -147,6 +148,7 @@ export default function SidebarContent({
   onShowSettings,
   onGoHome,
   onOpenAttention,
+  drawerOpen,
   projectListProps,
   t,
 }: SidebarContentProps) {
@@ -427,6 +429,7 @@ export default function SidebarContent({
         restartRequired={restartRequired}
         currentVersion={currentVersion}
         onShowSettings={onShowSettings}
+        drawerOpen={drawerOpen}
         t={t}
       />
     </div>

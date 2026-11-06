@@ -61,18 +61,21 @@ function ItemTile({ item, size, overdueCount }: { item: SidebarMenuItem; size: '
 export default function SidebarMenuItems({ items, variant, overdueCount }: SidebarMenuItemsProps) {
   if (variant === 'grid') {
     return (
-      <div className="grid grid-cols-4 gap-x-1 gap-y-3 px-1 pb-1 pt-2">
+      // Labels get the whole column: on a 375 px iPhone that is ≈ 74 px, enough
+      // for «пространство» in 10.5 px; `hyphens-auto` (lang="ru") splits a
+      // word that still does not fit instead of «…».
+      <div className="grid grid-cols-4 gap-x-0.5 gap-y-3 pb-1 pt-2">
         {items.map((item) => (
           <button
             key={item.key}
             type="button"
-            className="sidebar-footer-item flex min-w-0 flex-col items-center gap-1.5 rounded-2xl px-0.5 pb-1 pt-1.5 outline-none transition-transform [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.94] motion-reduce:transition-none"
+            className="sidebar-footer-item flex min-w-0 flex-col items-center gap-1.5 rounded-2xl px-0 pb-1 pt-1.5 outline-none transition-transform [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:scale-[0.94] motion-reduce:transition-none"
             onClick={item.onClick}
             aria-label={item.label}
             title={item.label}
           >
             <ItemTile item={item} size="lg" overdueCount={overdueCount} />
-            <span className="line-clamp-2 w-full break-words text-center text-[11px] leading-tight text-foreground/90">
+            <span lang="ru" className="line-clamp-2 w-full hyphens-auto break-words text-center text-[10.5px] leading-tight text-foreground/90">
               {item.label}
             </span>
           </button>

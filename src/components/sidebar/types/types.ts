@@ -59,6 +59,8 @@ export type SidebarProps = {
   onCloseSettings: () => void;
   isMobile: boolean;
   onGoHome?: () => void;
+  /** Phone drawer shown? It stays mounted while hidden; absent on a computer. */
+  drawerOpen?: boolean;
 };
 
 export type SessionViewModel = {

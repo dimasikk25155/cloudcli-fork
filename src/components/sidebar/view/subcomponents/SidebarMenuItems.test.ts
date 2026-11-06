@@ -44,6 +44,25 @@ test('grid: four columns of big tiles with the whole label, in menu order', () =
   assert.doesNotMatch(html, /\btruncate\b/);
 });
 
+// iPhone 375: drawer 85vw ≈ 319 px, «Меню» px-2 → 302 px over 4 columns. With
+// the old grid px-1 + gap-x-1 + button px-0.5 a label got ≈ 66 px, and
+// «пространство» (≈ 69–72 px at 11 px in SF/Geologica) clamped to «…».
+test('grid: a label gets the whole column, 10.5 px, Russian hyphenation as a fallback', () => {
+  const html = render('grid');
+  const grid = html.match(/^<div class="([^"]+)"/)?.[1] ?? '';
+  assert.match(grid, /\bgap-x-0\.5\b/);
+  assert.doesNotMatch(grid, /\bpx-/, 'no side padding on the grid');
+  for (const part of buttons(html)) {
+    const button = part.match(/class="([^"]+)"/)?.[1] ?? '';
+    assert.match(button, /\bpx-0\b/, 'no side padding on the tile button');
+    const label = part.match(/<span lang="ru" class="([^"]+)">[^<]+<\/span>/)?.[1];
+    assert.ok(label, 'label marked lang="ru" so hyphens can split «простран-ство»');
+    assert.match(label, /\btext-\[10\.5px\]/);
+    assert.match(label, /\bhyphens-auto\b/);
+    assert.match(label, /\bline-clamp-2\b/);
+  }
+});
+
 test('list: the desktop rows keep the full label next to a small tile', () => {
   const html = render('list');
   const parts = buttons(html);

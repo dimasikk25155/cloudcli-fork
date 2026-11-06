@@ -299,7 +299,7 @@ function AppContentInner() {
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
           >
-            <Sidebar {...sidebarSharedProps} onGoHome={goHome} />
+            <Sidebar {...sidebarSharedProps} onGoHome={goHome} drawerOpen={sidebarOpen} />
           </div>
         </div>
       )}
