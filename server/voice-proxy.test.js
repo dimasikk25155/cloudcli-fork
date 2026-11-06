@@ -141,3 +141,38 @@ test('glossary retains terms with no aliases and terms with inline comments', ()
   const parsed = parseGlossary('terms:\n  API: []\n  Claude: [клауд] # canonical\n', false);
   assert.deepEqual(parsed.terms, ['API', 'Claude']);
 });
+
+// --- Which voice backend a request goes to --------------------------------
+import { resolveConfig, DEFAULT_VOICE_BASE_URL } from './voice-proxy.js';
+
+const bareEnv = { baseUrl: '', apiKey: '', hasKeyPool: false, sttModel: 'whisper-1', sttModelSet: false, ttsModel: 'tts-1', ttsVoice: 'alloy' };
+
+test('a fresh server with no key has no voice backend: the mic stays hidden', () => {
+  assert.equal(resolveConfig({ headers: {} }, bareEnv).baseUrl, '');
+});
+
+test('a key typed in Settings -> Voice is enough: it goes to Groq with a Groq model', () => {
+  const cfg = resolveConfig({ headers: { 'x-voice-api-key': 'gsk_user' } }, bareEnv);
+  assert.equal(cfg.baseUrl, DEFAULT_VOICE_BASE_URL);
+  assert.equal(cfg.apiKey, 'gsk_user');
+  assert.equal(cfg.sttModel, 'whisper-large-v3');
+});
+
+test('a server key without VOICE_API_BASE_URL also means Groq', () => {
+  assert.equal(resolveConfig({ headers: {} }, { ...bareEnv, apiKey: 'gsk_server' }).baseUrl, DEFAULT_VOICE_BASE_URL);
+  assert.equal(resolveConfig({ headers: {} }, { ...bareEnv, hasKeyPool: true }).baseUrl, DEFAULT_VOICE_BASE_URL);
+});
+
+test('an explicit server backend is kept, with its own model and even without a key', () => {
+  const env = { ...bareEnv, baseUrl: 'http://127.0.0.1:9000/v1' };
+  const cfg = resolveConfig({ headers: { 'x-voice-api-key': 'gsk_user' } }, env);
+  assert.equal(cfg.baseUrl, 'http://127.0.0.1:9000/v1');
+  assert.equal(cfg.sttModel, 'whisper-1');
+  assert.equal(resolveConfig({ headers: {} }, env).baseUrl, 'http://127.0.0.1:9000/v1');
+});
+
+test('the STT model from env or the user wins over the Groq default', () => {
+  const env = { ...bareEnv, apiKey: 'k', sttModel: 'whisper-large-v3-turbo', sttModelSet: true };
+  assert.equal(resolveConfig({ headers: {} }, env).sttModel, 'whisper-large-v3-turbo');
+  assert.equal(resolveConfig({ headers: { 'x-voice-stt-model': 'm' } }, { ...bareEnv, apiKey: 'k' }).sttModel, 'm');
+});

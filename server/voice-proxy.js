@@ -106,22 +106,38 @@ function diskGlossary() {
   }
 }
 
+// Settings -> Voice asks for a Groq key (gsk_…) only. A server without
+// VOICE_API_BASE_URL therefore sends a key — the user's or its own — to Groq;
+// without that default a fresh install showed no mic even with a key entered.
+const DEFAULT_VOICE_BASE_URL = 'https://api.groq.com/openai/v1';
+const DEFAULT_GROQ_STT_MODEL = 'whisper-large-v3';
+
 /**
  * Resolve the voice backend config for a request. Client headers (set from the
  * user's in-app voice settings) take precedence over the server env defaults.
- * @param {import('express').Request} req
+ * @param {{headers: Record<string, unknown>}} req
+ * @param {{baseUrl: string, apiKey: string, hasKeyPool: boolean, sttModel: string, sttModelSet: boolean, ttsModel: string, ttsVoice: string}} [env]
  * @returns {{baseUrl: string, apiKey: string, sttModel: string, ttsModel: string, ttsVoice: string, ttsFormat: string}}
  */
-function resolveConfig(req) {
+function resolveConfig(req, env = {
+  ...ENV,
+  hasKeyPool: ENV_KEY_POOL.length > 0,
+  sttModelSet: Boolean(process.env.VOICE_STT_MODEL),
+}) {
   const h = req.headers;
+  const clientKey = String(h['x-voice-api-key'] || '').trim();
+  const hasKey = Boolean(clientKey || env.apiKey || env.hasKeyPool);
+  // Security: the client never chooses the outbound host — it is the server's
+  // VOICE_API_BASE_URL, or Groq when there is a key to send there.
+  const baseUrl = env.baseUrl || (hasKey ? DEFAULT_VOICE_BASE_URL : '');
+  const onDefaultGroq = !env.baseUrl && Boolean(baseUrl);
   return {
-    // Security: do not allow clients to control the outbound backend host.
-    // Always use the server-side configured base URL.
-    baseUrl: ENV.baseUrl,
-    apiKey: String(h['x-voice-api-key'] || '') || ENV.apiKey,
-    sttModel: String(h['x-voice-stt-model'] || '') || ENV.sttModel,
-    ttsModel: String(h['x-voice-tts-model'] || '') || ENV.ttsModel,
-    ttsVoice: String(h['x-voice-tts-voice'] || '') || ENV.ttsVoice,
+    baseUrl,
+    apiKey: clientKey || env.apiKey,
+    sttModel: String(h['x-voice-stt-model'] || '')
+      || (onDefaultGroq && !env.sttModelSet ? DEFAULT_GROQ_STT_MODEL : env.sttModel),
+    ttsModel: String(h['x-voice-tts-model'] || '') || env.ttsModel,
+    ttsVoice: String(h['x-voice-tts-voice'] || '') || env.ttsVoice,
     ttsFormat: String(h['x-voice-tts-format'] || '').trim(),
   };
 }
@@ -569,6 +585,8 @@ router.post('/tts', async (req, res) => {
 });
 
 export {
+  DEFAULT_VOICE_BASE_URL,
+  resolveConfig,
   HALLUCINATION_RE,
   dropHallucinatedEdges,
   cleanTranscript,

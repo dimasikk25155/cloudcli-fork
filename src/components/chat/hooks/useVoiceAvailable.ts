@@ -1,28 +1,37 @@
 import { useEffect, useState } from 'react';
 
 import { authenticatedFetch } from '../../../utils/api';
-import { readVoiceConfig, VOICE_CONFIG_SYNC_EVENT } from '../../../hooks/useVoiceConfig';
+import { readVoiceConfig, voiceConfigHeaders, VOICE_CONFIG_SYNC_EVENT } from '../../../hooks/useVoiceConfig';
 import { UI_PREFERENCE_DEFAULTS } from '../../../hooks/useUiPreferences';
 
 // Voice UI is gated on the `voiceEnabled` UI preference (toggled in Quick Settings /
 // the Settings modal) and a configured voice backend.
 const STORAGE_KEY = 'uiPreferences';
 const SYNC_EVENT = 'ui-preferences:sync';
-let healthRequest: Promise<boolean> | null = null;
+// One request in flight per set of voice headers: a key typed while an older
+// check runs must get its own answer.
+let healthRequest: { signature: string; promise: Promise<boolean> } | null = null;
 
 function checkVoiceHealth(): Promise<boolean> {
-  if (healthRequest) return healthRequest;
-  const request = authenticatedFetch('/api/voice/health')
-    .then(async (response) => {
-      if (!response.ok) throw new Error(`Voice health check failed (${response.status})`);
-      const data = await response.json();
-      return data?.configured === true;
-    })
-    .finally(() => {
-      healthRequest = null;
-    });
-  healthRequest = request;
-  return request;
+  // The user's own key (Settings -> Voice) counts: a server with no voice
+  // backend of its own sends that key to Groq.
+  const headers = voiceConfigHeaders();
+  const signature = JSON.stringify(headers);
+  if (healthRequest?.signature === signature) return healthRequest.promise;
+  const entry = {
+    signature,
+    promise: authenticatedFetch('/api/voice/health', { headers })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Voice health check failed (${response.status})`);
+        const data = await response.json();
+        return data?.configured === true;
+      })
+      .finally(() => {
+        if (healthRequest === entry) healthRequest = null;
+      }),
+  };
+  healthRequest = entry;
+  return entry.promise;
 }
 
 function readVoiceEnabled(): boolean {
