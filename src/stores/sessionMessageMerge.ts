@@ -105,6 +105,43 @@ function hasServerEchoForLocalUser(
   return serverTime !== null && isLocalEchoOfServerUser(localTime, serverTime, localMessage.provider);
 }
 
+/**
+ * Claude пишет на диск настоящее время. Если локальный вопрос так и не попал
+ * в историю, а на диске уже есть более поздний вопрос, значит этот ход был
+ * прерван до записи (06.11: «realme rmx3231» → «Стоп» → полный вопрос).
+ * Раньше такой пузырь висел под ответом до перезагрузки, а после неё пропадал.
+ * Запас на расхождение часов браузера и сервера — как у сверки эха.
+ */
+function isAbandonedLocalUser(
+  localMessage: NormalizedMessage,
+  serverMessages: NormalizedMessage[],
+): boolean {
+  if (localMessage.provider !== 'claude' || !userTextFingerprint(localMessage)) {
+    return false;
+  }
+  const localTime = readMessageTime(localMessage);
+  if (localTime === null) {
+    return false;
+  }
+  return serverMessages.some((message) => {
+    if (message.provider !== 'claude' || !userTextFingerprint(message)) {
+      return false;
+    }
+    const serverTime = readMessageTime(message);
+    return serverTime !== null && serverTime > localTime + LOCAL_USER_DEDUPE_CLOCK_SKEW_MS;
+  });
+}
+
+function isSupersededLocalUser(
+  localMessage: NormalizedMessage,
+  serverMessages: NormalizedMessage[],
+): boolean {
+  return typeof localMessage.id === 'string'
+    && localMessage.id.startsWith('local_')
+    && (hasServerEchoForLocalUser(localMessage, serverMessages)
+      || isAbandonedLocalUser(localMessage, serverMessages));
+}
+
 const MIN_PREFIX_MATCH_CHARS = 20;
 const MIN_CROSS_TURN_ECHO_CHARS = 80;
 
@@ -353,7 +390,7 @@ export function pruneRealtimeSupersededByServer(
       return false;
     }
 
-    if (typeof message.id === 'string' && message.id.startsWith('local_') && hasServerEchoForLocalUser(message, serverMessages)) {
+    if (isSupersededLocalUser(message, serverMessages)) {
       return false;
     }
 
@@ -407,12 +444,8 @@ export function computeMerged(server: NormalizedMessage[], realtime: NormalizedM
     // Optimistic user rows use `local_*` ids; once the same text exists on the
     // server-backed copy from the same send window, drop the realtime echo to
     // avoid duplicate bubbles without hiding repeated prompts from history.
-    if (typeof message.id === 'string' && message.id.startsWith('local_')) {
-      if (hasServerEchoForLocalUser(message, server)) {
-        return false;
-      }
-    }
-    return true;
+    // A Claude prompt interrupted before it reached disk is dropped too.
+    return !isSupersededLocalUser(message, server);
   });
 
   if (extra.length === 0) {

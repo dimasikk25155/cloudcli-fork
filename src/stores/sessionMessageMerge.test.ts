@@ -695,3 +695,25 @@ test('an id-less realtime row (e.g. a stray gateway frame) never breaks the hist
   assert.deepEqual(merged.slice(0, 2).map((row) => row.id), ['h1', 'h2']);
   assert.doesNotThrow(() => pruneRealtimeSupersededByServer(history, [stray]));
 });
+
+test('Claude: a prompt interrupted before it reached disk does not hang under the next answer', () => {
+  // 06.11: «realme rmx3231» → «Стоп» через 3 с → полный вопрос и ответ.
+  // На диске первого вопроса нет, пузырь висел последним под ответом.
+  const interrupted = msg({ id: 'local_short', provider: 'claude', kind: 'text', role: 'user', content: 'realme rmx3231', timestamp: '2026-11-06T07:22:02.000Z' });
+  const question = msg({ id: 'local_full', provider: 'claude', kind: 'text', role: 'user', content: 'realme rmx3231 можно ли тут установить детский режим?', timestamp: '2026-11-06T07:23:04.000Z' });
+  const serverQuestion = msg({ ...question, id: 'srv-user', timestamp: '2026-11-06T07:23:06.435Z' });
+  const serverAnswer = msg({ id: 'srv-asst', provider: 'claude', kind: 'text', role: 'assistant', content: 'Да, можно, но не встроенным «детским режимом».', timestamp: '2026-11-06T07:23:41.047Z' });
+
+  const merged = computeMerged([serverQuestion, serverAnswer], [interrupted, question]);
+  assert.deepEqual(merged.map((row) => row.id), ['srv-user', 'srv-asst']);
+  assert.deepEqual(pruneRealtimeSupersededByServer([serverQuestion, serverAnswer], [interrupted, question]), []);
+});
+
+test('Claude: a just-sent prompt not yet on disk stays after the previous answer', () => {
+  const previous = msg({ id: 'srv-user', provider: 'claude', kind: 'text', role: 'user', content: 'первый', timestamp: '2026-11-06T07:20:00.000Z' });
+  const answer = msg({ id: 'srv-asst', provider: 'claude', kind: 'text', role: 'assistant', content: 'Ответ.', timestamp: '2026-11-06T07:20:30.000Z' });
+  const next = msg({ id: 'local_next', provider: 'claude', kind: 'text', role: 'user', content: 'второй', timestamp: '2026-11-06T07:20:35.000Z' });
+
+  assert.deepEqual(computeMerged([previous, answer], [next]).map((row) => row.id), ['srv-user', 'srv-asst', 'local_next']);
+  assert.deepEqual(pruneRealtimeSupersededByServer([previous, answer], [next]).map((row) => row.id), ['local_next']);
+});
