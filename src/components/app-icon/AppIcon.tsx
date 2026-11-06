@@ -1,7 +1,9 @@
+import React from 'react';
 import {
   Camera,
   Car,
   CircleDot,
+  Clapperboard,
   Coins,
   Droplets,
   Ban,
@@ -37,10 +39,14 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
-import type { ProjectGlyph } from './projectIconSpec';
+
 import { cn } from '../../lib/utils';
 
-const GLYPHS: Record<ProjectGlyph, LucideIcon> = {
+import Neo3Mark from './Neo3Mark';
+import type { ProjectGlyph } from './projectIconSpec';
+
+// `neo3` is not lucide: it is drawn by Neo3Mark.
+const GLYPHS: Record<Exclude<ProjectGlyph, 'neo3'>, LucideIcon> = {
   tire: CircleDot,
   car: Car,
   wallet: Wallet,
@@ -76,6 +82,7 @@ const GLYPHS: Record<ProjectGlyph, LucideIcon> = {
   gauge: Gauge,
   message: MessageCircle,
   ban: Ban,
+  clapper: Clapperboard,
   folder: Folder,
 };
 
@@ -109,7 +116,7 @@ export default function AppIcon({
   starred = false,
   className,
 }: AppIconProps) {
-  const Icon = GLYPHS[glyph] ?? Folder;
+  const Icon = glyph === 'neo3' ? Neo3Mark : GLYPHS[glyph] ?? Folder;
   const dimensions = SIZE[size];
   const showLetter = glyph === 'folder' && !src;
   const twoLetter = letter.length > 1;

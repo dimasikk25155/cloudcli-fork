@@ -34,6 +34,8 @@ export type ProjectGlyph =
   | 'gauge'
   | 'message'
   | 'ban'
+  | 'clapper'
+  | 'neo3'
   | 'folder';
 
 export type IconSpec = {
@@ -60,8 +62,9 @@ const PRESETS: Array<{ match: RegExp; spec: Omit<IconSpec, 'letter'> }> = [
   { match: /mazda|мазд/i, spec: { background: '#4A5560', foreground: '#F4F1EA', glyph: 'car' } },
   { match: /tyres?|samruk|шин/i, spec: { background: '#1C1917', foreground: '#E8C36A', glyph: 'tire' } },
   { match: /consigliere|канцел/i, spec: { background: '#5C3A21', foreground: '#F3D2A8', glyph: 'wallet' } },
-  { match: /claude\s*agent|cloudcli/i, spec: { background: '#D97757', foreground: '#FFF7F0', glyph: 'smile' } },
-  { match: /neo3-hub|neo3\s*hub/i, spec: { background: '#D97757', foreground: '#FFF7F0', glyph: 'smile' } },
+  // Neo3 itself: its own mark (Neo3Mark.tsx), no longer a smiley.
+  { match: /claude\s*agent|cloudcli/i, spec: { background: '#D97757', foreground: '#FFF7F0', glyph: 'neo3' } },
+  { match: /neo3-hub|neo3\s*hub/i, spec: { background: '#D97757', foreground: '#FFF7F0', glyph: 'neo3' } },
   { match: /neo3-demo/i, spec: { background: '#C45C26', foreground: '#FFF6EE', glyph: 'play' } },
   { match: /neo3-vpn|\bvpn\b/i, spec: { background: '#1C3A70', foreground: '#E8F0FF', glyph: 'shield' } },
   { match: /wh?isper|wisper/i, spec: { background: '#111827', foreground: '#FDE68A', glyph: 'mic' } },
@@ -90,6 +93,14 @@ const PRESETS: Array<{ match: RegExp; spec: Omit<IconSpec, 'letter'> }> = [
   { match: /probe/i, spec: { background: '#57534E', foreground: '#E7E5E4', glyph: 'wrench' } },
   { match: /speedtest/i, spec: { background: '#0369A1', foreground: '#E0F2FE', glyph: 'gauge' } },
   { match: /(^|\s)tmp(\s|$)/i, spec: { background: '#3A3A3A', foreground: '#F3F3F0', glyph: 'code' } },
+  // Common words in other people's projects. Last, so they never beat a preset above.
+  // `\b` is ASCII-only in JS: the Cyrillic and `bot` edges are spelled out.
+  { match: /film|кино|video|видео/i, spec: { background: '#312E81', foreground: '#E0E7FF', glyph: 'clapper' } },
+  { match: /reels|shorts|tiktok/i, spec: { background: '#BE123C', foreground: '#FFE4E6', glyph: 'play' } },
+  {
+    match: /waba|whatsapp|вотсап|telegram|(^|[^a-z])bot([^a-z]|$)|(^|[^а-яё])бот/i,
+    spec: { background: '#15803D', foreground: '#DCFCE7', glyph: 'message' },
+  },
 ];
 
 function hashString(value: string): number {
@@ -120,12 +131,25 @@ export function monogram(name: string): string {
   return firstLetter(name);
 }
 
+/** Last non-empty path segment; both `/` and `\` separate. */
+function folderName(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] ?? '';
+}
+
+/**
+ * Presets look at the project name and its own folder name only: a project
+ * that merely lives under `claude agent/`, `cloudcli/` or `/Users/dimasik/`
+ * must not wear that folder's icon.
+ */
 export function resolveProjectIcon(name: string, path = ''): IconSpec {
+  const subject = `${name} ${folderName(path)}`;
+  // The fallback colour still hashes the full path, so existing tiles keep their colour.
   const haystack = `${name} ${path}`;
   const letter = firstLetter(name);
 
   for (const preset of PRESETS) {
-    if (preset.match.test(haystack)) {
+    if (preset.match.test(subject)) {
       return { ...preset.spec, letter };
     }
   }
