@@ -69,6 +69,8 @@ test('approved model metadata keeps exact per-version defaults, including the So
     'opus[1m]': 'medium',
     'sonnet[1m]': 'high',
     fable: 'high',
+    // Local Qwen has no effort control — runs on Ollama, not the Claude CLI.
+    'local-qwen36-35b': undefined,
     'grok-4.7': 'high',
     'grok-4.7-build-fast': 'high',
   });
