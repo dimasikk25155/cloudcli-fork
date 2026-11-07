@@ -2,8 +2,8 @@
  * The page-wide «Рабочий стол» store and its React hooks.
  *
  * `openWorkbenchTab` / `closeWorkbenchTab` work from anywhere (a button in a
- * chat message, a slash command result) — opening a tab also switches the
- * workbench on. `useWorkbenchAccountSync` is mounted once by the main screen.
+ * chat message, a slash command result) — opening a tab also opens the
+ * canvas of that chat (and only that chat). `useWorkbenchAccountSync` is mounted once by the main screen.
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
@@ -68,6 +68,7 @@ export type UseWorkbench = {
   ratio: number;
   /** Grows on every opened tab (the phone opens the canvas over the chat). */
   openSeq: number;
+  /** Shows or hides the canvas of this chat only. */
   setEnabled: (enabled: boolean) => void;
   setActive: (tabId: string) => void;
   setRatio: (ratio: number) => void;
@@ -82,11 +83,11 @@ export function useWorkbench(sessionId: string | null): UseWorkbench {
   const readSession = useCallback((): WorkbenchSessionState => workbenchStore.getSession(sessionId), [sessionId]);
   const session = useSyncExternalStore(subscribe, readSession, readSession);
   const openSeq = useSyncExternalStore(subscribe, readOpenSeq, readOpenSeq);
-  const setEnabled = useCallback((enabled: boolean) => workbenchStore.setEnabled(enabled), []);
+  const setEnabled = useCallback((enabled: boolean) => workbenchStore.setOpen(sessionId, enabled), [sessionId]);
   const setActive = useCallback((tabId: string) => workbenchStore.setActive(sessionId, tabId), [sessionId]);
   const setRatio = useCallback((ratio: number) => workbenchStore.setRatio(ratio), []);
   return {
-    enabled: layout.enabled,
+    enabled: session.open,
     ratio: layout.ratio,
     openSeq,
     tabs: session.tabs,

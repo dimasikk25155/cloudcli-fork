@@ -134,6 +134,16 @@ function MainContent({
   useEffect(() => {
     if (!isMobile || !workbenchOn || activeTab !== 'chat') setMobileCanvasOpen(false);
   }, [isMobile, workbenchOn, activeTab]);
+  // The canvas belongs to a chat: another chat opens without it. A new chat
+  // getting its id (draft → id) is the same chat, so the canvas stays.
+  const lastCanvasSessionId = useRef(selectedSession?.id ?? null);
+  useEffect(() => {
+    const id = selectedSession?.id ?? null;
+    if (id === lastCanvasSessionId.current) return;
+    const previous = lastCanvasSessionId.current;
+    lastCanvasSessionId.current = id;
+    if (previous !== null) setMobileCanvasOpen(false);
+  }, [selectedSession?.id]);
   // Идёт сборка автопилота — её дашборд сам встаёт во вкладку справа, один раз
   // на сборку. На телефоне холст закрыл бы чат, там только кнопка.
   const sessionIdForAutopilot = selectedSession?.id ?? null;

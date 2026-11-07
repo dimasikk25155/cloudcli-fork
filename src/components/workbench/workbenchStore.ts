@@ -1,12 +1,16 @@
 /**
  * «Рабочий стол» state without React.
  *
- * Layout `{enabled, ratio}` is one per account: this browser keeps it in
+ * Layout `{ratio}` is one per account: this browser keeps it in
  * localStorage for the first paint and sends it to the account preference
  * `workbenchLayout` (a JSON string — the preferences store only flat values),
- * so another device opens the same way. Tabs belong to a chat: localStorage
+ * so another device opens the same width. `ratio` is the canvas share of the
+ * width, clamped so neither side vanishes.
+ *
+ * Whether the canvas is shown, and its tabs, belong to a chat: localStorage
  * `neo3.workbench.tabs.<sessionId>` (a new chat without an id uses `draft`).
- * `ratio` is the canvas share of the width, clamped so neither side vanishes.
+ * A chat starts with the canvas closed; opening it in one chat does not open
+ * it in another.
  */
 import {
   NEW_TAB_KIND,
@@ -17,8 +21,8 @@ import {
   type WorkbenchTabKind,
 } from './workbenchTabs';
 
-export type WorkbenchLayout = { enabled: boolean; ratio: number };
-export type WorkbenchSessionState = { tabs: WorkbenchTab[]; activeTabId: string | null };
+export type WorkbenchLayout = { ratio: number };
+export type WorkbenchSessionState = { open: boolean; tabs: WorkbenchTab[]; activeTabId: string | null };
 
 export type WorkbenchStorage = {
   getItem: (key: string) => string | null;
@@ -36,13 +40,13 @@ export const WORKBENCH_TABS_PREFIX = 'neo3.workbench.tabs.';
 export const WORKBENCH_DRAFT_SESSION = 'draft';
 export const MIN_CANVAS_RATIO = 0.25;
 export const MAX_CANVAS_RATIO = 0.75;
-export const DEFAULT_LAYOUT: Readonly<WorkbenchLayout> = { enabled: false, ratio: 0.5 };
+export const DEFAULT_LAYOUT: Readonly<WorkbenchLayout> = { ratio: 0.5 };
 
 const TAB_KINDS: ReadonlySet<string> = new Set<WorkbenchTabKind>([
   'inspector', 'limits', 'artifacts', 'artifact', 'btw', 'chat', 'advisor', 'report',
   'terminal', 'files', 'stats', 'autopilot', 'plugin', 'safari', NEW_TAB_KIND,
 ]);
-const EMPTY_SESSION: WorkbenchSessionState = Object.freeze({ tabs: [], activeTabId: null }) as WorkbenchSessionState;
+const EMPTY_SESSION: WorkbenchSessionState = Object.freeze({ open: false, tabs: [], activeTabId: null }) as WorkbenchSessionState;
 
 export const clampRatio = (value: number): number =>
   Math.min(MAX_CANVAS_RATIO, Math.max(MIN_CANVAS_RATIO, value));
@@ -53,7 +57,7 @@ function parseLayout(raw: unknown): WorkbenchLayout | null {
     const value = JSON.parse(raw) as Partial<WorkbenchLayout> | null;
     if (!value || typeof value !== 'object') return null;
     const ratio = typeof value.ratio === 'number' && Number.isFinite(value.ratio) ? clampRatio(value.ratio) : DEFAULT_LAYOUT.ratio;
-    return { enabled: value.enabled === true, ratio };
+    return { ratio };
   } catch {
     return null;
   }
@@ -75,11 +79,11 @@ function parseTab(raw: unknown): WorkbenchTab | null {
 function parseSession(raw: string | null): WorkbenchSessionState {
   if (!raw) return EMPTY_SESSION;
   try {
-    const value = JSON.parse(raw) as { tabs?: unknown; activeTabId?: unknown } | null;
+    const value = JSON.parse(raw) as { open?: unknown; tabs?: unknown; activeTabId?: unknown } | null;
     const tabs = Array.isArray(value?.tabs) ? value.tabs.map(parseTab).filter((tab): tab is WorkbenchTab => tab !== null) : [];
     const active = typeof value?.activeTabId === 'string' && tabs.some((tab) => tab.id === value.activeTabId)
       ? value.activeTabId : tabs[0]?.id ?? null;
-    return { tabs, activeTabId: active };
+    return { open: value?.open === true, tabs, activeTabId: active };
   } catch {
     return EMPTY_SESSION;
   }
@@ -115,7 +119,7 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
   const sessionKey = (sessionId: string | null | undefined) => sessionId || WORKBENCH_DRAFT_SESSION;
 
   function setLayout(next: WorkbenchLayout, { persistToAccount = true } = {}) {
-    if (next.enabled === layout.enabled && next.ratio === layout.ratio) return;
+    if (next.ratio === layout.ratio) return;
     layout = next;
     const json = JSON.stringify(layout);
     write(WORKBENCH_LAYOUT_KEY, json);
@@ -150,8 +154,11 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
     getLayout: (): WorkbenchLayout => layout,
     getOpenSeq: (): number => openSeq,
     getSession,
-    setEnabled(enabled: boolean) {
-      setLayout({ ...layout, enabled });
+    /** Shows or hides the canvas of this chat only. */
+    setOpen(sessionId: string | null | undefined, open: boolean) {
+      const current = getSession(sessionId);
+      if (current.open === open) return;
+      setSession(sessionId, { ...current, open });
     },
     setRatio(ratio: number) {
       if (!Number.isFinite(ratio)) return;
@@ -170,10 +177,10 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
       const tab: WorkbenchTab = { id, kind: input.kind, title: input.title };
       if (input.ref) tab.ref = input.ref;
       setSession(sessionId, {
+        open: true,
         tabs: exists ? current.tabs : [...current.tabs, tab],
         activeTabId: id,
       });
-      if (!layout.enabled) setLayout({ ...layout, enabled: true });
     },
     /**
      * «+»: a new «Новая вкладка» at the end, active — every press adds one.
@@ -187,10 +194,10 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
       const id = `${NEW_TAB_KIND}:${n}`;
       openSeq += 1;
       setSession(sessionId, {
+        open: true,
         tabs: [...current.tabs, { id, kind: NEW_TAB_KIND, title: NEW_TAB_TITLE }],
         activeTabId: id,
       });
-      if (!layout.enabled) setLayout({ ...layout, enabled: true });
       return id;
     },
     /**
@@ -206,14 +213,14 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
       // keepActive: a tab replaced while hidden stays hidden (the user stays on theirs).
       const activeTabId = options.keepActive && current.activeTabId !== tabId ? current.activeTabId : id;
       if (id !== tabId && current.tabs.some((tab) => tab.id === id)) {
-        setSession(sessionId, { tabs: current.tabs.filter((tab) => tab.id !== tabId), activeTabId });
+        setSession(sessionId, { ...current, tabs: current.tabs.filter((tab) => tab.id !== tabId), activeTabId });
         return;
       }
       const next: WorkbenchTab = { id, kind: input.kind, title: input.title };
       if (input.ref) next.ref = input.ref;
       const tabs = current.tabs.slice();
       tabs[index] = next;
-      setSession(sessionId, { tabs, activeTabId });
+      setSession(sessionId, { ...current, tabs, activeTabId });
     },
     closeTab(sessionId: string | null | undefined, tabId: string) {
       const current = getSession(sessionId);
@@ -223,22 +230,27 @@ export function createWorkbenchStore(deps: WorkbenchStoreDeps) {
       const activeTabId = current.activeTabId === tabId
         ? (tabs[index] ?? tabs[index - 1])?.id ?? null
         : current.activeTabId;
-      setSession(sessionId, { tabs, activeTabId });
+      setSession(sessionId, { ...current, tabs, activeTabId });
     },
     /**
-     * A new chat just got its id: the tabs opened while it had none (`draft`)
-     * move to it. A session with tabs of its own gets them merged without
-     * duplicates; the draft's active tab stays active. `draft` is emptied.
+     * A new chat just got its id: the canvas opened while it had none (`draft`)
+     * moves to it, open or not. A session with tabs of its own gets them merged
+     * without duplicates; the draft's active tab stays active. `draft` is
+     * emptied and closed, so the next new chat starts without the canvas.
      */
     moveDraftTabs(toSessionId: string) {
       if (!toSessionId || toSessionId === WORKBENCH_DRAFT_SESSION) return;
       const draft = getSession(WORKBENCH_DRAFT_SESSION);
-      if (draft.tabs.length === 0) return;
+      if (draft.tabs.length === 0 && !draft.open) return;
       const target = getSession(toSessionId);
       const known = new Set(target.tabs.map((tab) => tab.id));
       const tabs = [...target.tabs, ...draft.tabs.filter((tab) => !known.has(tab.id))];
-      setSession(toSessionId, { tabs, activeTabId: draft.activeTabId ?? target.activeTabId ?? tabs[0]?.id ?? null });
-      setSession(WORKBENCH_DRAFT_SESSION, { tabs: [], activeTabId: null });
+      setSession(toSessionId, {
+        open: target.open || draft.open,
+        tabs,
+        activeTabId: draft.activeTabId ?? target.activeTabId ?? tabs[0]?.id ?? null,
+      });
+      setSession(WORKBENCH_DRAFT_SESSION, { open: false, tabs: [], activeTabId: null });
     },
     setActive(sessionId: string | null | undefined, tabId: string) {
       const current = getSession(sessionId);

@@ -15,9 +15,9 @@ function memoryStorage(): WorkbenchStorage & { data: Map<string, string> } {
   };
 }
 
-test('opening a tab adds it, focuses it and switches the workbench on', () => {
+test('opening a tab adds it, focuses it and opens the canvas of that chat only', () => {
   const store = createWorkbenchStore({ storage: memoryStorage() });
-  assert.equal(store.getLayout().enabled, false);
+  assert.equal(store.getSession('s1').open, false);
 
   store.openTab('s1', { kind: 'inspector', title: 'Сессия' });
 
@@ -26,7 +26,8 @@ test('opening a tab adds it, focuses it and switches the workbench on', () => {
   assert.equal(session.tabs[0].kind, 'inspector');
   assert.equal(session.tabs[0].title, 'Сессия');
   assert.equal(session.activeTabId, session.tabs[0].id);
-  assert.equal(store.getLayout().enabled, true);
+  assert.equal(session.open, true);
+  assert.equal(store.getSession('s2').open, false);
   assert.equal(store.getOpenSeq(), 1);
 });
 
@@ -69,8 +70,8 @@ test('closing the active tab focuses its neighbour; closing the last leaves an e
   store.closeTab('s1', inspector.id);
   assert.deepEqual(store.getSession('s1').tabs, []);
   assert.equal(store.getSession('s1').activeTabId, null);
-  // Closing tabs does not switch the workbench off.
-  assert.equal(store.getLayout().enabled, true);
+  // Closing tabs does not close the canvas.
+  assert.equal(store.getSession('s1').open, true);
 });
 
 test('tabs are kept per session and survive a reload', () => {
@@ -90,14 +91,13 @@ test('tabs are kept per session and survive a reload', () => {
   assert.deepEqual(reloaded.getSession('s3').tabs, []);
 });
 
-test('the layout (on/off and width) is remembered and sent to the account as a JSON string', () => {
+test('the width is remembered and sent to the account as a JSON string', () => {
   const storage = memoryStorage();
   const saved: string[] = [];
   const store = createWorkbenchStore({ storage, saveLayout: (json) => saved.push(json) });
 
-  store.setEnabled(true);
   store.setRatio(0.6);
-  assert.deepEqual(JSON.parse(saved.at(-1)!), { enabled: true, ratio: 0.6 });
+  assert.deepEqual(JSON.parse(saved.at(-1)!), { ratio: 0.6 });
 
   // Out-of-range widths are clamped so neither side disappears.
   store.setRatio(0.99);
@@ -107,10 +107,37 @@ test('the layout (on/off and width) is remembered and sent to the account as a J
 
   store.setRatio(0.55);
   const reloaded = createWorkbenchStore({ storage });
-  assert.deepEqual(reloaded.getLayout(), { enabled: true, ratio: 0.55 });
+  assert.deepEqual(reloaded.getLayout(), { ratio: 0.55 });
+});
 
-  store.setEnabled(false);
-  assert.equal(createWorkbenchStore({ storage }).getLayout().enabled, false);
+test('the canvas is closed by default and open only in the chat where it was opened', () => {
+  const storage = memoryStorage();
+  const saved: string[] = [];
+  const store = createWorkbenchStore({ storage, saveLayout: (json) => saved.push(json) });
+  assert.equal(store.getSession('s1').open, false);
+  assert.equal(store.getSession(null).open, false);
+
+  store.setOpen('s1', true);
+  assert.equal(store.getSession('s1').open, true);
+  assert.equal(store.getSession('s2').open, false);
+  // On/off is not an account-wide setting any more.
+  assert.deepEqual(saved, []);
+
+  const reloaded = createWorkbenchStore({ storage });
+  assert.equal(reloaded.getSession('s1').open, true);
+  assert.equal(reloaded.getSession('s2').open, false);
+
+  store.setOpen('s1', false);
+  assert.equal(createWorkbenchStore({ storage }).getSession('s1').open, false);
+});
+
+test('an old account layout with «enabled» opens nothing', () => {
+  const storage = memoryStorage();
+  storage.setItem('neo3.workbench.layout', '{"enabled":true,"ratio":0.4}');
+  const store = createWorkbenchStore({ storage });
+  store.applyAccountLayout('{"enabled":true,"ratio":0.4}');
+  assert.deepEqual(store.getLayout(), { ratio: 0.4 });
+  assert.equal(store.getSession('s1').open, false);
 });
 
 test('the account layout from another device replaces the local one; broken values are ignored', () => {
@@ -120,13 +147,13 @@ test('the account layout from another device replaces the local one; broken valu
     notified += 1;
   });
 
-  store.applyAccountLayout('{"enabled":true,"ratio":0.4}');
-  assert.deepEqual(store.getLayout(), { enabled: true, ratio: 0.4 });
+  store.applyAccountLayout('{"ratio":0.4}');
+  assert.deepEqual(store.getLayout(), { ratio: 0.4 });
   assert.ok(notified > 0);
 
   store.applyAccountLayout('not json');
   store.applyAccountLayout(undefined);
-  assert.deepEqual(store.getLayout(), { enabled: true, ratio: 0.4 });
+  assert.deepEqual(store.getLayout(), { ratio: 0.4 });
 });
 
 test('snapshots stay the same object until something changes (safe for useSyncExternalStore)', () => {
@@ -157,7 +184,8 @@ test('moveDraftTabs: tabs of a new chat move to the session it became', () => {
 
   assert.deepEqual(store.getSession('s-new').tabs, draft.tabs);
   assert.equal(store.getSession('s-new').activeTabId, draft.activeTabId);
-  assert.deepEqual(store.getSession(null), { tabs: [], activeTabId: null });
+  assert.equal(store.getSession('s-new').open, true);
+  assert.deepEqual(store.getSession(null), { open: false, tabs: [], activeTabId: null });
   // Survives a reload: both keys are written.
   const reloaded = createWorkbenchStore({ storage });
   assert.equal(reloaded.getSession('s-new').tabs.length, 2);
@@ -176,6 +204,16 @@ test('moveDraftTabs: a session with its own tabs gets the draft ones merged with
   assert.deepEqual(kinds, ['inspector', 'artifact']);
   assert.equal(store.getSession('s1').activeTabId, store.getSession('s1').tabs[1].id);
   assert.equal(store.getSession(null).tabs.length, 0);
+});
+
+test('moveDraftTabs: a canvas opened empty in a new chat stays open after the chat gets its id', () => {
+  const store = createWorkbenchStore({ storage: memoryStorage() });
+  store.setOpen(null, true);
+
+  store.moveDraftTabs('s-new');
+
+  assert.equal(store.getSession('s-new').open, true);
+  assert.equal(store.getSession(null).open, false);
 });
 
 test('moveDraftTabs: an empty draft leaves the session as it was', () => {
@@ -219,7 +257,7 @@ test('openNewTab adds an active «Новая вкладка» each time, like Cm
   assert.match(first, /^newtab:/);
   assert.equal(session.activeTabId, second);
   assert.equal(store.getOpenSeq(), 3);
-  assert.equal(store.getLayout().enabled, true);
+  assert.equal(session.open, true);
 });
 
 test('a new tab survives a reload', () => {

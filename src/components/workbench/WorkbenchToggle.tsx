@@ -18,7 +18,7 @@ export default function WorkbenchToggle({ active, onClick, isMobile }: Workbench
       type="button"
       onClick={onClick}
       aria-pressed={isMobile ? undefined : active}
-      title={isMobile ? 'Открыть холст' : active ? 'Убрать рабочий стол' : 'Рабочий стол: холст рядом с чатом'}
+      title={isMobile ? 'Открыть холст' : active ? 'Убрать рабочий стол' : 'Рабочий стол для этого чата: холст рядом'}
       aria-label={isMobile ? 'Открыть холст' : label}
       className={`inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors ${
         active && !isMobile ? 'bg-primary/10 text-primary' : 'text-foreground/80 hover:bg-accent hover:text-foreground'
