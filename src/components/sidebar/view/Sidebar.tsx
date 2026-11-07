@@ -39,6 +39,7 @@ function Sidebar({
   onCloseSettings,
   isMobile,
   onGoHome,
+  drawerOpen,
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { isPWA } = useDeviceSettings({ trackMobile: false });
@@ -314,6 +315,7 @@ function Sidebar({
             onShowSettings={onShowSettings}
             onGoHome={onGoHome}
             onOpenAttention={attentionOn ? openAttentionHub : undefined}
+            drawerOpen={drawerOpen}
             projectListProps={projectListProps}
             t={t}
           />

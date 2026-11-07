@@ -4,14 +4,14 @@ import { ImagePlus, Search, Star, X } from 'lucide-react';
 
 import type { Project } from '../../types/app';
 import { cn } from '../../lib/utils';
-import AppIcon from '../app-icon/AppIcon';
 import ProjectIcon from '../app-icon/ProjectIcon';
-import type { ProjectGlyph } from '../app-icon/projectIconSpec';
 import { fileToIconDataUrl, writeProjectIcon } from '../app-icon/projectIconStorage';
 import { CountDot } from '../consigliere/PlannerAttentionButton';
 import PlannerAttentionButton from '../consigliere/PlannerAttentionButton';
 import { usePlannerAttention } from '../consigliere/usePlannerAttention';
 import { requestHubPanel, type HubPanelKey } from '../hub/hubPanels';
+import MenuTile from '../menu-icons/MenuTile';
+import type { MenuIconKey } from '../menu-icons/menuIconModel';
 import MobileMenuButton from '../main-content/view/subcomponents/MobileMenuButton';
 
 type HomeLauncherProps = {
@@ -24,11 +24,8 @@ type HomeLauncherProps = {
 };
 
 type DockApp = {
-  key: HubPanelKey;
+  key: HubPanelKey & MenuIconKey;
   label: string;
-  background: string;
-  foreground: string;
-  glyph: ProjectGlyph;
 };
 
 type IconMenu = {
@@ -37,11 +34,12 @@ type IconMenu = {
   top: number;
 };
 
+// The same drawn tiles as the sidebar menu (`menu-icons/`), at the project-icon size.
 const DOCK: DockApp[] = [
-  { key: 'consigliere', label: 'Канцелярия', background: '#5C3A21', foreground: '#F3D2A8', glyph: 'wallet' },
-  { key: 'mazda', label: 'Мазда', background: '#4A5560', foreground: '#F4F1EA', glyph: 'car' },
-  { key: 'nightshift', label: 'Задачи', background: '#1F4E5A', foreground: '#E7F4F2', glyph: 'tasks' },
-  { key: 'settings', label: 'Настройки', background: '#3A3A3A', foreground: '#F3F3F0', glyph: 'settings' },
+  { key: 'consigliere', label: 'Канцелярия' },
+  { key: 'mazda', label: 'Мазда' },
+  { key: 'nightshift', label: 'Задачи' },
+  { key: 'settings', label: 'Настройки' },
 ];
 
 const LONG_PRESS_MS = 450;
@@ -249,12 +247,10 @@ export default function HomeLauncher({
                 title={app.label}
               >
                 <span className="relative transition-transform duration-150 ease-out hover:-translate-y-0.5 active:scale-95">
-                  <AppIcon
-                    background={app.background}
-                    foreground={app.foreground}
-                    glyph={app.glyph}
-                    letter={app.label[0]}
+                  <MenuTile
+                    iconKey={app.key}
                     size="lg"
+                    className="h-[4.25rem] w-[4.25rem] [&>svg]:h-9 [&>svg]:w-9"
                   />
                   {app.key === 'consigliere' && <CountDot count={consigliereCount} />}
                 </span>

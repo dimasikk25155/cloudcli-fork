@@ -27,9 +27,15 @@ import type { WorkbenchTabKind } from './workbenchTabs';
 export type LauncherStyle = { Icon: LucideIcon; gradient: string };
 
 /** Light top → system colour bottom, the way home-screen icons are lit. */
-const tile = (top: string, bottom: string): string => `linear-gradient(180deg, ${top} 0%, ${bottom} 100%)`;
+export const launcherTile = (top: string, bottom: string): string => `linear-gradient(180deg, ${top} 0%, ${bottom} 100%)`;
 
-const GRADIENTS = {
+const tile = launcherTile;
+
+/**
+ * The palette, shared with the sidebar menu tiles (`menu-icons/`). The last
+ * two (red, lime) fill hue gaps so 13 menu tiles can all differ.
+ */
+export const LAUNCHER_GRADIENTS = {
   blue: tile('#5AA9FF', '#0A6CFF'),
   orange: tile('#FFB547', '#FF8A00'),
   purple: tile('#D88BFF', '#A23FE0'),
@@ -41,7 +47,11 @@ const GRADIENTS = {
   indigo: tile('#8C89FF', '#4F4BD8'),
   teal: tile('#5EDDD3', '#13A39B'),
   gray: tile('#B4B4BB', '#77777F'),
+  red: tile('#FF7466', '#E3261C'),
+  lime: tile('#B8E85A', '#5FA314'),
 } as const;
+
+const GRADIENTS = LAUNCHER_GRADIENTS;
 
 /** Plugins and kinds this build does not know: neutral grey with a puzzle piece. */
 const FALLBACK: LauncherStyle = { Icon: Puzzle, gradient: GRADIENTS.gray };

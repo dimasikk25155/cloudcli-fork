@@ -2857,6 +2857,14 @@
 [data-theme='glass'] .sidebar-footer-item:hover svg {
   opacity: 0.9;
 }
+/* Плитки меню (`menu-icons/MenuTile`) яркие сами по себе: графит и
+   приглушение выше гасили белые значки и красили краба серым. В стекле
+   плитка такая же, как в тёмной теме; цвет — от самой плитки. */
+[data-theme='glass'] .sidebar-footer-item [data-menu-tile] svg,
+[data-theme='glass'] .sidebar-footer-item:hover [data-menu-tile] svg {
+  color: inherit;
+  opacity: 1;
+}
 @media (min-width: 768px) {
   /* Десктопные строки — текстовые: четыре подряд стеклянные плашки шумят
      сильнее, чем сам список сессий над ними. */

@@ -2,9 +2,7 @@ import AgentWorkspacePanel from '../../../agent-workspace/AgentWorkspacePanel';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Settings,
   AlertTriangle,
-  CalendarClock,
   Timer,
   Workflow,
   Server,
@@ -27,88 +25,53 @@ import PipelinesPanel from '../../../pipelines/PipelinesPanel';
 import ServerPanel from '../../../server/ServerPanel';
 import GovernancePanel from '../../../governance/GovernancePanel';
 import ConsiglierePlanner from '../../../consigliere/ConsiglierePlanner';
-import { CountDot } from '../../../consigliere/PlannerAttentionButton';
 import { usePlannerAttention } from '../../../consigliere/usePlannerAttention';
 import MazdaCard from '../../../hub/MazdaCard';
 import { OPEN_HUB_PANEL_EVENT, type HubPanelKey } from '../../../hub/hubPanels';
-import AppIcon from '../../../app-icon/AppIcon';
-import type { ProjectGlyph } from '../../../app-icon/projectIconSpec';
 import { useAuth } from '../../../auth';
-import PixelCrab from '../../../crabs/PixelCrab';
 import AgentsPanel from '../../../agents/AgentsPanel';
 import AgentQueuePanel from '../../../agent-queue/AgentQueuePanel';
 import KrabikPanel from '../../../krabik/KrabikPanel';
 import DuetPanel from '../../../duet/DuetPanel';
 import { useModEnabled } from '../../../../hooks/useModEnabled';
-import { useTheme } from '../../../../contexts/ThemeContext';
+
+import SidebarMenuItems, { type SidebarMenuItem } from './SidebarMenuItems';
+import { shouldCollapseMenu } from './sidebarMenuState';
 
 // Entry points for the unattended-work features. Labels are Russian in place:
 // these panels ship ahead of their translation namespaces. The Telegram bot
 // setup used to sit here too — it moved into Settings (a one-off setup does
-// not belong next to everyday actions).
-// shortLabel is what fits under an icon in the mobile row (~54px wide).
+// not belong next to everyday actions). Icons: own drawn set, `menu-icons/`.
 const HUB_PANELS = [
-  { key: 'consigliere', label: 'Канцелярия', shortLabel: 'Дела', icon: Wallet },
-  { key: 'mazda', label: 'Мазда', shortLabel: 'Мазда', icon: Car },
+  { key: 'consigliere', label: 'Канцелярия' },
+  { key: 'mazda', label: 'Мазда' },
 ] as const;
 
 const FEATURE_PANELS = [
-  { key: 'agent-workspace', label: 'Рабочее пространство', shortLabel: 'Работа', icon: LayoutGrid },
-  { key: 'schedules', label: 'Расписания', shortLabel: 'График', icon: Timer },
-  { key: 'pipelines', label: 'Сценарии', shortLabel: 'Сцены', icon: Workflow },
+  { key: 'agent-workspace', label: 'Рабочее пространство' },
+  { key: 'schedules', label: 'Расписания' },
+  { key: 'pipelines', label: 'Сценарии' },
   // Что происходило без тебя и во сколько это обошлось. Доступна всем, но
   // показывает только свои прогоны — на общем инстансе арендатор не должен
   // видеть чужие траты.
-  { key: 'governance', label: 'Аудит и деньги', shortLabel: 'Деньги', icon: ShieldCheck },
+  { key: 'governance', label: 'Аудит и деньги' },
 ] as const;
 
 // The server panel can stop and start system services, so it is owner-only —
 // tenants of a shared instance must not even see the entry point.
-const SERVER_PANEL = { key: 'server', label: 'Сервер', shortLabel: 'Сервер', icon: Server } as const;
+const SERVER_PANEL = { key: 'server', label: 'Сервер' } as const;
 
 // «Агент крабик» — агент владельца на VPS (мод modKrabikAgent), тоже только админу.
-const KRABIK_PANEL = { key: 'krabik', label: 'Агент крабик', shortLabel: 'Крабик', icon: Shell } as const;
+const KRABIK_PANEL = { key: 'krabik', label: 'Агент крабик' } as const;
 
 // «Дуэт» — напарник по ботам и сервисам (мод modDuet), только админу.
-const DUET_PANEL = { key: 'duet', label: 'Дуэт', shortLabel: 'Дуэт', icon: Music2 } as const;
+const DUET_PANEL = { key: 'duet', label: 'Дуэт' } as const;
 
 // «Агенты» — именованные помощники с ролью и памятью (мод modAgents), только админу.
-const AGENTS_PANEL = { key: 'agents', label: 'Агенты', shortLabel: 'Агенты', icon: Users } as const;
+const AGENTS_PANEL = { key: 'agents', label: 'Агенты' } as const;
 
 // «Конвейер» — очередь пунктов агенту с вердиктами (мод modAgentQueue, требует modAgents), только админу.
-const QUEUE_PANEL = { key: 'queue', label: 'Конвейер', shortLabel: 'Конвейер', icon: ListChecks } as const;
-
-/** Значок Крабика в меню: пиксельный краб на плитке того же размера, что AppIcon sm. */
-function KrabikMenuIcon({ light = false }: { light?: boolean }) {
-  return (
-    <span className="neo3-squircle inline-flex h-7 w-7 items-center justify-center overflow-hidden" style={{ background: light ? '#F6E1D3' : '#3B1F12' }} aria-hidden>
-      <PixelCrab tint="sonnet" state="done" scale={1.25} className="[&>span:last-child]:hidden" />
-    </span>
-  );
-}
-
-const APP_ICON: Record<string, { background: string; foreground: string; glyph: ProjectGlyph }> = {
-  nightshift: { background: '#1F4E5A', foreground: '#E7F4F2', glyph: 'tasks' },
-  consigliere: { background: '#5C3A21', foreground: '#F3D2A8', glyph: 'wallet' },
-  mazda: { background: '#4A5560', foreground: '#F4F1EA', glyph: 'car' },
-  schedules: { background: '#1F4E5A', foreground: '#E7F4F2', glyph: 'calendar' },
-  pipelines: { background: '#3E2A78', foreground: '#F1ECFF', glyph: 'workflow' },
-  governance: { background: '#14532D', foreground: '#DCFCE7', glyph: 'shield' },
-  server: { background: '#1C3A70', foreground: '#E8F0FF', glyph: 'server' },
-  duet: { background: '#0F4C45', foreground: '#D7FBF3', glyph: 'music' },
-  agents: { background: '#6B2D5C', foreground: '#FBE4F4', glyph: 'user' },
-  queue: { background: '#7A3E12', foreground: '#FDE7D2', glyph: 'tasks' },
-  settings: { background: '#3A3A3A', foreground: '#F3F3F0', glyph: 'settings' },
-};
-
-/**
- * В светлых темах тёмные плитки меню выглядели дырами в бумаге. Светлый
- * вариант — та же пара цветов наоборот: пастельный фон из светлого тона
- * значка и глиф из тёмного (контраст пары тот же, что был у тёмной).
- */
-const tileColors = (app: (typeof APP_ICON)[string], light: boolean) => (
-  light ? { ...app, background: app.foreground, foreground: app.background } : app
-);
+const QUEUE_PANEL = { key: 'queue', label: 'Конвейер' } as const;
 
 type FeaturePanelKey =
   | (typeof HUB_PANELS)[number]['key']
@@ -123,6 +86,8 @@ type SidebarFooterProps = {
   restartRequired: boolean;
   currentVersion: string;
   onShowSettings: () => void;
+  /** Phone drawer shown? `undefined` on a computer (see sidebarMenuState). */
+  drawerOpen?: boolean;
   t: TFunction;
 };
 
@@ -130,11 +95,19 @@ export default function SidebarFooter({
   restartRequired,
   currentVersion,
   onShowSettings,
+  drawerOpen,
   t,
 }: SidebarFooterProps) {
   const [showNightshift, setShowNightshift] = useState(false);
   const [openPanel, setOpenPanel] = useState<FeaturePanelKey | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // The phone drawer is hidden, not unmounted: fold «Меню» on each opening.
+  // Adjusted during render (not in an effect) so the grid never flashes open.
+  const [seenDrawerOpen, setSeenDrawerOpen] = useState(drawerOpen);
+  if (seenDrawerOpen !== drawerOpen) {
+    setSeenDrawerOpen(drawerOpen);
+    if (shouldCollapseMenu(seenDrawerOpen, drawerOpen)) setMenuOpen(false);
+  }
   const { items: attention } = usePlannerAttention();
   const overdueCount = attention.length;
   const { user } = useAuth();
@@ -145,8 +118,6 @@ export default function SidebarFooter({
   // «Конвейер» требует «Агентов»: без них пункт скрыт, как и на сервере (MOD_OFF).
   const queueOn = useModEnabled('modAgentQueue') && agentsOn;
   const navigate = useNavigate();
-  const { isDarkMode } = useTheme();
-  const lightTiles = !isDarkMode;
   const panels = isOwner
     ? [...HUB_PANELS, ...FEATURE_PANELS, SERVER_PANEL, ...(duetOn ? [DUET_PANEL] : []), ...(agentsOn ? [AGENTS_PANEL] : []), ...(queueOn ? [QUEUE_PANEL] : []), ...(krabikOn ? [KRABIK_PANEL] : [])]
     : [...HUB_PANELS, ...FEATURE_PANELS];
@@ -202,30 +173,11 @@ export default function SidebarFooter({
     return () => window.removeEventListener('neo3:workspace-close', close);
   }, []);
 
-  // One list, two shapes: the mobile icon row uses shortLabel, the desktop
-  // menu uses the full label.
-  const actions = [
-    {
-      key: 'nightshift',
-      label: t('nightshift.title'),
-      shortLabel: 'Задачи',
-      icon: CalendarClock,
-      onClick: () => setShowNightshift(true),
-    },
-    ...panels.map(({ key, label, shortLabel, icon }) => ({
-      key,
-      label,
-      shortLabel,
-      icon,
-      onClick: () => setOpenPanel(key),
-    })),
-    {
-      key: 'settings',
-      label: t('actions.settings'),
-      shortLabel: 'Настройки',
-      icon: Settings,
-      onClick: onShowSettings,
-    },
+  // One list, two shapes: rows on a computer, a 4-across grid on a phone.
+  const actions: SidebarMenuItem[] = [
+    { key: 'nightshift', label: t('nightshift.title'), onClick: () => setShowNightshift(true) },
+    ...panels.map(({ key, label }) => ({ key, label, onClick: () => setOpenPanel(key) })),
+    { key: 'settings', label: t('actions.settings'), onClick: onShowSettings },
   ];
 
   return (
@@ -249,11 +201,14 @@ export default function SidebarFooter({
       {/* Settings */}
       <div className="nav-divider" />
 
-      {/* Desktop: the same fold as mobile — five permanent rows pushed the
-          session list up the sidebar. Collapsed on every mount by design. */}
-      <div className="hidden px-2 py-1.5 md:block">
+      {/* «Меню» on every width, collapsed on mount and on every phone-drawer opening: permanent
+          rows pushed the session list up on a computer, and on a phone a row
+          of 13 tiny tiles cut every label to «З…». Open: rows on a computer,
+          big tiles 4 across on a phone. */}
+      <div className="px-2 pb-3 pt-1.5 md:pb-1.5">
         <button
-          className="relative flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          type="button"
+          className="relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground md:py-1.5"
           onClick={() => setMenuOpen((open) => !open)}
           aria-expanded={menuOpen}
         >
@@ -270,36 +225,14 @@ export default function SidebarFooter({
         </button>
 
         {menuOpen && (
-          <div className="mt-1 space-y-1">
-            {actions.map(({ key, label, icon: Icon, onClick }) => {
-              const app = APP_ICON[key] ? tileColors(APP_ICON[key], lightTiles) : undefined;
-              return (
-              <button
-                key={key}
-                className="sidebar-footer-item flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-                onClick={onClick}
-              >
-                <span className="relative">
-                  {key === 'krabik' ? (
-                    <KrabikMenuIcon light={lightTiles} />
-                  ) : app ? (
-                    <AppIcon
-                      background={app.background}
-                      foreground={app.foreground}
-                      glyph={app.glyph}
-                      letter={label[0]}
-                      size="sm"
-                    />
-                  ) : (
-                    <Icon className="h-3.5 w-3.5" />
-                  )}
-                  {key === 'consigliere' && <CountDot count={overdueCount} />}
-                </span>
-                <span className="text-sm">{label}</span>
-              </button>
-              );
-            })}
-          </div>
+          <>
+            <div className="hidden md:block">
+              <SidebarMenuItems items={actions} variant="list" overdueCount={overdueCount} />
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto md:hidden">
+              <SidebarMenuItems items={actions} variant="grid" overdueCount={overdueCount} />
+            </div>
+          </>
         )}
       </div>
 
@@ -311,44 +244,6 @@ export default function SidebarFooter({
           </span>
         </div>
       )}
-
-      {/* Mobile: one icon row instead of full-width buttons — on a phone they
-          ate a third of the screen while the session list scrolled. Labels sit
-          under the icons so the row stays readable without a spoiler. */}
-      <div className="flex items-stretch gap-1.5 px-3 pb-3 pt-2 md:hidden">
-        {actions.map(({ key, label, shortLabel, icon: Icon, onClick }) => {
-          const app = APP_ICON[key] ? tileColors(APP_ICON[key], lightTiles) : undefined;
-          return (
-          <button
-            key={key}
-            className="sidebar-footer-item flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-0.5 py-2 transition-all hover:bg-muted/40 active:scale-[0.94]"
-            onClick={onClick}
-            title={label}
-            aria-label={label}
-          >
-            <span className="relative">
-              {key === 'krabik' ? (
-                <KrabikMenuIcon light={lightTiles} />
-              ) : app ? (
-                <AppIcon
-                  background={app.background}
-                  foreground={app.foreground}
-                  glyph={app.glyph}
-                  letter={label[0]}
-                  size="sm"
-                />
-              ) : (
-                <Icon className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
-              )}
-              {key === 'consigliere' && <CountDot count={overdueCount} />}
-            </span>
-            <span className="w-full truncate text-center text-[9px] leading-tight text-muted-foreground">
-              {shortLabel}
-            </span>
-          </button>
-          );
-        })}
-      </div>
 
       {showNightshift && <NightshiftModal onClose={() => setShowNightshift(false)} t={t} />}
 
