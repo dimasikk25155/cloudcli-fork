@@ -106,6 +106,14 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     // `hidden` since 21.08.2026: the picker shows only the subscription
     // models (Anthropic / OpenAI / xAI). Flip the flag to bring one
     // back — nothing else has to change.
+    // Visible (07.11.2026): Dima's offline chat — an uncensored MoE that fits
+    // the RTX 5070 with part of its experts in RAM. 3B active per token, so the
+    // CPU share costs little speed.
+    {
+      value: 'local-qwen36-35b',
+      label: 'Local · Qwen3.6 35B без цензуры',
+      description: 'Runs on your RTX 5070 · free, no Claude limit, works when the cloud is down · uncensored · chat, not long agent work',
+    },
     {
       value: 'local-ornith-9b',
       hidden: true,

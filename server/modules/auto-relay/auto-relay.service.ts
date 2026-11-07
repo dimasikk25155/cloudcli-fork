@@ -147,7 +147,7 @@ const HISTORY_RETRY_MS = 1500;
 const MID_RUN_REASONS = new Set(['ask', 'plan', 'permission']);
 /** The handoff turn's budget; past it the move is given up with a clear error. */
 export const COLLECTING_TIMEOUT_MS = 10 * 60 * 1000;
-export const LOCAL_MODELS = ['local-qwen35-9b', 'local-ornith-9b'] as const;
+export const LOCAL_MODELS = ['local-qwen35-9b', 'local-ornith-9b', 'local-qwen36-35b'] as const;
 
 function clip(text: string, max: number): string {
   const trimmed = text.trim();

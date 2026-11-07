@@ -16,7 +16,7 @@ export const isSelectableProvider = (provider: string | null | undefined): provi
 /** The backend selects confirmed family versions; UI also rejects unrelated rows. */
 export function isSelectableModel(provider: LLMProvider, option: { value: string; hidden?: boolean }): boolean {
   if (option.hidden) return false;
-  if (provider === 'claude') return ['opus[1m]', 'sonnet[1m]', 'fable'].includes(option.value);
+  if (provider === 'claude') return ['opus[1m]', 'sonnet[1m]', 'fable', 'local-qwen36-35b'].includes(option.value);
   if (provider === 'codex') return /^gpt-\d+(?:\.\d+)*-(?:astra|sol)$/.test(option.value);
   if (provider === 'grok') return ['grok-4.7', 'grok-4.7-build-fast'].includes(option.value);
   return false;

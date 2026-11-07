@@ -147,6 +147,7 @@ const isKimiModel = (model) =>
 // Code engine runs against it with no proxy or shim — only the base URL and the
 // model id change. Free, and it does not touch the Claude Max limit.
 const LOCAL_MODEL_MAP = {
+  'local-qwen36-35b': 'qwen36-uncensored',
   'local-ornith-9b': 'ornith-agent',
   'local-qwen35-9b': 'qwen35-agent',
 };

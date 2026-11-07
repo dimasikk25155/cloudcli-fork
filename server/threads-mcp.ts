@@ -62,7 +62,7 @@ const tools: ToolDefinition[] = [
       'the user sees it in the sidebar, can open it and write to it. Use threads for parallel or routine work;',
       'by default a thread runs on Grok grok-4.7-build-fast (does not spend the Claude limit).',
       'provider: "grok" (default) | "claude" | "codex" | "local" (free local model on the Claude engine).',
-      'Models: grok-4.7, grok-4.7-build-fast; claude opus[1m], sonnet[1m], fable, local-qwen35-9b, local-ornith-9b;',
+      'Models: grok-4.7, grok-4.7-build-fast; claude opus[1m], sonnet[1m], fable, local-qwen35-9b, local-ornith-9b, local-qwen36-35b;',
       'codex — catalog models of the astra/sol families. At most 3 threads work at once; a thread cannot open threads.',
       'agent: the name of one of the owner\'s agents (see workspace_action agent.list, e.g. "Критик") — the thread gets that agent\'s role, memory and checks and, unless you pass provider/model, its engine and model; its title starts with the agent name. Unknown name → error with the names that exist.',
       'The prompt must be self-contained: the thread does not see this conversation.',

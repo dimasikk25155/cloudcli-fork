@@ -139,7 +139,8 @@ test('new choice lists stay curated across refreshes and never restore a hidden 
   assert.deepEqual(selectableModels('codex', null), []);
   assert.deepEqual(selectableModels('claude', { DEFAULT: 'haiku', OPTIONS: [
     { value: 'haiku', label: 'Haiku' }, { value: 'opus[1m]', label: 'Opus 5.5' },
-  ] }).map(option => option.value), ['opus[1m]']);
+    { value: 'local-qwen36-35b', label: 'Local · Qwen3.6 35B' }, { value: 'local-qwen35-9b', label: 'Local · Qwen3.5 9B', hidden: true },
+  ] }).map(option => option.value), ['opus[1m]', 'local-qwen36-35b']);
   assert.deepEqual(selectableModels('grok', { DEFAULT: 'grok-4.5', OPTIONS: [
     { value: 'grok-4.5', label: 'Grok 4.5' }, { value: 'grok-4.7-build-fast', label: 'Fast' },
   ] }).map(option => option.value), ['grok-4.7-build-fast']);

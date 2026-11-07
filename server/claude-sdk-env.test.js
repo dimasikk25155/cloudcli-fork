@@ -19,6 +19,13 @@ test('the marker survives the engine branches that rewrite the env (local model)
   assert.equal(env.NEO3_SESSION, '1');
 });
 
+test('the uncensored local chat routes to its Ollama model without effort', () => {
+  const options = mapCliOptionsToSDK({ model: 'local-qwen36-35b', effort: 'high', effortModels });
+  assert.equal(options.model, 'qwen36-uncensored');
+  assert.equal(options.env.ANTHROPIC_MODEL, 'qwen36-uncensored');
+  assert.equal(options.effort, undefined);
+});
+
 test('the host env is still forwarded alongside the marker', () => {
   const previous = process.env.NEO3_TEST_PASSTHROUGH;
   process.env.NEO3_TEST_PASSTHROUGH = 'kept';

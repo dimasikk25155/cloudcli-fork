@@ -44,7 +44,7 @@ export const DEFAULT_THREAD_MODELS: Record<ThreadProvider, string> = {
   codex: 'gpt-6-sol',
 };
 /** Neo3 local models run on the Claude engine (Ollama speaks its protocol). */
-export const LOCAL_THREAD_MODELS = ['local-qwen35-9b', 'local-ornith-9b'] as const;
+export const LOCAL_THREAD_MODELS = ['local-qwen35-9b', 'local-ornith-9b', 'local-qwen36-35b'] as const;
 
 const CLAUDE_THREAD_MODELS = ['opus[1m]', 'sonnet[1m]', 'fable', ...LOCAL_THREAD_MODELS];
 const GROK_THREAD_MODELS = ['grok-4.7', 'grok-4.7-build-fast'];

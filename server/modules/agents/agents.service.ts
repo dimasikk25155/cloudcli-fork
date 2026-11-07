@@ -46,7 +46,7 @@ export const DEFAULT_AGENT_MODELS: Record<AgentProvider, string> = {
 };
 // The selection policy of new chats (src/utils/providerSelectionPolicy.ts) plus
 // the local models of threads, which run on the Claude engine.
-const LOCAL_AGENT_MODELS = ['local-qwen35-9b', 'local-ornith-9b'];
+const LOCAL_AGENT_MODELS = ['local-qwen35-9b', 'local-ornith-9b', 'local-qwen36-35b'];
 const CLAUDE_AGENT_MODELS = ['opus[1m]', 'sonnet[1m]', 'fable', ...LOCAL_AGENT_MODELS];
 const GROK_AGENT_MODELS = ['grok-4.7', 'grok-4.7-build-fast'];
 const CODEX_AGENT_MODEL = /^gpt-\d+(?:\.\d+)*-(?:astra|sol)$/;
