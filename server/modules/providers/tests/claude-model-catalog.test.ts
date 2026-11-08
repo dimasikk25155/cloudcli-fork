@@ -35,6 +35,9 @@ test('Claude reader refreshes account metadata and rejects expired or corrupt re
     assert.equal(fresh.OPTIONS[1].effort, undefined);
     assert.equal(fresh.OPTIONS[1].contextWindow, undefined);
     assert.equal(fresh.OPTIONS.filter((o) => !o.hidden).length, 4);
+    const local = fresh.OPTIONS.find((o) => o.value === 'local-qwen36-35b');
+    assert.equal(local?.label, 'Local · Qwen3.6 35B без цензуры', 'a family-less model is not renamed after Haiku');
+    assert.equal(local?.effort, undefined);
     fs.writeFileSync(file, '{broken');
     assert.equal(readClaudeModelsDefinition(dir, 1000), fresh);
     fs.writeFileSync(file, JSON.stringify({ fetchedAt: 900, staleAt: 999, catalog: { config: { models: [{ id: 'claude-sonnet-6', name: 'Sonnet 6' }] } } }));

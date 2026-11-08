@@ -162,8 +162,11 @@ export function buildClaudeModelsDefinition(raw: unknown, now = Date.now(), prev
   const models = config.models.map(readObjectRecord).filter((model) => model && typeof model.id === 'string' && typeof model.name === 'string');
   if (!models.some((model) => claudeFamily(model!.id as string))) return null;
   const options = previous.OPTIONS.map((fallback): ProviderModelOption => {
-    if (fallback.hidden) return fallback;
-    const selected = models.filter((model) => claudeFamily(model!.id as string) === claudeFamily(fallback.value))
+    // Local models have no Claude family: matching `undefined` would hand them
+    // the name and effort of whatever unmatched model (Haiku) the account lists.
+    const family = claudeFamily(fallback.value);
+    if (fallback.hidden || !family) return fallback;
+    const selected = models.filter((model) => claudeFamily(model!.id as string) === family)
       .sort((a, b) => (b!.id as string).localeCompare(a!.id as string, undefined, { numeric: true }))[0];
     if (!selected) return fallback;
     const thinking = readObjectRecord(selected.thinking);
