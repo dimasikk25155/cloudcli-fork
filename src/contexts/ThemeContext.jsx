@@ -32,6 +32,7 @@ export const THEMES = [
   'bento3d',
   'liquidChrome',
   'zenParticles',
+  'bio',
 ];
 
 // Тема по умолчанию для новых установок. У существующих пользователей выбор
@@ -62,6 +63,7 @@ export const THEME_LABELS = {
   bento3d: 'Зелёная',
   liquidChrome: 'Сиреневая',
   zenParticles: 'Янтарная',
+  bio: 'Био — голубая',
 };
 
 // Themes that are light (bright) rather than dark. Each theme decides whether

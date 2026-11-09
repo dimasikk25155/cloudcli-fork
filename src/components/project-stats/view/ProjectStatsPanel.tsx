@@ -5,6 +5,8 @@ import { BarChart3, FileCode2, HardDrive, Coins, MessageSquare, RefreshCw, Alert
 import type { Project } from '../../../types/app';
 import { fetchProjectStats, formatBytes, formatCount, type ProjectStats } from '../../../utils/projectStats';
 import { formatTokensShort, formatUsd } from '../../../utils/usageHistory';
+import BioDataCard from '../../bio-infographic/BioDataCard';
+import { buildProjectCard } from '../../bio-infographic/bioCardData';
 
 type ProjectStatsPanelProps = {
   selectedProject: Project;
@@ -83,8 +85,6 @@ export default function ProjectStatsPanel({ selectedProject }: ProjectStatsPanel
 
   if (!stats) return null;
 
-  const maxLines = Math.max(...stats.languages.map((l) => l.lines), 1);
-
   return (
     <div className="h-full overflow-y-auto p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -158,29 +158,12 @@ export default function ProjectStatsPanel({ selectedProject }: ProjectStatsPanel
         />
       </div>
 
-      {stats.languages.length > 0 && (
-        <div className="mt-6">
-          <h3 className="mb-3 text-xs uppercase tracking-wide text-muted-foreground">
-            {t('stats.languages', { defaultValue: 'Из чего состоит' })}
-          </h3>
-          <div className="space-y-2">
-            {stats.languages.map((lang) => (
-              <div key={lang.ext} className="flex items-center gap-3">
-                <span className="w-16 shrink-0 text-sm text-foreground">{lang.ext}</span>
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{ width: `${Math.max((lang.lines / maxLines) * 100, 2)}%` }}
-                  />
-                </div>
-                <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">
-                  {formatCount(lang.lines)} · {formatCount(lang.files)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* «Из чего состоит» — карточка-инфографика: языки таблицей, строки
+          столбиками, накопленная доля линией, вертикаль там, где набралось 80%. */}
+      <BioDataCard
+        className="mt-6"
+        {...buildProjectCard(stats, t('stats.languages', { defaultValue: 'Из чего состоит' }))}
+      />
     </div>
   );
 }

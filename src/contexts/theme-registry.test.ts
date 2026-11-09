@@ -201,3 +201,59 @@ describe('«Светлая Claude»: палитра и контраст', () => 
   });
 });
 
+
+describe('«Био — голубая»: палитра hu22.ai, шрифты и контраст', () => {
+  it('зарегистрирована тёмной и плоской, подпись «Био — голубая»', () => {
+    assert.ok(themes.includes('bio'), 'bio нет в THEMES');
+    assert.match(contextSource, /^\s{2}bio: 'Био — голубая',$/m);
+    assert.ok(!lightThemes.includes('bio'), 'bio тёмная — не в LIGHT_THEMES');
+    const flat = backgroundSource.match(/FLAT_THEMES = new Set\(\[([^\]]*)\]\)/);
+    assert.ok(flat, 'не нашёл FLAT_THEMES');
+    assert.match(flat[1], /'bio'/, 'bio плоская: без картинки и шейдера');
+  });
+
+  const tokens = readThemeTokens('bio');
+
+  it('цвета, радиус и тени как на hu22.ai', () => {
+    // Палитра из spec.md: фон #030305, карточка #0a0a0e, текст #ededf0,
+    // серый #8b8b93, акцент #38c6f4, текст на акценте #04121c.
+    assert.equal(tokens['--background'], '240 25% 1.6%');
+    assert.equal(tokens['--card'], '240 16.7% 4.7%');
+    assert.equal(tokens['--foreground'], '240 9.1% 93.5%');
+    assert.equal(tokens['--muted-foreground'], '240 3.6% 56.1%');
+    assert.equal(tokens['--primary'], '195 89.5% 58.8%');
+    assert.equal(tokens['--primary-foreground'], '205 75% 6.3%');
+    assert.equal(tokens['--ring'], tokens['--primary']);
+    assert.equal(tokens['--radius'], '0.75rem');
+    for (const shadow of ['--shadow-1', '--shadow-2', '--shadow-3']) {
+      assert.equal(tokens[shadow], 'none', `${shadow} — тема разделяет поверхности линией, не тенью`);
+    }
+  });
+
+  it('шрифты свои: General Sans со стеком system-ui, IBM Plex Mono для цифр', () => {
+    assert.match(tokens['--font-ui'], /^"General Sans", system-ui/);
+    assert.match(tokens['--font-mono'], /^"IBM Plex Mono"/);
+    // Шрифты лежат в самом Neo3 — ни одного обращения к внешним шрифтовым CDN.
+    const faces = [...cssSource.matchAll(/@font-face\s*{[^}]*}/g)].map((entry) => entry[0]);
+    const bioFaces = faces.filter((face) => /General Sans|IBM Plex Mono/.test(face));
+    assert.equal(bioFaces.length, 11, 'General Sans ×5 + IBM Plex Mono 2 веса × 3 подмножества');
+    for (const face of bioFaces) {
+      assert.match(face, /src:\s*url\('\/fonts\/[A-Za-z0-9-]+\.woff2'\) format\('woff2'\)/);
+      assert.match(face, /font-display:\s*swap/);
+    }
+    assert.doesNotMatch(cssSource, /fontshare/);
+  });
+
+  it('основной и серый текст, подпись на кнопке держат ≥4.5:1', () => {
+    const pairs: Array<[string, string, string]> = [
+      ['foreground на background', tokens['--foreground'], tokens['--background']],
+      ['muted-foreground на background', tokens['--muted-foreground'], tokens['--background']],
+      ['primary-foreground на primary', tokens['--primary-foreground'], tokens['--primary']],
+      ['muted-foreground на card', tokens['--muted-foreground'], tokens['--card']],
+    ];
+    for (const [name, text, surface] of pairs) {
+      const ratio = contrast(text, surface);
+      assert.ok(ratio >= 4.5, `${name}: ${ratio.toFixed(2)}:1 < 4.5:1`);
+    }
+  });
+});

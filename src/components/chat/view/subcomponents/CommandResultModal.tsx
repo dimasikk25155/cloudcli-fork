@@ -21,6 +21,9 @@ import {
 } from 'lucide-react';
 
 import { isSelectableModel } from '../../../../utils/providerSelectionPolicy';
+import BioDataCard from '../../../bio-infographic/BioDataCard';
+import { buildUsageCard, moscowDay } from '../../../bio-infographic/bioCardData';
+import { useUsageHistory } from '../../../bio-infographic/useUsageHistory';
 import { Badge, Button, Dialog, DialogContent, DialogTitle, Input } from '../../../../shared/view/ui';
 import {
   fetchUsageHistory,
@@ -563,6 +566,12 @@ function CostHistoryView({ onBack }: { onBack: () => void }) {
 
 function CostContent({ data }: { data: CostCommandData }) {
   const [showHistory, setShowHistory] = useState(false);
+  // Карточка «Токены · 7 дней» сверху окна: те же данные, что у «Истории по дням».
+  const usageHistory = useUsageHistory();
+  const weekCard = useMemo(
+    () => buildUsageCard(usageHistory.days, usageHistory.error, moscowDay()),
+    [usageHistory.days, usageHistory.error],
+  );
   const used = Number(data.tokenUsage?.used ?? 0);
   const total = Number(data.tokenUsage?.total ?? 0);
   const model = data.model || 'Unknown';
@@ -641,6 +650,8 @@ function CostContent({ data }: { data: CostCommandData }) {
 
   return (
     <div className="space-y-4">
+      <BioDataCard {...weekCard} />
+
       {hasAnyData ? (
         <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/75">
           {usageRows.map((row) => {
