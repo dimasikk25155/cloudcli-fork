@@ -117,6 +117,34 @@ describe('статистика проекта: карточка «Проект �
     assert.ok(Math.abs((card.chart?.line?.[5] ?? 0) - 1) < 1e-9);
   });
 
+  it('сервер прислал не все языки (≤ 8) — итог, «прочее», доли и 80% считаются от всех строк проекта', () => {
+    // Языки в ответе дают 10 000 строк и 120 файлов, а в проекте 20 000 и 200.
+    const card = buildProjectCard({ ...stats, files: 200, lines: 20_000 });
+    assert.deepEqual(card.table?.rows[0], ['.ts', '50', '6 000', '30%']);
+    // 20 000 − (6 000 + 2 000 + 1 000 + 500 + 300) = 10 200; 200 − 114 = 86.
+    assert.deepEqual(card.table?.rows[5], ['прочее', '86', '10 200', '51%']);
+    assert.deepEqual(card.table?.total, ['Всего', '200', '20 000', '100%']);
+    assert.deepEqual(card.stats?.[0], { value: '20 000', label: 'строк кода' });
+    assert.deepEqual(card.chart?.bars, [6_000, 2_000, 1_000, 500, 300, 10_200]);
+    // 30% → 40% → 45% → 47,5% → 49% → 100%: 80% достигается только на «прочем».
+    assert.deepEqual(card.chart?.marker, { index: 5, label: '80% кода' });
+    assert.ok(Math.abs((card.chart?.line?.[5] ?? 0) - 1) < 1e-9);
+
+    // Языков ≤ 5, но строк в проекте больше — «прочее» всё равно появляется.
+    const few = buildProjectCard({ ...stats, files: 10, lines: 1_000, languages: [{ ext: '.ts', files: 4, lines: 600 }] });
+    assert.deepEqual(few.table?.rows, [
+      ['.ts', '4', '600', '60%'],
+      ['прочее', '6', '400', '40%'],
+    ]);
+    assert.deepEqual(few.table?.total, ['Всего', '10', '1 000', '100%']);
+  });
+
+  it('сумма языков больше итога проекта — берётся сумма, «прочее» не уходит в минус', () => {
+    const card = buildProjectCard({ ...stats, files: 50, lines: 5_000 });
+    assert.deepEqual(card.table?.rows[5], ['прочее', '6', '200', '2%']);
+    assert.deepEqual(card.table?.total, ['Всего', '120', '10 000', '100%']);
+  });
+
   it('скан упёрся в лимит — «не меньше»; нет цены — токены', () => {
     const card = buildProjectCard({ ...stats, truncated: true, costUsd: null });
     assert.match(card.stats?.[0].label ?? '', /не меньше/);

@@ -3,7 +3,7 @@ import { formatCount } from '../../utils/projectStats';
 import { formatTokensShort, formatUsd, type UsageHistoryDay } from '../../utils/usageHistory';
 
 import type { BioDataCardProps } from './BioDataCard';
-import { cumulative, firstIndexAtShare, lastNDays, topLanguages } from './bioChartModel';
+import { OTHER_LANGUAGES, cumulative, firstIndexAtShare, lastNDays, topLanguages } from './bioChartModel';
 
 /**
  * Данные → props карточки для двух мест: окно «Расход» (R06) и статистика
@@ -109,13 +109,26 @@ const formatShare = (share: number): string => {
 /** R07: до 5 языков + «прочее», доля крупнейшего выделена, вертикаль «80% кода». */
 export function buildProjectCard(stats: ProjectStats, title = 'Из чего состоит'): BioDataCardProps {
   const base = { title, crumb: PROJECT_CRUMB, live: true };
-  const languages = topLanguages(stats.languages ?? [], TOP_LANGUAGES);
-  const totalLines = languages.reduce((sum, entry) => sum + entry.lines, 0);
-  if (languages.length === 0 || totalLines <= 0) {
+  const ranked = topLanguages(stats.languages ?? [], TOP_LANGUAGES);
+  const shown = ranked.filter((entry) => entry.ext !== OTHER_LANGUAGES);
+  const sumOf = (rows: { lines: number; files: number }[], key: 'lines' | 'files') =>
+    rows.reduce((sum, entry) => sum + entry[key], 0);
+
+  // Сервер присылает не больше 8 языков, поэтому итог берётся из stats.lines/files;
+  // сумма языков — нижняя граница, чтобы «прочее» не ушло в минус.
+  const totalLines = Math.max(sumOf(ranked, 'lines'), Number.isFinite(stats.lines) ? stats.lines : 0);
+  const totalFiles = Math.max(sumOf(ranked, 'files'), Number.isFinite(stats.files) ? stats.files : 0);
+  if (ranked.length === 0 || totalLines <= 0) {
     return { ...base, state: 'empty', message: 'Пока нет данных о составе' };
   }
 
-  const totalFiles = languages.reduce((sum, entry) => sum + entry.files, 0);
+  const otherLines = totalLines - sumOf(shown, 'lines');
+  const otherFiles = totalFiles - sumOf(shown, 'files');
+  const rows = shown.map(({ ext, files, lines }) => ({ ext, files, lines }));
+  if (otherLines > 0 || otherFiles > 0 || shown.length < ranked.length) {
+    rows.push({ ext: OTHER_LANGUAGES, files: otherFiles, lines: otherLines });
+  }
+  const languages = rows.map((entry) => ({ ...entry, share: entry.lines / totalLines }));
   const lines = languages.map((entry) => entry.lines);
   const markerIndex = firstIndexAtShare(lines, 0.8);
 
