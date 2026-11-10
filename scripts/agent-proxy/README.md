@@ -1,5 +1,15 @@
 # One exit IP for coding agents
 
+> **Выключено на маке 10.11.2026.** Мост ломал интернет: держал системный прокси
+> на `127.0.0.1:12809`, Firefox — на PAC, а агенты отказывались работать через
+> обычный VPN из-за жёсткого `expected_ip`. Теперь агенты ходят в сеть как весь мак
+> (через Happ или любой другой VPN). Выключатель — `off.sh` рядом: снимает
+> автозапуск, процессы, обёртки, системный прокси и PAC; повторный запуск безопасен.
+> Ночной `update-engines.sh` обёртки больше не ставит. Не устанавливать заново
+> без прямой просьбы Димы. VPS NL (`/usr/local/lib/neo3-agent-proxy/`) не трогался.
+>
+> Ниже — описание прежней схемы, для истории.
+
 The owner-selected default is **Netherlands 45.86.61.144**. On 2026-11-04 the
 owner replaced the first standby with **Finland 185.166.154.209** and required a
 single local control panel, independent of Happ and AI access. There is no
