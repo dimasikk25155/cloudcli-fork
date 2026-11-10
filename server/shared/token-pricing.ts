@@ -47,6 +47,9 @@ const FAST_MODE_MULTIPLIER = 2;
  */
 const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: number]> = [
   // Anthropic — priced
+  // Fable / Mythos 5.2 (09.11.2026) — cheaper than 5.1: $8/$40, cache reads $0.20.
+  ['claude-fable-5-2', { input: 8, output: 40, contextWindow: 1_000_000, cacheRead: 0.20 }, 1_000_000],
+  ['claude-mythos-5-2', { input: 8, output: 40, contextWindow: 1_000_000, cacheRead: 0.20 }, 1_000_000],
   ['claude-fable-5', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
   ['claude-mythos-5', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
   ['claude-mythos-preview', { input: 10, output: 50, contextWindow: 1_000_000 }, 1_000_000],
@@ -103,8 +106,9 @@ const MODEL_RATES: Array<[prefix: string, rates: ModelRates | null, window: numb
  * 1M-context variant no matter which model carries it.
  */
 const MODEL_ALIASES: Record<string, string> = {
-  // `fable` is the CLI's "newest Fable" alias — Fable 5.1 since 09.2026.
-  fable: 'claude-fable-5-1',
+  // `fable` is the CLI's "newest Fable" alias — Fable 5.2 since 09.11.2026
+  // (CLI 2.1.321; Fable 5.1 before).
+  fable: 'claude-fable-5-2',
   // `opus` resolves to Opus 5.5 on the CLI since 09.2026.
   opus: 'claude-opus-5-5',
   sonnet: 'claude-sonnet-5',

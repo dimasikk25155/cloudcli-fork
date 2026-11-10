@@ -21,8 +21,8 @@ import {
 // Everything the Claude Code `/model` picker offers on the Max subscription
 // (verified live on 2.1.273, 17.09.2026, each entry answered a one-word
 // prompt). Values are what `claude --model` takes: `opus[1m]`-style aliases
-// resolve to the newest model of that family, so `fable` is Fable 5.1 and
-// `opus[1m]` is Opus 5.5 today (re-verified on 2.1.281, 24.09.2026).
+// resolve to the newest model of that family, so `fable` is Fable 5.2 (verified
+// live on 2.1.321, 10.11.2026) and `opus[1m]` is Opus 5.5 (2.1.281, 24.09.2026).
 // Sonnet 4.6 is deliberately WITHOUT `[1m]` — the CLI answers "Usage credits
 // required for 1M context" on the subscription for that one.
 const CLAUDE_EFFORT_FIVE = {
@@ -54,8 +54,8 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'fable',
-      label: 'Fable 5.1',
-      description: 'Fable 5.1 · For your toughest challenges',
+      label: 'Fable 5.2',
+      description: 'Fable 5.2 · For your toughest challenges',
       contextWindow: 1_000_000,
       effort: CLAUDE_EFFORT_FIVE,
     },

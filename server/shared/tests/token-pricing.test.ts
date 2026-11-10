@@ -203,3 +203,13 @@ test('Opus 5.5 is priced below Opus 5 and the opus alias follows it', () => {
   const fast = estimateCostUsd({ ...EMPTY_BREAKDOWN, outputTokens: MILLION }, 'claude-opus-5-5', { speed: 'fast' });
   assert.equal(fast?.totalUsd, 40);
 });
+
+test('Fable 5.2 is billed at $8/$40, Fable 5.1 keeps $10/$50, and `fable` means 5.2', () => {
+  const output = { ...EMPTY_BREAKDOWN, outputTokens: MILLION };
+  assert.equal(estimateCostUsd(output, 'claude-fable-5-2')?.totalUsd, 40);
+  assert.equal(estimateCostUsd(output, 'claude-mythos-5-2')?.totalUsd, 40);
+  assert.equal(estimateCostUsd(output, 'claude-fable-5-1')?.totalUsd, 50);
+  assert.equal(estimateCostUsd(output, 'fable')?.totalUsd, 40);
+  const cached = estimateCostUsd({ ...EMPTY_BREAKDOWN, cacheReadTokens: MILLION }, 'claude-fable-5-2');
+  assert.ok(Math.abs((cached?.totalUsd ?? 0) - 0.2) < 1e-9);
+});

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { buildClaudeModelsDefinition, readClaudeModelsDefinition, CLAUDE_FALLBACK_MODELS } from '../list/claude/claude-models.provider.js';
 
 test('Claude curated catalog respects factory badge over saved state and available Sonnet version', () => {
-  assert.deepEqual(CLAUDE_FALLBACK_MODELS.OPTIONS.filter((o) => !o.hidden).map((o) => o.label), ['Opus 5.5', 'Sonnet 5', 'Fable 5.1', 'Local · Qwen3.6 35B без цензуры']);
+  assert.deepEqual(CLAUDE_FALLBACK_MODELS.OPTIONS.filter((o) => !o.hidden).map((o) => o.label), ['Opus 5.5', 'Sonnet 5', 'Fable 5.2', 'Local · Qwen3.6 35B без цензуры']);
   const result = buildClaudeModelsDefinition({ staleAt: 2000, catalog: {
     config: { models: [{ id: 'claude-opus-5-5', name: 'Opus 5.5', thinking: { type: 'effort', effort_options: [
       { id: 'high' }, { id: 'medium', badge: { message: 'Default' } }, { id: 'low' },
