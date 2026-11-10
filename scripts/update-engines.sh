@@ -64,7 +64,16 @@ if [ -x "${HOME}/.kimi-code/bin/kimi" ]; then
   log "kimi     -> present $("${HOME}/.kimi-code/bin/kimi" --version 2>/dev/null | head -1) (manual installer update only)"
 fi
 
-# The agent proxy bridge was switched off on 2026-11-10 (scripts/agent-proxy/off.sh):
-# agents use the Mac's normal network. The updater must not reinstall its launchers.
+# Upstream updaters replace launchers: restore the agent-only proxy wrappers, but only
+# while the bridge is on (its tunnel LaunchAgent exists). off.sh removes it, so a
+# switched-off bridge stays off. The installer never touches the macOS system proxy.
+AGENT_PROXY_INSTALLER="${HOME}/.local/share/neo3-agent-proxy/install.py"
+if [ -f "$AGENT_PROXY_INSTALLER" ] && [ -f "${HOME}/Library/LaunchAgents/com.dimasik.neo3-agent-tunnel.plist" ]; then
+  if python3 "$AGENT_PROXY_INSTALLER" >>"$LOG" 2>&1; then
+    log "agent proxy -> launchers restored"
+  else
+    log "agent proxy -> RESTORE FAILED (see log)"
+  fi
+fi
 
 log "=== engine update: done ==="

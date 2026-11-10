@@ -10,7 +10,7 @@ PROXY_PORT=12809
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP="${NEO3_PROXY_OFF_BACKUP:-$HOME/.cloudcli/maintenance/agent-proxy-off-$STAMP}"
 UID_N="$(id -u)"
-LABELS=(com.dimasik.neo3-agent-hysteria ru.neo3.home-direct ru.neo3.stake-tunnel)
+LABELS=(com.dimasik.neo3-agent-tunnel com.dimasik.neo3-agent-hysteria ru.neo3.home-direct ru.neo3.stake-tunnel)
 changed=0
 
 mkdir -p "$BACKUP/launchagents" "$BACKUP/wrappers" "$BACKUP/firefox" "$BACKUP/apps"
@@ -78,6 +78,27 @@ for uj in "$HOME/Library/Application Support/Firefox/Profiles"/*/user.js; do
   grep -v -e 'neo3-stake' -e 'neo3-agent-proxy' -e '"network.proxy.type"' "$uj" > "$uj.tmp" && mv "$uj.tmp" "$uj"
   say "Firefox ($prof): убраны строки PAC из user.js"; changed=1
 done
+
+# 4б. Claude: прокси моста в ~/.claude/settings.json (ставит on.sh) — без канала Claude не подключится.
+settings="$HOME/.claude/settings.json"
+if [ -f "$settings" ] && grep -q "127.0.0.1:$PROXY_PORT" "$settings"; then
+  cp -p "$settings" "$BACKUP/claude-settings.json"
+  python3 - "$settings" "$PROXY_PORT" <<'EOF'
+import json, os, sys
+path, port = sys.argv[1], sys.argv[2]
+data = json.load(open(path, encoding='utf-8'))
+env = data.get('env') or {}
+if f'127.0.0.1:{port}' in str(env.get('HTTPS_PROXY', '')) + str(env.get('HTTP_PROXY', '')):
+    for k in ('HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY'):
+        env.pop(k, None)
+    data['env'] = env
+    tmp = path + '.neo3-new'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False); f.write('\n')
+    os.replace(tmp, path)
+EOF
+  say "Claude: прокси моста убран из settings.json"; changed=1
+fi
 
 # 5. Пульт «Резервный мост ИИ» — он умеет включить мост обратно.
 for app in "$HOME/Applications"/*мост*ИИ*.app "$HOME/Desktop"/*мост*ИИ*; do
