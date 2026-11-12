@@ -219,7 +219,6 @@ describe('панель сервера: пульс WhatsApp-ботов', () => {
 
   it('ловит протухший пульс, даже если connected ещё true', () => {
     const row = interpretHeartbeat(
-      'tyres-wa-7su',
       '7su',
       JSON.stringify({ connected: true, ts: now - 120_000 }),
       now,
@@ -272,16 +271,13 @@ describe('панель сервера: пульс WhatsApp-ботов', () => {
     assert.equal(rows[2].item.version, undefined);
   });
 
-  it('показывает все восемь WhatsApp-ботов, даже когда у какого-то нет пульса', () => {
+  it('показывает все WhatsApp-боты, даже когда у какого-то нет пульса; 7su не показывает', () => {
     const ids = getBotsHealth().bots.map((bot) => bot.id);
     assert.deepEqual(ids, [
       'tyres-wa-ruslan',
       'tyres-wa-sergey',
       'tyres-wa-dmitry',
       'tyres-wa-roman',
-      'tyres-wa-7su',
-      'tyres-wa-7su-kira',
-      'tyres-wa-7su-andrey',
       'kvadrobanya-wa',
     ]);
   });
