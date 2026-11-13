@@ -309,8 +309,13 @@ export function useVoiceInput(
     if (busyRef.current || pendingRef.current || startingRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
     startingRef.current = true;
     try {
+      // Raw microphone, like the NeoWhisper desktop app. The browser's call
+      // filters (echo cancellation, noise suppression, auto gain) are tuned for
+      // a live conversation: on a laptop mic across the room they smear
+      // consonants and word endings, and Whisper then mishears terms such as
+      // "ChatGPT". Whisper copes with room noise on its own.
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       if (cancelledRef.current) {
         stream.getTracks().forEach((t) => t.stop());
