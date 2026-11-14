@@ -152,18 +152,15 @@ export function markOutdated(rows: Array<{ item: BotHealthItem; group?: string; 
   }
 }
 
-// All eight WhatsApp bots on the Mac (launchd ru.neo3.*-wa-bot*).
+// WhatsApp bots shown in the header (launchd ru.neo3.*-wa-bot*).
 // Tyres KZ: four managers, each its own folder (TYRES_MANAGER_ID in bot/.env).
-// 7su: three lines from one repo, each with its own logs dir (bot/.env.<line>).
+// 7su lines (Михаил, Кира, Андрей) are not shown — Dima asked to drop them (12.11).
 // Квадробаня writes state/health.json in its own format — see interpretHeartbeat.
 const BOT_WATCHLIST: BotWatch[] = [
   tyresLine('tyres-wa-ruslan', 'Tyres KZ · Руслан', 'tyres-ruslan'),
   tyresLine('tyres-wa-sergey', 'Tyres KZ · Сергей', 'tyres-store'),
   tyresLine('tyres-wa-dmitry', 'Tyres KZ · Дмитрий', 'shina-kz'),
   tyresLine('tyres-wa-roman', 'Tyres KZ · Роман', 'tyres-manager4'),
-  waLine('tyres-wa-7su', '7su · Михаил', 'Tyres-7su', 'bot', 'logs', 'heartbeat.json'),
-  waLine('tyres-wa-7su-kira', '7su · Кира', 'Tyres-7su', 'bot', 'logs-kira', 'heartbeat.json'),
-  waLine('tyres-wa-7su-andrey', '7su · Андрей', 'Tyres-7su', 'bot', 'logs-andrey', 'heartbeat.json'),
   waLine('kvadrobanya-wa', 'Квадробаня', 'kvadrobanya-new', 'bot', 'state', 'health.json'),
 ];
 
