@@ -4,6 +4,8 @@
     "newProject": "Новый проект",
     "deleteProject": "Убрать проект",
     "renameProject": "Переименовать проект",
+    "pinProject": "Закрепить",
+    "unpinProject": "Открепить",
     "noProjects": "Проекты не найдены",
     "loadingProjects": "Загрузка проектов...",
     "searchPlaceholder": "Поиск проектов...",

@@ -1,4 +1,6 @@
-import { Check, ChevronDown, ChevronRight, Star, X } from 'lucide-react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronDown, ChevronRight, Pencil, Star, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '../../../../shared/view/ui';
@@ -10,6 +12,12 @@ import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
 import ProjectIcon from '../../../app-icon/ProjectIcon';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import { isCodexInboxProject } from '../../utils/utils';
+import {
+  PROJECT_CARD_LONG_PRESS_MS,
+  movedTooFar,
+  projectMenuPosition,
+  type Point,
+} from '../../utils/projectCardMenu';
 
 import SidebarProjectSessions from './SidebarProjectSessions';
 
@@ -97,6 +105,64 @@ export default function SidebarProjectItem({
     onSaveProjectName(project.projectId);
   };
 
+  // Phone card: pin/rename live behind a long press (see projectCardMenu.ts).
+  const pressTimerRef = useRef<number | null>(null);
+  const pressStartRef = useRef<Point | null>(null);
+  const suppressTapRef = useRef(false);
+  const [cardMenu, setCardMenu] = useState<{ left: number; top: number } | null>(null);
+
+  const clearPressTimer = () => {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+    pressStartRef.current = null;
+  };
+
+  useEffect(() => clearPressTimer, []);
+
+  const openCardMenu = (point: Point) => {
+    clearPressTimer();
+    suppressTapRef.current = true;
+    setCardMenu(projectMenuPosition(point, { width: window.innerWidth, height: window.innerHeight }));
+  };
+
+  const closeCardMenu = () => setCardMenu(null);
+
+  const handleCardTap = () => {
+    if (suppressTapRef.current) {
+      suppressTapRef.current = false;
+      return;
+    }
+    toggleProject();
+  };
+
+  const longPressHandlers = isEditing
+    ? {}
+    : {
+        onPointerDown: (event: ReactPointerEvent) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return;
+          clearPressTimer();
+          suppressTapRef.current = false;
+          const point = { x: event.clientX, y: event.clientY };
+          pressStartRef.current = point;
+          pressTimerRef.current = window.setTimeout(() => openCardMenu(point), PROJECT_CARD_LONG_PRESS_MS);
+        },
+        onPointerMove: (event: ReactPointerEvent) => {
+          const start = pressStartRef.current;
+          if (!start || pressTimerRef.current === null) return;
+          if (movedTooFar(start, { x: event.clientX, y: event.clientY })) clearPressTimer();
+        },
+        onPointerUp: clearPressTimer,
+        onPointerCancel: clearPressTimer,
+        onContextMenu: (event: ReactMouseEvent) => {
+          // Android Chrome fires contextmenu on a long press — reuse it, and
+          // keep the browser's own text-selection/link menu out of the way.
+          event.preventDefault();
+          if (!cardMenu) openCardMenu({ x: event.clientX, y: event.clientY });
+        },
+      };
+
   const selectAndToggleProject = () => {
     // In the journal views (Running/Recent) the header is a pure fold handle:
     // folding a group away must never switch the workspace out of the chat the
@@ -120,13 +186,15 @@ export default function SidebarProjectItem({
           <div
             className={cn(
               'p-3 mx-3 my-1 rounded-lg bg-card border border-border/50 active:scale-[0.98] transition-all duration-150',
+              'select-none [-webkit-touch-callout:none]',
               isSelected && 'bg-primary/5 border-primary/20',
               isStarred &&
                 !isSelected &&
                 !isRecentView &&
                 'bg-warning/5 border-warning/20',
             )}
-            onClick={toggleProject}
+            onClick={handleCardTap}
+            {...longPressHandlers}
           >
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -195,22 +263,11 @@ export default function SidebarProjectItem({
                   </>
                 ) : (
                   <>
-                    {!isRecentView && (
-                      <button
-                        className="flex h-6 w-6 items-center justify-center rounded-md"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleStarProject();
-                        }}
-                        title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
-                      >
-                        <Star
-                          className={cn(
-                            'h-3 w-3',
-                            isStarred ? 'fill-current text-warning' : 'text-muted-foreground',
-                          )}
-                        />
-                      </button>
+                    {/* No tappable star here: it sat next to the chevron and
+                        unpinned projects on a missed tap. Pinned state shows as
+                        a static mark; pin/unpin is a long press on the card. */}
+                    {isStarred && !isRecentView && (
+                      <Star aria-hidden className="h-3 w-3 fill-current text-warning" />
                     )}
                     <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
                       {isExpanded ? (
@@ -224,6 +281,52 @@ export default function SidebarProjectItem({
               </div>
             </div>
           </div>
+          {cardMenu && typeof document !== 'undefined' && createPortal(
+            <div
+              className="fixed inset-0 z-[100]"
+              // Close on click, not pointerdown: otherwise the same tap falls
+              // through to the chat row underneath once the overlay is gone.
+              onClick={closeCardMenu}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <div
+                role="menu"
+                className="absolute min-w-[220px] overflow-hidden rounded-2xl bg-background/95 py-1 shadow-[0_18px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/15 backdrop-blur-xl"
+                style={{ left: cardMenu.left, top: cardMenu.top }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {!isRecentView && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground active:bg-accent/70"
+                    onClick={() => {
+                      closeCardMenu();
+                      toggleStarProject();
+                    }}
+                  >
+                    <Star className={cn('h-4 w-4', isStarred && 'fill-current text-warning')} />
+                    {isStarred
+                      ? t('projects.unpinProject', 'Открепить')
+                      : t('projects.pinProject', 'Закрепить')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground active:bg-accent/70"
+                  onClick={() => {
+                    closeCardMenu();
+                    onStartEditingProject(project);
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                  {t('projects.renameProject')}
+                </button>
+              </div>
+            </div>,
+            document.body,
+          )}
         </div>
 
         <Button

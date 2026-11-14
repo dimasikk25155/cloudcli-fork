@@ -4,6 +4,8 @@
     "newProject": "New Project",
     "deleteProject": "Remove Project",
     "renameProject": "Rename Project",
+    "pinProject": "Pin",
+    "unpinProject": "Unpin",
     "noProjects": "No projects found",
     "loadingProjects": "Loading projects...",
     "searchPlaceholder": "Search projects...",
