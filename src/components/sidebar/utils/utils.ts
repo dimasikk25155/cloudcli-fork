@@ -431,6 +431,46 @@ export const sortProjects = (
   return byName;
 };
 
+/** Чаты без активности дольше этого срока в «Проектах» и «Недавних» не показываются (просьба Димы 14.11). */
+export const STALE_SESSION_MAX_AGE_MS = 5 * 24 * 60 * 60 * 1000;
+
+/**
+ * Прячет чаты, в которых не было активности дольше `maxAgeMs`. Сами проекты
+ * остаются — из них начинают новый чат. Не прячутся чаты из `keepIds`:
+ * работающие, открытый сейчас и закреплённые.
+ *
+ * Сервер отдаёт чаты страницами по убыванию активности, поэтому если в
+ * загруженной странице уже есть старый чат, дальше идут только старые —
+ * кнопка «Load more» такому проекту не нужна.
+ */
+export const hideStaleSessions = (
+  projects: Project[],
+  now: Date,
+  keepIds: ReadonlySet<string>,
+  maxAgeMs: number = STALE_SESSION_MAX_AGE_MS,
+): Project[] => {
+  const cutoff = now.getTime() - maxAgeMs;
+  return projects.map((project) => {
+    const sessions = project.sessions ?? [];
+    const fresh = sessions.filter((session) =>
+      keepIds.has(String(session.id))
+      || getSessionDate(session as SessionWithProvider).getTime() >= cutoff,
+    );
+    if (fresh.length === sessions.length) {
+      return project;
+    }
+    return {
+      ...project,
+      sessions: fresh,
+      sessionMeta: {
+        ...project.sessionMeta,
+        total: fresh.length,
+        hasMore: false,
+      },
+    };
+  });
+};
+
 export const RECENT_JOURNAL_LIMIT = 20;
 /** Сколько папок проектов показывают «Недавние»: Дима ведёт 8–9 проектов сразу. */
 export const RECENT_JOURNAL_PROJECT_LIMIT = 9;
