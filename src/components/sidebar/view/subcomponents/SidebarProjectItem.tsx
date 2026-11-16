@@ -228,9 +228,15 @@ export default function SidebarProjectItem({
                     />
                   ) : (
                     <>
-                      <div className="flex min-w-0 flex-1 items-center justify-between gap-1.5">
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
                         {isCodexInboxProject(project) && (
                           <SessionProviderLogo provider="codex" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        )}
+                        {/* Pinned mark sits by the name, away from the chevron:
+                            next to it, it was read as a button (14.11, 16.11).
+                            It is static; pin/unpin is a long press on the card. */}
+                        {isStarred && !isRecentView && (
+                          <Star aria-hidden data-project-pin-mark className="h-3 w-3 flex-shrink-0 fill-current text-warning" />
                         )}
                         <h3 className="truncate text-sm font-normal text-foreground" title={project.fullPath}>{project.displayName}</h3>
                       </div>
@@ -263,12 +269,6 @@ export default function SidebarProjectItem({
                   </>
                 ) : (
                   <>
-                    {/* No tappable star here: it sat next to the chevron and
-                        unpinned projects on a missed tap. Pinned state shows as
-                        a static mark; pin/unpin is a long press on the card. */}
-                    {isStarred && !isRecentView && (
-                      <Star aria-hidden className="h-3 w-3 fill-current text-warning" />
-                    )}
                     <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
                       {isExpanded ? (
                         <ChevronDown className="h-3 w-3 text-muted-foreground" />
