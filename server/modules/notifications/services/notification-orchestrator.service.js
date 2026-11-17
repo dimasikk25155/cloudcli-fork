@@ -310,6 +310,21 @@ function buildNotificationPayload(event) {
     };
   }
 
+  // «Пульт моста» (server/modules/bridge): мост ИИ сменил путь, лёг или ожил.
+  if (normalizedEvent.code === 'bridge.notice') {
+    const kind = String(normalizedEvent.meta?.kind || 'switched');
+    return {
+      title: String(normalizedEvent.meta?.title || 'Мост ИИ'),
+      body: clipBody(String(normalizedEvent.meta?.body || '')),
+      data: {
+        code: 'bridge.notice',
+        tag: `bridge:${kind}`,
+        urlPath: '/',
+        provider: 'system'
+      }
+    };
+  }
+
   // «Дуэт» (server/modules/duet): тревога, бриф, итог починки.
   if (normalizedEvent.code === 'duet.notice') {
     const kind = String(normalizedEvent.meta?.kind || 'brief');

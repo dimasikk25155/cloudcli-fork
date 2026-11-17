@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- claude.neo3.ru: Cloudflare -> Caddy на сервере Мити -> 127.0.0.1:13005 -> этот туннель -> Neo3 на маке.
+     Отдельно от канала агентов: смена пути моста не роняет доступ к Neo3 с телефона. -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.dimasik.neo3-public-tunnel</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/bin/ssh</string>
+    <string>-N</string><string>-T</string>
+    <string>-o</string><string>BatchMode=yes</string>
+    <string>-o</string><string>ExitOnForwardFailure=yes</string>
+    <string>-o</string><string>ConnectTimeout=10</string>
+    <string>-o</string><string>ServerAliveInterval=15</string>
+    <string>-o</string><string>ServerAliveCountMax=3</string>
+    <string>-o</string><string>StrictHostKeyChecking=yes</string>
+    <string>-R</string><string>127.0.0.1:13005:100.96.100.39:3005</string>
+    <string>mitya-vps</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>SoftResourceLimits</key><dict><key>NumberOfFiles</key><integer>8192</integer></dict>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/Users/dimasik/.local/share/neo3-agent-proxy/public-tunnel.log</string>
+  <key>StandardErrorPath</key><string>/Users/dimasik/.local/share/neo3-agent-proxy/public-tunnel.log</string>
+</dict></plist>

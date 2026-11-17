@@ -90,6 +90,7 @@ import vpsRoutes, { vpsIngestRouter } from './modules/vps/vps.routes.js';
 import { startAlertLoop } from './modules/vps/vps-alerts.service.js';
 import { krabikRoutes, startKrabikWatch } from './modules/krabik/index.js';
 import { duetRoutes, startDuetWatch } from './modules/duet/index.js';
+import { bridgeRoutes, startBridgeWatch } from './modules/bridge/index.js';
 import { agentsRoutes, agentsService } from './modules/agents/index.js';
 import { agentQueueRoutes, startAgentQueueWatch, stopAgentQueueWatch } from './modules/agent-queue/index.js';
 import { startScheduleResultWatch, stopScheduleResultWatch } from './modules/schedules/schedule-result-watch.js';
@@ -380,6 +381,7 @@ app.use('/api/vps/ingest', vpsIngestRouter);
 app.use('/api/vps', authenticateToken, requireAdmin, vpsRoutes);
 app.use('/api/krabik', authenticateToken, requireAdmin, krabikRoutes);
 app.use('/api/duet', authenticateToken, requireAdmin, duetRoutes);
+app.use('/api/bridge', authenticateToken, requireAdmin, bridgeRoutes);
 // «Агенты»: named agents, their memory and a chat with an agent (admin only).
 app.use('/api/agents', authenticateToken, requireAdmin, agentsRoutes);
 // «Конвейер»: queues an agent works through, with verdicts and «брак» (admin only).
@@ -1748,6 +1750,13 @@ async function startServer() {
                 startDuetWatch();
             } catch (err) {
                 console.error('[duet] watch failed to start:', err.message);
+            }
+
+            // «Пульт моста»: сообщает, когда мост ИИ сменил путь или лёг; кнопки br:* в Telegram.
+            try {
+                startBridgeWatch();
+            } catch (err) {
+                console.error('[bridge] watch failed to start:', err.message);
             }
 
             // «Конвейер»: очередь пунктов агенту, продолжает с места после рестарта.

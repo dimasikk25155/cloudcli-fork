@@ -47,5 +47,18 @@
       "Bash(launchctl unload:*)",
       "Bash(launchctl remove:*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/config-protection.mjs\""
+          }
+        ]
+      }
+    ]
   }
 }

@@ -9,7 +9,7 @@ import { createIsModOn, isModOn } from '@/shared/mods.js';
 
 import { MODS, MOD_KEYS, modDefault } from '../../../shared/mods.js';
 
-// The twenty-seven keys written out by hand; `subagentCrabs` keeps its old name.
+// The twenty-eight keys written out by hand; `subagentCrabs` keeps its old name.
 const EXPECTED_KEYS = [
   'modAttention',
   'modAnswerButtons',
@@ -25,6 +25,7 @@ const EXPECTED_KEYS = [
   'modCacheTimer',
   'modKrabikAgent',
   'modDuet',
+  'modBridge',
   'modImprovementIdeas',
   'modWorkbench',
   'modSessionHub',
@@ -56,9 +57,9 @@ const WORKBENCH_BUILD_KEYS = [
   'modSafariLive',
 ];
 
-test('the mod registry lists exactly the twenty-seven mods, each with a title and a description', () => {
+test('the mod registry lists exactly the twenty-eight mods, each with a title and a description', () => {
   assert.deepEqual([...MOD_KEYS].sort(), [...EXPECTED_KEYS].sort());
-  assert.equal(MODS.length, 27);
+  assert.equal(MODS.length, 28);
   for (const mod of MODS) {
     assert.ok(mod.title.trim().length > 0, `${mod.key} has a title`);
     assert.ok(mod.description.trim().length > 0, `${mod.key} has a description`);

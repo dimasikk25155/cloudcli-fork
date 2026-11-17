@@ -28,7 +28,8 @@ for label in "${LABELS[@]}"; do
     say "убран файл автозапуска: $label.plist"; changed=1
   fi
 done
-pids="$(pgrep -f '/\.local/share/neo3-agent-proxy/|neo3-agent-transport-|/\.local/share/neo3-home-direct/' || true)"
+# Свой родитель (bridge.py из пульта/Neo3 лежит в той же папке) не убивать.
+pids="$(pgrep -f '/\.local/share/neo3-agent-proxy/|neo3-agent-transport-|/\.local/share/neo3-home-direct/' | grep -vx "$PPID" | grep -vx "$$" || true)"
 if [ -n "$pids" ]; then
   kill $pids 2>/dev/null; sleep 1; kill -9 $pids 2>/dev/null || true
   say "остановлены процессы моста: $(echo $pids)"; changed=1

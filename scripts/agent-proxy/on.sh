@@ -25,8 +25,19 @@ cp "$SRC/$LABEL.plist" "$PLIST.new" && mv "$PLIST.new" "$PLIST"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null
 launchctl bootstrap "gui/$(id -u)" "$PLIST" || { say "ОШИБКА: не запустился $LABEL"; exit 1; }
 for _ in $(seq 1 30); do nc -z 127.0.0.1 "$PORT" 2>/dev/null && break; sleep 1; done
-nc -z 127.0.0.1 "$PORT" 2>/dev/null && say "канал до VPS поднят (127.0.0.1:$PORT)" \
-  || say "ВНИМАНИЕ: канал до VPS пока не поднялся — см. $PREFIX/tunnel.log"
+nc -z 127.0.0.1 "$PORT" 2>/dev/null && say "канал поднят (127.0.0.1:$PORT, режим $(cat "$PREFIX/mode" 2>/dev/null || echo auto))" \
+  || say "ВНИМАНИЕ: канал пока не поднялся — см. $PREFIX/tunnel.log"
+
+# 2б. Туннель claude.neo3.ru (Neo3 с телефона) — отдельно от канала агентов.
+# Уже работает — не перезапускаем: обрыв роняет открытые вкладки Neo3.
+PUB_LABEL=com.dimasik.neo3-public-tunnel
+PUB_PLIST="$HOME/Library/LaunchAgents/$PUB_LABEL.plist"
+if ! cmp -s "$SRC/$PUB_LABEL.plist" "$PUB_PLIST" || ! launchctl print "gui/$(id -u)/$PUB_LABEL" >/dev/null 2>&1; then
+  cp "$SRC/$PUB_LABEL.plist" "$PUB_PLIST.new" && mv "$PUB_PLIST.new" "$PUB_PLIST"
+  launchctl bootout "gui/$(id -u)/$PUB_LABEL" 2>/dev/null
+  launchctl bootstrap "gui/$(id -u)" "$PUB_PLIST" && say "туннель claude.neo3.ru запущен" \
+    || say "ВНИМАНИЕ: туннель claude.neo3.ru не запустился"
+fi
 
 # 3. Claude: прокси в настройках — страховка на случай, если автообновление снимет обёртку.
 python3 - "$SETTINGS" "$PROXY" <<'EOF'

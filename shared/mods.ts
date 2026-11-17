@@ -24,6 +24,7 @@ export const MOD_KEYS = [
   'modCacheTimer',
   'modKrabikAgent',
   'modDuet',
+  'modBridge',
   'modImprovementIdeas',
   'modWorkbench',
   'modSessionHub',
@@ -162,6 +163,14 @@ export const MODS: readonly ModDef[] = [
       'Напарник по ботам и сервисам: сам следит, пишет первым (утренний бриф, тревога при падении) '
       + 'и чинит только после твоего «Да». Вешает на ботов идеи, как их улучшить.',
     engines: 'Claude ✓ · Codex ✓ — анализ без инструментов · Grok нет',
+  },
+  {
+    key: 'modBridge',
+    title: 'Пульт моста',
+    description:
+      'Следит за мостом ИИ (общий IP 45.86.61.144): пишет в пуш и Telegram, когда мост сам перешёл '
+      + 'на запасной путь, лёг или ожил; кнопки «Статус», «Починить», «Через Митю», «Через мой VPS», «Авто». Только администратору.',
+    engines: 'Claude ✓ · Codex ✓ · Grok ✓ — мост общий для всех',
   },
   {
     key: 'modWorkbench',
