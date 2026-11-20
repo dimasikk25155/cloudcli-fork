@@ -289,6 +289,9 @@ function MainContent({
     }
   }, [autopilot.available, activeTab, setActiveTab]);
 
+  const selectedProjectId = selectedProject?.projectId;
+  const currentProjectIdOp = useCallback(() => selectedProjectId, [selectedProjectId]);
+
   usePaletteOpsRegister({
     openFile: (filePath: string) => {
       if (!workbenchOn) setActiveTab('files');
@@ -299,6 +302,7 @@ function MainContent({
     openFileInEditor: (filePath: string) => {
       void openPathFromChat(filePath);
     },
+    currentProjectId: currentProjectIdOp,
   });
 
   if (isLoading) {

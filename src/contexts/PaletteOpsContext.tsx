@@ -8,6 +8,9 @@ export type PaletteOps = {
   openFileInEditor: (path: string) => void;
   openSettings: (tab?: string) => void;
   refreshProjects: () => Promise<void> | void;
+  // DB id of the project open in the main view (audio player in chat answers
+  // reads file bytes through it). undefined — no project selected.
+  currentProjectId: () => string | undefined;
 };
 
 type Registry = MutableRefObject<Partial<PaletteOps>>;
@@ -19,6 +22,7 @@ const defaultOps: PaletteOps = {
   openFileInEditor: () => undefined,
   openSettings: () => undefined,
   refreshProjects: () => undefined,
+  currentProjectId: () => undefined,
 };
 
 export function PaletteOpsProvider({ children }: { children: ReactNode }) {
@@ -35,6 +39,7 @@ export function usePaletteOps(): PaletteOps {
         (ref?.current.openFileInEditor ?? defaultOps.openFileInEditor)(path),
       openSettings: (tab) => (ref?.current.openSettings ?? defaultOps.openSettings)(tab),
       refreshProjects: () => (ref?.current.refreshProjects ?? defaultOps.refreshProjects)(),
+      currentProjectId: () => (ref?.current.currentProjectId ?? defaultOps.currentProjectId)(),
     }),
     [ref],
   );
@@ -42,7 +47,7 @@ export function usePaletteOps(): PaletteOps {
 
 export function usePaletteOpsRegister(partial: Partial<PaletteOps>) {
   const ref = useContext(PaletteOpsContext);
-  const { openFile, openFileInEditor, openSettings, refreshProjects } = partial;
+  const { openFile, openFileInEditor, openSettings, refreshProjects, currentProjectId } = partial;
 
   useEffect(() => {
     if (!ref) return undefined;
@@ -51,11 +56,13 @@ export function usePaletteOpsRegister(partial: Partial<PaletteOps>) {
     if (openFileInEditor) ref.current.openFileInEditor = openFileInEditor;
     if (openSettings) ref.current.openSettings = openSettings;
     if (refreshProjects) ref.current.refreshProjects = refreshProjects;
+    if (currentProjectId) ref.current.currentProjectId = currentProjectId;
     return () => {
       if (openFile && ref.current.openFile === openFile) ref.current.openFile = prev.openFile;
       if (openFileInEditor && ref.current.openFileInEditor === openFileInEditor) ref.current.openFileInEditor = prev.openFileInEditor;
       if (openSettings && ref.current.openSettings === openSettings) ref.current.openSettings = prev.openSettings;
       if (refreshProjects && ref.current.refreshProjects === refreshProjects) ref.current.refreshProjects = prev.refreshProjects;
+      if (currentProjectId && ref.current.currentProjectId === currentProjectId) ref.current.currentProjectId = prev.currentProjectId;
     };
-  }, [ref, openFile, openFileInEditor, openSettings, refreshProjects]);
+  }, [ref, openFile, openFileInEditor, openSettings, refreshProjects, currentProjectId]);
 }

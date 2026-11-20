@@ -6,12 +6,16 @@ import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTranslation } from 'react-i18next';
+import { useParams } from 'react-router-dom';
 import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
 import { bracketSpacedLinkTargets, decodeFileHref, looksLikePath, shortenPathLabel, stripLineSuffix, webAddressFor } from '../../utils/filePathDetection';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
 import OpenInCanvasButton from '../../../workbench/artifacts/OpenInCanvasButton';
+import { getPreviewKind } from '../../../code-editor/utils/previewableFile';
+import { expandChatPath, rememberChatPath } from '../../utils/chatPathMemory';
+import ChatAudioPlayer from './ChatAudioPlayer';
 
 type MarkdownProps = {
   children: React.ReactNode;
@@ -51,7 +55,8 @@ type CodeBlockProps = {
 const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockProps) => {
   const { t } = useTranslation('chat');
   const { isDarkMode } = useTheme();
-  const { openFileInEditor } = usePaletteOps();
+  const { openFileInEditor, currentProjectId } = usePaletteOps();
+  const { sessionId } = useParams<{ sessionId?: string }>();
   const [copied, setCopied] = useState(false);
   const raw = Array.isArray(children) ? children.join('') : String(children ?? '');
   const looksMultiline = /[\r\n]/.test(raw);
@@ -77,7 +82,11 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
 
     if (looksLikePath(raw)) {
       const fileRef = stripLineSuffix(raw.trim());
-      const open = () => openFileInEditor(fileRef);
+      rememberChatPath(sessionId, fileRef);
+      // `ru.ogg` после полного пути в этом же чате — это тот самый файл.
+      const target = expandChatPath(sessionId, fileRef);
+      const open = () => openFileInEditor(target);
+      const isAudio = getPreviewKind(target) === 'audio';
 
       return (
         <>
@@ -99,6 +108,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
           {shortenPathLabel(raw)}
         </code>
         <OpenInCanvasButton filePath={fileRef} />
+        {isAudio && <ChatAudioPlayer filePath={target} projectId={currentProjectId()} />}
         </>
       );
     }
@@ -226,7 +236,8 @@ export function Markdown({ children, className }: MarkdownProps) {
   // в KaTeX целиком и рендерится без пробелов. Блочный `$$...$$` работает.
   const remarkPlugins = useMemo(() => [remarkGfm, [remarkMath, { singleDollarTextMath: false }] as [typeof remarkMath, object]], []);
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
-  const { openFileInEditor } = usePaletteOps();
+  const { openFileInEditor, currentProjectId } = usePaletteOps();
+  const { sessionId } = useParams<{ sessionId?: string }>();
 
   const components = useMemo(
     () => ({
@@ -241,6 +252,9 @@ export function Markdown({ children, className }: MarkdownProps) {
         const fileRef = looksLikePath(fileHref) ? fileHref : looksLikePath(linkText) ? linkText : undefined;
 
         if (fileRef && !isExternalHref(href)) {
+          const cleanRef = stripLineSuffix(fileRef);
+          rememberChatPath(sessionId, cleanRef);
+          const target = expandChatPath(sessionId, cleanRef);
           return (
             <>
             <a
@@ -249,12 +263,15 @@ export function Markdown({ children, className }: MarkdownProps) {
               className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400"
               onClick={(event) => {
                 event.preventDefault();
-                openFileInEditor(stripLineSuffix(fileRef));
+                openFileInEditor(target);
               }}
             >
               {linkText === fileRef ? shortenPathLabel(fileRef) : linkChildren}
             </a>
-            <OpenInCanvasButton filePath={stripLineSuffix(fileRef)} />
+            <OpenInCanvasButton filePath={cleanRef} />
+            {getPreviewKind(target) === 'audio' && (
+              <ChatAudioPlayer filePath={target} projectId={currentProjectId()} />
+            )}
             </>
           );
         }
@@ -275,7 +292,7 @@ export function Markdown({ children, className }: MarkdownProps) {
         );
       },
     }),
-    [openFileInEditor],
+    [openFileInEditor, currentProjectId, sessionId],
   );
 
   return (
