@@ -762,6 +762,21 @@
     contain: layout style;
   }
 
+  /* Нижний отступ панели ввода на телефоне. Без него «+» и кнопки сидели в
+     8px от края и попадали в скругление угла экрана айфона (на экране «Домой»
+     и везде, где страница доходит до низа). Отступ = зона полоски «домой»
+     (safe-area) + ещё 10px, но не меньше 16px. С открытой клавиатурой
+     safe-area на iOS не обнуляется, поэтому AppContent ставит
+     html.keyboard-open, и отступ возвращается к обычным 8px — иначе над
+     клавиатурой висела бы пустая полоса. На sm+ действуют sm:pb-4/md:pb-6. */
+  :root {
+    --composer-bottom-gap: max(16px, calc(env(safe-area-inset-bottom, 0px) + 10px));
+  }
+
+  html.keyboard-open {
+    --composer-bottom-gap: 8px;
+  }
+
   .chat-activity-enter {
     animation: chat-activity-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
     transform-origin: bottom center;

@@ -234,6 +234,9 @@ function AppContentInner() {
 
       root.style.setProperty('--keyboard-offset', `${offset}px`);
       root.style.setProperty('--keyboard-height', `${height}px`);
+      // Клавиатура открыта — панели ввода не нужен нижний отступ под скругление
+      // экрана (см. --composer-bottom-gap в index.css).
+      root.classList.toggle('keyboard-open', offset + height > 0);
     };
 
     // Both events fire in bursts while the keyboard animates; coalesce them
@@ -252,6 +255,7 @@ function AppContentInner() {
       vv.removeEventListener('scroll', schedule);
       root.style.removeProperty('--keyboard-offset');
       root.style.removeProperty('--keyboard-height');
+      root.classList.remove('keyboard-open');
     };
   }, []);
 
