@@ -28,7 +28,7 @@ export type NeonTileProps = {
   className?: string;
 };
 
-const NEON_TILE_PX: Record<AppIconSize, number> = { sm: 28, md: 40, lg: 68, dock: 56 };
+const NEON_TILE_PX: Record<AppIconSize, number> = { sm: 28, md: 40, lg: 68, dock: 56, touch: 52 };
 
 /** Same rounding as `.neo3-squircle` (22.5%). */
 const RADIUS = 22.5;

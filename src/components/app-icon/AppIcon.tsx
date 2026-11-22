@@ -15,6 +15,8 @@ const SIZE = {
   md: 'h-10 w-10',
   lg: 'h-[4.25rem] w-[4.25rem]',
   dock: 'h-14 w-14',
+  /** Phone sidebar cards: 52 px, closer to the Home tiles (23.11). */
+  touch: 'h-[3.25rem] w-[3.25rem]',
 } as const;
 
 export type AppIconSize = keyof typeof SIZE;

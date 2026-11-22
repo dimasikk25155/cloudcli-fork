@@ -290,7 +290,8 @@ export default function SidebarSessionItem({
       <div className="md:hidden">
         <div
           className={cn(
-            'p-2 mx-3 my-0.5 rounded-ui-md bg-card border active:scale-[0.98] transition-all duration-fast ease-ui relative',
+            // Phone rows a step larger than on a computer (23.11): 16 px name, taller card.
+            'px-2.5 py-3 mx-3 my-1 rounded-ui-md bg-card border active:scale-[0.98] transition-all duration-fast ease-ui relative',
             isSelected ? 'bg-primary/5 border-primary/20' : '',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20'
@@ -351,7 +352,7 @@ export default function SidebarSessionItem({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <ProviderMark />
-                    <div className="min-w-0 flex-1 truncate text-sm font-normal text-foreground">{sessionView.sessionName}</div>
+                    <div className="min-w-0 flex-1 truncate text-base font-normal leading-snug text-foreground">{sessionView.sessionName}</div>
                     {isProcessing ? (
                       <span className="ml-auto flex-shrink-0">
                         <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
@@ -361,7 +362,7 @@ export default function SidebarSessionItem({
                         </Tooltip>
                       </span>
                     ) : compactSessionAge && (
-                      <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">{compactSessionAge}</span>
+                      <span className="ml-auto flex-shrink-0 text-xs text-muted-foreground">{compactSessionAge}</span>
                     )}
                   </div>
                   <div className="mt-0.5 flex items-center">
@@ -375,18 +376,18 @@ export default function SidebarSessionItem({
                 </div>
 
                 <button
-                  className="ml-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-ui-md bg-muted/50 opacity-70 transition-transform active:scale-95"
+                  className="ml-1 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-ui-md bg-muted/50 opacity-70 transition-transform active:scale-95"
                   onClick={(event) => {
                     event.stopPropagation();
                     onStartEditingSession(session.id, sessionView.sessionName);
                   }}
                   title={t('tooltips.editSessionName')}
                 >
-                  <Edit2 className="h-3 w-3 text-muted-foreground" />
+                  <Edit2 className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
 
                 <button
-                  className="ml-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-ui-md bg-muted/50 opacity-70 transition-transform active:scale-95"
+                  className="ml-1 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-ui-md bg-muted/50 opacity-70 transition-transform active:scale-95"
                   onClick={(event) => {
                     event.stopPropagation();
                     onDeleteSession(session, sessionView.sessionName);
@@ -394,9 +395,9 @@ export default function SidebarSessionItem({
                   title={isRecentView ? t('tooltips.hideFromRecent', 'Remove from journal') : t('tooltips.deleteSession')}
                 >
                   {isRecentView ? (
-                    <X className="h-3 w-3 text-muted-foreground" />
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
                   ) : (
-                    <Trash2 className="h-3 w-3 text-destructive" />
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   )}
                 </button>
               </>

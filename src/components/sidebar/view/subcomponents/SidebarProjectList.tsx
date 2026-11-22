@@ -169,7 +169,7 @@ export default function SidebarProjectList({
   );
 
   return (
-    <div className="pb-safe-area-inset-bottom md:space-y-1">
+    <div className="pb-[var(--safe-bottom)] md:space-y-1">
       {!showProjects
         ? state
         : (

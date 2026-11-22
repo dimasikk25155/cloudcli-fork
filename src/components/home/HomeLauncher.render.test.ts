@@ -76,3 +76,29 @@ test('a short screen still shows one row', () => {
   assert.match(html, /data-home-grid="4x1"/);
   assert.equal(tileIds(html).length, 3);
 });
+
+test('the «работают · ждут · готово» bar of the chat sits under the date, above the grid', async () => {
+  // Fill the app-wide attention store the way the app does: GET /api/attention.
+  const globals = globalThis as { localStorage?: unknown; fetch?: typeof fetch };
+  const savedFetch = globals.fetch;
+  const savedStorage = globals.localStorage;
+  globals.localStorage = { getItem: () => null, setItem: () => undefined, removeItem: () => undefined };
+  globals.fetch = (async () => new Response(JSON.stringify({
+    items: [{ sessionId: 's-1', projectId: 'a', state: 'working', unread: false, updatedAt: new Date(NOW).toISOString() }],
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+  try {
+    const { attentionStore } = await import('../attention/useAttention.js');
+    await attentionStore.refresh();
+    const html = render([project('a', 1)]);
+    const status = html.indexOf('data-home-status');
+    assert.ok(status > 0, 'status slot is rendered');
+    // The very component shown above the chat composer, not a copy.
+    assert.ok(html.indexOf('data-session-hub-bar', status) > status);
+    assert.match(html, /работают 1/);
+    assert.ok(html.indexOf('data-home-clock') < status, 'under the clock and date');
+    assert.ok(status < html.indexOf('data-home-grid-area'), 'above the projects');
+  } finally {
+    globals.fetch = savedFetch;
+    globals.localStorage = savedStorage;
+  }
+});

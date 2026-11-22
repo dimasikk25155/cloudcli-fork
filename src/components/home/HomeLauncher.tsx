@@ -5,6 +5,7 @@ import type { Project } from '../../types/app';
 import { cn } from '../../lib/utils';
 import NeonTile from '../app-icon/neon/NeonTile';
 import MobileMenuButton from '../main-content/view/subcomponents/MobileMenuButton';
+import SessionHubBar from '../session-hub/SessionHubBar';
 
 import HomeAllProjectsFolder from './HomeAllProjectsFolder';
 import HomeProjectTile from './HomeProjectTile';
@@ -21,6 +22,8 @@ type HomeLauncherProps = {
   onProjectSelect: (project: Project) => void;
   onShowSettings: () => void;
   onToggleStarProject?: (projectId: string) => void;
+  /** Open a chat by id (any project) — the status bar's «Диалоги» panel. */
+  onOpenSession?: (sessionId: string) => void;
   /** Grid area size until the first measurement (server render, previews). */
   initialGridSize?: GridSize;
 };
@@ -60,6 +63,7 @@ export default function HomeLauncher({
   onProjectSelect,
   onShowSettings,
   onToggleStarProject,
+  onOpenSession,
   initialGridSize,
 }: HomeLauncherProps) {
   const { t } = useTranslation();
@@ -122,6 +126,15 @@ export default function HomeLauncher({
             </button>
           </div>
           <p className="mt-1.5 text-sm capitalize text-muted-foreground">{date}</p>
+          {/* The same «работают · ждут · готово» bar as above the chat
+              composer (opens «Диалоги»). It hides itself when nothing runs,
+              so the slot collapses; the grid below measures what is left. */}
+          <div
+            className="mt-3 empty:hidden [&_[data-session-hub-bar]]:mb-0 [&_[data-session-hub-bar]]:justify-center"
+            data-home-status
+          >
+            <SessionHubBar onOpenSession={(sessionId) => onOpenSession?.(sessionId)} />
+          </div>
         </div>
 
         {realProjectCount > SEARCH_MIN_PROJECTS && (

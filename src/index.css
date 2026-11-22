@@ -160,6 +160,16 @@
     --safe-area-inset-right: env(safe-area-inset-right);
     --safe-area-inset-bottom: env(safe-area-inset-bottom);
     --safe-area-inset-left: env(safe-area-inset-left);
+    /* Нижний safe-area, который реально нужен. На айфоне в установленном
+       приложении окно бывает короче экрана (23.11: кончалось на 54 pt выше
+       края), а env() всё равно отдаёт 34 pt — отступ ложился поверх полосы,
+       которую iOS и так оставляет пустой. --viewport-bottom-gap публикует
+       useViewportBottomGap (main-content); нет полосы — прежний env(). */
+    --safe-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - var(--viewport-bottom-gap, 0px)));
+    /* Воздух над шапкой чата в установленном приложении на телефоне: iOS
+       размывает полосу под часами/батареей чуть ниже самой safe-area, и
+       заголовок чата, прижатый к ней, попадал под размытие (23.11). */
+    --pwa-header-air: 16px;
 
     /* Mobile navigation dimensions - Single source of truth */
     /* Floating nav: ~52px bar + 8px bottom margin + 12px px-3 top spacing */
@@ -770,7 +780,7 @@
      html.keyboard-open, и отступ возвращается к обычным 8px — иначе над
      клавиатурой висела бы пустая полоса. На sm+ действуют sm:pb-4/md:pb-6. */
   :root {
-    --composer-bottom-gap: max(16px, calc(env(safe-area-inset-bottom, 0px) + 10px));
+    --composer-bottom-gap: max(16px, calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 10px));
   }
 
   html.keyboard-open {
@@ -962,6 +972,16 @@
   @media screen and (max-width: 768px) {
     body.pwa-mode .pwa-header-safe {
       padding-bottom: 8px;
+    }
+  }
+
+  /* Шапка чата (MainContentHeader) на телефоне в установленном приложении:
+     сброс выше прижимал её строку к safe-area, и заголовок «Новый сеанс»
+     сидел в размытой полосе под статус-баром. Опускаем на --pwa-header-air.
+     Десктоп и вкладка браузера — без изменений. */
+  @media screen and (max-width: 767px) {
+    body.pwa-mode .pwa-header-safe.pwa-header-air {
+      padding-top: var(--pwa-header-air) !important;
     }
   }
   

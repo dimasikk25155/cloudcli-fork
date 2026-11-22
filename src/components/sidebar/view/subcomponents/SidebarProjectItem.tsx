@@ -198,7 +198,8 @@ export default function SidebarProjectItem({
           >
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <ProjectIcon project={project} size="md" starred={isStarred && !isRecentView} />
+                {/* Phone: 52 px, nearer the Home tiles (23.11 «иконки как на рабочем столе»). */}
+                <ProjectIcon project={project} size="touch" starred={isStarred && !isRecentView} />
 
                 <div className="min-w-0 flex-1">
                   {isEditing ? (
@@ -236,9 +237,9 @@ export default function SidebarProjectItem({
                             next to it, it was read as a button (14.11, 16.11).
                             It is static; pin/unpin is a long press on the card. */}
                         {isStarred && !isRecentView && (
-                          <Star aria-hidden data-project-pin-mark className="h-3 w-3 flex-shrink-0 fill-current text-warning" />
+                          <Star aria-hidden data-project-pin-mark className="h-3.5 w-3.5 flex-shrink-0 fill-current text-warning" />
                         )}
-                        <h3 className="truncate text-sm font-normal text-foreground" title={project.fullPath}>{project.displayName}</h3>
+                        <h3 className="truncate text-[17px] font-normal leading-snug text-foreground" title={project.fullPath}>{project.displayName}</h3>
                       </div>
                     </>
                   )}

@@ -32,6 +32,13 @@ test('sizes stay 28 / 40 / 68 px; the corner «3» is hidden on sm', () => {
   assert.match(render('car', { size: 'lg' }), /<text[^>]*>3<\/text>/);
 });
 
+test('the phone sidebar size is 52 px, the same neon tile with its «3»', () => {
+  const html = render('car', { size: 'touch' });
+  assert.match(html, /class="[^"]*h-\[3\.25rem\] w-\[3\.25rem\]/);
+  assert.match(html, /<svg[^>]*width="52"[^>]*height="52"/);
+  assert.match(html, /<text[^>]*>3<\/text>/);
+});
+
 test('a custom picture wins over the drawing', () => {
   const html = render('car', { src: 'data:image/png;base64,AAAA' });
   assert.match(html, /<img[^>]*src="data:image\/png;base64,AAAA"/);

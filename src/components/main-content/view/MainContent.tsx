@@ -39,6 +39,7 @@ import {
   useWorkbenchAccountSync,
 } from '../../workbench';
 
+import { useViewportBottomGap } from '../hooks/useViewportBottomGap';
 import MainContentHeader from './subcomponents/MainContentHeader';
 import ShellModeSwitcher from './subcomponents/ShellModeSwitcher';
 import { resolveActiveTab } from './subcomponents/mainContentTabs';
@@ -82,6 +83,9 @@ function MainContent({
   onStartNewChat,
 }: MainContentProps) {
   const { theme } = useTheme();
+  // Окно приложения на айфоне может кончаться выше края экрана — тогда
+  // нижний safe-area-отступ лишний (index.css, --safe-bottom).
+  useViewportBottomGap();
   // «Рабочий стол»: chat on the left, the canvas on the right (desktop) or
   // full-screen over the chat (phone). Off — the chat renders as before.
   const workbenchOn = useModEnabled('modWorkbench');
@@ -319,6 +323,7 @@ function MainContent({
         onProjectSelect={onProjectSelect}
         onShowSettings={onShowSettings}
         onToggleStarProject={onToggleStarProject}
+        onNavigateToSession={(sessionId) => onNavigateToSession(sessionId)}
       />
     );
   }

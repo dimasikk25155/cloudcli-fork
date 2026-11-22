@@ -11,6 +11,7 @@ export default function MainContentStateView({
   onProjectSelect,
   onShowSettings,
   onToggleStarProject,
+  onNavigateToSession,
 }: MainContentStateViewProps) {
   const { t } = useTranslation();
 
@@ -23,6 +24,7 @@ export default function MainContentStateView({
         onProjectSelect={onProjectSelect ?? (() => undefined)}
         onShowSettings={() => onShowSettings?.()}
         onToggleStarProject={onToggleStarProject}
+        onOpenSession={onNavigateToSession}
       />
     );
   }

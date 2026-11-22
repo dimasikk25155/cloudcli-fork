@@ -60,6 +60,8 @@ export type MainContentStateViewProps = {
   onProjectSelect?: (project: Project) => void;
   onShowSettings?: (tab?: SettingsMainTab) => void;
   onToggleStarProject?: (projectId: string) => void;
+  /** Open a chat by id — the status bar on Home («Диалоги»). */
+  onNavigateToSession?: (sessionId: string) => void;
 };
 
 export type MobileMenuButtonProps = {

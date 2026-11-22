@@ -181,7 +181,7 @@ export default function SidebarFooter({
   ];
 
   return (
-    <div className="sidebar-footer flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
+    <div className="sidebar-footer flex-shrink-0" style={{ paddingBottom: 'var(--safe-bottom, env(safe-area-inset-bottom, 0px))' }}>
       {/* Restart-required banner: the running server version differs from the
           installed/frontend version (updated but not restarted). */}
       {restartRequired && (

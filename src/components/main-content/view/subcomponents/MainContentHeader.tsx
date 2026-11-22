@@ -59,7 +59,7 @@ export default function MainContentHeader({
   ) : null;
 
   return (
-    <div className="pwa-header-safe flex-shrink-0 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
+    <div className="pwa-header-safe pwa-header-air flex-shrink-0 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
       <div className="relative flex items-center gap-3">
         {/* LEFT: mobile menu + compact title (mobile only) */}
         {/* On a phone the menu and home buttons keep their room; the tabs
