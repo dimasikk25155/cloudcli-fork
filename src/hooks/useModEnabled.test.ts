@@ -35,11 +35,11 @@ test('a switch flipped in another tab of this browser reaches the screen', (t) =
   t.after(watcher.unsubscribe);
 
   // The other tab wrote the shared preferences blob; the browser fires `storage` here.
-  memory.set('uiPreferences', JSON.stringify({ modReplyChips: false }));
+  memory.set('uiPreferences', JSON.stringify({ modCacheTimer: false }));
   browserWindow.dispatchEvent(new Event('storage'));
 
   assert.ok(watcher.changes > 0);
-  assert.equal(modEnabledSource.read('modReplyChips'), false);
+  assert.equal(modEnabledSource.read('modCacheTimer'), false);
   assert.equal(modEnabledSource.read('modRelay'), true);
 });
 

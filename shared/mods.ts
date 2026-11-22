@@ -12,7 +12,6 @@
 export const MOD_KEYS = [
   'modAttention',
   'modAnswerButtons',
-  'modReplyChips',
   'modSecretGuard',
   'modMemoryNotes',
   'modCodeStatus',
@@ -81,12 +80,6 @@ export const MODS: readonly ModDef[] = [
       + 'Кнопки доступны для Claude и Grok; в Codex — «Открыть» и ответ в чате.',
     requires: 'modAttention',
     engines: 'Claude ✓ · Codex нет — только «Открыть» и ответ в чате · Grok ✓',
-  },
-  {
-    key: 'modReplyChips',
-    title: 'Подсказки ответов',
-    description: 'Под последним ответом агента появляются готовые короткие ответы — нажал, и отправилось.',
-    engines: 'Claude ✓ · Codex ✓ · Grok ✓',
   },
   {
     key: 'modSecretGuard',

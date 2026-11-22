@@ -99,7 +99,6 @@ import stickyPushRoutes from './modules/sticky-push/sticky-push.routes.js';
 import { sessionAttention, sessionAttentionRoutes } from './modules/session-attention/index.js';
 import secretsStashRoutes from './modules/secrets-stash/secrets-stash.routes.js';
 import { secretRequestsRoutes } from './modules/secret-requests/index.js';
-import { replySuggestionsRoutes } from './modules/reply-suggestions/index.js';
 import { sessionLinksRoutes, btwService } from './modules/session-links/index.js';
 import { codeStatusRoutes } from './modules/code-status/index.js';
 // «Рабочий стол» (сборка 04.11.2026): модули смонтированы здесь один раз,
@@ -401,7 +400,6 @@ app.use('/api/secrets', authenticateToken, requireAdmin, secretsStashRoutes);
 // «Запрос ключа»: an agent asks for a key by name, Dima answers in «Ждут тебя» (admin only).
 app.use('/api/secret-requests', authenticateToken, requireAdmin, secretRequestsRoutes);
 // Reply chips over the composer: local model, best effort, cached per reply.
-app.use('/api/reply-suggestions', authenticateToken, replySuggestionsRoutes);
 app.use('/api/sessions', authenticateToken, sessionLinksRoutes);
 // Relay: checks the handoff note an agent wrote before a continuation chat is opened.
 app.use('/api/sessions', authenticateToken, relayRoutes);

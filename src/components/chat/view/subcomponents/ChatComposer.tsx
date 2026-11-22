@@ -37,8 +37,6 @@ import CommandMenu from './CommandMenu';
 import ActivityIndicator from './ActivityIndicator';
 import ImageAttachment from './ImageAttachment';
 import VoiceInputButton from './VoiceInputButton';
-import ReplySuggestionChips from './ReplySuggestionChips';
-import { shouldShowReplyChips } from '../../utils/replySuggestions';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
 import PromptCacheChip from './PromptCacheChip';
@@ -139,10 +137,6 @@ interface ChatComposerProps {
   onInputFocusChange?: (focused: boolean) => void;
   placeholder: string;
   isTextareaExpanded: boolean;
-  /** Ready answers for the last reply (empty → nothing drawn). */
-  replySuggestions?: string[];
-  onSendReplySuggestion?: (text: string) => void;
-  onEditReplySuggestion?: (text: string) => void;
   /** Session whose proposed vault note is shown over the composer (admins only). */
   memorySessionId?: string | null;
   /** «Перенести в новый чат» band (src/components/relay); it decides its own visibility. */
@@ -250,9 +244,6 @@ export default function ChatComposer({
   onInputFocusChange,
   placeholder,
   isTextareaExpanded,
-  replySuggestions = [],
-  onSendReplySuggestion,
-  onEditReplySuggestion,
   memorySessionId = null,
   relayBand = null,
 }: ChatComposerProps) {
@@ -545,13 +536,6 @@ export default function ChatComposer({
   const hasActivityIndicator = Boolean(activity && !hasPendingPermissions);
 
   const hasQueuedDraft = Boolean(queuedDraft);
-  const showReplyChips = Boolean(onSendReplySuggestion && onEditReplySuggestion) && shouldShowReplyChips({
-    suggestions: replySuggestions,
-    input,
-    isLoading,
-    hasPendingPermission: pendingPermissionRequests.length > 0,
-    hasQueuedDraft,
-  });
   const canQueueDraft = isLoading && Boolean(input.trim());
   const submitAction = composerSubmitAction({ isRecording, canQueueDraft, isLoading });
   // Sending during a run lands in the queue, typed or dictated.
@@ -597,14 +581,6 @@ export default function ChatComposer({
       {relayBand}
 
       {!isLoading && !hasPendingPermissions && <MemorySuggestionBanner sessionId={memorySessionId} />}
-
-      {showReplyChips && onSendReplySuggestion && onEditReplySuggestion && (
-        <ReplySuggestionChips
-          suggestions={replySuggestions}
-          onSend={onSendReplySuggestion}
-          onEdit={onEditReplySuggestion}
-        />
-      )}
 
       {!hasQuestionPanel && <div className="relative mx-auto max-w-[54.25rem]">
         {showFileDropdown && filteredFiles.length > 0 && (
