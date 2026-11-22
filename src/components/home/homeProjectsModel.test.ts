@@ -4,8 +4,7 @@ import test from 'node:test';
 import type { Project } from '../../types/app.js';
 
 import {
-  HOME_RECENT_LIMIT,
-  HOME_RECENT_MAX_AGE_MS,
+  buildAllProjects,
   buildHomeProjects,
   isHomeJunkProject,
   projectRecency,
@@ -110,7 +109,7 @@ test('recency is the newest chat activity, 0 without chats', () => {
   assert.equal(projectRecency(projectAt('/x')), 0);
 });
 
-test('pinned first, then recent; both by latest activity, ties by name', () => {
+test('pinned first, then projects with chats; both by latest activity, ties by name', () => {
   const projects = [
     activeAt('Бета', 5),
     activeAt('Альфа', 5),
@@ -119,7 +118,7 @@ test('pinned first, then recent; both by latest activity, ties by name', () => {
     activeAt('Вчера', 1),
     activeAt('Без чатов закреп', null, { isStarred: true }),
   ];
-  const { items, hiddenCount } = buildHomeProjects(projects, { now: NOW, query: '', showAll: false });
+  const { items, hiddenCount } = buildHomeProjects(projects, { query: '', capacity: 16 });
   assert.deepEqual(names(items), [
     'Свежий закреп',
     'Старый закреп',
@@ -131,23 +130,44 @@ test('pinned first, then recent; both by latest activity, ties by name', () => {
   assert.equal(hiddenCount, 0);
 });
 
-test('at most 12 recent projects, only those active within 14 days', () => {
-  const recent = Array.from({ length: 15 }, (_, index) => activeAt(`p${String(index).padStart(2, '0')}`, index * 0.5));
-  const stale = [activeAt('месяц назад', 30), activeAt('без чатов', null)];
-  const { items, hiddenCount } = buildHomeProjects([...stale, ...recent], { now: NOW, query: '', showAll: false });
-  assert.equal(HOME_RECENT_LIMIT, 12);
-  assert.equal(HOME_RECENT_MAX_AGE_MS, 14 * DAY);
-  assert.deepEqual(names(items), recent.slice(0, 12).map((project) => project.displayName));
-  // 3 recent beyond the limit + 2 stale ones.
-  assert.equal(hiddenCount, 5);
+test('Home fills capacity − 1 cells, the last one is left for «All projects»', () => {
+  // 4 × 3 grid = 12 cells → 11 projects + the «All projects» tile.
+  const projects = Array.from({ length: 20 }, (_, index) => activeAt(`p${String(index).padStart(2, '0')}`, index));
+  const { items, hiddenCount } = buildHomeProjects(projects, { query: '', capacity: 12 });
+  assert.deepEqual(names(items), ['p00', 'p01', 'p02', 'p03', 'p04', 'p05', 'p06', 'p07', 'p08', 'p09', 'p10']);
+  assert.equal(hiddenCount, 9);
 });
 
-test('a chat exactly 14 days old still counts, a day older does not', () => {
-  const { items } = buildHomeProjects(
-    [activeAt('ровно 14', 14), activeAt('15 дней', 15)],
-    { now: NOW, query: '', showAll: false },
-  );
-  assert.deepEqual(names(items), ['ровно 14']);
+test('no 14-day or 12-project cutoff: old chats fill free cells', () => {
+  const projects = [activeAt('год назад', 365), activeAt('месяц назад', 30), activeAt('вчера', 1)];
+  const { items, hiddenCount } = buildHomeProjects(projects, { query: '', capacity: 40 });
+  assert.deepEqual(names(items), ['вчера', 'месяц назад', 'год назад']);
+  assert.equal(hiddenCount, 0);
+});
+
+test('projects without chats stay in the folder and are counted as hidden', () => {
+  const projects = [activeAt('с чатом', 3), activeAt('пустой', null), activeAt('ещё пустой', null)];
+  const { items, hiddenCount } = buildHomeProjects(projects, { query: '', capacity: 24 });
+  assert.deepEqual(names(items), ['с чатом']);
+  assert.equal(hiddenCount, 2);
+});
+
+test('any number of pinned go first; when they overflow, the rest hides behind «All projects»', () => {
+  const pinned = Array.from({ length: 9 }, (_, index) => activeAt(`закреп ${index}`, index, { isStarred: true }));
+  const recent = [activeAt('недавний', 0.5)];
+  const wide = buildHomeProjects([...recent, ...pinned], { query: '', capacity: 12 });
+  assert.deepEqual(names(wide.items), [...pinned.map((project) => project.displayName), 'недавний']);
+  assert.equal(wide.hiddenCount, 0);
+
+  const narrow = buildHomeProjects([...recent, ...pinned], { query: '', capacity: 8 });
+  assert.deepEqual(names(narrow.items), pinned.slice(0, 7).map((project) => project.displayName));
+  assert.equal(narrow.hiddenCount, 3);
+});
+
+test('capacity of one cell leaves only «All projects»', () => {
+  const { items, hiddenCount } = buildHomeProjects([activeAt('a', 1), activeAt('b', 2)], { query: '', capacity: 1 });
+  assert.deepEqual(items, []);
+  assert.equal(hiddenCount, 2);
 });
 
 test('junk is never shown or counted, unless it is pinned', () => {
@@ -162,28 +182,26 @@ test('junk is never shown or counted, unless it is pinned', () => {
   });
   const real = activeAt('Tyres', 2);
 
-  const collapsed = buildHomeProjects([junk, pinnedJunk, real], { now: NOW, query: '', showAll: false });
-  assert.deepEqual(names(collapsed.items), ['tmp закреп', 'Tyres']);
-  assert.equal(collapsed.hiddenCount, 0);
+  const home = buildHomeProjects([junk, pinnedJunk, real], { query: '', capacity: 16 });
+  assert.deepEqual(names(home.items), ['tmp закреп', 'Tyres']);
+  assert.equal(home.hiddenCount, 0);
 
-  const all = buildHomeProjects([junk, pinnedJunk, real], { now: NOW, query: '', showAll: true });
-  assert.deepEqual(names(all.items), ['tmp закреп', 'Tyres']);
+  assert.deepEqual(names(buildAllProjects([junk, pinnedJunk, real])), ['tmp закреп', 'Tyres']);
 
-  const found = buildHomeProjects([junk, pinnedJunk, real], { now: NOW, query: 'чат', showAll: false });
+  const found = buildHomeProjects([junk, pinnedJunk, real], { query: 'чат', capacity: 16 });
   assert.deepEqual(names(found.items), []);
 });
 
-test('show all lists every non-junk project, pinned first, nothing hidden', () => {
+test('the folder lists pinned, then with chats by recency, then without chats by name', () => {
   const projects = [
     activeAt('старый', 60),
     activeAt('закреп', 90, { isStarred: true }),
+    activeAt('Яблоко', null),
     activeAt('без чатов', null),
     activeAt('вчера', 1),
     projectAt('/private/tmp/x', { displayName: 'x' }),
   ];
-  const { items, hiddenCount } = buildHomeProjects(projects, { now: NOW, query: '', showAll: true });
-  assert.deepEqual(names(items), ['закреп', 'вчера', 'старый', 'без чатов']);
-  assert.equal(hiddenCount, 0);
+  assert.deepEqual(names(buildAllProjects(projects)), ['закреп', 'вчера', 'старый', 'без чатов', 'Яблоко']);
 });
 
 test('search covers all non-junk projects by name or path, case-insensitive, no limit', () => {
@@ -192,30 +210,34 @@ test('search covers all non-junk projects by name or path, case-insensitive, no 
     ...many,
     activeAt('Линии Сергея', 50, { fullPath: '/Users/dimasik/Antigravity Project/Tyres-sergey-lines' }),
     activeAt('mazda', 1, { isStarred: true }),
+    activeAt('tyres без чатов', null),
     projectAt('/Users/dimasik/Antigravity Project/Tyres/outputs/home-bg', { displayName: 'tyres outputs' }),
   ];
-  const { items, hiddenCount } = buildHomeProjects(projects, { now: NOW, query: '  TYRES ', showAll: false });
-  assert.equal(items.length, 21);
+  const { items, hiddenCount } = buildHomeProjects(projects, { query: '  TYRES ', capacity: 4 });
+  assert.equal(items.length, 22);
   assert.equal(items[0].displayName, 'Линии Сергея');
+  assert.ok(names(items).includes('tyres без чатов'));
   assert.ok(!names(items).includes('tyres outputs'));
   assert.equal(hiddenCount, 0);
 
-  const pinned = buildHomeProjects(projects, { now: NOW, query: 'MAZ', showAll: false });
+  const pinned = buildHomeProjects(projects, { query: 'MAZ', capacity: 4 });
   assert.deepEqual(names(pinned.items), ['mazda']);
 });
 
-test('the real 22.11 list: no junk on Home, all of it behind "All projects"', () => {
+test('the real 22.11 list: no junk on Home, everything else in the folder', () => {
   const projects = REAL_PROJECTS.map(([name, path], index) =>
     projectAt(path, {
       projectId: `p${index}`,
       displayName: name,
       sessions: [{ id: `s${index}`, lastActivity: new Date(NOW - (index % 20) * DAY).toISOString() }],
     }));
-  const collapsed = buildHomeProjects(projects, { now: NOW, query: '', showAll: false });
-  assert.equal(collapsed.items.length, HOME_RECENT_LIMIT);
-  assert.ok(collapsed.items.every((project) => !isHomeJunkProject(project)));
+  // iPhone 390 × 844: four columns, four rows.
+  const home = buildHomeProjects(projects, { query: '', capacity: 16 });
+  assert.equal(home.items.length, 15);
+  assert.ok(home.items.every((project) => !isHomeJunkProject(project)));
 
-  const all = buildHomeProjects(projects, { now: NOW, query: '', showAll: true });
-  assert.equal(all.items.length, REAL_PROJECTS.length - 10);
-  assert.equal(collapsed.hiddenCount, all.items.length - HOME_RECENT_LIMIT);
+  const all = buildAllProjects(projects);
+  assert.equal(all.length, REAL_PROJECTS.length - 10);
+  assert.equal(home.hiddenCount, all.length - 15);
+  assert.deepEqual(all.slice(0, 15), home.items);
 });

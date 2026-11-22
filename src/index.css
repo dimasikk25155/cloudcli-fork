@@ -2992,6 +2992,10 @@
 .neo3-neon > svg {
   display: block;
 }
+/* Round neon button (Home: settings next to the clock). */
+.neo3-neon.neo3-neon-round {
+  border-radius: 9999px;
+}
 
 /* Codex reference: neutral graphite surfaces, native Mac typography, compact chrome.
    Existing provider/project icons and all interactions are preserved. */

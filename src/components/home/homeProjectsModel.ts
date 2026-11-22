@@ -1,24 +1,23 @@
 /**
- * Что и в каком порядке показывает «Домой»: сначала закреплённые, затем
- * недавние (чат за 14 дней, не больше 12), всё — от свежего к старому.
- * Мусорные папки (Codex/ChatGPT, tmp, служебные) на «Домой» не попадают,
+ * Что и в каком порядке показывает «Домой» и папка «Все проекты».
+ * «Домой» — ровно по экрану: сначала все закреплённые, затем проекты с чатами
+ * от свежего к старому, последняя ячейка сетки — плитка «Все проекты».
+ * Папка — все проекты: закреплённые, с чатами по недавности, без чатов по имени.
+ * Мусорные папки (Codex/ChatGPT, tmp, служебные) не попадают никуда,
  * если Дима сам их не закрепил. Без React — чистые функции под тест.
  */
 import type { Project } from '../../types/app';
 import { getSessionDate, isCodexInboxProject, isScratchProject } from '../sidebar/utils/utils';
 
-export const HOME_RECENT_LIMIT = 12;
-export const HOME_RECENT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
-
 export type HomeProjectsOptions = {
-  now: number;
   query: string;
-  showAll: boolean;
+  /** Cells the Home grid holds on this screen; the last one is the «All projects» tile. */
+  capacity: number;
 };
 
 export type HomeProjects = {
   items: Project[];
-  /** Non-junk, unpinned projects the collapsed view leaves out (0 when showing all or searching). */
+  /** Projects of the «All projects» folder that Home does not show (0 while searching). */
   hiddenCount: number;
 };
 
@@ -69,25 +68,34 @@ function byRecency(projects: Project[]): Project[] {
   });
 }
 
-export function buildHomeProjects(projects: Project[], { now, query, showAll }: HomeProjectsOptions): HomeProjects {
+/** Case-insensitive match of the name or the full path; an empty query matches everything. */
+export function matchesProjectQuery(project: Project, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return (project.displayName || '').toLowerCase().includes(needle)
+    || (project.fullPath || '').toLowerCase().includes(needle);
+}
+
+/**
+ * The «All projects» folder: pinned (even junk ones) by recency, then the rest
+ * without junk — with chats by recency, then without chats by name.
+ */
+export function buildAllProjects(projects: Project[]): Project[] {
   const pinned = byRecency(projects.filter((project) => project.isStarred));
   const rest = byRecency(projects.filter((project) => !project.isStarred && !isHomeJunkProject(project)));
+  return [...pinned, ...rest];
+}
 
-  const needle = query.trim().toLowerCase();
-  if (needle) {
-    const matches = (project: Project) =>
-      (project.displayName || '').toLowerCase().includes(needle)
-      || (project.fullPath || '').toLowerCase().includes(needle);
-    return { items: [...pinned.filter(matches), ...rest.filter(matches)], hiddenCount: 0 };
+export function buildHomeProjects(projects: Project[], { query, capacity }: HomeProjectsOptions): HomeProjects {
+  const all = buildAllProjects(projects);
+
+  if (query.trim()) {
+    return { items: all.filter((project) => matchesProjectQuery(project, query)), hiddenCount: 0 };
   }
 
-  if (showAll) {
-    return { items: [...pinned, ...rest], hiddenCount: 0 };
-  }
-
-  const since = now - HOME_RECENT_MAX_AGE_MS;
-  const recent = rest
-    .filter((project) => projectRecency(project) >= since)
-    .slice(0, HOME_RECENT_LIMIT);
-  return { items: [...pinned, ...recent], hiddenCount: rest.length - recent.length };
+  // All pinned, then projects with chats; no chats — only in the folder.
+  const candidates = all.filter((project) => project.isStarred || projectRecency(project) > 0);
+  const slots = Math.max(0, Math.floor(capacity) - 1);
+  const items = candidates.slice(0, slots);
+  return { items, hiddenCount: all.length - items.length };
 }

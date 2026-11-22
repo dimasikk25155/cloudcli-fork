@@ -14,12 +14,17 @@ import { NEON_BASE, NEON_WHITE, neonGlowTint } from './neonPalette';
 
 export type NeonTileSize = AppIconSize | number;
 
+/** `circle` — the round neon buttons of Home (settings next to the clock). */
+export type NeonTileShape = 'squircle' | 'circle';
+
 export type NeonTileProps = {
   glyph: NeonGlyph;
   accent: string;
   size?: NeonTileSize;
   /** The small «3» in the corner; by default only on tiles of 36 px and up. */
   showMark?: boolean;
+  /** Squircle by default; `circle` for round buttons. */
+  shape?: NeonTileShape;
   className?: string;
 };
 
@@ -34,7 +39,7 @@ const SYMBOL_SCALE = 1.04;
 const SMALL_PX = 32;
 const SMALL_SYMBOL_SCALE = 1.24;
 
-export default function NeonTile({ glyph, accent, size = 'lg', showMark, className }: NeonTileProps) {
+export default function NeonTile({ glyph, accent, size = 'lg', showMark, shape = 'squircle', className }: NeonTileProps) {
   const uid = `neon-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const px = typeof size === 'number' ? size : NEON_TILE_PX[size];
   const art = NEON_GLYPHS[glyph] ?? NEON_GLYPHS.folder;
@@ -44,6 +49,8 @@ export default function NeonTile({ glyph, accent, size = 'lg', showMark, classNa
   const ringWidth = Math.min(4, Math.max(1.2, 110 / px));
   const ringInset = ringWidth / 2 + 1.4;
   const symbolScale = px < SMALL_PX ? SMALL_SYMBOL_SCALE : SYMBOL_SCALE;
+  const radius = shape === 'circle' ? 50 : RADIUS;
+  const ringRadius = shape === 'circle' ? 50 - ringInset : RADIUS - ringInset * 0.7;
   const glowId = `${uid}-glow`;
   const bgId = `${uid}-bg`;
   const cutId = `${uid}-cut`;
@@ -57,6 +64,7 @@ export default function NeonTile({ glyph, accent, size = 'lg', showMark, classNa
       aria-hidden="true"
       focusable="false"
       data-neon-glyph={glyph}
+      data-neon-shape={shape}
     >
       <defs>
         <radialGradient id={bgId} cx="50" cy="41" r="44" gradientUnits="userSpaceOnUse">
@@ -92,14 +100,14 @@ export default function NeonTile({ glyph, accent, size = 'lg', showMark, classNa
         ) : null}
       </defs>
 
-      <rect width="100" height="100" rx={RADIUS} fill={NEON_BASE} />
-      <rect width="100" height="100" rx={RADIUS} fill={`url(#${bgId})`} />
+      <rect width="100" height="100" rx={radius} fill={NEON_BASE} />
+      <rect width="100" height="100" rx={radius} fill={`url(#${bgId})`} />
       <rect
         x={ringInset}
         y={ringInset}
         width={100 - ringInset * 2}
         height={100 - ringInset * 2}
-        rx={RADIUS - ringInset * 0.7}
+        rx={ringRadius}
         fill="none"
         stroke={accent}
         strokeOpacity="0.62"

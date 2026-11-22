@@ -99,3 +99,14 @@ test('the palette is the bot-avatar palette', () => {
   assert.ok(NEON_ACCENTS.includes('#F43F5E'));
   assert.ok(NEON_ACCENTS.every((hex) => /^#[0-9A-F]{6}$/.test(hex)));
 });
+
+test('a round tile (the Home settings button) is a circle with a circular ring', () => {
+  const round = render({ glyph: 'settings', accent: '#7DD3FC', size: 40, shape: 'circle', showMark: false });
+  assert.match(round, /^<svg[^>]*data-neon-shape="circle"/);
+  assert.match(round, /<rect width="100" height="100" rx="50"/);
+  assert.match(round, /<rect x="[\d.]+" y="[\d.]+" width="[\d.]+" height="[\d.]+" rx="4[\d.]+" fill="none" stroke="#7DD3FC"/);
+
+  const squircle = render();
+  assert.match(squircle, /^<svg[^>]*data-neon-shape="squircle"/);
+  assert.match(squircle, /<rect width="100" height="100" rx="22.5"/);
+});
