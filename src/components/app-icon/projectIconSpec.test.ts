@@ -1,11 +1,26 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { firstLetter, monogram, resolveProjectIcon } from './projectIconSpec.js';
+import { isHomeJunkProject } from '../home/homeProjectsModel.js';
+import { REAL_PROJECTS } from '../home/realProjects.fixture.js';
+
+import { NEON_GLYPHS } from './neon/neonGlyphs.js';
+import { NEON_ACCENTS } from './neon/neonPalette.js';
+import { resolveProjectIcon } from './projectIconSpec.js';
+
+const REAL_PROJECTS_KEPT = REAL_PROJECTS.filter(
+  ([name, path]) => !isHomeJunkProject({ projectId: path, displayName: name, fullPath: path, path }),
+);
+const byName = (wanted: string) => {
+  const found = REAL_PROJECTS.find(([name]) => name === wanted);
+  assert.ok(found, wanted);
+  return resolveProjectIcon(found[0], found[1]);
+};
+const look = (spec: { glyph: string; accent: string }) => `${spec.glyph} ${spec.accent}`;
 
 test('picks a tire glyph for Tyres projects', () => {
   assert.equal(resolveProjectIcon('Tyres KZ').glyph, 'tire');
-  assert.equal(resolveProjectIcon('Samruk Tyres').background, '#1C1917');
+  assert.equal(resolveProjectIcon('Samruk Tyres').glyph, 'tire');
 });
 
 test('picks a car glyph for Mazda', () => {
@@ -18,7 +33,7 @@ test('does not give the client tire icon to the personal Mazda project', () => {
   const tyres = resolveProjectIcon('Tyres KZ', '/home/agents/Antigravity Project/Tyres');
   assert.equal(mazda.glyph, 'car');
   assert.equal(tyres.glyph, 'tire');
-  assert.notEqual(mazda.background, tyres.background);
+  assert.notEqual(mazda.accent, tyres.accent);
 });
 
 test('picks a unique glyph for the live project list', () => {
@@ -33,23 +48,50 @@ test('picks a unique glyph for the live project list', () => {
   assert.equal(resolveProjectIcon('wisper').glyph, 'mic');
 });
 
-test('falls back to a stable color and a two-letter mark', () => {
-  const first = resolveProjectIcon('Untitled folder');
-  const second = resolveProjectIcon('Untitled folder');
-  assert.equal(first.background, second.background);
+test('every real non-junk project has its own table icon, never the folder fallback', () => {
+  assert.equal(REAL_PROJECTS_KEPT.length, 117);
+  for (const [name, path] of REAL_PROJECTS_KEPT) {
+    const spec = resolveProjectIcon(name, path);
+    assert.equal(spec.match, 'table', `${name} — ${path}`);
+    assert.notEqual(spec.glyph, 'folder', name);
+    assert.ok(spec.glyph in NEON_GLYPHS, `${name}: ${spec.glyph}`);
+    assert.ok((NEON_ACCENTS as readonly string[]).includes(spec.accent), `${name}: ${spec.accent}`);
+  }
+});
+
+test('the Tyres family is told apart by colour or symbol', () => {
+  const family = ['Tyres KZ', 'Tyres 7su', 'Tyres KG', 'Линии Сергея', 'Tyres Bot', 'Tyres Store'].map(byName);
+  assert.equal(new Set(family.map(look)).size, family.length);
+  // Same folder twice in the list (Tyres-kg / tyres-kg) is one project — same icon.
+  assert.equal(look(byName('Tyres KG')), look(byName('tyres-kg')));
+});
+
+test('demo and working copies differ', () => {
+  assert.notEqual(look(byName('Bishkek Garden')), look(byName('Bishkek Garden Demo')));
+  assert.notEqual(look(byName('Neo3 Visual')), look(byName('Neo3 Visual Share')));
+  assert.notEqual(look(byName('kvadrobanya-new')), look(byName('kvadrobanya-old')));
+  assert.notEqual(look(byName('Grok Bot')), look(byName('Grok Bot Friend')));
+  assert.notEqual(look(byName('claude agent')), look(byName('cloudcli-fork')));
+});
+
+test('an unknown name falls back to a keyword symbol or a folder, coloured from the palette by path', () => {
+  const first = resolveProjectIcon('Untitled folder', '/Users/me/Untitled folder');
+  const again = resolveProjectIcon('Untitled folder', '/Users/me/Untitled folder');
+  assert.deepEqual(first, again);
   assert.equal(first.glyph, 'folder');
-  assert.equal(first.letter, 'UF');
-});
+  assert.equal(first.match, 'fallback');
+  assert.ok((NEON_ACCENTS as readonly string[]).includes(first.accent));
+  assert.equal('letter' in first, false, 'no letters on tiles');
 
-test('uses the first letter of the display name', () => {
-  assert.equal(firstLetter('claude agent'), 'C');
-  assert.equal(firstLetter(''), '?');
-});
+  const shop = resolveProjectIcon('Обувной магазин', '/srv/shoes');
+  assert.equal(shop.match, 'keyword');
+  assert.equal(shop.glyph, 'cart');
 
-test('builds a two-letter monogram', () => {
-  assert.equal(monogram('claude agent'), 'CA');
-  assert.equal(monogram('kvadrobanya-new'), 'KN');
-  assert.equal(monogram('tmp'), 'TM');
+  // Different paths spread over the palette instead of all sharing one colour.
+  const accents = new Set(
+    Array.from({ length: 40 }, (_, index) => resolveProjectIcon(`client ${index}`, `/srv/client-${index}`).accent),
+  );
+  assert.ok(accents.size >= 10, `only ${accents.size} colours`);
 });
 
 test('a project inside the Neo3 or home folder does not inherit that folder icon', () => {

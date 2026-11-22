@@ -2979,6 +2979,20 @@
   z-index: 0;
 }
 
+/* Neon project/dock tiles in the Neo³ bot-avatar style (AppIcon, NeonTile on
+   Home). Always dark, whatever the theme: on light themes the tile reads by its
+   accent ring and this shadow. No glossy overlay — it would wash out the glow. */
+.neo3-neon {
+  border-radius: 22.5%;
+  background: #090c18;
+  box-shadow:
+    0 8px 18px rgb(0 0 0 / 0.34),
+    0 0 0 0.5px rgb(0 0 0 / 0.4);
+}
+.neo3-neon > svg {
+  display: block;
+}
+
 /* Codex reference: neutral graphite surfaces, native Mac typography, compact chrome.
    Existing provider/project icons and all interactions are preserved. */
 [data-theme='codex'] {

@@ -126,6 +126,8 @@
     "unpinProject": "Unpin",
     "homeIconHint": "Tap to open. Hold to pin or set an icon.",
     "setProjectIcon": "Custom icon",
+    "homeAllProjects": "All projects ({{n}})",
+    "homeCollapse": "Collapse",
     "noMatchingProjects": "No matching projects",
     "tip": "Tip",
     "createProjectMobile": "Tap the menu button above to access projects",

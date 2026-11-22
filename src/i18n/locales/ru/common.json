@@ -126,6 +126,8 @@
     "unpinProject": "Открепить",
     "homeIconHint": "Нажми — открыть. Удерживай — закрепить или поставить картинку.",
     "setProjectIcon": "Своя картинка",
+    "homeAllProjects": "Все проекты ({{n}})",
+    "homeCollapse": "Свернуть",
     "noMatchingProjects": "Нет подходящих проектов",
     "tip": "Совет",
     "createProjectMobile": "Нажмите кнопку меню выше для доступа к проектам",

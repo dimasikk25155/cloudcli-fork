@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+
 import type { Project } from '../../types/app';
+
 import AppIcon, { type AppIconSize } from './AppIcon';
 import { resolveProjectIcon } from './projectIconSpec';
 import { PROJECT_ICON_CHANGED_EVENT, readProjectIcon } from './projectIconStorage';
@@ -29,10 +31,8 @@ export default function ProjectIcon({ project, size = 'sm', starred = false, cla
 
   return (
     <AppIcon
-      background={spec.background}
-      foreground={spec.foreground}
       glyph={spec.glyph}
-      letter={spec.letter}
+      accent={spec.accent}
       src={src}
       size={size}
       starred={starred}

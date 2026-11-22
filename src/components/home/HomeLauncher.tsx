@@ -1,18 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ImagePlus, Search, Star, X } from 'lucide-react';
 
 import type { Project } from '../../types/app';
 import { cn } from '../../lib/utils';
 import ProjectIcon from '../app-icon/ProjectIcon';
+import NeonTile from '../app-icon/neon/NeonTile';
+import type { NeonGlyph } from '../app-icon/neon/neonGlyphs';
 import { fileToIconDataUrl, writeProjectIcon } from '../app-icon/projectIconStorage';
-import { CountDot } from '../consigliere/PlannerAttentionButton';
-import PlannerAttentionButton from '../consigliere/PlannerAttentionButton';
+import PlannerAttentionButton, { CountDot } from '../consigliere/PlannerAttentionButton';
 import { usePlannerAttention } from '../consigliere/usePlannerAttention';
 import { requestHubPanel, type HubPanelKey } from '../hub/hubPanels';
-import MenuTile from '../menu-icons/MenuTile';
-import type { MenuIconKey } from '../menu-icons/menuIconModel';
 import MobileMenuButton from '../main-content/view/subcomponents/MobileMenuButton';
+
+import { buildHomeProjects, isHomeJunkProject } from './homeProjectsModel';
 
 type HomeLauncherProps = {
   projects: Project[];
@@ -24,8 +25,10 @@ type HomeLauncherProps = {
 };
 
 type DockApp = {
-  key: HubPanelKey & MenuIconKey;
+  key: HubPanelKey;
   label: string;
+  glyph: NeonGlyph;
+  accent: string;
 };
 
 type IconMenu = {
@@ -34,13 +37,18 @@ type IconMenu = {
   top: number;
 };
 
-// The same drawn tiles as the sidebar menu (`menu-icons/`), at the project-icon size.
+// The same neon tiles as the projects below, so Home reads as one grid.
+// The sidebar menu keeps its own bright tiles (`menu-icons/`).
 const DOCK: DockApp[] = [
-  { key: 'consigliere', label: 'Канцелярия' },
-  { key: 'mazda', label: 'Мазда' },
-  { key: 'nightshift', label: 'Задачи' },
-  { key: 'settings', label: 'Настройки' },
+  { key: 'consigliere', label: 'Канцелярия', glyph: 'wallet', accent: '#FFC83D' },
+  { key: 'mazda', label: 'Мазда', glyph: 'car', accent: '#F43F5E' },
+  { key: 'nightshift', label: 'Задачи', glyph: 'tasks', accent: '#A78BFA' },
+  { key: 'settings', label: 'Настройки', glyph: 'settings', accent: '#7DD3FC' },
 ];
+
+const MORE_TILE_ACCENT = '#7DD3FC';
+/** Show the search field once there are more real projects than fit two rows. */
+const SEARCH_MIN_PROJECTS = 8;
 
 const LONG_PRESS_MS = 450;
 const MOVE_CANCEL_PX = 12;
@@ -95,23 +103,28 @@ export default function HomeLauncher({
   const [iconTarget, setIconTarget] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState<IconMenu | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
-  const orderedProjects = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return [...projects]
-      .filter((project) => {
-        if (!needle) return true;
-        return (
-          project.displayName.toLowerCase().includes(needle)
-          || project.fullPath.toLowerCase().includes(needle)
-        );
-      })
-      .sort((left, right) => {
-        const star = Number(Boolean(right.isStarred)) - Number(Boolean(left.isStarred));
-        if (star !== 0) return star;
-        return left.displayName.localeCompare(right.displayName, 'ru');
-      });
-  }, [projects, query]);
+  // Pinned first, then up to 12 recent; junk folders never (see homeProjectsModel).
+  const { items: orderedProjects, hiddenCount } = useMemo(
+    () => buildHomeProjects(projects, { now: Date.now(), query, showAll }),
+    [projects, query, showAll],
+  );
+  // How many «Свернуть» would hide again: the collapsed view's hidden count.
+  const collapsibleCount = useMemo(
+    () => (showAll ? buildHomeProjects(projects, { now: Date.now(), query: '', showAll: false }).hiddenCount : 0),
+    [projects, showAll],
+  );
+  const realProjectCount = useMemo(
+    () => projects.filter((project) => !isHomeJunkProject(project)).length,
+    [projects],
+  );
+  const searching = query.trim().length > 0;
+  const moreTile: 'all' | 'collapse' | null = searching
+    ? null
+    : showAll
+      ? (collapsibleCount > 0 ? 'collapse' : null)
+      : (hiddenCount > 0 ? 'all' : null);
 
   const visibleDock = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -203,7 +216,7 @@ export default function HomeLauncher({
           <p className="mt-1.5 text-sm capitalize text-muted-foreground">{date}</p>
         </div>
 
-        {projects.length > 8 && (
+        {realProjectCount > SEARCH_MIN_PROJECTS && (
           <div className="relative mx-auto mb-4 w-full max-w-sm shrink-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
             <input
@@ -247,11 +260,13 @@ export default function HomeLauncher({
                 title={app.label}
               >
                 <span className="relative transition-transform duration-150 ease-out hover:-translate-y-0.5 active:scale-95">
-                  <MenuTile
-                    iconKey={app.key}
-                    size="lg"
-                    className="h-[4.25rem] w-[4.25rem] [&>svg]:h-9 [&>svg]:w-9"
-                  />
+                  <span
+                    className="neo3-neon relative inline-flex h-[4.25rem] w-[4.25rem] overflow-hidden"
+                    data-dock-tile={app.key}
+                    aria-hidden="true"
+                  >
+                    <NeonTile glyph={app.glyph} accent={app.accent} size="lg" className="h-full w-full" />
+                  </span>
                   {app.key === 'consigliere' && <CountDot count={consigliereCount} />}
                 </span>
                 <span className="line-clamp-2 w-full text-center text-[11px] leading-tight text-foreground/90 sm:text-xs">
@@ -323,6 +338,29 @@ export default function HomeLauncher({
                 )}
               </div>
             ))}
+            {moreTile && (
+              <button
+                type="button"
+                className="group flex flex-col items-center gap-2 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setShowAll(moreTile === 'all')}
+                data-home-more={moreTile}
+              >
+                <span className="neo3-neon relative inline-flex h-[4.25rem] w-[4.25rem] overflow-hidden transition-transform duration-150 ease-out group-hover:-translate-y-0.5 group-active:scale-95">
+                  <NeonTile
+                    glyph={moreTile === 'all' ? 'grid' : 'collapse'}
+                    accent={MORE_TILE_ACCENT}
+                    size="lg"
+                    showMark={false}
+                    className="h-full w-full"
+                  />
+                </span>
+                <span className="line-clamp-2 w-full text-center text-[11px] leading-tight text-foreground/90 sm:text-xs">
+                  {moreTile === 'all'
+                    ? t('mainContent.homeAllProjects', { defaultValue: 'All projects ({{n}})', n: hiddenCount })
+                    : t('mainContent.homeCollapse', 'Collapse')}
+                </span>
+              </button>
+            )}
           </div>
         )}
         </div>
@@ -332,7 +370,7 @@ export default function HomeLauncher({
         <div className="fixed inset-0 z-50" onPointerDown={() => setMenu(null)}>
           <div
             role="menu"
-            className="absolute min-w-[200px] overflow-hidden rounded-2xl bg-background/92 py-1 shadow-[0_18px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/15 backdrop-blur-xl"
+            className="bg-background/92 absolute min-w-[200px] overflow-hidden rounded-2xl py-1 shadow-[0_18px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/15 backdrop-blur-xl"
             style={{ left: menu.left, top: menu.top }}
             onPointerDown={(event) => event.stopPropagation()}
           >
