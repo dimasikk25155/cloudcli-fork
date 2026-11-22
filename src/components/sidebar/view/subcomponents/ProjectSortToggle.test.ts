@@ -54,7 +54,7 @@ test('pressing a choice reports that order', () => {
 test('on a phone each choice is a 44 px touch target, the pill stays 24 px tall', () => {
   // Review 23.11: the segments were 24 px — under Apple's 44 px minimum. The
   // visible pill keeps h-6; an invisible ::before reaches 10 px up and down
-  // (24 + 2 × 10 = 44) and 16 px outward — left of the clock, right of А–Я —
+  // (24 + 2 × 10 = 44) and 12 px outward — left of the clock, right of А–Я —
   // so the two areas never overlap each other (each segment is ≥ 28 px wide).
   const [recent, name] = buttonsOf('recent', () => {});
   for (const button of [recent, name]) {
@@ -67,8 +67,26 @@ test('on a phone each choice is a 44 px touch target, the pill stays 24 px tall'
   }
   const recentClasses = String(recent.props.className);
   const nameClasses = String(name.props.className);
-  assert.match(recentClasses, /(^|\s)max-md:before:-left-4(\s|$)/);
+  assert.match(recentClasses, /(^|\s)max-md:before:-left-3(\s|$)/);
   assert.match(recentClasses, /(^|\s)max-md:before:right-0(\s|$)/);
   assert.match(nameClasses, /(^|\s)max-md:before:left-0(\s|$)/);
-  assert.match(nameClasses, /(^|\s)max-md:before:-right-4(\s|$)/);
+  assert.match(nameClasses, /(^|\s)max-md:before:-right-3(\s|$)/);
+});
+
+test('on a phone the touch areas stay off the neighbours («Недавние N», ⚡N)', () => {
+  // Review of task 04: the left area reached 16 px out and covered the end of
+  // «Недавние N». On the phone the switch sits after a 12 px gap (`gap-3` of
+  // the tab row and of the right cluster in SidebarHeader) plus the pill's
+  // 2 px padding — an outward reach within the 12 px gap never covers them.
+  const PHONE_GAP_PX = 12;
+  const [recent, name] = buttonsOf('recent', () => {});
+  const reach = (classes: string, side: 'left' | 'right'): number => {
+    const found = classes.match(new RegExp(`(?:^|\\s)max-md:before:-${side}-(\\d+(?:\\.\\d+)?)(?:\\s|$)`));
+    return found ? Number(found[1]) * 4 : 0;
+  };
+  const left = reach(String(recent.props.className), 'left');
+  const right = reach(String(name.props.className), 'right');
+  assert.ok(left > 0 && right > 0, 'both outer sides still reach outward');
+  assert.ok(left <= PHONE_GAP_PX, `left reach ${left} px`);
+  assert.ok(right <= PHONE_GAP_PX, `right reach ${right} px`);
 });

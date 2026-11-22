@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { HOME_CELL_HEIGHT, holdGridSize, homeGridLayout } from './homeGridLayout.js';
+import { HOME_CELL_HEIGHT, holdGridSize, homeGridLayout, nextGridHold } from './homeGridLayout.js';
 
 test('a Home cell is the 68 px tile, an 8 px gap and two label lines', () => {
   assert.equal(HOME_CELL_HEIGHT, 106);
@@ -62,4 +62,58 @@ test('holding keeps the taller size and follows the width', () => {
   assert.deepEqual(holdGridSize({ width: 342, height: 600 }, { width: 342, height: 553 }), { width: 342, height: 600 });
   // Nothing held — the measurement as is.
   assert.deepEqual(holdGridSize({ width: 342, height: 217 }, null), { width: 342, height: 217 });
+});
+
+// Review of task 04: wiping the typed query to empty (or the «clear» cross)
+// while the keyboard is still up turned the hold back on with the squeezed
+// size — Home fell to one row until the keyboard closed.
+function playHome(steps: { measured: { width: number; height: number }; focused: boolean; keyboard: boolean; query: string }[]) {
+  let rest: { width: number; height: number } | null = null;
+  return steps.map(({ measured, focused, keyboard, query }) => {
+    const squeezed = focused || keyboard;
+    const hold = query.trim() === '' && squeezed;
+    const next = nextGridHold(rest, measured, { hold, squeezed });
+    rest = next.rest;
+    return homeGridLayout(next.size).rows;
+  });
+}
+
+const OPEN = { width: 342, height: 553 }; // 4 rows, keyboard closed
+const SQUEEZED = { width: 342, height: 217 }; // 1 row under the keyboard
+
+test('query typed and wiped while the keyboard is up → the rows from before the keyboard come back', () => {
+  assert.deepEqual(
+    playHome([
+      { measured: OPEN, focused: false, keyboard: false, query: '' },
+      { measured: OPEN, focused: true, keyboard: false, query: '' }, // tap the search
+      { measured: SQUEEZED, focused: true, keyboard: true, query: '' }, // keyboard up
+      { measured: SQUEEZED, focused: true, keyboard: true, query: 'ne' }, // typing: results scroll
+      { measured: SQUEEZED, focused: true, keyboard: true, query: '' }, // wiped to empty
+      { measured: OPEN, focused: false, keyboard: false, query: '' }, // keyboard gone
+    ]),
+    [4, 4, 4, 1, 4, 4],
+  );
+});
+
+test('the «clear» cross (focus leaves the field, keyboard still up) also brings the rows back', () => {
+  assert.deepEqual(
+    playHome([
+      { measured: OPEN, focused: false, keyboard: false, query: '' },
+      { measured: OPEN, focused: true, keyboard: false, query: '' },
+      { measured: SQUEEZED, focused: true, keyboard: true, query: 'neo' },
+      { measured: SQUEEZED, focused: false, keyboard: true, query: '' }, // cross pressed
+    ]),
+    [4, 4, 1, 4],
+  );
+});
+
+test('without the keyboard the grid follows every measurement', () => {
+  assert.deepEqual(
+    playHome([
+      { measured: OPEN, focused: false, keyboard: false, query: '' },
+      { measured: SQUEEZED, focused: false, keyboard: false, query: '' }, // window made shorter
+      { measured: OPEN, focused: false, keyboard: false, query: '' },
+    ]),
+    [4, 1, 4],
+  );
 });

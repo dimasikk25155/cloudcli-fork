@@ -51,3 +51,27 @@ export function holdGridSize(measured: GridSize, held: GridSize | null): GridSiz
   if (!held) return measured;
   return { width: measured.width, height: Math.max(measured.height, held.height) };
 }
+
+export type GridHoldInput = {
+  /** Apply the held size: the empty search is focused or the keyboard is up. */
+  hold: boolean;
+  /** The keyboard may be squeezing the area (field focused or keyboard up). */
+  squeezed: boolean;
+};
+
+/**
+ * One render of Home's grid: the size to lay out and the size to remember
+ * for the next render (`rest`). `rest` is the last size measured while
+ * nothing could squeeze the area, not the size at the moment the hold turned
+ * on: typing a query drops the hold with the keyboard still up, and wiping it
+ * (or the «clear» cross) must bring the rows measured with the keyboard closed back (review
+ * of task 04), not freeze the squeezed ones.
+ */
+export function nextGridHold(
+  rest: GridSize | null,
+  measured: GridSize,
+  { hold, squeezed }: GridHoldInput,
+): { rest: GridSize | null; size: GridSize } {
+  const nextRest = squeezed ? (rest ?? measured) : measured;
+  return { rest: nextRest, size: hold ? holdGridSize(measured, nextRest) : measured };
+}

@@ -19,12 +19,13 @@ export default function ProjectSortToggle({
   t: TFunction;
 }) {
   // A 24 px pill, but 44 px to the finger on a phone (review 23.11): an
-  // invisible ::before 10 px above and below, 16 px outward — left of the
-  // clock, right of А–Я — so the two areas never overlap each other.
+  // invisible ::before 10 px above and below, 12 px outward — left of the
+  // clock, right of А–Я — so the two areas never overlap each other, and
+  // stay inside the 12 px gap (`gap-3`) to «Недавние N» and ⚡N.
   const segment = (active: boolean, side: 'left' | 'right') => cn(
     'relative flex h-6 min-w-[1.75rem] touch-manipulation items-center justify-center rounded-full px-1.5 text-[11px] font-medium leading-none transition-colors',
     'max-md:before:absolute max-md:before:-inset-y-2.5',
-    side === 'left' ? 'max-md:before:-left-4 max-md:before:right-0' : 'max-md:before:-right-4 max-md:before:left-0',
+    side === 'left' ? 'max-md:before:-left-3 max-md:before:right-0' : 'max-md:before:-right-3 max-md:before:left-0',
     active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
   );
   const recentLabel = t('projectSort.recent', 'Recent first');

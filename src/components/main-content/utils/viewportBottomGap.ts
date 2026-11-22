@@ -16,6 +16,10 @@ export const VIEWPORT_GAP_MAX_PX = 120;
 export type ViewportSize = {
   /** Открыто с рабочего стола (`display-mode: standalone`). */
   standalone: boolean;
+  /** `content` мета `apple-mobile-web-app-status-bar-style`; `null` — меты нет. */
+  statusBarStyle: string | null;
+  /** `env(safe-area-inset-top)` в px; `null` — не измерен. */
+  safeAreaTop: number | null;
   screenWidth: number;
   screenHeight: number;
   innerWidth: number;
@@ -24,6 +28,8 @@ export type ViewportSize = {
 
 export function computeViewportBottomGap({
   standalone,
+  statusBarStyle,
+  safeAreaTop,
   screenWidth,
   screenHeight,
   innerWidth,
@@ -31,6 +37,11 @@ export function computeViewportBottomGap({
 }: ViewportSize): number {
   // Во вкладке браузера окно меньше экрана из-за его же панелей — это не полоса.
   if (!standalone) return 0;
+  // `default`/`black` (и нет меты — у iOS это `default`): окно под статус-баром.
+  if (statusBarStyle !== 'black-translucent') return 0;
+  // Верхнего отступа нет — окно начинается под статус-баром (стиль сменили
+  // после запуска), разница сверху.
+  if (safeAreaTop !== null && safeAreaTop <= 0) return 0;
   // iOS отдаёт размер экрана всегда в портрете — сравниваем с нужной стороной.
   const portrait = innerHeight >= innerWidth;
   const screenSide = portrait ? Math.max(screenWidth, screenHeight) : Math.min(screenWidth, screenHeight);

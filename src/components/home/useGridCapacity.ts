@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
 
-import { holdGridSize, homeGridLayout, type GridSize, type HomeGridLayout } from './homeGridLayout';
+import { homeGridLayout, nextGridHold, type GridSize, type HomeGridLayout } from './homeGridLayout';
 
 // Measure before paint in the browser; on the server there is nothing to measure.
 const useBrowserLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -11,21 +11,25 @@ const useBrowserLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect :
  * the search field appearing, the keyboard. `initialSize` is used until the
  * first measurement (server render, previews).
  *
- * `hold` — keep the rows measured when it turned on (`holdGridSize`): Home
- * holds while the empty search is focused / the keyboard is up, so the
- * keyboard squeezing the shell does not take tiles away.
+ * `hold` — keep the rows measured while not `squeezed` (`nextGridHold`):
+ * Home holds while the empty search is focused / the keyboard is up, so the
+ * keyboard squeezing the shell does not take tiles away. `squeezed` — the
+ * field is focused or the keyboard is up (defaults to `hold`); measurements
+ * taken then are not remembered, so a hold that turns on again mid-keyboard
+ * (query wiped, «clear» cross) still gets the keyboard-free rows.
  */
 export function useGridCapacity(
   ref: RefObject<HTMLElement | null>,
   initialSize: GridSize = { width: 0, height: 0 },
   hold = false,
+  squeezed = hold,
 ): HomeGridLayout {
   const [size, setSize] = useState<GridSize>(initialSize);
-  const [held, setHeld] = useState<GridSize | null>(null);
-  // Derived state, adjusted during render: the size at the moment the hold
-  // starts is the one from before the keyboard (focus comes first).
-  if (hold && held === null) setHeld(size);
-  if (!hold && held !== null) setHeld(null);
+  const [rest, setRest] = useState<GridSize | null>(initialSize);
+  // Derived state, adjusted during render (focus comes before the keyboard,
+  // so the last unsqueezed measurement is the one from before it).
+  const grid = nextGridHold(rest, size, { hold, squeezed });
+  if (grid.rest !== rest) setRest(grid.rest);
 
   useBrowserLayoutEffect(() => {
     const element = ref.current;
@@ -50,5 +54,5 @@ export function useGridCapacity(
     return () => observer.disconnect();
   }, [ref]);
 
-  return homeGridLayout(hold ? holdGridSize(size, held ?? size) : size);
+  return homeGridLayout(grid.size);
 }

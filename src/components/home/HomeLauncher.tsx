@@ -81,8 +81,11 @@ export default function HomeLauncher({
   // the shell: Home used to drop from 4 rows to 1–2 until it closed. While
   // the field is focused (or the keyboard still slides away) and nothing is
   // typed, the rows measured before the tap stay; the area scrolls instead.
-  const holdGrid = !searching && (searchFocused || keyboardOpen);
-  const layout = useGridCapacity(gridAreaRef, initialGridSize, holdGrid);
+  // Sizes measured while squeezed are not remembered: wiping the query with
+  // the keyboard still up brings the keyboard-free rows back (review 04).
+  const gridSqueezed = searchFocused || keyboardOpen;
+  const holdGrid = !searching && gridSqueezed;
+  const layout = useGridCapacity(gridAreaRef, initialGridSize, holdGrid, gridSqueezed);
   // Exactly one screen: pinned, then recent; the last cell is «All projects».
   const { items: shownProjects, hiddenCount } = useMemo(
     () => buildHomeProjects(projects, { query, capacity: layout.capacity }),
