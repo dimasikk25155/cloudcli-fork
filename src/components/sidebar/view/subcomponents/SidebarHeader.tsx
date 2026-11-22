@@ -88,9 +88,17 @@ export default function SidebarHeader({
     { key: 'recent', icon: History, label: t('search.modeRecent', 'Recent') },
   ];
 
-  const NavTabs = () => (
+  // The phone row is a 320–365 px drawer minus its padding (296–341 px). With
+  // the tab icons, both counters and the «Недавние / А–Я» switch it needed
+  // ~322 px, and ⚡N went past the right edge (review 23.11). On the phone the
+  // tabs are plain text like claude.ai's own split, gaps are tighter, the
+  // right cluster never shrinks, and the labels truncate as a last resort.
+  const NavTabs = ({ phone = false }: { phone?: boolean }) => (
     !showSearchTools ? null : (
-      <div className="flex items-center gap-4">
+      <div
+        className={cn('flex min-w-0 items-center', phone ? 'gap-3' : 'gap-4')}
+        data-sidebar-tabs={phone ? 'phone' : 'desktop'}
+      >
         {primaryTabs.map(({ key, icon: Icon, label }) => {
           const active = searchMode === key;
           return (
@@ -99,22 +107,22 @@ export default function SidebarHeader({
               onClick={() => onSearchModeChange(key)}
               aria-pressed={active}
               className={cn(
-                'sidebar-nav-tab flex items-center gap-1.5 border-b-2 pb-1 text-sm font-normal transition-colors',
+                'sidebar-nav-tab flex min-w-0 items-center gap-1.5 border-b-2 pb-1 text-sm font-normal transition-colors',
                 active
                   ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
+              {!phone && <Icon className="h-3.5 w-3.5 flex-shrink-0" />}
+              <span className="truncate">{label}</span>
               {key === 'recent' && recentSessionsCount > 0 && (
-                <span className="text-[11px] text-muted-foreground/70">{recentBadgeText}</span>
+                <span className="flex-shrink-0 text-[11px] text-muted-foreground/70">{recentBadgeText}</span>
               )}
             </button>
           );
         })}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className={cn('ml-auto flex flex-shrink-0 items-center', phone ? 'gap-3' : 'gap-2')}>
           {searchMode === 'projects' && projectSortOrder && onProjectSortOrderChange && (
             <ProjectSortToggle order={projectSortOrder} onChange={onProjectSortOrderChange} t={t} />
           )}
@@ -124,7 +132,8 @@ export default function SidebarHeader({
               aria-pressed={searchMode === 'running'}
               title={t('search.runningTooltip', 'Running sessions')}
               className={cn(
-                'flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
+                // relative: sits above the switch's invisible touch area.
+                'relative flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
                 searchMode === 'running'
                   ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                   : 'text-muted-foreground hover:text-emerald-500',
@@ -328,7 +337,7 @@ export default function SidebarHeader({
 
         {/* Mobile nav tabs + search */}
         <div className="mt-2.5 space-y-2">
-          <NavTabs />
+          <NavTabs phone />
 
           {showSearchTools && (
             <div className="relative">

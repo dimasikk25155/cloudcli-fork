@@ -18,7 +18,8 @@ import PanelBackButton from './PanelBackButton';
 // On a phone the box covers the whole screen from y=0 (it is portalled
 // outside #root, so the PWA safe-area padding of #root does not reach it):
 // the header pads itself below the notch/clock and the body above the home
-// indicator, and «Назад» on the left is the way out — there is no Esc and
+// indicator (once, here — panels inside must not pad for it again), and
+// «Назад» on the left is the way out — there is no Esc and
 // no visible backdrop on an iPhone.
 
 export default function PanelModal({
@@ -59,7 +60,11 @@ export default function PanelModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)] md:pb-0">{children}</div>
+        {/* The one bottom inset of every panel: --safe-bottom (index.css) is the
+            home-indicator inset minus the strip the installed app's window
+            does not cover; none while the keyboard is up. Panel bodies must
+            not add env(safe-area-inset-bottom) again (review 23.11). */}
+        <div className="min-h-0 flex-1 overflow-y-auto pb-[var(--safe-bottom)] md:pb-0 [.keyboard-open_&]:pb-0">{children}</div>
       </DialogContent>
     </Dialog>
   );

@@ -38,3 +38,16 @@ export function homeGridLayout({ width, height }: GridSize): HomeGridLayout {
 
   return { columns, rows, capacity: columns * rows, columnGap, rowGap, cellHeight: HOME_CELL_HEIGHT };
 }
+
+/**
+ * Grid size while Home holds its tiles (the search field is focused with an
+ * empty query, or the on-screen keyboard is up). On an iPhone the keyboard
+ * shrinks the shell (`--keyboard-height`), and Home lost 2–3 of its 4 rows
+ * the moment one tapped the empty search (review 23.11). Height never drops
+ * below the one measured before the hold; width follows the measurement
+ * (rotation still re-flows the columns).
+ */
+export function holdGridSize(measured: GridSize, held: GridSize | null): GridSize {
+  if (!held) return measured;
+  return { width: measured.width, height: Math.max(measured.height, held.height) };
+}

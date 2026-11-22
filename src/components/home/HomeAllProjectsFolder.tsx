@@ -42,7 +42,9 @@ export default function HomeAllProjectsFolder({
       icon={LayoutGrid}
       onClose={onClose}
     >
-      <div className="flex min-h-full flex-col pb-[max(1.5rem,env(safe-area-inset-bottom))]" data-home-folder="all">
+      {/* PanelModal already keeps the body above the home indicator; here
+          only the breathing room under the last row. */}
+      <div className="flex min-h-full flex-col pb-3 md:pb-6" data-home-folder="all">
         <div className="sticky top-0 z-[2] bg-background/85 px-5 pb-3 pt-4 backdrop-blur-md sm:px-8">
           <HomeSearchField value={query} onChange={setQuery} />
         </div>

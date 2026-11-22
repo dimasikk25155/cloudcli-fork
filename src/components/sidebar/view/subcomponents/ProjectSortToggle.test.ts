@@ -50,3 +50,25 @@ test('pressing a choice reports that order', () => {
   (recent.props.onClick as () => void)();
   assert.deepEqual(picked, ['name', 'recent']);
 });
+
+test('on a phone each choice is a 44 px touch target, the pill stays 24 px tall', () => {
+  // Review 23.11: the segments were 24 px — under Apple's 44 px minimum. The
+  // visible pill keeps h-6; an invisible ::before reaches 10 px up and down
+  // (24 + 2 × 10 = 44) and 16 px outward — left of the clock, right of А–Я —
+  // so the two areas never overlap each other (each segment is ≥ 28 px wide).
+  const [recent, name] = buttonsOf('recent', () => {});
+  for (const button of [recent, name]) {
+    const classes = String(button.props.className);
+    assert.match(classes, /(^|\s)h-6(\s|$)/);
+    assert.match(classes, /(^|\s)min-w-\[1\.75rem\](\s|$)/);
+    assert.match(classes, /(^|\s)relative(\s|$)/);
+    assert.match(classes, /(^|\s)max-md:before:absolute(\s|$)/);
+    assert.match(classes, /(^|\s)max-md:before:-inset-y-2\.5(\s|$)/);
+  }
+  const recentClasses = String(recent.props.className);
+  const nameClasses = String(name.props.className);
+  assert.match(recentClasses, /(^|\s)max-md:before:-left-4(\s|$)/);
+  assert.match(recentClasses, /(^|\s)max-md:before:right-0(\s|$)/);
+  assert.match(nameClasses, /(^|\s)max-md:before:left-0(\s|$)/);
+  assert.match(nameClasses, /(^|\s)max-md:before:-right-4(\s|$)/);
+});

@@ -5,10 +5,12 @@ import { Search, X } from 'lucide-react';
 type HomeSearchFieldProps = {
   value: string;
   onChange: (value: string) => void;
+  /** Focus in / out of the field (Home holds its rows while it is focused). */
+  onFocusChange?: (focused: boolean) => void;
 };
 
 /** The pill search field of Home and the «All projects» folder. */
-export default function HomeSearchField({ value, onChange }: HomeSearchFieldProps) {
+export default function HomeSearchField({ value, onChange, onFocusChange }: HomeSearchFieldProps) {
   const { t } = useTranslation();
 
   return (
@@ -18,6 +20,8 @@ export default function HomeSearchField({ value, onChange }: HomeSearchFieldProp
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onFocus={onFocusChange ? () => onFocusChange(true) : undefined}
+        onBlur={onFocusChange ? () => onFocusChange(false) : undefined}
         placeholder={t('mainContent.searchProjects', 'Find a project')}
         className="h-9 w-full rounded-full border-0 bg-background/40 pl-9 pr-9 text-sm text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.18)] ring-1 ring-white/10 backdrop-blur-md placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
       />

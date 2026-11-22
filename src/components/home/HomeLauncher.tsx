@@ -13,6 +13,7 @@ import HomeSearchField from './HomeSearchField';
 import type { GridSize } from './homeGridLayout';
 import { buildHomeProjects, isHomeJunkProject } from './homeProjectsModel';
 import { useGridCapacity } from './useGridCapacity';
+import { useKeyboardOpen } from './useKeyboardOpen';
 import { useProjectTileMenu } from './useProjectTileMenu';
 
 type HomeLauncherProps = {
@@ -69,12 +70,19 @@ export default function HomeLauncher({
   const { t } = useTranslation();
   const { time, date } = useClock();
   const gridAreaRef = useRef<HTMLDivElement>(null);
-  const layout = useGridCapacity(gridAreaRef, initialGridSize);
   const menu = useProjectTileMenu(onToggleStarProject);
   const [query, setQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
+  const keyboardOpen = useKeyboardOpen();
 
   const searching = query.trim().length > 0;
+  // Tapping the empty search on an iPhone raises the keyboard, which squeezes
+  // the shell: Home used to drop from 4 rows to 1–2 until it closed. While
+  // the field is focused (or the keyboard still slides away) and nothing is
+  // typed, the rows measured before the tap stay; the area scrolls instead.
+  const holdGrid = !searching && (searchFocused || keyboardOpen);
+  const layout = useGridCapacity(gridAreaRef, initialGridSize, holdGrid);
   // Exactly one screen: pinned, then recent; the last cell is «All projects».
   const { items: shownProjects, hiddenCount } = useMemo(
     () => buildHomeProjects(projects, { query, capacity: layout.capacity }),
@@ -139,13 +147,13 @@ export default function HomeLauncher({
 
         {realProjectCount > SEARCH_MIN_PROJECTS && (
           <div className="mb-4 shrink-0">
-            <HomeSearchField value={query} onChange={setQuery} />
+            <HomeSearchField value={query} onChange={setQuery} onFocusChange={setSearchFocused} />
           </div>
         )}
 
         <div
           ref={gridAreaRef}
-          className={cn('min-h-0 flex-1 pb-3 pt-1 sm:pb-6', searching ? 'overflow-y-auto' : 'overflow-hidden')}
+          className={cn('min-h-0 flex-1 pb-3 pt-1 sm:pb-6', searching || holdGrid ? 'overflow-y-auto' : 'overflow-hidden')}
           data-home-grid-area
         >
           {shownProjects.length === 0 && searching ? (

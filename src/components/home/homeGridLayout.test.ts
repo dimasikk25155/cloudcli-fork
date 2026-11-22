@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { HOME_CELL_HEIGHT, homeGridLayout } from './homeGridLayout.js';
+import { HOME_CELL_HEIGHT, holdGridSize, homeGridLayout } from './homeGridLayout.js';
 
 test('a Home cell is the 68 px tile, an 8 px gap and two label lines', () => {
   assert.equal(HOME_CELL_HEIGHT, 106);
@@ -41,4 +41,25 @@ test('at least one row, and four columns before the first measurement', () => {
   assert.equal(tiny.rows, 1);
   assert.equal(tiny.capacity, 4);
   assert.equal(homeGridLayout({ width: 342, height: 40 }).rows, 1);
+});
+
+test('search focused on an iPhone: the keyboard does not take rows away', () => {
+  // 390 px phone before the tap: 553 px of grid, 4 rows. The keyboard (~336 px)
+  // leaves ~217 px — on its own that would be one row.
+  const before = { width: 342, height: 553 };
+  const withKeyboard = { width: 342, height: 217 };
+  assert.equal(homeGridLayout(withKeyboard).rows, 1);
+
+  const held = holdGridSize(withKeyboard, before);
+  assert.deepEqual(held, { width: 342, height: 553 });
+  assert.equal(homeGridLayout(held).capacity, 16);
+});
+
+test('holding keeps the taller size and follows the width', () => {
+  // Rotated to landscape while the keyboard is up: columns follow the width.
+  assert.deepEqual(holdGridSize({ width: 700, height: 120 }, { width: 342, height: 553 }), { width: 700, height: 553 });
+  // The area grew while held (keyboard closing) — the larger size wins.
+  assert.deepEqual(holdGridSize({ width: 342, height: 600 }, { width: 342, height: 553 }), { width: 342, height: 600 });
+  // Nothing held — the measurement as is.
+  assert.deepEqual(holdGridSize({ width: 342, height: 217 }, null), { width: 342, height: 217 });
 });

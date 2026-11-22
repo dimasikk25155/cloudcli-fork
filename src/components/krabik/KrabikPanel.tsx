@@ -421,8 +421,9 @@ export default function KrabikPanel() {
         </div>
       )}
 
-      {/* Низ: готовые задачи и поле ввода */}
-      <div className="flex-shrink-0 border-t border-border bg-background px-3 pb-3 pt-2" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+      {/* Низ: готовые задачи и поле ввода. Отступ над полоской «домой» даёт
+          PanelModal — второй здесь давал лишние ~34 px (ревью 23.11). */}
+      <div className="flex-shrink-0 border-t border-border bg-background px-3 pb-3 pt-2">
         {feedback && (
           <div className={cn('mb-2 text-xs', feedback.ok ? 'text-success' : 'text-destructive')}>{feedback.text}</div>
         )}

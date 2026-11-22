@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import React from 'react';
@@ -68,5 +69,31 @@ test('header clears the notch and the body clears the home indicator', () => {
   const header = html.match(/<div class="([^"]*)"[^>]*data-panel-header/);
   assert.ok(header, 'header is marked');
   assert.match(header[1], /pt-\[max\([^\]]*env\(safe-area-inset-top\)\)\]/);
-  assert.match(html, /<div class="[^"]*pb-\[env\(safe-area-inset-bottom\)\][^"]*"><p>тело<\/p>/);
+  // The bottom inset is --safe-bottom (env minus the strip the PWA window
+  // does not cover, index.css), and none while the keyboard is up.
+  const body = html.match(/<div class="([^"]*)"><p>тело<\/p>/);
+  assert.ok(body, 'body wraps the content');
+  assert.match(body[1], /(^|\s)pb-\[var\(--safe-bottom\)\](\s|$)/);
+  assert.match(body[1], /\[\.keyboard-open_&(amp;)?\]:pb-0/);
+  assert.doesNotMatch(body[1], /env\(safe-area-inset-bottom\)/);
+});
+
+test('one bottom inset: panels inside PanelModal do not add the home-indicator inset again', () => {
+  // Review 23.11: the «All projects» folder and Крабик's input bar padded
+  // for env(safe-area-inset-bottom) on top of PanelModal — ~34 px extra.
+  for (const file of ['../home/HomeAllProjectsFolder.tsx', '../krabik/KrabikPanel.tsx']) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /safe-area-inset-bottom|--safe-bottom/, file);
+  }
+});
+
+test('«Назад» is a 44 px touch target on a phone, the visible box stays 36 px', () => {
+  const tree = panel(() => {});
+  const [back] = findAll(tree, (el) => el.type === 'button' && el.props['aria-label'] === 'Назад');
+  const classes = String(back.props.className);
+  assert.match(classes, /(^|\s)h-9 w-9(\s|$)/, 'visible 36 px');
+  // An invisible ::before 4 px out on every side: 36 + 2 × 4 = 44.
+  assert.match(classes, /(^|\s)relative(\s|$)/);
+  assert.match(classes, /(^|\s)before:absolute(\s|$)/);
+  assert.match(classes, /(^|\s)before:-inset-1(\s|$)/);
 });
