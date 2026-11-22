@@ -215,7 +215,7 @@ export function jailCodexHome(jail: UserJail, home = os.homedir()): string {
  * and a config with Dima's model settings, the threads MCP server and trust
  * for this project only — none of his other MCP servers, hooks or projects.
  */
-export function prepareCodexHome(jail: UserJail, home = os.homedir(), telegramUrl?: string): string {
+export function prepareCodexHome(jail: UserJail, home = os.homedir(), telegramUrl?: string, kieUrl?: string): string {
   const dir = jailCodexHome(jail, home);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const authLink = path.join(dir, 'auth.json');
@@ -243,6 +243,8 @@ export function prepareCodexHome(jail: UserJail, home = os.homedir(), telegramUr
   if (threads) mcpServers['neo3-threads'] = threads;
   // Dima's Telegram through the gatekeeper; the run's key travels in env.
   if (telegramUrl) mcpServers.telegram = { url: telegramUrl, bearer_token_env_var: 'NEO3_TEAM_TELEGRAM_TOKEN' };
+  // Kie.ai gatekeeper for allowed teammates: the same run token opens it.
+  if (kieUrl) mcpServers.kie = { url: kieUrl, bearer_token_env_var: 'NEO3_TEAM_TELEGRAM_TOKEN' };
   if (Object.keys(mcpServers).length > 0) config.mcp_servers = mcpServers;
   config.projects = { [jail.root]: { trust_level: 'trusted' } };
   const file = path.join(dir, 'config.toml');

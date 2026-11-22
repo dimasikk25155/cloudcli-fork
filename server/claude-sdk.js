@@ -576,6 +576,14 @@ function mapCliOptionsToSDK(options = {}) {
         headers: { Authorization: `Bearer ${options.teamTelegram.token}` },
       };
     }
+    // Kie.ai through the gatekeeper (same run token, daily credit limit).
+    if (options.teamKie?.url && options.teamTelegram?.token) {
+      jailedMcp.kie = {
+        type: 'http',
+        url: options.teamKie.url,
+        headers: { Authorization: `Bearer ${options.teamTelegram.token}` },
+      };
+    }
     if (Object.keys(jailedMcp).length > 0) {
       sdkOptions.mcpServers = jailedMcp;
     }

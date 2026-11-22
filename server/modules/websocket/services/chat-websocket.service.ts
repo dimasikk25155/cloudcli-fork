@@ -47,6 +47,7 @@ import {
 import { isModOn, MOD_OFF, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession, isAdminUser } from '@/shared/project-access.js';
 import { teamTelegram, teamTelegramUrl } from '@/modules/team-telegram/index.js';
+import { teamKie, teamKieUrl } from '@/modules/team-kie/index.js';
 import { JAIL_DENIED_MESSAGE, JAIL_PROVIDER_MESSAGE, JAILED_PROVIDERS, userJailFor } from '@/shared/user-jail.js';
 import { threadsApiUrl, type ThreadsRunEnv } from '@/shared/threads-env.js';
 import type {
@@ -438,6 +439,7 @@ function beginChatSend(
   // Set by the server only: a client cannot send its own `jail` (or `null`).
   delete runtimeOptions.jail;
   delete runtimeOptions.teamTelegram;
+  delete runtimeOptions.teamKie;
   if (jail) {
     const assetsRoot = getGlobalImageAssetsDir();
     runtimeOptions.jail = {
@@ -449,6 +451,11 @@ function beginChatSend(
       url: teamTelegramUrl(),
       token: teamTelegram.issue({ root: jail.root, userId: Number(userId) || 0 }),
     };
+    // Kie.ai with Dima's key kept on the server, for teammates listed in its
+    // config (team-kie); the run's team token above is the credential.
+    if (teamKie.allowedUser(Number(userId) || 0)) {
+      runtimeOptions.teamKie = { url: teamKieUrl() };
+    }
   }
 
   // Auto-relay handoff request: a service turn (no «run stopped» push of its

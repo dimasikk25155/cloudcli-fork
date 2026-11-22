@@ -278,6 +278,7 @@
     }
   },
   "firstTask": {
+    "toggle": "Starter tasks · {{count}}",
     "title": "What to do with these files",
     "subtitle": "Tap a job — questions arrive as buttons. The brief is for the agent, you do not send anything.",
     "guide": "Full interface guide",

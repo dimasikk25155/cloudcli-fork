@@ -48,7 +48,6 @@ test('every mod switch from the registry is stored on the account', async (t) =>
   const allOff = {
     modAttention: false,
     modAnswerButtons: false,
-    modReplyChips: false,
     modSecretGuard: false,
     modMemoryNotes: false,
     modCodeStatus: false,

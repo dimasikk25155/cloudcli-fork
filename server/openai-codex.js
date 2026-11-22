@@ -260,7 +260,7 @@ export function buildCodexClientOptions(options = {}, policy = {}) {
   env.NEO3_JAIL_REAL = bundled.executablePath;
   env.NEO3_JAIL_ROOT = options.jail.root;
   // The teammate's own Codex folder: Dima's chats and MCP servers stay out.
-  env.CODEX_HOME = prepareCodexHome(options.jail, undefined, options.teamTelegram?.url);
+  env.CODEX_HOME = prepareCodexHome(options.jail, undefined, options.teamTelegram?.url, options.teamKie?.url);
   if (options.teamTelegram?.token) {
     env.NEO3_TEAM_TELEGRAM_TOKEN = options.teamTelegram.token;
   }

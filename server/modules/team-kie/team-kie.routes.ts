@@ -1,0 +1,37 @@
+import express, { type Request, type Response } from 'express';
+
+import type { TeamKie } from '@/modules/team-kie/team-kie.service.js';
+
+function bearer(req: Request): string | null {
+  const header = req.headers.authorization;
+  if (typeof header !== 'string') return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * Streamable-HTTP endpoint of the Kie gatekeeper (plain JSON replies, no stream).
+ * No JWT: the run's team token is the credential, as for team-telegram.
+ */
+export function createTeamKieRoutes(service: TeamKie) {
+  const router = express.Router();
+
+  router.post('/', async (req: Request, res: Response) => {
+    const grant = service.grantFor(bearer(req));
+    if (!grant) {
+      res.status(401).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized' } });
+      return;
+    }
+    const reply = await service.handle(grant, req.body);
+    if (reply === null) {
+      res.status(202).end();
+      return;
+    }
+    res.json(reply);
+  });
+
+  router.get('/', (_req, res) => { res.status(405).end(); });
+  router.delete('/', (_req, res) => { res.status(200).end(); });
+
+  return router;
+}
