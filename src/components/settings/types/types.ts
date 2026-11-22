@@ -6,7 +6,8 @@ import type { ProviderAuthStatus } from '../../provider-auth/types';
 export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' | 'browser' | 'notifications' | 'telegram' | 'plugins' | 'admin' | 'about';
 export type AgentProvider = LLMProvider;
 export type AgentCategory = 'account' | 'defaults' | 'permissions' | 'mcp' | 'skills';
-export type ProjectSortOrder = 'name' | 'date';
+// One definition with the sidebar: Settings and the sidebar switch write the same device key.
+export type { ProjectSortOrder } from '../../sidebar/types/types';
 export type SaveStatus = 'success' | 'error' | null;
 export type CodexPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 
@@ -53,7 +54,7 @@ export type CodeEditorSettingsState = {
 };
 
 export type SettingsStoragePayload = {
-  claude: ClaudePermissionsState & { projectSortOrder: ProjectSortOrder; lastUpdated: string };
+  claude: ClaudePermissionsState & { lastUpdated: string };
   cursor: CursorPermissionsState & { lastUpdated: string };
   codex: { permissionMode: CodexPermissionMode; lastUpdated: string };
 };

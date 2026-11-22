@@ -4,18 +4,31 @@ import type { SessionLinkRef, SessionLinks } from '../../../../shared/session-li
 import type { LLMProvider, Project, ProjectSession } from '../../../types/app';
 import type { ProjectSortOrder, SettingsProject, SessionViewModel, SessionWithProvider } from '../types/types';
 
+/** Device-local sidebar order. The old `claude-settings.projectSortOrder` is not read: it held «по алфавиту» from defaults (23.11). */
+export const PROJECT_SORT_STORAGE_KEY = 'neo3-project-sort';
+/** Fired on window after a write: `storage` does not fire in the tab that wrote. `detail` = the new order. */
+export const PROJECT_SORT_CHANGED_EVENT = 'neo3:project-sort-changed';
+export const DEFAULT_PROJECT_SORT_ORDER: ProjectSortOrder = 'recent';
+
+export const isProjectSortOrder = (value: unknown): value is ProjectSortOrder =>
+  value === 'recent' || value === 'name';
+
 export const readProjectSortOrder = (): ProjectSortOrder => {
   try {
-    const rawSettings = localStorage.getItem('claude-settings');
-    if (!rawSettings) {
-      return 'name';
-    }
-
-    const settings = JSON.parse(rawSettings) as { projectSortOrder?: ProjectSortOrder };
-    return settings.projectSortOrder === 'date' ? 'date' : 'name';
+    const stored = localStorage.getItem(PROJECT_SORT_STORAGE_KEY);
+    return isProjectSortOrder(stored) ? stored : DEFAULT_PROJECT_SORT_ORDER;
   } catch {
-    return 'name';
+    return DEFAULT_PROJECT_SORT_ORDER;
   }
+};
+
+export const writeProjectSortOrder = (order: ProjectSortOrder): void => {
+  try {
+    localStorage.setItem(PROJECT_SORT_STORAGE_KEY, order);
+  } catch {
+    // Private mode / full storage: the choice still applies to open views below.
+  }
+  window.dispatchEvent(new CustomEvent(PROJECT_SORT_CHANGED_EVENT, { detail: order }));
 };
 
 /**
@@ -392,43 +405,6 @@ export const partitionCodexInboxProjects = (
   }
 
   return { workspaceProjects, codexInboxProjects };
-};
-
-export const sortProjects = (
-  projects: Project[],
-  projectSortOrder: ProjectSortOrder,
-): Project[] => {
-  const byName = [...projects];
-
-  byName.sort((projectA, projectB) => {
-    // Star order now comes from backend `projects.isStarred`.
-    const aStarred = Boolean(projectA.isStarred);
-    const bStarred = Boolean(projectB.isStarred);
-
-    if (aStarred && !bStarred) {
-      return -1;
-    }
-
-    if (!aStarred && bStarred) {
-      return 1;
-    }
-
-    // Unstarred Codex inbox folders stay below real workspaces. Starring one
-    // still lifts it — the star is an explicit "keep this in my face".
-    const aCodexInbox = isCodexInboxProject(projectA);
-    const bCodexInbox = isCodexInboxProject(projectB);
-    if (aCodexInbox !== bCodexInbox) {
-      return aCodexInbox ? 1 : -1;
-    }
-
-    if (projectSortOrder === 'date') {
-      return compareProjectsByNewestCreated(projectA, projectB);
-    }
-
-    return (projectA.displayName || projectA.projectId).localeCompare(projectB.displayName || projectB.projectId);
-  });
-
-  return byName;
 };
 
 /** Чаты без активности дольше этого срока в «Проектах» и «Недавних» не показываются (просьба Димы 14.11). */

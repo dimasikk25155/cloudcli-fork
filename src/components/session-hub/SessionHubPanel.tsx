@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bot, Check, CheckCheck, MessagesSquare, X } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
+import PanelBackButton from '../panels/PanelBackButton';
 import { Dialog, DialogContent, DialogTitle } from '../../shared/view/ui';
 import SessionProviderLogo from '../llm-logo-provider/SessionProviderLogo';
 import type { AttentionItem } from '../attention/types';
@@ -67,8 +68,9 @@ export default function SessionHubPanel({ onClose, onOpenSession, getProviderLab
         )}
       >
         <DialogTitle>Диалоги</DialogTitle>
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-3">
           <div className="flex min-w-0 items-center gap-2">
+            <PanelBackButton onClick={onClose} />
             <MessagesSquare className="h-4 w-4 flex-shrink-0 text-primary" aria-hidden />
             <h2 className="truncate text-sm font-semibold">Диалоги</h2>
           </div>
@@ -86,7 +88,7 @@ export default function SessionHubPanel({ onClose, onOpenSession, getProviderLab
             )}
           <button
             type="button"
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg hover:bg-accent"
+            className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg hover:bg-accent md:flex"
             onClick={onClose}
             aria-label="Закрыть"
           >
@@ -110,7 +112,7 @@ export default function SessionHubPanel({ onClose, onOpenSession, getProviderLab
           ))}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
           {tab === 'master' ? (
             <MasterSessionSection onOpenSession={openById} refreshKey={waitingKey} />
           ) : groups.length === 0 ? (

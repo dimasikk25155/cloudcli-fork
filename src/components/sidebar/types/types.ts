@@ -1,7 +1,8 @@
 import type { LoadingProgress, Project, ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
 
-export type ProjectSortOrder = 'name' | 'date';
+/** Sidebar project order: by last chat activity (default) or by name. */
+export type ProjectSortOrder = 'recent' | 'name';
 export type SidebarSearchMode = 'projects' | 'running' | 'recent' | 'archived';
 export type ArchivedProjectListItem = Project & { isArchived: true };
 

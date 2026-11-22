@@ -25,10 +25,13 @@ import {
   isScratchProject,
   readExpandedJournalProjectIds,
   readLegacyStarredProjectIds,
+  PROJECT_SORT_CHANGED_EVENT,
+  PROJECT_SORT_STORAGE_KEY,
   readProjectSortOrder,
-  sortProjects,
   writeExpandedJournalProjectIds,
+  writeProjectSortOrder,
 } from '../utils/utils';
+import { sortProjects } from '../utils/projectSort';
 import { useSidebarGroups } from '../groups/useSidebarGroups';
 
 type ArchivedSessionsApiPayload = {
@@ -88,7 +91,7 @@ export function useSidebarController({
   const [editingName, setEditingName] = useState('');
   const [initialSessionsLoaded, setInitialSessionsLoaded] = useState<Set<string>>(new Set());
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>('name');
+  const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>(readProjectSortOrder);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editingSessionName, setEditingSessionName] = useState('');
@@ -175,24 +178,25 @@ export function useSidebarController({
 
     loadSortOrder();
 
+    // Another tab writes → `storage`; this tab (header switch, Settings) → our event.
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'claude-settings') {
+      if (event.key === PROJECT_SORT_STORAGE_KEY) {
         loadSortOrder();
       }
     };
 
     window.addEventListener('storage', handleStorageChange);
-
-    const interval = setInterval(() => {
-      if (document.hasFocus()) {
-        loadSortOrder();
-      }
-    }, 1000);
+    window.addEventListener(PROJECT_SORT_CHANGED_EVENT, loadSortOrder);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
+      window.removeEventListener(PROJECT_SORT_CHANGED_EVENT, loadSortOrder);
     };
+  }, []);
+
+  const changeProjectSortOrder = useCallback((order: ProjectSortOrder) => {
+    setProjectSortOrder(order);
+    writeProjectSortOrder(order);
   }, []);
 
   useEffect(() => {
@@ -1051,6 +1055,7 @@ export function useSidebarController({
     initialSessionsLoaded,
     currentTime,
     projectSortOrder,
+    changeProjectSortOrder,
     isRefreshing,
     editingSession,
     editingSessionName,

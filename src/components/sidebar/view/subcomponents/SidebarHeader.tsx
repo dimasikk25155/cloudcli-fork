@@ -6,10 +6,11 @@ import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
 import { IS_PLATFORM } from '../../../../constants/config';
 import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
 import { cn } from '../../../../lib/utils';
-import type { SidebarSearchMode } from '../../types/types';
+import type { ProjectSortOrder, SidebarSearchMode } from '../../types/types';
 import AttentionHubButton from '../../../attention/view/AttentionHubButton';
-
 import Neo3Logo from '../../../branding/Neo3Logo';
+
+import ProjectSortToggle from './ProjectSortToggle';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -35,6 +36,9 @@ type SidebarHeaderProps = {
   onGoHome?: () => void;
   /** Opens the «Ждут тебя» hub. */
   onOpenAttention?: () => void;
+  /** Sidebar project order; the switch shows only on the «Проекты» tab when both are given. */
+  projectSortOrder?: ProjectSortOrder;
+  onProjectSortOrderChange?: (order: ProjectSortOrder) => void;
   t: TFunction;
 };
 
@@ -58,6 +62,8 @@ export default function SidebarHeader({
   onCollapseSidebar,
   onGoHome,
   onOpenAttention,
+  projectSortOrder,
+  onProjectSortOrderChange,
   t,
 }: SidebarHeaderProps) {
   const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0 || recentSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
@@ -108,22 +114,27 @@ export default function SidebarHeader({
           );
         })}
 
-        {runningSessionsCount > 0 && (
-          <button
-            onClick={() => onSearchModeChange('running')}
-            aria-pressed={searchMode === 'running'}
-            title={t('search.runningTooltip', 'Running sessions')}
-            className={cn(
-              'ml-auto flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
-              searchMode === 'running'
-                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                : 'text-muted-foreground hover:text-emerald-500',
-            )}
-          >
-            <Activity className="h-3 w-3" />
-            {runningBadgeText}
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {searchMode === 'projects' && projectSortOrder && onProjectSortOrderChange && (
+            <ProjectSortToggle order={projectSortOrder} onChange={onProjectSortOrderChange} t={t} />
+          )}
+          {runningSessionsCount > 0 && (
+            <button
+              onClick={() => onSearchModeChange('running')}
+              aria-pressed={searchMode === 'running'}
+              title={t('search.runningTooltip', 'Running sessions')}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
+                searchMode === 'running'
+                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                  : 'text-muted-foreground hover:text-emerald-500',
+              )}
+            >
+              <Activity className="h-3 w-3" />
+              {runningBadgeText}
+            </button>
+          )}
+        </div>
       </div>
     )
   );

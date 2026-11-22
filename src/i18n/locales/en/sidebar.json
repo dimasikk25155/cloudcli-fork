@@ -130,6 +130,11 @@
     "updateAvailable": "Update available",
     "restartRequired": "Update installed — restart the server to apply"
   },
+  "projectSort": {
+    "label": "Project order",
+    "recent": "Recent first",
+    "name": "Alphabetical"
+  },
   "search": {
     "modeProjects": "Projects",
     "searching": "Searching...",

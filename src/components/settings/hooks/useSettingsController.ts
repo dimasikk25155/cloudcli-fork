@@ -6,6 +6,11 @@ import { setNotificationSoundEnabled } from '../../../utils/notificationSound';
 import { useProviderAuthStatus } from '../../provider-auth/hooks/useProviderAuthStatus';
 import { mergePermissionListOnSave } from '../utils/mergePermissionLists';
 import {
+  PROJECT_SORT_CHANGED_EVENT,
+  readProjectSortOrder,
+  writeProjectSortOrder,
+} from '../../sidebar/utils/utils';
+import {
   DEFAULT_CODE_EDITOR_SETTINGS,
   DEFAULT_CURSOR_PERMISSIONS,
 } from '../constants/constants';
@@ -34,7 +39,6 @@ type ClaudeSettingsStorage = {
   allowedTools?: string[];
   disallowedTools?: string[];
   skipPermissions?: boolean;
-  projectSortOrder?: ProjectSortOrder;
 };
 
 type CursorSettingsStorage = {
@@ -144,7 +148,17 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
 
   const [activeTab, setActiveTab] = useState<SettingsMainTab>(() => normalizeMainTab(initialTab));
   const [saveStatus, setSaveStatus] = useState<'success' | 'error' | null>(null);
-  const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>('name');
+  // Device key `neo3-project-sort`, shared with the sidebar switch; applied at once, not on «save».
+  const [projectSortOrder, setProjectSortOrderState] = useState<ProjectSortOrder>(readProjectSortOrder);
+  const setProjectSortOrder = useCallback((order: ProjectSortOrder) => {
+    setProjectSortOrderState(order);
+    writeProjectSortOrder(order);
+  }, []);
+  useEffect(() => {
+    const sync = () => setProjectSortOrderState(readProjectSortOrder());
+    window.addEventListener(PROJECT_SORT_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(PROJECT_SORT_CHANGED_EVENT, sync);
+  }, []);
   const [codeEditorSettings, setCodeEditorSettings] = useState<CodeEditorSettingsState>(() => (
     readCodeEditorSettings()
   ));
@@ -190,7 +204,7 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
         disallowedTools: savedClaudeSettings.disallowedTools || [],
         skipPermissions: Boolean(savedClaudeSettings.skipPermissions),
       });
-      setProjectSortOrder(savedClaudeSettings.projectSortOrder === 'date' ? 'date' : 'name');
+      setProjectSortOrderState(readProjectSortOrder());
 
       const savedCursorSettings = parseJson<CursorSettingsStorage>(
         localStorage.getItem('cursor-tools-settings'),
@@ -230,7 +244,7 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
       setCursorPermissions(createEmptyCursorPermissions());
       setNotificationPreferences(createDefaultNotificationPreferences());
       setCodexPermissionMode('default');
-      setProjectSortOrder('name');
+      setProjectSortOrderState(readProjectSortOrder());
     }
   }, []);
 
@@ -280,7 +294,6 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
           onDiskClaudeSettings.disallowedTools || [],
         ),
         skipPermissions: claudePermissions.skipPermissions,
-        projectSortOrder,
         lastUpdated: now,
       }));
 
@@ -318,7 +331,6 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     cursorPermissions.disallowedCommands,
     cursorPermissions.skipPermissions,
     notificationPreferences,
-    projectSortOrder,
   ]);
 
   const updateCodeEditorSetting = useCallback(

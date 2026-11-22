@@ -7,8 +7,8 @@ import {
   isCodexInboxProject,
   isScratchProject,
   partitionCodexInboxProjects,
-  sortProjects,
 } from './utils.js';
+import { sortProjects } from './projectSort.js';
 
 const projectAt = (path: string, extras: Partial<Project> = {}): Project => ({
   projectId: extras.projectId ?? path,

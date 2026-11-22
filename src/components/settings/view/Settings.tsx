@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import ProviderLoginModal from '../../provider-auth/view/ProviderLoginModal';
-import { Button } from '../../../shared/view/ui';
 import SettingsSidebar from '../view/SettingsSidebar';
 import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
 import AppearanceSettingsTab from '../view/tabs/AppearanceSettingsTab';
@@ -22,6 +20,8 @@ import { useSettingsController } from '../hooks/useSettingsController';
 import { useWebPush } from '../../../hooks/useWebPush';
 import type { SettingsProps } from '../types/types';
 import { ESCAPE_LAYER_SELECTOR, isBackdropDismiss, shouldCloseSettingsOnEscape } from '../utils/settingsDismiss';
+
+import SettingsHeader from './SettingsHeader';
 
 type DesktopNotificationsState = {
   enabled: boolean;
@@ -183,23 +183,11 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
       onClick={handleBackdropClick}
     >
       <div className="flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-2xl md:h-[90vh] md:max-w-4xl md:rounded-xl">
-        {/* Header */}
-        <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-3 md:px-5">
-          <h2 className="text-base font-semibold text-foreground">{t('title')}</h2>
-          <div className="flex items-center gap-2">
-            {saveStatus === 'success' && (
-              <span className="animate-in fade-in text-xs text-muted-foreground">{t('saveStatus.success')}</span>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onClose}
-              className="h-10 w-10 touch-manipulation p-0 text-muted-foreground hover:text-foreground active:bg-accent/50"
-            >
-              <X className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
+        <SettingsHeader
+          title={t('title')}
+          onClose={onClose}
+          savedText={saveStatus === 'success' ? t('saveStatus.success') : undefined}
+        />
 
         {/* Body: sidebar + content */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
