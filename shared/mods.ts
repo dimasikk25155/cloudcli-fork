@@ -17,6 +17,7 @@ export const MOD_KEYS = [
   'modCodeStatus',
   'modRelay',
   'modBackgroundConsole',
+  'modBackgroundHold',
   'modThreads',
   'subagentCrabs',
   'modScreenshots',
@@ -114,6 +115,15 @@ export const MODS: readonly ModDef[] = [
       'Таймер текущего шага работает и в Codex. «Фон: N» доступен для Claude, Codex и Grok, '
       + 'остановка отдельной фоновой задачи — у Claude, Codex и Grok (когда Neo3 нашёл процесс задачи).',
     engines: 'Claude ✓ · Codex ✓ · Grok ✓ — у Codex и Grok «Стоп» есть, когда Neo3 нашёл процесс задачи; страж циклов — только Claude',
+  },
+  {
+    key: 'modBackgroundHold',
+    title: 'Фон доживает до конца',
+    description:
+      'Агент закончил ход, а в фоне ещё работает команда или помощник — процесс не закрывается, пока фон жив '
+      + '(не дольше двух часов). Фон доработал — агент сам продолжит, без твоего сообщения. Написать ему в это время можно сразу. '
+      + 'Выключено — Neo3 закрывает процесс сразу после хода, как раньше.',
+    engines: 'Claude ✓ · Codex нет · Grok нет — у них фон устроен иначе; только чаты, которые начал ты сам',
   },
   {
     key: 'modThreads',

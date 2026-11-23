@@ -183,6 +183,7 @@ export default tseslint.config(
             "server/shared/user-jail.ts", // project jail for non-admin users: the Seatbelt fence every engine and terminal of a teammate runs in
             "server/shared/process-tree.ts", // ps-based process tree of an engine: «Стоп» of one Codex/Grok background command
             "server/shared/chat-event-log.ts", // logChatEvent: one timed journal line per chat event (subscribe, send, abort, run, queue), never message text
+            "server/shared/turn-ending.ts", // classifyTurnEnding: the one rule «the turn ended with a question / a manual ask»; session-attention settles the chat status by it
           ], // classify shared utility files so modules can depend on them explicitly
           mode: "file",
         },

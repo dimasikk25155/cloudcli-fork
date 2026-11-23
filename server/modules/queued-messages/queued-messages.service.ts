@@ -14,6 +14,12 @@
  *   the send failed     → hold «error» + a reason for a person
  *   server restart      → hold «restart»
  *
+ * «Фон доживает до конца»: a Claude process kept for its background is
+ * between turns, not busy — `isRunLive` is false there, so a put and «send
+ * now» go straight into it (no «Стоп», which would kill the background).
+ * «Ждёт помощников» changes no status, so the gateway also calls
+ * `handleAttentionChange` on such a turn boundary and on the end of a held run.
+ *
  * «failed», «stopped», «error» and «restart» stay until the user acts: edits
  * the message (a fresh put), presses «send now», or removes it. The queue
  * never retries by itself.
@@ -28,6 +34,7 @@ import { logChatEvent, type ChatEventFields, type ChatEventName } from '@/shared
 import { AppError } from '@/shared/utils.js';
 
 import { QUEUED_HOLD_REASONS, type QueuedHoldReason, type QueuedMessage } from '../../../shared/queued-message.js';
+import type { RunPhase } from '../../../shared/run-phase.js';
 
 /** The slice of the chat status the queue decides by. `stopped` = the last turn ended with «Стоп». */
 export type QueueAttention = {
@@ -59,7 +66,10 @@ export type QueuedSendOutcome =
 export type QueuedSendControl = {
   /** Starts an ordinary run with the message, as its user. Synchronous, like `chat.send`. */
   send(input: QueuedSendInput): QueuedSendOutcome;
+  /** A turn is going right now (a held run between turns is not one). */
   isRunLive(sessionId: string): boolean;
+  /** Phase of the chat's live run; null = no live run. */
+  runPhase(sessionId: string): RunPhase | null;
   /** «Стоп» for a user; settles when the engine was told. False = nothing was running. */
   abortRun(sessionId: string, userId: number | null): Promise<boolean>;
   /** The chat's last run ended with «Стоп». */
@@ -78,8 +88,10 @@ export type QueuedMessagesDependencies = {
   sendAsUser: (input: QueuedSendInput) => QueuedSendOutcome | Promise<QueuedSendOutcome>;
   /** Current status of the chat; null = the chat never ran. */
   getAttention: (sessionId: string) => QueueAttention | null;
-  /** A run of the chat is going right now. */
+  /** A turn of the chat is going right now (a held run between turns is not one). */
   isRunLive: (sessionId: string) => boolean;
+  /** Phase of the chat's live run, null = none. Absent = the engine has no phases. */
+  runPhase?: (sessionId: string) => RunPhase | null;
   /** «Стоп» on behalf of a user; settles when the run is stopped. False = nothing was running. */
   abortRun: (sessionId: string, userId: number | null) => boolean | Promise<boolean>;
   /** Content-free «re-read the queue of this chat». */
@@ -355,6 +367,12 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
         if (attention.state === 'working') {
           // The question was answered and the agent works on: the message goes with the turn end again.
           if (row.holdReason === 'question') liftHold(row);
+          // «Ждёт помощников»: the turn is over, only the status does not say
+          // so — the message goes into the live process now.
+          if (!sticky && dependencies.runPhase?.(sessionId) === 'waiting_helpers') {
+            const current = db.get(sessionId);
+            if (current) await trySend(current, false);
+          }
           return;
         }
         if (sticky) return;

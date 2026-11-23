@@ -608,3 +608,114 @@ test('prompt-cache TTL: NEO3_PROMPT_CACHE_TTL_MIN overrides, junk falls back to 
   assert.equal(promptCacheTtlMin({ NEO3_PROMPT_CACHE_TTL_MIN: '-3' }), 60);
   assert.equal(promptCacheTtlMin({ NEO3_PROMPT_CACHE_TTL_MIN: '99999' }), 60);
 });
+
+// «Фон доживает до конца»: a Claude run kept for its background reports its
+// phase between turns (`run_phase`, shared/run-phase.ts).
+
+test('run_phase parked is a turn end for the person — «готово» or «ждёт тебя» — once; waiting_helpers stays «работает»; the next turn works again', async () => {
+  await withIsolatedDatabase(({ adminId, sessionId, projectId }) => {
+    const service = quietService();
+    const run = { appSessionId: sessionId, provider: 'claude', userId: adminId, projectId };
+    const admin = { id: adminId, role: 'admin' };
+    const changes: string[] = [];
+    service.onChange((change) => { changes.push(`${change.state}/${change.reason ?? '-'}`); });
+    const phase = (name: string) => service.recordRunEvent(run, { kind: 'run_phase', phase: name });
+
+    service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+    service.recordRunEvent(run, { kind: 'text', role: 'assistant', content: 'Запустил помощника, жду его отчёт.' });
+    phase('waiting_helpers');
+    assert.equal(service.listForUser(admin)[0].state, 'working', 'helpers work: the chat works');
+
+    phase('running');
+    service.recordRunEvent(run, { kind: 'text', role: 'assistant', content: 'Сборка идёт в фоне, вернусь сам.' });
+    phase('parked');
+    let [item] = service.listForUser(admin);
+    assert.equal(item.state, 'done');
+    assert.equal(item.unread, true);
+    phase('parked');
+
+    // The background finished: the agent took a turn nobody asked for.
+    phase('running');
+    assert.equal(service.listForUser(admin)[0].state, 'working');
+    service.recordRunEvent(run, { kind: 'text', role: 'assistant', content: 'Сборка упала на тестах.\n\nЧинить или откатить?' });
+    phase('parked');
+    [item] = service.listForUser(admin);
+    assert.equal(item.state, 'waiting');
+    assert.equal(item.reason, 'text_question');
+    assert.equal(item.detail?.question, 'Чинить или откатить?');
+
+    // The process ends later with nothing new: that turn end is already told.
+    service.recordRunEvent(run, { kind: 'complete', exitCode: 0, aborted: false });
+    assert.equal(service.listForUser(admin)[0].reason, 'text_question');
+    assert.deepEqual(changes, ['working/-', 'done/-', 'working/-', 'waiting/text_question']);
+  });
+});
+
+test('a parked run that crashes or is stopped still ends as failed / done; a turn after parked is classified by its own words only', async () => {
+  await withIsolatedDatabase(({ adminId, sessionId, projectId }) => {
+    const service = quietService();
+    const run = { appSessionId: sessionId, provider: 'claude', userId: adminId, projectId };
+    const admin = { id: adminId, role: 'admin' };
+    const park = (text: string) => {
+      service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+      service.recordRunEvent(run, { kind: 'text', role: 'assistant', content: text });
+      service.recordRunEvent(run, { kind: 'run_phase', phase: 'parked' });
+    };
+
+    park('Слежу за выкаткой?');
+    assert.equal(service.listForUser(admin)[0].state, 'waiting');
+    service.recordRunEvent(run, { kind: 'error', content: 'CLI died' });
+    service.recordRunEvent(run, { kind: 'complete', exitCode: 1, aborted: false });
+    let [item] = service.listForUser(admin);
+    assert.equal(item.state, 'failed');
+    assert.equal(item.detail?.error, 'CLI died');
+
+    park('Слежу за выкаткой?');
+    service.recordStopActor(sessionId, adminId);
+    service.recordRunEvent(run, { kind: 'complete', exitCode: 0, aborted: true });
+    [item] = service.listForUser(admin);
+    assert.equal(item.state, 'done');
+    assert.equal(item.unread, false, 'Stop is seen by whoever pressed it');
+
+    // The question of the parked turn does not leak into the next one.
+    park('Слежу за выкаткой?');
+    service.recordRunEvent(run, { kind: 'run_phase', phase: 'running' });
+    service.recordRunEvent(run, { kind: 'text', role: 'assistant', content: 'Выкатка прошла.' });
+    service.recordRunEvent(run, { kind: 'complete', exitCode: 0, aborted: false });
+    assert.equal(service.listForUser(admin)[0].state, 'done');
+  });
+});
+
+test('parked with nothing streamed reads the transcript; a turn that starts first drops the late answer; an open request outlives parked', async () => {
+  await withIsolatedDatabase(async ({ adminId, sessionId, projectId }) => {
+    let release: (text: string) => void = () => {};
+    const service = quietService({
+      fetchLastAssistantText: () => new Promise<string>((resolve) => { release = resolve; }),
+    });
+    const run = { appSessionId: sessionId, provider: 'claude', userId: adminId, projectId };
+    const admin = { id: adminId, role: 'admin' };
+    const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+    service.recordRunStart({ appSessionId: sessionId, userId: adminId, provider: 'claude', projectId });
+    service.recordRunEvent(run, { kind: 'run_phase', phase: 'parked' });
+    assert.equal(service.listForUser(admin)[0].state, 'working', 'not known yet');
+    release('Проверь у себя на телефоне, пропала ли точка.');
+    await tick();
+    assert.equal(service.listForUser(admin)[0].reason, 'manual_ask');
+
+    service.recordRunEvent(run, { kind: 'run_phase', phase: 'running' });
+    service.recordRunEvent(run, { kind: 'run_phase', phase: 'parked' });
+    service.recordRunEvent(run, { kind: 'run_phase', phase: 'running' });
+    release('Выкатываю на прод?');
+    await tick();
+    assert.equal(service.listForUser(admin)[0].state, 'working', 'the new turn owns the status');
+
+    // A helper's permission request is still open when the turn parks: the process is alive, so is the request.
+    service.recordRunEvent(run, { kind: 'permission_request', requestId: 'perm-1', toolName: 'Bash', input: { command: 'npm test' } });
+    service.recordRunEvent(run, { kind: 'run_phase', phase: 'parked' });
+    const [item] = service.listForUser(admin);
+    assert.equal(item.state, 'waiting');
+    assert.equal(item.reason, 'permission');
+    assert.equal(item.detail?.requestId, 'perm-1');
+  });
+});

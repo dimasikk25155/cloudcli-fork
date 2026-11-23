@@ -17,7 +17,7 @@ import mime from 'mime-types';
 
 import { WORKSPACES_ROOT, apiErrorHandler, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { broadcastProjectEvent, createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createQueuedSendControl, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
+import { broadcastProjectEvent, chatRunRegistry, createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createQueuedSendControl, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -31,6 +31,8 @@ import {
     abortClaudeSDKSession,
     stopClaudeTask,
     getClaudeBackgroundTasks,
+    sendToHeldClaudeRun,
+    releaseHeldClaudeRun,
     abortAllActiveClaudeSDKSessions,
     resolveToolApproval,
     getPendingApprovalsForSession,
@@ -205,6 +207,14 @@ const chatDependencies = {
         claude: getClaudeBackgroundTasks,
         codex: getCodexBackgroundTasks,
         grok: getGrokBackgroundTasks,
+    },
+    // «Фон доживает до конца»: a Claude process kept for its background takes
+    // the chat's next message between turns (or lets go of the hold).
+    heldInputFns: {
+        claude: sendToHeldClaudeRun,
+    },
+    releaseHeldFns: {
+        claude: releaseHeldClaudeRun,
     },
     resolveToolApproval,
     getPendingApprovalsForSession,
@@ -1646,7 +1656,12 @@ async function startServer() {
 
         // «Очередь сообщений»: a turn that ended with «готово» releases the
         // chat's queued message; a question, an error or «Стоп» holds it.
-        sessionAttention.onChange(queuedAttentionListener());
+        const pokeQueue = queuedAttentionListener();
+        sessionAttention.onChange(pokeQueue);
+        // «Фон доживает до конца»: a held run that went between turns («ждёт
+        // помощников» changes no status) or ended after it had parked («готово»
+        // → «готово», also after «Стоп») is the queue's cue just the same.
+        chatRunRegistry.onTurnBoundary((sessionId) => pokeQueue({ sessionId }));
 
         // «Не засыпать»: Mac не уходит в сон, пока идут прогоны (мод modKeepAwake).
         startKeepAwake({ sessionAttention });

@@ -9,7 +9,7 @@ import { createIsModOn, isModOn } from '@/shared/mods.js';
 
 import { MODS, MOD_KEYS, modDefault } from '../../../shared/mods.js';
 
-// The twenty-seven keys written out by hand; `subagentCrabs` keeps its old name.
+// The twenty-eight keys written out by hand; `subagentCrabs` keeps its old name.
 const EXPECTED_KEYS = [
   'modAttention',
   'modAnswerButtons',
@@ -18,6 +18,7 @@ const EXPECTED_KEYS = [
   'modCodeStatus',
   'modRelay',
   'modBackgroundConsole',
+  'modBackgroundHold',
   'modThreads',
   'subagentCrabs',
   'modScreenshots',
@@ -58,7 +59,7 @@ const WORKBENCH_BUILD_KEYS = [
 
 test('the mod registry lists exactly the twenty-eight mods, each with a title and a description', () => {
   assert.deepEqual([...MOD_KEYS].sort(), [...EXPECTED_KEYS].sort());
-  assert.equal(MODS.length, 27);
+  assert.equal(MODS.length, 28);
   for (const mod of MODS) {
     assert.ok(mod.title.trim().length > 0, `${mod.key} has a title`);
     assert.ok(mod.description.trim().length > 0, `${mod.key} has a description`);
@@ -155,4 +156,16 @@ test('isModOn: a failed read of the settings leaves the mod on', () => {
     throw new Error('database is locked');
   });
   assert.equal(failingIsModOn(1, 'modAttention'), true);
+});
+
+test('«Фон доживает до конца» card: sits next to «Пульт фона», plain Russian, honest about the engines', () => {
+  assert.equal(MOD_KEYS[MOD_KEYS.indexOf('modBackgroundConsole') + 1], 'modBackgroundHold');
+  const index = MODS.findIndex((candidate) => candidate.key === 'modBackgroundHold');
+  assert.equal(MODS[index - 1]?.key, 'modBackgroundConsole');
+  const mod = MODS[index];
+  assert.equal(mod.title, 'Фон доживает до конца');
+  assert.match(mod.description, /сам продолжит/);
+  assert.match(mod.description, /двух часов/);
+  assert.equal(mod.requires, undefined);
+  assert.match(mod.engines ?? '', /^Claude ✓ · Codex нет · Grok нет/);
 });

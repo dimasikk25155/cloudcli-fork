@@ -20,10 +20,13 @@ test('every Neo3 Claude session loads the neo3-guards mod as a local SDK plugin'
   assert.ok(existsSync(path.join(plugins[0].path, '.claude-plugin', 'plugin.json')));
 });
 
-// Background tasks must not hold the CLI's stdin after `idle`: a `tail -f` or
-// a dev server would keep the chat «working» forever and block the next
-// message. Only an open tool call (its permission answer) holds it.
-test('a live background task does not hold the run after idle', () => {
+// «A live background task does not hold the run after idle» is now two tests
+// on the SDK stream in claude-sdk-background-hold.test.js: without the
+// `holdBackground` option (as before) and with it (the run is held).
+// `isRunBusy` itself still counts open tool calls only.
+test('an open tool call holds the run; nothing open releases it', () => {
+  assert.equal(isRunBusy({ openToolCalls: 1 }), true);
+  assert.equal(isRunBusy({ openToolCalls: 0 }), false);
   const tracker = createBackgroundTaskTracker({ now: () => 0 });
   tracker.apply({
     type: 'system',
@@ -31,11 +34,6 @@ test('a live background task does not hold the run after idle', () => {
     tasks: [{ task_id: 'b0ckrdq1i', task_type: 'local_bash', description: 'tail -f dev.log' }],
   });
   assert.equal(isRunBusy({ openToolCalls: 0, backgroundTasks: tracker }), false);
-});
-
-test('an open tool call holds the run; nothing open releases it', () => {
-  assert.equal(isRunBusy({ openToolCalls: 1 }), true);
-  assert.equal(isRunBusy({ openToolCalls: 0 }), false);
 });
 
 test('«Пульт фона» switched off: the neo3-guards mod is not loaded into that user\'s Claude runs', async (t) => {

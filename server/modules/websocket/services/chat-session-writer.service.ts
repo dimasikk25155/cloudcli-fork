@@ -103,13 +103,17 @@ export class ChatSessionWriter {
    * Emits the synthetic terminal `complete` for runs that ended without one
    * (runtime crash before completing, or user abort).
    */
-  sendComplete(opts: { exitCode: number; aborted?: boolean }): void {
+  sendComplete(opts: { exitCode: number; aborted?: boolean; killedBackground?: { agents: number; shells: number } }): void {
     const message = createCompleteMessage({
       provider: this.options.provider,
       sessionId: this.providerSessionId,
       exitCode: opts.exitCode,
       aborted: opts.aborted,
     });
+    // «Стоп» killed background work with the run: the chat says so.
+    if (opts.killedBackground) {
+      (message as Record<string, unknown>).killedBackground = opts.killedBackground;
+    }
     const outbound = this.options.decorateOutboundEvent(message);
     if (outbound) {
       this.forward(outbound);

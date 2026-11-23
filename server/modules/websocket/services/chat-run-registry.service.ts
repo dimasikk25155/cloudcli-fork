@@ -18,6 +18,8 @@ import type {
   RealtimeClientConnection,
 } from '@/shared/types.js';
 
+import type { RunPhase } from '../../../../shared/run-phase.js';
+
 type ChatRunStatus = 'running' | 'completed';
 
 /**
@@ -67,7 +69,37 @@ type ChatRun = {
   /** The engine can stop a background task (it has a stop in stopTaskFns). */
   canStopTasks: boolean;
   ideas: ReturnType<typeof createIdeaCollector>;
+  /**
+   * «Фон доживает до конца»: where a held Claude run is, by its last
+   * `run_phase` frame. `running` for every run that reports no phases.
+   */
+  phase: RunPhase;
+  /** The run was between turns at least once — its end may change no status at all. */
+  wasHeld: boolean;
 };
+
+const RUN_PHASES: ReadonlySet<string> = new Set<RunPhase>(['running', 'waiting_helpers', 'parked']);
+
+/**
+ * Turn boundaries of live runs that session-attention may stay silent about:
+ * a held run went between turns («ждёт помощников» changes no status), or a
+ * run that was held ended (parked «готово» → «готово»). The message queue
+ * listens — see server/index.js.
+ */
+const turnBoundaryListeners = new Set<(appSessionId: string) => void>();
+
+function announceTurnBoundary(appSessionId: string): void {
+  for (const listener of turnBoundaryListeners) {
+    try {
+      listener(appSessionId);
+    } catch (error) {
+      console.error('[ChatRunRegistry] Turn boundary listener failed', {
+        appSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
 
 /**
  * How long a completed run stays available for replay. Covers the window
@@ -213,6 +245,14 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   run.lastSeq += 1;
   recordTurnTiming(run, message);
 
+  // Before the status hook below: whoever hears the status change already
+  // sees the phase the run is in.
+  const phase = (message.kind as string) === 'run_phase' ? (message as Record<string, unknown>).phase : null;
+  if (typeof phase === 'string' && RUN_PHASES.has(phase)) {
+    run.phase = phase as RunPhase;
+    if (run.phase !== 'running') run.wasHeld = true;
+  }
+
   const outbound: NormalizedMessage = {
     ...message,
     sessionId: run.appSessionId,
@@ -288,6 +328,11 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
       appSessionId: run.appSessionId,
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+
+  if (((message.kind as string) === 'run_phase' && run.phase !== 'running')
+    || (message.kind === 'complete' && run.wasHeld)) {
+    announceTurnBoundary(run.appSessionId);
   }
 
   return outbound;
@@ -414,6 +459,8 @@ export const chatRunRegistry = {
       projectId: input.projectId ?? null,
       canStopTasks: input.canStopTasks === true,
       ideas: createIdeaCollector(),
+      phase: 'running',
+      wasHeld: false,
     };
 
     run.writer = new ChatSessionWriter({
@@ -501,6 +548,49 @@ export const chatRunRegistry = {
   },
 
   /**
+   * Phase of the session's live run: `running` while the agent is in a turn
+   * (and for every engine that reports no phases), `waiting_helpers` /
+   * `parked` while a held Claude run is between turns. Null = no live run.
+   */
+  runPhase(appSessionId: string): RunPhase | null {
+    const run = runs.get(appSessionId);
+    return run && run.status === 'running' ? run.phase : null;
+  },
+
+  /**
+   * A message went into the live process of a run that was between turns: the
+   * bookkeeping of a run start without a new run. The chat moves up («Новые /
+   * Недавние» — it is the user's message), and the sender's socket, when
+   * there is one, follows the run from here. The status goes back to
+   * «работает» by the runtime's own `run_phase: running` frame.
+   */
+  continueRun(appSessionId: string, connection: RealtimeClientConnection | null): boolean {
+    const run = runs.get(appSessionId);
+    if (!run || run.status !== 'running') {
+      return false;
+    }
+    if (connection) {
+      run.writer.updateWebSocket(connection);
+    }
+    try {
+      sessionsDb.markSessionPrompted(run.appSessionId);
+      void broadcastCanonicalSessionUpsert(run.appSessionId).catch(() => {});
+    } catch (error) {
+      console.error('[ChatRunRegistry] Prompt time failed', {
+        appSessionId: run.appSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return true;
+  },
+
+  /** Subscribes to turn boundaries of held runs (see `announceTurnBoundary`). Returns the unsubscribe. */
+  onTurnBoundary(listener: (appSessionId: string) => void): () => void {
+    turnBoundaryListeners.add(listener);
+    return () => { turnBoundaryListeners.delete(listener); };
+  },
+
+  /**
    * Latest occupied context of the session's last run — the `used` of its
    * last `token_budget` status (the number TokenUsageSummary shows) — and
    * the model it reported. Nulls when the run is gone or reported none.
@@ -573,7 +663,10 @@ export const chatRunRegistry = {
    * marked running. Used when a provider runtime throws or resolves without
    * having produced its own terminal event, and by the abort path.
    */
-  completeRun(appSessionId: string, opts: { exitCode: number; aborted?: boolean }): void {
+  completeRun(
+    appSessionId: string,
+    opts: { exitCode: number; aborted?: boolean; killedBackground?: { agents: number; shells: number } },
+  ): void {
     const run = runs.get(appSessionId);
     if (!run || run.status !== 'running') {
       return;

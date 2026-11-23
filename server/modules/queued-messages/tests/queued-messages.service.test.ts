@@ -31,6 +31,8 @@ type World = {
   /** What the fake gateway answers to the next send. */
   outcome: QueuedSendOutcome;
   live: boolean;
+  /** Phase of the chat's live run as the gateway reports it (null = no live run). */
+  phase: 'running' | 'waiting_helpers' | 'parked' | null;
   attention: QueueAttention | null;
   /** The turn ended (or changed its status): tell the queue like session-attention does. */
   turn(attention: QueueAttention, live?: boolean): Promise<void>;
@@ -52,6 +54,7 @@ async function withWorld(run: (world: World) => Promise<void>): Promise<void> {
       lines: [],
       outcome: { started: true },
       live: true,
+      phase: 'running',
       attention: { state: 'working' },
       async turn(attention, live = false) {
         world.attention = attention;
@@ -66,12 +69,14 @@ async function withWorld(run: (world: World) => Promise<void>): Promise<void> {
         if (world.outcome.started) {
           // A started run: the chat is busy again.
           world.live = true;
+          world.phase = 'running';
           world.attention = { state: 'working' };
         }
         return world.outcome;
       },
       getAttention: () => world.attention,
       isRunLive: () => world.live,
+      runPhase: () => world.phase,
       abortRun: async (sessionId, userId) => {
         world.aborts.push({ sessionId, userId });
         // «Стоп»: the gateway completes the run as aborted first, the status
@@ -428,5 +433,40 @@ test('a message edited while its previous text was being sent stays queued for t
 
     assert.equal(world.sent[0].content, 'первая версия');
     assert.equal(service.get('chat-1')?.content, 'вторая версия');
+  });
+});
+
+// «Фон доживает до конца»: a Claude process kept for its background is
+// between turns, not busy — the gateway reports `isRunLive: false` and the phase.
+
+test('«ждёт помощников»: the status stays «работает», but the turn is over — the queued message goes into the live process; a sticky hold still waits for the user', async () => {
+  await withWorld(async (world) => {
+    await world.service.put('chat-1', DIMA, MESSAGE);
+    assert.equal(world.sent.length, 0, 'mid-turn: queued');
+
+    // The gateway's cue on the turn boundary: no status change came with it.
+    world.live = false;
+    world.phase = 'waiting_helpers';
+    await world.service.handleAttentionChange('chat-1');
+    assert.equal(world.sent.length, 1);
+    assert.equal(world.sent[0].content, MESSAGE.content);
+    assert.equal(world.service.get('chat-1'), null);
+    assert.deepEqual(world.aborts, [], 'nothing is stopped: that would kill the helpers');
+
+    // «Работает» without the phase (the status is still being settled) sends nothing.
+    await world.service.put('chat-1', DIMA, MESSAGE);
+    world.live = false;
+    world.phase = null;
+    await world.service.handleAttentionChange('chat-1');
+    assert.equal(world.sent.length, 1);
+
+    // A message the user must act on stays, whatever the phase.
+    await world.turn({ state: 'failed' });
+    assert.equal(world.service.get('chat-1')?.holdReason, 'failed');
+    world.attention = { state: 'working' };
+    world.phase = 'waiting_helpers';
+    await world.service.handleAttentionChange('chat-1');
+    assert.equal(world.sent.length, 1);
+    assert.equal(world.service.get('chat-1')?.holdReason, 'failed');
   });
 });

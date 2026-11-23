@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
+import { backgroundHoldMs, countBackgroundTasks } from '@/modules/background-tasks/index.js';
 import { agentsDb, projectsDb, sessionLinksDb, sessionsDb, sessionThreadsDb } from '@/modules/database/index.js';
 import { newRunId, recordAuditEvent, RunMeter } from '@/modules/governance/index.js';
 import {
@@ -125,6 +126,16 @@ export type ChatWebSocketDependencies = {
   stopTaskFns?: Partial<Record<LLMProvider, (providerSessionId: string, taskId: string) => Promise<StopTaskResult>>>;
   /** Current background tasks of a live run, sent on `chat.subscribe` (Claude only). */
   backgroundTasksFns?: Partial<Record<LLMProvider, (providerSessionId: string) => unknown[]>>;
+  /**
+   * «Фон доживает до конца» (Claude only): hands a message to the live
+   * process of a run that is between turns. False = not taken, nothing was
+   * written (mid-turn, input already released, or the run is not held).
+   */
+  heldInputFns?: Partial<Record<LLMProvider, (providerSessionId: string, payload: HeldInputPayload) => boolean>>;
+  /** Ends the hold of a run that is idle between turns; it then completes like a run without the hold. */
+  releaseHeldFns?: Partial<Record<LLMProvider, (providerSessionId: string) => boolean>>;
+  /** Ceiling of the hold in ms, 0 = off (default: NEO3_CLAUDE_BACKGROUND_HOLD_MS). */
+  backgroundHoldMs?: () => number;
   resolveToolApproval: (
     requestId: string,
     payload: {
@@ -142,6 +153,14 @@ export type ChatWebSocketDependencies = {
   isModOn?: IsModOn;
   /** Project jail of the run's user (default: server/shared/user-jail.ts). */
   userJailFor?: typeof userJailFor;
+};
+
+/** A user message for a held run (see `sendToHeldClaudeRun`). */
+export type HeldInputPayload = {
+  command: string;
+  images: AnyRecord[];
+  /** Set only for the relay's handoff request: its note is written without asking. */
+  autoRelayNoteDir: string | null;
 };
 
 /**
@@ -199,10 +218,58 @@ function readRequiredSessionId(data: AnyRecord): string | null {
   return sessionId.length > 0 ? sessionId : null;
 }
 
-/** A refused send names its protocol error code — the same one the socket was told. */
+/**
+ * A refused send names its protocol error code — the same one the socket was
+ * told. A started one is either a new run (`finished` = the runtime is done)
+ * or a message handed to the live process of a held run (`finished` is
+ * already settled: that run's own start owns its end).
+ */
 type ChatSendStart =
   | { started: false; code: string; error: string }
   | { started: true; finished: Promise<void> };
+
+/** Runs a person started: only these are held for their background (and remembered for the relay). */
+const HOLD_ACCESS_KINDS: ReadonlySet<ChatSendAccess['kind']> = new Set(['socket', 'queue']);
+
+/**
+ * The text and attachments of a message as the engine gets them. Client
+ * attachments are re-validated to the upload store, then split: images ride
+ * along as vision blocks (per provider), while other files are referenced by
+ * path in an <attached_files> block the agent reads with its own tools.
+ */
+function buildRunCommand(provider: LLMProvider, rawContent: string, clientOptions: AnyRecord) {
+  const { images: imageAttachments, files: fileAttachments } = splitAttachmentsByKind(
+    filterImagesToUploadStore(clientOptions.images)
+  );
+  const commandWithFiles = appendAttachedFilesTag(rawContent, fileAttachments);
+  // Runtimes that show the picture to the model (Claude, Codex) used to pass the
+  // image and nothing else, leaving the agent unable to name the file it can
+  // see — so it could not feed it to a tool (`vis --ref`, ffmpeg, an upload).
+  // Cursor and OpenCode are left alone: they have no vision and already append
+  // their own "read these files" block inside the runtime.
+  const command = PROVIDERS_WITH_RUNTIME_IMAGE_TAG.has(provider)
+    ? commandWithFiles
+    : appendVisibleImagePathsTag(commandWithFiles, imageAttachments);
+  return { command, imageAttachments, fileAttachments };
+}
+
+/** The user's bubble for a message no tab drew (a queued one), as an event of the run. */
+function sendQueuedBubble(
+  run: NonNullable<ReturnType<typeof chatRunRegistry.getRun>>,
+  provider: LLMProvider,
+  rawContent: string,
+  clientOptions: AnyRecord,
+): void {
+  run.writer.send(createNormalizedMessage({
+    id: `local_queue_${randomUUID()}`,
+    kind: 'text',
+    role: 'user',
+    content: rawContent,
+    images: Array.isArray(clientOptions.images) && clientOptions.images.length > 0 ? clientOptions.images : undefined,
+    sessionId: run.appSessionId,
+    provider,
+  }));
+}
 
 /**
  * Whose access decides a `chat.send`.
@@ -385,6 +452,43 @@ function startChatSend(
     return refuse('PROJECT_JAIL_PROVIDER', JAIL_PROVIDER_MESSAGE, sessionId);
   }
 
+  const clientOptions = (data.options ?? {}) as AnyRecord;
+  const rawContent = typeof data.content === 'string' ? data.content : '';
+
+  // «Фон доживает до конца»: the chat's process is alive between turns — the
+  // message goes into it and starts a turn there, the background keeps
+  // working. Not taken (mid-turn, input already released, a run that is not
+  // held) → the chat is busy, as it always was.
+  const liveRun = chatRunRegistry.getRun(sessionId);
+  if (liveRun?.status === 'running') {
+    const heldInput = dependencies.heldInputFns?.[provider];
+    if (heldInput && liveRun.providerSessionId) {
+      if (jail) {
+        // A fenced user's message never goes into a process that is not
+        // fenced for him. The hold ends instead, so the chat frees up within
+        // a moment — exactly what he would have seen without the hold.
+        dependencies.releaseHeldFns?.[provider]?.(liveRun.providerSessionId);
+      } else {
+        const { command, imageAttachments } = buildRunCommand(provider, rawContent, clientOptions);
+        const relayNote = access.kind === 'auto-relay' && isRelayRequestText(rawContent) && session.project_path
+          ? path.join(session.project_path, 'docs', 'handoff')
+          : null;
+        if (heldInput(liveRun.providerSessionId, { command, images: imageAttachments, autoRelayNoteDir: relayNote })) {
+          // The bookkeeping of a run start, without a new run.
+          chatRunRegistry.continueRun(sessionId, access.kind === 'socket' ? ws : null);
+          if (access.kind === 'queue') {
+            sendQueuedBubble(liveRun, provider, rawContent, clientOptions);
+          }
+          if (access.kind === 'socket' || access.kind === 'idea' || access.kind === 'agent' || access.kind === 'queue') {
+            rememberRunOptions(sessionId, clientOptions);
+          }
+          return { started: true, finished: Promise.resolve() };
+        }
+      }
+    }
+    return refuse('RUN_IN_PROGRESS', `Session "${sessionId}" already has a run in progress.`, sessionId);
+  }
+
   const run = chatRunRegistry.startRun({
     appSessionId: sessionId,
     provider,
@@ -414,9 +518,6 @@ function startChatSend(
     }
   }
 
-  const clientOptions = (data.options ?? {}) as AnyRecord;
-  const rawContent = typeof data.content === 'string' ? data.content : '';
-
   // A queued message has no tab that sent it: nobody drew the user's bubble
   // and no socket follows the run. The connection that watched the previous
   // turn keeps watching, and the bubble is the run's first event — live for
@@ -426,15 +527,7 @@ function startChatSend(
     if (access.watcher) {
       run.writer.updateWebSocket(access.watcher);
     }
-    run.writer.send(createNormalizedMessage({
-      id: `local_queue_${randomUUID()}`,
-      kind: 'text',
-      role: 'user',
-      content: rawContent,
-      images: Array.isArray(clientOptions.images) && clientOptions.images.length > 0 ? clientOptions.images : undefined,
-      sessionId,
-      provider,
-    }));
+    sendQueuedBubble(run, provider, rawContent, clientOptions);
   }
 
   // Auto-relay repeats a person's engine settings (model, effort, mode, tools)
@@ -444,21 +537,7 @@ function startChatSend(
     rememberRunOptions(sessionId, clientOptions);
   }
 
-  // Client attachments are re-validated to the upload store, then split: images
-  // ride along as vision blocks (per provider), while other files are referenced
-  // by path in an <attached_files> block the agent reads with its own tools.
-  const { images: imageAttachments, files: fileAttachments } = splitAttachmentsByKind(
-    filterImagesToUploadStore(clientOptions.images)
-  );
-  const commandWithFiles = appendAttachedFilesTag(rawContent, fileAttachments);
-  // Runtimes that show the picture to the model (Claude, Codex) used to pass the
-  // image and nothing else, leaving the agent unable to name the file it can
-  // see — so it could not feed it to a tool (`vis --ref`, ffmpeg, an upload).
-  // Cursor and OpenCode are left alone: they have no vision and already append
-  // their own "read these files" block inside the runtime.
-  const command = PROVIDERS_WITH_RUNTIME_IMAGE_TAG.has(provider)
-    ? commandWithFiles
-    : appendVisibleImagePathsTag(commandWithFiles, imageAttachments);
+  const { command, imageAttachments, fileAttachments } = buildRunCommand(provider, rawContent, clientOptions);
 
   // The provider runtimes receive the provider-native session id (that is the
   // id their CLI/SDK understands for resume). Brand-new sessions have no
@@ -481,6 +560,19 @@ function startChatSend(
   delete runtimeOptions.jail;
   delete runtimeOptions.teamTelegram;
   delete runtimeOptions.teamKie;
+  // «Фон доживает до конца»: a Claude chat a person started (from the composer
+  // or from the queue) keeps its process while background work is alive.
+  // Threads, agents, the conveyor, the relay and ideas end as they always did —
+  // other modules read their turn ends. A teammate's process is fenced to what
+  // its first message needed, so it is not held either.
+  delete runtimeOptions.holdBackground;
+  if (provider === 'claude'
+    && HOLD_ACCESS_KINDS.has(access.kind)
+    && !jail
+    && (dependencies.backgroundHoldMs ?? backgroundHoldMs)() > 0
+    && (dependencies.isModOn ?? isModOn)(userId, 'modBackgroundHold')) {
+    runtimeOptions.holdBackground = true;
+  }
   if (jail) {
     const assetsRoot = getGlobalImageAssetsDir();
     runtimeOptions.jail = {
@@ -674,11 +766,29 @@ async function abortSessionRun(
     });
   }
 
+  // «Стоп» kills the Claude process with everything it left in the background;
+  // the chat is told how much, so nobody waits for an agent that will not come
+  // back. Read before the kill, while the list still exists.
+  let killedBackground: { agents: number; shells: number } | undefined;
+  if (run.provider === 'claude' && run.providerSessionId) {
+    try {
+      const counts = countBackgroundTasks(
+        (dependencies.backgroundTasksFns?.claude?.(run.providerSessionId) ?? []) as Parameters<typeof countBackgroundTasks>[0],
+      );
+      if (counts.agents + counts.shells > 0) killedBackground = counts;
+    } catch (error) {
+      console.error('[Chat] Could not count the background of a stopped run', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   // Complete FIRST, kill second. Marking the run finished fences its event
   // stream (the registry drops everything a still-winding-down runtime emits),
   // so no output can land in the chat after the user pressed Stop — and the
   // UI gets its answer immediately instead of waiting out the interrupt RPC.
-  chatRunRegistry.completeRun(sessionId, { exitCode: 0, aborted: true });
+  chatRunRegistry.completeRun(sessionId, { exitCode: 0, aborted: true, ...(killedBackground ? { killedBackground } : {}) });
 
   if (!abortFn) {
     return true;
@@ -887,7 +997,9 @@ export function createIdeaRunControl(dependencies: ChatWebSocketDependencies): I
     start({ sessionId, userId, content }) {
       if (!isAdminUser({ id: userId }) || !canAccessSession({ id: userId }, sessionId)
         || !(dependencies.isModOn ?? isModOn)(userId, 'modImprovementIdeas')) return false;
-      if (chatRunRegistry.getRun(sessionId)?.status === 'running') return false;
+      // A turn is going. A held run between turns is not one: the gateway
+      // hands the idea to its live process.
+      if (chatRunRegistry.runPhase(sessionId) === 'running') return false;
       const session = sessionsDb.getSessionById(sessionId);
       if (!session) return false;
       const previous = lastRunOptions(sessionId);
@@ -1071,7 +1183,11 @@ export function createQueuedSendControl(dependencies: ChatWebSocketDependencies)
       return { started: true };
     },
     isRunLive(sessionId) {
-      return chatRunRegistry.isProcessing(sessionId);
+      // A held run between turns takes a message at once: no turn is going.
+      return chatRunRegistry.runPhase(sessionId) === 'running';
+    },
+    runPhase(sessionId) {
+      return chatRunRegistry.runPhase(sessionId);
     },
     abortRun(sessionId, userId) {
       return abortSessionRun(sessionId, dependencies, userId);

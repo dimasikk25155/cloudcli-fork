@@ -32,7 +32,12 @@ import { neo3GuardsPlugins } from './shared/neo3-guards-plugin.js';
 import { isModOn } from './shared/mods.js';
 import { JAIL_CLAUDE_ENV, jailCommand, jailInstruction } from './shared/user-jail.js';
 import { THREADS_MCP_SERVER_NAME, threadsMcpCommand } from './modules/threads/index.js';
-import { createBackgroundTaskTracker } from './modules/background-tasks/index.js';
+import {
+  backgroundHoldMs,
+  createBackgroundTaskTracker,
+  createRunPhaseTracker,
+} from './modules/background-tasks/index.js';
+import { logChatEvent } from './shared/chat-event-log.js';
 import {
   createNotificationEvent,
   notifyRunFailed,
@@ -667,7 +672,9 @@ function addSession(sessionId, queryInstance, writer = null, controls = null) {
     abortController: controls?.abortController ?? null,
     runState: controls?.runState ?? null,
     isInputReleased: controls?.isInputReleased ?? null,
-    backgroundTasks: controls?.backgroundTasks ?? null
+    backgroundTasks: controls?.backgroundTasks ?? null,
+    acceptInput: controls?.acceptInput ?? null,
+    releaseHeld: controls?.releaseHeld ?? null
   });
 }
 
@@ -742,11 +749,33 @@ function extractTokenBudget(sdkMessage) {
 }
 
 /**
- * Builds the SDK `prompt` payload for one turn.
+ * One SDKUserMessage: the text plus one base64 `image` block per attachment
+ * from `~/.cloudcli/assets`.
+ * @param {string} command - User prompt
+ * @param {Array} images - Image descriptors ({ path, name?, mimeType? })
+ * @param {string} cwd - Project working directory image paths resolve against
+ * @returns {Promise<object>} SDKUserMessage
+ */
+async function buildUserMessage(command, images, cwd) {
+  const content = normalizeImageDescriptors(images).length === 0
+    ? [{ type: 'text', text: command }]
+    : await buildClaudeUserContent(command, images, cwd);
+  return {
+    type: 'user',
+    message: {
+      role: 'user',
+      content
+    },
+    parent_tool_use_id: null,
+    timestamp: new Date().toISOString()
+  };
+}
+
+/**
+ * Builds the SDK `prompt` payload of a run.
  *
- * Always uses the SDK's streaming-input mode: a single SDKUserMessage (text,
- * plus one base64 `image` block per attachment from `~/.cloudcli/assets`),
- * after which the generator stays pending on `holdInputOpen`. With a one-shot
+ * Always uses the SDK's streaming-input mode: the first SDKUserMessage, after
+ * which the generator stays pending on `holdInputOpen`. With a one-shot
  * prompt the SDK closes the CLI's stdin at the first `result`, but background
  * tasks can queue follow-up turns in the same process — interactive tools
  * (AskUserQuestion, ExitPlanMode) called there then fail instantly with
@@ -755,27 +784,33 @@ function extractTokenBudget(sdkMessage) {
  * run; the caller resolves `holdInputOpen` when the CLI reports
  * `session_state_changed: idle` (or the run errors/aborts).
  *
- * @param {string} command - User prompt
- * @param {Array} images - Image descriptors ({ path, name?, mimeType? })
- * @param {string} cwd - Project working directory image paths resolve against
+ * «Фон доживает до конца»: while the input is held, messages pushed into
+ * `followUps` (see sendToHeldClaudeRun) are handed to the CLI as they come —
+ * each one starts a new turn in the same process. Nothing is yielded after
+ * the release: a generator that returned closes stdin, and whatever is
+ * written later goes nowhere.
+ *
+ * @param {Promise<object>|object} first - The run's SDKUserMessage
  * @param {Promise<void>} holdInputOpen - Resolved by the caller after the run
- * @returns {Promise<AsyncIterable>} SDK prompt payload
+ * @param {{items: Array<Promise<object>>, wake: (() => void)|null}} [followUps]
+ * @returns {AsyncIterable} SDK prompt payload
  */
-async function buildPromptPayload(command, images, cwd, holdInputOpen) {
-  const content = normalizeImageDescriptors(images).length === 0
-    ? [{ type: 'text', text: command }]
-    : await buildClaudeUserContent(command, images, cwd);
+function buildPromptPayload(first, holdInputOpen, followUps = { items: [], wake: null }) {
+  const released = holdInputOpen.then(() => true);
   return (async function* () {
-    yield {
-      type: 'user',
-      message: {
-        role: 'user',
-        content
-      },
-      parent_tool_use_id: null,
-      timestamp: new Date().toISOString()
-    };
-    await holdInputOpen;
+    yield await first;
+    while (true) {
+      if (followUps.items.length > 0) {
+        yield await followUps.items.shift();
+        continue;
+      }
+      const isReleased = await Promise.race([
+        released,
+        new Promise((resolve) => { followUps.wake = () => resolve(false); }),
+      ]);
+      followUps.wake = null;
+      if (isReleased) return;
+    }
   })();
 }
 
@@ -852,10 +887,13 @@ async function loadMcpConfig(cwd) {
  * @param {string} command - User prompt/command
  * @param {Object} options - Query options
  * @param {Object} ws - WebSocket connection
+ * @param {{query?: Function}} [runtime] - Test seam: the SDK's `query`. Never
+ *   comes from a client — `options` do, this argument does not.
  * @returns {Promise<void>}
  */
-async function queryClaudeSDK(command, options = {}, ws) {
+async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
   const { sessionId, sessionSummary } = options;
+  const runQuery = runtime.query ?? query;
   let capturedSessionId = sessionId;
   // Servers this run pins for Kimi (see mcpServers build), so the session id
   // captured mid-run can be added to the sticky map for a brand-new chat.
@@ -910,7 +948,63 @@ async function queryClaudeSDK(command, options = {}, ws) {
     abortController: runAbortController,
     runState,
     // Background work of the current CLI process (see stopClaudeTask).
-    backgroundTasks: null
+    backgroundTasks: null,
+    // «Фон доживает до конца» (see sendToHeldClaudeRun / releaseHeldClaudeRun).
+    acceptInput: null,
+    releaseHeld: null
+  };
+
+  // «Фон доживает до конца»: only a run that asked for it (the chat gateway
+  // sets `holdBackground` for chats a person started) and only with a ceiling
+  // above zero. Without the tracker everything below behaves as it always did.
+  const holdMs = options.holdBackground === true ? backgroundHoldMs() : 0;
+  const phaseTracker = holdMs > 0 ? createRunPhaseTracker({ holdMs }) : null;
+  // The message the CLI is working on: a transient-failure retry resends it,
+  // and a held run may be several messages in by then.
+  let currentUserMessage = null;
+  const followUps = { items: [], wake: null };
+  let holdCeilingTimer = null;
+  // «Готово» of a parked turn was already pushed; the run's end is not news again.
+  let turnEndNotified = false;
+  // The relay's handoff note may be written without asking only in its own turn.
+  let relayNoteDir = options.autoRelayNoteDir || null;
+  const journalFields = () => ({
+    sessionId: options.appSessionId || capturedSessionId || sessionId || '',
+    userId: ws?.userId ?? null,
+  });
+  const liveBackgroundTasks = () => runControls.backgroundTasks?.list() ?? [];
+  const isHolding = () => Boolean(phaseTracker?.holding(liveBackgroundTasks()));
+  const clearHoldCeiling = () => {
+    if (holdCeilingTimer) clearTimeout(holdCeilingTimer);
+    holdCeilingTimer = null;
+  };
+  // A journal line for the end of a hold — only when a hold is what ends.
+  const journalHoldRelease = (reason) => {
+    if (phaseTracker && phaseTracker.phase() !== 'running' && !inputReleased) {
+      logChatEvent('hold_release', { ...journalFields(), reason });
+    }
+  };
+  const publishPhase = (change) => {
+    if (!change) return;
+    logChatEvent('phase', { ...journalFields(), phase: change.phase, agents: change.background.agents, shells: change.background.shells });
+    ws.send(createNormalizedMessage({ kind: 'run_phase', ...change, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
+    if (change.phase === 'running') {
+      turnEndNotified = false;
+      return;
+    }
+    if (change.phase === 'parked' && !turnEndNotified) {
+      // The answer is ready even though the background still works: «готово»
+      // goes out now, like at an ordinary turn end (the chat status has just
+      // been settled by this very frame).
+      turnEndNotified = true;
+      notifyRunStopped({
+        userId: ws?.userId || null,
+        provider: 'claude',
+        sessionId: capturedSessionId || sessionId || null,
+        sessionName: sessionSummary,
+        stopReason: 'completed'
+      });
+    }
   };
   // «Фон: N»: full list on every change, `[]` once the process is gone.
   const publishBackgroundTasks = (tasks) => {
@@ -925,8 +1019,44 @@ async function queryClaudeSDK(command, options = {}, ws) {
   const releaseHeldInput = releaseInput;
   releaseInput = () => {
     if (!inputReleased) resetBackgroundTasks();
+    clearHoldCeiling();
     releaseHeldInput();
+    // Wake the prompt generator if it waits for a follow-up message.
+    followUps.wake?.();
   };
+  // «Стоп»: the abort path closes the input through here.
+  runControls.releaseInput = () => {
+    journalHoldRelease('stop');
+    releaseInput();
+  };
+  if (phaseTracker) {
+    runControls.acceptInput = (payload) => {
+      if (inputReleased || runState.finished || !phaseTracker.betweenTurns()) return false;
+      const next = buildUserMessage(String(payload?.command ?? ''), payload?.images, payload?.cwd ?? options.cwd)
+        .catch((error) => {
+          // A broken attachment must not lose the message: it goes as text.
+          console.warn('[Claude SDK] Could not attach images to a follow-up message:', error?.message || error);
+          return buildUserMessage(String(payload?.command ?? ''), [], options.cwd);
+        });
+      currentUserMessage = next;
+      relayNoteDir = payload?.autoRelayNoteDir || null;
+      clearHoldCeiling();
+      followUps.items.push(next);
+      // From here the agent is in a turn: a release armed for the idle that
+      // preceded this message must not fire (see scheduleRelease).
+      publishPhase(phaseTracker.acceptInput(liveBackgroundTasks()));
+      followUps.wake?.();
+      return true;
+    };
+    runControls.releaseHeld = () => {
+      // Only what the CLI itself called idle: closing stdin under working
+      // helpers is not something a plain run would have done either.
+      if (inputReleased || runState.finished || !phaseTracker.betweenTurns() || !phaseTracker.idle()) return false;
+      journalHoldRelease('sender');
+      releaseInput();
+      return true;
+    };
+  }
 
   try {
     const resolvedModel = await providerModelsService.resolveResumeModel(
@@ -997,7 +1127,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // Streaming input keeps the SDK↔CLI control channel open for the whole
     // run (see buildPromptPayload). Built per query attempt because an async
     // generator cannot be replayed once consumed.
-    const createPrompt = () => buildPromptPayload(command, options.images, options.cwd, holdInputOpen);
+    currentUserMessage = await buildUserMessage(command, options.images, options.cwd);
+    const createPrompt = () => {
+      // A retry resends the current message itself — not a second time from the queue.
+      followUps.items = followUps.items.filter((item) => item !== currentUserMessage);
+      return buildPromptPayload(currentUserMessage, holdInputOpen, followUps);
+    };
 
     sdkOptions.hooks = {
       Notification: [{
@@ -1048,7 +1183,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
         // Auto-relay handoff turn: its note in <project>/docs/handoff/ is written
         // without asking (default mode would otherwise stop it on approval).
         // Only that path and only Write/Edit; the gateway sets the folder.
-        if (options.autoRelayNoteDir && isRelayNoteWrite(toolName, input, options.autoRelayNoteDir)) {
+        if (relayNoteDir && isRelayNoteWrite(toolName, input, relayNoteDir)) {
           return { behavior: 'allow', updatedInput: input };
         }
 
@@ -1142,8 +1277,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
         resetBackgroundTasks();
         runControls.backgroundTasks = createBackgroundTaskTracker();
         try {
-          queryInstance = query({
-            prompt: await createPrompt(),
+          queryInstance = runQuery({
+            prompt: createPrompt(),
             options: sdkOptions
           });
         } catch (hookError) {
@@ -1151,8 +1286,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
           // Keep notification behavior operational via runtime events even if hook registration fails.
           console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
           delete sdkOptions.hooks;
-          queryInstance = query({
-            prompt: await createPrompt(),
+          queryInstance = runQuery({
+            prompt: createPrompt(),
             options: sdkOptions
           });
         }
@@ -1196,12 +1331,50 @@ async function queryClaudeSDK(command, options = {}, ws) {
             lastStreamActivityAt = Date.now();
             return;
           }
+          // A held run is silent on purpose: its background works, the agent waits.
+          if (isHolding()) {
+            lastStreamActivityAt = Date.now();
+            return;
+          }
           const silentForMs = Date.now() - lastStreamActivityAt;
           const threshold = sawSessionStateEvent ? IDLE_FALLBACK_SILENCE_MS : IDLE_FALLBACK_NO_STATE_EVENTS_MS;
           if (silentForMs < threshold) return;
           console.warn(`[Claude SDK] No 'idle' event and no stream activity for ${Math.round(silentForMs / 1000)}s after the turn result — releasing held-open input (session: ${sid || 'NEW'})`);
           releaseInput();
         }, IDLE_FALLBACK_CHECK_INTERVAL_MS);
+
+        // Releases the held-open input after the grace window, unless the
+        // picture changed meanwhile: bail if input was already released, if
+        // newer stream activity arrived after it was armed, if a tool call or
+        // an approval is open, or if a hold began. `holdReason` names the end
+        // of a hold in the journal (null = an ordinary turn end).
+        const scheduleRelease = (holdReason) => {
+          const armedAt = lastStreamActivityAt;
+          setTimeout(() => {
+            if (inputReleased) return;
+            // A message accepted between turns started a turn: the idle this
+            // release was armed for is history.
+            if (phaseTracker && !phaseTracker.idle()) return;
+            if (lastStreamActivityAt > armedAt) {
+              // Something streamed, but the CLI is still idle with nothing to
+              // hold for (a late task event): look again after another window.
+              if (phaseTracker && phaseTracker.betweenTurns() && !isHolding()) scheduleRelease(holdReason);
+              return;
+            }
+            if (isRunBusy({ openToolCalls: outstandingToolUseIds.size })) {
+              lastStreamActivityAt = Date.now();
+              return;
+            }
+            const sidNow = capturedSessionId || sessionId || null;
+            if (sidNow && getPendingApprovalsForSession(sidNow).length > 0) {
+              lastStreamActivityAt = Date.now();
+              return;
+            }
+            if (isHolding()) return;
+            if (holdReason) journalHoldRelease(holdReason);
+            releaseInput();
+          }, RELEASE_GRACE_MS);
+        };
 
         // Process streaming messages
         console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
@@ -1256,28 +1429,17 @@ async function queryClaudeSDK(command, options = {}, ws) {
                 lastStreamActivityAt = Date.now();
               } else if (sid && getPendingApprovalsForSession(sid).length > 0) {
                 lastStreamActivityAt = Date.now();
+              } else if (isHolding()) {
+                // «Фон доживает до конца»: background work is alive and the
+                // ceiling has not passed — stdin stays open, so the CLI can
+                // start a turn by itself when the background reports, and a
+                // message from the user goes straight into this process.
               } else {
                 // No approval is pending RIGHT NOW — but the control request
                 // may still be in flight behind this idle event (see
                 // RELEASE_GRACE_MS). Defer the release and re-check at fire
-                // time: bail if input was already released, if newer stream
-                // activity arrived after this idle, or if an approval got
-                // registered meanwhile. Otherwise really release.
-                const idleAt = lastStreamActivityAt;
-                setTimeout(() => {
-                  if (inputReleased) return;
-                  if (lastStreamActivityAt > idleAt) return;
-                  if (isRunBusy({ openToolCalls: outstandingToolUseIds.size })) {
-                    lastStreamActivityAt = Date.now();
-                    return;
-                  }
-                  const sidNow = capturedSessionId || sessionId || null;
-                  if (sidNow && getPendingApprovalsForSession(sidNow).length > 0) {
-                    lastStreamActivityAt = Date.now();
-                    return;
-                  }
-                  releaseInput();
-                }, RELEASE_GRACE_MS);
+                // time.
+                scheduleRelease(liveBackgroundTasks().length > 0 ? 'ceiling' : 'background_done');
               }
             }
           }
@@ -1335,6 +1497,31 @@ async function queryClaudeSDK(command, options = {}, ws) {
             publishBackgroundTasks(backgroundTasks);
           }
 
+          // «Фон доживает до конца»: after the message's own events, so the
+          // phase follows the turn's last words.
+          if (phaseTracker && !inputReleased) {
+            const wasHolding = phaseTracker.phase() !== 'running' && phaseTracker.betweenTurns();
+            publishPhase(phaseTracker.apply(message, liveBackgroundTasks()));
+            if (message.type === 'result') {
+              // One ceiling per turn end. Past it the run is an ordinary one:
+              // released as soon as the CLI is (or already was) idle.
+              clearHoldCeiling();
+              holdCeilingTimer = setTimeout(() => {
+                holdCeilingTimer = null;
+                if (inputReleased || !phaseTracker.betweenTurns()) return;
+                phaseTracker.expire();
+                if (phaseTracker.idle()) scheduleRelease('ceiling');
+              }, holdMs);
+              holdCeilingTimer.unref?.();
+            } else if (!phaseTracker.betweenTurns()) {
+              clearHoldCeiling();
+            } else if (wasHolding && backgroundTasks && phaseTracker.idle() && !isHolding()) {
+              // The background is gone and no turn followed (yet): the grace
+              // window gives the CLI's own «task finished» turn time to start.
+              scheduleRelease('background_done');
+            }
+          }
+
           // Bill the run. The meter reads the *raw* usage fields rather than the
           // blended `tokenBudget.inputTokens` below, because cache reads bill at
           // 0.1x and cache writes at 1.25x/2x — charging the blended number as
@@ -1367,9 +1554,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
         // answer by re-sending it themselves.
         const sid = capturedSessionId || sessionId || null;
         const retryDelayMs = TRANSIENT_RETRY_DELAYS_MS[transientRetryAttempt];
+        // Between turns there is no turn to resend: a held process that died
+        // is reported as it is.
         if (retryDelayMs === undefined
           || !isTransientRunFailure(runError?.message)
-          || (sid && abortedSessionIds.has(sid))) {
+          || (sid && abortedSessionIds.has(sid))
+          || phaseTracker?.betweenTurns()) {
           throw runError;
         }
         transientRetryAttempt += 1;
@@ -1420,13 +1610,16 @@ async function queryClaudeSDK(command, options = {}, ws) {
     if (!wasAborted) {
       ws.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 0 }));
     }
-    notifyRunStopped({
-      userId: ws?.userId || null,
-      provider: 'claude',
-      sessionId: capturedSessionId || sessionId || null,
-      sessionName: sessionSummary,
-      stopReason: wasAborted ? 'aborted' : 'completed'
-    });
+    // A parked turn already said «готово» when its answer was ready.
+    if (wasAborted || !turnEndNotified) {
+      notifyRunStopped({
+        userId: ws?.userId || null,
+        provider: 'claude',
+        sessionId: capturedSessionId || sessionId || null,
+        sessionName: sessionSummary,
+        stopReason: wasAborted ? 'aborted' : 'completed'
+      });
+    }
     // Persist how this run ended so history reload can show it even if the
     // client was disconnected when the terminal event fired.
     recordRunOutcome(capturedSessionId || sessionId || null, {
@@ -1485,6 +1678,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     if (idleFallbackTimer) {
       clearInterval(idleFallbackTimer);
     }
+    clearHoldCeiling();
     releaseInput();
   }
 }
@@ -1559,10 +1753,14 @@ async function abortClaudeSDKSession(sessionId) {
 /**
  * Whether the run still needs the CLI's stdin (the held-open prompt input)
  * after `idle`: only while a tool call is open (its permission answer travels
- * over it). Background tasks deliberately do NOT hold it — a `tail -f` or a dev
+ * over it). Background tasks do NOT make a run busy — a `tail -f` or a dev
  * server would keep the chat «working» forever and block the next message.
- * So «Стоп» on a background task works while the turn runs; once the turn has
- * ended the task is no longer controllable from Neo3 (see stopClaudeTask).
+ * A chat a person started is kept for its background another way («Фон
+ * доживает до конца», `holdBackground`): the process stays, with a ceiling,
+ * while the chat is told the turn is over and takes the next message at once.
+ * Without that option «Стоп» on a background task works while the turn runs;
+ * once the turn has ended the task is no longer controllable from Neo3 (see
+ * stopClaudeTask).
  * @param {{openToolCalls?: number, backgroundTasks?: {list(): unknown[]}|null}} state
  * @returns {boolean}
  */
@@ -1620,6 +1818,54 @@ async function stopClaudeTask(sessionId, taskId) {
   // "Уже не идёт" only when the task list confirms it is gone; anything else
   // (timeout, a broken control channel) is a failed stop.
   return session.backgroundTasks?.has(taskId) ? { ok: false, reason: 'failed' } : { ok: false, reason: 'not_running' };
+}
+
+/**
+ * «Фон доживает до конца»: hands a user message to the live CLI process of a
+ * run that is between turns (the main agent's `result` came, no turn has
+ * started since) and still holds its input. The message goes into the held
+ * prompt generator, the pending release is cancelled and the CLI starts a new
+ * turn at once — the background keeps working.
+ *
+ * `false` = not taken, nothing was written: the run is mid-turn (a message
+ * glued into a running turn overrides its task), its input is already
+ * released (the process is on its way out — start a new run instead), it did
+ * not ask for the hold, or there is no such run.
+ *
+ * @param {string} sessionId - Provider-native (Claude) session id
+ * @param {{command: string, images?: Array, cwd?: string, autoRelayNoteDir?: string|null}} promptPayload
+ * @returns {boolean}
+ */
+function sendToHeldClaudeRun(sessionId, promptPayload) {
+  const session = getSession(sessionId);
+  if (!session || session.status !== 'active' || typeof session.acceptInput !== 'function') {
+    return false;
+  }
+  try {
+    return session.acceptInput(promptPayload) === true;
+  } catch (error) {
+    console.warn(`[Claude SDK] Could not hand a message to the held run (session: ${sessionId}):`, error?.message || error);
+    return false;
+  }
+}
+
+/**
+ * Ends the hold of a run that is idle between turns — for a sender whose
+ * message cannot go into this process (another user's sandbox). The run then
+ * completes as a run without the hold would have. `false` = nothing to end.
+ * @param {string} sessionId - Provider-native (Claude) session id
+ * @returns {boolean}
+ */
+function releaseHeldClaudeRun(sessionId) {
+  const session = getSession(sessionId);
+  if (!session || typeof session.releaseHeld !== 'function') {
+    return false;
+  }
+  try {
+    return session.releaseHeld() === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1744,6 +1990,8 @@ export {
   abortClaudeSDKSession,
   stopClaudeTask,
   getClaudeBackgroundTasks,
+  sendToHeldClaudeRun,
+  releaseHeldClaudeRun,
   isRunBusy,
   abortAllActiveClaudeSDKSessions,
   isClaudeSDKSessionActive,

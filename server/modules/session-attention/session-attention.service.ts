@@ -14,6 +14,11 @@
  *   complete ok, request still pending → stays waiting (Grok: question asked, CLI exited)
  *   complete ok                        → classifier on the last assistant text:
  *                                        waiting / manual_ask | text_question, or done
+ *   run_phase parked (Claude, the run   → the same as `complete ok`: the answer is ready,
+ *     is kept for its background)         only commands are left in the background
+ *   run_phase waiting_helpers          → nothing: helpers work, the chat works
+ *   run_phase running after parked     → working (the agent woke up, or got a message)
+ *   complete ok after parked           → nothing: that turn end is already told
  *   server boot, working left over     → failed / interrupted
  *
  * Every transition calls the `onChange` listeners (push, Telegram) and
@@ -25,12 +30,12 @@
 import path from 'node:path';
 
 import {
+  getConnection,
   sessionAttentionDb,
   type SessionAttentionListRow,
   type SessionAttentionRow,
 } from '@/modules/database/index.js';
-import { getConnection } from '@/modules/database/connection.js';
-import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
+import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/index.js';
 import { listGrokQuestionsForAppSession } from '@/shared/grok-question.js';
 import { projectAccessFor } from '@/shared/project-access.js';
 import { classifyTurnEnding, clipText } from '@/shared/turn-ending.js';
@@ -191,10 +196,15 @@ type RunMemory = {
   stopActorId: number | null;
   /** Epoch ms of the run's last model output (text, thinking, tool call, request). */
   modelAt: number | null;
+  /**
+   * «Фон доживает до конца»: the turn ended and its ending is already the
+   * chat's status, while the process lives on for its background commands.
+   */
+  parked: boolean;
 };
 
 function emptyMemory(): RunMemory {
-  return { lastText: '', deltaBuffer: '', deltaOpen: false, lastError: null, pending: [], stopActorId: null, modelAt: null };
+  return { lastText: '', deltaBuffer: '', deltaOpen: false, lastError: null, pending: [], stopActorId: null, modelAt: null, parked: false };
 }
 
 /** Event kinds that are model output — each one means the prompt cache was just used. */
@@ -344,7 +354,7 @@ function defaultIsRequestPending(input: {
 }
 
 async function defaultFetchLastAssistantText(appSessionId: string): Promise<string | null> {
-  const { sessionsService } = await import('@/modules/providers/services/sessions.service.js');
+  const { sessionsService } = await import('@/modules/providers/index.js');
   const history = await sessionsService.fetchHistory(appSessionId, { limit: 40, offset: 0 });
   for (let index = history.messages.length - 1; index >= 0; index -= 1) {
     const message = history.messages[index];
@@ -451,6 +461,7 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
     mem.lastError = null;
     mem.stopActorId = null;
     mem.modelAt = null;
+    mem.parked = false;
   }
 
   /**
@@ -574,6 +585,73 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
     transition(runContext(run), { state: 'done', reason: null, detail: null });
   }
 
+  /**
+   * Settles the status by how the turn ended: by its last words, or — when
+   * nothing streamed (only tool output) — by the transcript. A newer turn that
+   * started meanwhile owns the status and drops the late result.
+   */
+  function settleTurnEnding(run: AttentionRunRef, lastText: string): void {
+    const sessionId = run.appSessionId;
+    if (lastText.trim()) {
+      applyTurnEnding(run, lastText);
+      return;
+    }
+
+    fallbackCounter += 1;
+    const token = fallbackCounter;
+    fallbackTokens.set(sessionId, token);
+    void fetchLastAssistantText(sessionId)
+      .catch((error) => {
+        console.warn('[SessionAttention] history fallback failed', { sessionId, error: (error as Error)?.message });
+        return null;
+      })
+      .then((text) => {
+        if (fallbackTokens.get(sessionId) !== token) {
+          return;
+        }
+        fallbackTokens.delete(sessionId);
+        try {
+          applyTurnEnding(run, text);
+        } catch (error) {
+          console.error('[SessionAttention] could not record turn ending', { sessionId, error: (error as Error)?.message });
+        }
+      });
+  }
+
+  /**
+   * `run_phase` of a held Claude run. `parked` is a turn end for the person
+   * («готово» or «ждёт тебя», push and Telegram follow from the transition) —
+   * only the run is not over: the memory stays, open requests stay open.
+   * Any other phase after it means the agent works again.
+   */
+  function handleRunPhase(run: AttentionRunRef, event: AttentionRunEvent, mem: RunMemory): void {
+    if (event.phase === 'parked') {
+      if (mem.parked) {
+        return;
+      }
+      mem.parked = true;
+      const lastText = mem.lastText;
+      mem.lastText = '';
+      mem.deltaBuffer = '';
+      persistModelAt(run.appSessionId, mem);
+      const pending = mem.pending[mem.pending.length - 1];
+      if (pending) {
+        // The process is alive, so its request still is.
+        transition(runContext(run), { state: 'waiting', reason: pending.reason, detail: pending.detail });
+        return;
+      }
+      settleTurnEnding(run, lastText);
+      return;
+    }
+
+    if (mem.parked && (event.phase === 'running' || event.phase === 'waiting_helpers')) {
+      mem.parked = false;
+      // A turn ending still being read from the transcript is history now.
+      fallbackTokens.delete(run.appSessionId);
+      settleAfterRequest(run, mem);
+    }
+  }
+
   function handleComplete(run: AttentionRunRef, event: AttentionRunEvent, mem: RunMemory): void {
     const context = runContext(run);
     const lastText = mem.lastText;
@@ -604,6 +682,10 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
       return;
     }
 
+    // The turn ended when the run parked and nothing happened since: its
+    // status (and its push) is already out — the end of the process is not
+    // news. A request that was open then died with the process: that is.
+    const alreadySettled = mem.parked && mem.pending.length === 0;
     mem.pending = mem.pending.filter((pending) =>
       isRequestPending({
         provider: run.provider,
@@ -614,37 +696,15 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
     );
     const lastPending = mem.pending[mem.pending.length - 1];
     releaseMemory(context.sessionId, mem);
+    if (alreadySettled) {
+      return;
+    }
     if (lastPending) {
       transition(context, { state: 'waiting', reason: lastPending.reason, detail: lastPending.detail });
       return;
     }
 
-    if (lastText.trim()) {
-      applyTurnEnding(run, lastText);
-      return;
-    }
-
-    // Nothing streamed (or only tool output): read the transcript instead.
-    // A newer run that started meanwhile owns the status — drop the result.
-    fallbackCounter += 1;
-    const token = fallbackCounter;
-    fallbackTokens.set(context.sessionId, token);
-    void fetchLastAssistantText(context.sessionId)
-      .catch((error) => {
-        console.warn('[SessionAttention] history fallback failed', { sessionId: context.sessionId, error: (error as Error)?.message });
-        return null;
-      })
-      .then((text) => {
-        if (fallbackTokens.get(context.sessionId) !== token) {
-          return;
-        }
-        fallbackTokens.delete(context.sessionId);
-        try {
-          applyTurnEnding(run, text);
-        } catch (error) {
-          console.error('[SessionAttention] could not record turn ending', { sessionId: context.sessionId, error: (error as Error)?.message });
-        }
-      });
+    settleTurnEnding(run, lastText);
   }
 
   function visibleRows(user: AttentionUser): SessionAttentionListRow[] {
@@ -747,6 +807,9 @@ export function createSessionAttentionService(dependencies: SessionAttentionDepe
         }
         case 'complete':
           handleComplete(run, event, mem);
+          return;
+        case 'run_phase':
+          handleRunPhase(run, event, mem);
           return;
         default:
       }
