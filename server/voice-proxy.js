@@ -12,8 +12,11 @@ import fs from 'node:fs';
 import { Readable } from 'node:stream';
 
 import express from 'express';
+
 import { HALLUCINATION_RE, dropHallucinatedEdges, cleanTranscript, countWords, glossaryPrompt, correctionPreservesContent, joinTranscripts, buildCorrectionSystemPrompt, transcriptLooksLossy } from '../shared/voiceTranscript.js';
 import { splitWav, voicedSeconds } from '../shared/voiceAudio.js';
+
+import { createVoiceBackendFetch, loadProxyDispatcher, resolveVoiceProxyUrl } from './voice-route.js';
 
 const ENV = {
   baseUrl: (process.env.VOICE_API_BASE_URL || '').replace(/\/$/, ''),
@@ -256,6 +259,13 @@ const VOICE_TIMEOUT_MS = Number.isFinite(_parsedTimeout) && _parsedTimeout > 0
  * @param {RequestInit} [options]
  * @returns {Promise<Response>}
  */
+// Groq refuses Russian addresses: public backends fall back to the AI bridge.
+const backendFetch = createVoiceBackendFetch({
+  proxyUrl: resolveVoiceProxyUrl(process.env.VOICE_PROXY_URL),
+  getDispatcher: loadProxyDispatcher,
+  log: (message) => console.warn(message),
+});
+
 async function fetchWithTimeout(url, options = {}) {
   const parsed = new URL(url);
   if (!['http:', 'https:'].includes(parsed.protocol) || !isAllowedBackendUrl(parsed.origin)) {
@@ -264,7 +274,7 @@ async function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VOICE_TIMEOUT_MS);
   try {
-    return await fetch(parsed.toString(), { redirect: 'manual', ...options, signal: controller.signal });
+    return await backendFetch(parsed, { redirect: 'manual', ...options, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
@@ -313,7 +323,8 @@ function isAllowedBackendUrl(raw) {
  * @param {string} [text]
  */
 function upstreamError(res, status, text) {
-  if (status === 403 && /network settings|access denied/i.test(text)) {
+  // Groq answers a refused country with a bare {"error":{"message":"Forbidden"}}.
+  if (status === 403 && /network settings|access denied|"forbidden"/i.test(text)) {
     return res.status(502).json({ error: 'Groq отклонил соединение (403). Проверь VPN или сетевой маршрут; запись можно скачать и повторить.' });
   }
   if (status === 401 || status === 403) {
