@@ -4,6 +4,7 @@ import { listVoiceRecordings, removeVoiceRecording, saveVoiceRecording, type Sav
 import { transcribeVoice } from '../../../lib/voiceApi';
 import { splitWav } from '../../../../shared/voiceAudio.js';
 import { toWav16kMono } from '../utils/audioToWav';
+import { browserVoiceDeliveryDeps, deliverVoiceFile, prepareVoiceFile } from '../utils/voiceDownload';
 
 // Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
 const MIME_CANDIDATES = [
@@ -123,6 +124,9 @@ export function useVoiceInput(
   const pendingRef = useRef<PendingRecording | null>(null);
   // Whether the in-progress stop should auto-send the transcript (vs just fill the box).
   const sendRef = useRef(false);
+  // The playable copy for «Скачать запись», encoded ahead of the tap: iOS only
+  // opens the share sheet while the tap is fresh, so it cannot wait for encoding.
+  const downloadFileRef = useRef<{ key: string; promise: Promise<File>; ready: File | null } | null>(null);
 
   const stopTracks = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -391,16 +395,36 @@ export function useVoiceInput(
     if (pending) void runTranscription({ ...pending, send: false });
   }, [runTranscription]);
 
+  const prepareDownload = useCallback((pending: PendingRecording) => {
+    const key = `${pending.id}:${pending.blob.size}`;
+    const cached = downloadFileRef.current;
+    if (cached?.key === key) return cached;
+    const entry: { key: string; promise: Promise<File>; ready: File | null } = {
+      key,
+      promise: prepareVoiceFile(pending, toWav16kMono),
+      ready: null,
+    };
+    void entry.promise.then((file) => { entry.ready = file; }, () => {});
+    downloadFileRef.current = entry;
+    return entry;
+  }, []);
+
+  // Encode the copy as soon as a recording is kept, so the tap can share at once.
+  useEffect(() => {
+    if (state === 'error' && pendingRef.current) prepareDownload(pendingRef.current);
+  }, [state, prepareDownload]);
+
   const download = useCallback(() => {
     const pending = pendingRef.current;
     if (!pending) return;
-    const url = URL.createObjectURL(pending.blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = pending.filename;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, []);
+    const prepared = prepareDownload(pending);
+    const deps = browserVoiceDeliveryDeps();
+    const fail = () => onErrorRef.current?.('Не удалось сохранить запись. Попробуй ещё раз.');
+    // A ready copy is shared inside this very tap; otherwise wait for it, and the
+    // delivery falls back to a link if the share sheet no longer opens.
+    if (prepared.ready) void deliverVoiceFile(prepared.ready, deps).catch(fail);
+    else void prepared.promise.then((file) => deliverVoiceFile(file, deps)).catch(fail);
+  }, [prepareDownload]);
 
   // Throw the failed recording away and go back to a clean mic.
   const discard = useCallback(async () => {
