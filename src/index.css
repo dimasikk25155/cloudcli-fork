@@ -1438,8 +1438,15 @@
     color: var(--glass-active-fg);
   }
 
+  /* Затемнение за листом (шторка, модальный экран): тёмная вуаль темы и
+     лёгкое размытие того, что под ней. Размытие — треть от размытия стекла:
+     фон должен отойти назад, а не превратиться в то же стекло, и площадь
+     здесь — весь экран. Читаемость листа от него не зависит: вуаль плотная
+     сама по себе, поэтому ниже размытие снимается без замены фона. */
   .glass-scrim {
     background-color: var(--glass-scrim);
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) / 3));
+    backdrop-filter: blur(calc(var(--glass-blur) / 3));
   }
 
   @media (hover: hover) {
@@ -1486,6 +1493,13 @@
     backdrop-filter: none;
   }
 
+  /* Затемнение — площадь во весь экран, под живыми обоями самая дорогая:
+     размытие снимается, вуаль остаётся как есть. */
+  html.has-live-wallpaper .glass-scrim {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
   /* «Уменьшить прозрачность» в системе: стекло — плотный фон темы. */
   @media (prefers-reduced-transparency: reduce) {
     .glass-surface,
@@ -1496,9 +1510,17 @@
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
     }
+
+    /* Затемнение остаётся затемнением: только без размытия. */
+    .glass-scrim {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
   }
 
-  /* Браузер без размытия: полупрозрачный фон без него нечитаем. */
+  /* Браузер без размытия: полупрозрачный фон без него нечитаем. Затемнению
+     замена не нужна — объявление размытия такой браузер пропускает, вуаль
+     --glass-scrim остаётся. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .glass-surface,
     .glass-sheet,

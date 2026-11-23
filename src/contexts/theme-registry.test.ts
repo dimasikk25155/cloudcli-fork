@@ -581,13 +581,54 @@ describe('стекло: классы и запасные ветки', () => {
     }
   });
 
-  it('под живыми обоями лист теряет размытие, плавающие элементы — нет', () => {
-    const live = glassCss.match(/html\.has-live-wallpaper ([^{]*)\{([^}]*)\}/);
-    assert.ok(live, 'нет правила html.has-live-wallpaper');
-    assert.match(live[1], /^\.glass-sheet\s*$/, 'размытие под живыми обоями снимается только у листа');
-    assert.match(live[2], /backdrop-filter:\s*none/);
-    assert.match(live[2], /-webkit-backdrop-filter:\s*none/);
-    assert.match(live[2], /background-color:\s*var\(--glass-fallback-bg\)/);
+  it('под живыми обоями лист и затемнение теряют размытие, плавающие элементы — нет', () => {
+    const live = [...glassCss.matchAll(/html\.has-live-wallpaper ([^{]*)\{([^}]*)\}/g)]
+      .map((entry) => ({ selector: entry[1].trim(), body: entry[2] }));
+    // Большие площади — лист и затемнение на весь экран. Кнопки, пилюли и
+    // карточка ввода размытие сохраняют.
+    assert.deepEqual(live.map((entry) => entry.selector).sort(), ['.glass-scrim', '.glass-sheet']);
+    for (const entry of live) {
+      assert.match(entry.body, /[^-]backdrop-filter:\s*none/, `${entry.selector}: размытие не снято`);
+      assert.match(entry.body, /-webkit-backdrop-filter:\s*none/, `${entry.selector}: нет префикса Safari`);
+    }
+    const sheet = live.find((entry) => entry.selector === '.glass-sheet');
+    assert.match(sheet?.body ?? '', /background-color:\s*var\(--glass-fallback-bg\)/);
+    // Затемнение остаётся затемнением: плотный фон листа ему не достаётся.
+    const scrim = live.find((entry) => entry.selector === '.glass-scrim');
+    assert.doesNotMatch(scrim?.body ?? '', /background/);
+  });
+
+  it('затемнение за листом ещё и размывает фон — значениями стекла темы', () => {
+    const scrim = rule('.glass-scrim');
+    assert.match(scrim, /background-color:\s*var\(--glass-scrim\)/);
+    const blur = /backdrop-filter:\s*blur\([^;]*var\(--glass-blur\)[^;]*\)/;
+    assert.match(scrim, new RegExp(`[^-]${blur.source}`), 'затемнение не размывает фон за листом');
+    assert.match(scrim, new RegExp(`-webkit-${blur.source}`), 'нет префикса для Safari');
+  });
+
+  it('без прозрачности и без backdrop-filter от затемнения остаётся только затемнение', () => {
+    const rulesOf = (css: string) => [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .map((entry) => ({ selector: entry[1].replace(/\/\*[\s\S]*?\*\//g, '').trim(), body: entry[2] }));
+    const reducedTransparency = glassCss.match(/@media \(prefers-reduced-transparency: reduce\)\s*\{([\s\S]*?)\n  \}/);
+    assert.ok(reducedTransparency, 'нет ветки prefers-reduced-transparency');
+    const reduced = rulesOf(reducedTransparency[1]).filter((entry) => /\.glass-scrim(?![a-z-])/.test(entry.selector));
+    assert.equal(reduced.length, 1, 'в ветке «уменьшить прозрачность» нет своего правила затемнения');
+    assert.match(reduced[0].body, /[^-]backdrop-filter:\s*none/);
+    assert.match(reduced[0].body, /-webkit-backdrop-filter:\s*none/);
+    assert.doesNotMatch(reduced[0].body, /background/, 'затемнение не должно становиться плотным фоном');
+    // Браузер без backdrop-filter объявление размытия просто не понимает —
+    // остаётся цвет --glass-scrim. Плотный фон листа затемнению не назначается.
+    const noBackdrop = glassCss.match(
+      /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)\s*\{([\s\S]*?)\n  \}/
+    );
+    assert.ok(noBackdrop, 'нет ветки @supports not (backdrop-filter…)');
+    for (const entry of rulesOf(noBackdrop[1])) {
+      if (/\.glass-scrim(?![a-z-])/.test(entry.selector)) {
+        assert.doesNotMatch(entry.body, /background/, 'без backdrop-filter затемнение обязано остаться затемнением');
+      }
+    }
+    // Само затемнение от размытия не зависит: цвет задан в основном правиле.
+    assert.match(rule('.glass-scrim'), /background-color:\s*var\(--glass-scrim\)/);
   });
 
   it('затемнение за листом — свой тёмный цвет темы, а не её фон', () => {
