@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Стенд Neo3 — рамка телефона</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #17171b;
+        color: #c9c9d1;
+        font: 13px/1.45 -apple-system, system-ui, sans-serif;
+      }
+      #stage {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 8px;
+      }
+      .phone-column {
+        flex: none;
+      }
+      .phone-label {
+        height: 18px;
+        overflow: hidden;
+        font-size: 12px;
+        line-height: 18px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        color: #8c8c98;
+      }
+      /* The box keeps the scaled size, the iframe inside keeps the phone's own size. */
+      .phone-box {
+        overflow: hidden;
+        outline: 1px solid #3a3a44;
+        background: #000;
+      }
+      .phone-box iframe {
+        display: block;
+        border: 0;
+        transform-origin: 0 0;
+      }
+      #info {
+        min-width: 0;
+        max-width: 320px;
+        padding-top: 18px;
+      }
+      #info h1 {
+        margin: 0 0 6px;
+        font-size: 14px;
+        color: #f1f1f4;
+      }
+      #facts {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 2px 10px;
+        margin: 0;
+      }
+      #facts dt {
+        color: #8c8c98;
+      }
+      #facts dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      #problems {
+        margin: 10px 0 0;
+        padding: 0;
+        list-style: none;
+        color: #ff8a80;
+      }
+      /* Three or four phones leave no room for the side note: problems go on top of the page. */
+      body[data-stand-phones='3'] #info > :not(#problems),
+      body[data-stand-phones='4'] #info > :not(#problems) {
+        display: none;
+      }
+      body[data-stand-phones='3'] #info,
+      body[data-stand-phones='4'] #info {
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 1;
+        padding: 4px 8px;
+        background: #17171b;
+      }
+      body[data-stand-phones='3'] #problems,
+      body[data-stand-phones='4'] #problems {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <aside id="info">
+        <h1>Стенд Neo3 — рамка телефона</h1>
+        <dl id="facts"></dl>
+        <ul id="problems"></ul>
+      </aside>
+    </div>
+    <!-- .mjs on purpose: the server marks *.js as cached for a year, and an edited frame would never reload. -->
+    <script type="module" src="./frame-page.mjs"></script>
+  </body>
+</html>

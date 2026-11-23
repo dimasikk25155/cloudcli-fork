@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.claude/skills/autopilot",
   "baseCommit": "08e23a90",
   "startedAt": "2026-11-23T17:33:24+03:00",
-  "updatedAt": "2026-11-23T18:17:41+03:00",
+  "updatedAt": "2026-11-23T18:18:05+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -86,9 +86,9 @@ window.STATE =
       "review": "нет",
       "model": "сильная",
       "status": "in-progress",
-      "startedAt": "2026-11-23T17:47:47+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "startedAt": "2026-11-23T18:18:05+03:00"
     },
     {
       "id": "02",
@@ -248,9 +248,11 @@ window.STATE =
     "2026-11-23T17:47:23+03:00",
     "2026-11-23T17:47:39+03:00",
     "2026-11-23T17:47:47+03:00",
-    "2026-11-23T18:17:41+03:00"
+    "2026-11-23T18:17:41+03:00",
+    "2026-11-23T18:18:03+03:00",
+    "2026-11-23T18:18:05+03:00"
   ],
-  "rev": 17,
+  "rev": 19,
   "waiting": null,
   "waits": [],
   "log": [
@@ -341,6 +343,22 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-11-23T18:18:03+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "reset"
+    },
+    {
+      "t": "2026-11-23T18:18:05+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "start"
     }
   ],
   "reqList": [
