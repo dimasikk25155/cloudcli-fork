@@ -150,7 +150,7 @@ export function useProjectTileMenu(onToggleStarProject?: (projectId: string) => 
         <div className="fixed inset-0 z-[10001]" onPointerDown={() => setMenu(null)}>
           <div
             role="menu"
-            className="bg-background/92 absolute min-w-[200px] overflow-hidden rounded-2xl py-1 shadow-[0_18px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/15 backdrop-blur-xl"
+            className="glass-surface absolute min-w-[200px] overflow-hidden py-1"
             style={{ left: menu.left, top: menu.top }}
             onPointerDown={(event) => event.stopPropagation()}
           >
@@ -161,7 +161,7 @@ export function useProjectTileMenu(onToggleStarProject?: (projectId: string) => 
                 className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-foreground hover:bg-accent/70"
                 onClick={() => toggleStar(menu.project)}
               >
-                <Star className={cn('h-4 w-4', menu.project.isStarred && 'fill-current text-amber-400')} />
+                <Star className={cn('h-4 w-4', menu.project.isStarred && 'fill-current text-warning')} />
                 {menu.project.isStarred
                   ? t('mainContent.unpinProject', 'Unpin')
                   : t('mainContent.pinProject', 'Pin')}

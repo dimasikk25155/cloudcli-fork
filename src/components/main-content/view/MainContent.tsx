@@ -81,6 +81,8 @@ function MainContent({
   externalMessageUpdate,
   newSessionTrigger,
   onStartNewChat,
+  navQuery,
+  navSearchActive,
 }: MainContentProps) {
   const { theme } = useTheme();
   // Окно приложения на айфоне может кончаться выше края экрана — тогда
@@ -324,6 +326,8 @@ function MainContent({
         onShowSettings={onShowSettings}
         onToggleStarProject={onToggleStarProject}
         onNavigateToSession={(sessionId) => onNavigateToSession(sessionId)}
+        navQuery={navQuery}
+        navSearchActive={navSearchActive}
       />
     );
   }

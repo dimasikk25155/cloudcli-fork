@@ -1,3 +1,4 @@
+import React from 'react';
 import { Activity, ChevronLeft, FolderPlus, Home, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -12,6 +13,14 @@ import Neo3Logo from '../../../branding/Neo3Logo';
 
 import ProjectSortToggle from './ProjectSortToggle';
 import SessionSortToggle from './SessionSortToggle';
+
+/**
+ * Phone header buttons: round glass, 36 px to the eye and 44 px to the finger.
+ * The invisible ::before is laid out from the padding box (34 px inside the
+ * 1 px edge), so 5 px past it on every side makes 44.
+ */
+const PHONE_HEADER_BUTTON =
+  "glass-button h-9 w-9 touch-manipulation text-muted-foreground before:absolute before:-inset-[5px] before:content-['']";
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -119,8 +128,8 @@ export default function SidebarHeader({
                 // relative: sits above the switch's invisible touch area.
                 'relative flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
                 searchMode === 'running'
-                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                  : 'text-muted-foreground hover:text-emerald-500',
+                  ? 'bg-success/15 text-success'
+                  : 'text-muted-foreground hover:text-success',
               )}
             >
               <Activity className="h-3 w-3" />
@@ -263,10 +272,13 @@ export default function SidebarHeader({
       {/* Desktop divider */}
       <div className="nav-divider hidden md:block" />
 
-      {/* Mobile header */}
+      {/* Mobile header. No search field and no Home here: on a phone both live
+          in the bottom bar (its search filters this very list), so the title
+          is no longer squeezed by four buttons. */}
       <div
         className="p-3 pb-2 md:hidden"
         style={isPWA && isMobile ? { paddingTop: '16px' } : {}}
+        data-sidebar-header="phone"
       >
         <div className="flex items-center justify-between">
           {IS_PLATFORM ? (
@@ -288,62 +300,35 @@ export default function SidebarHeader({
             </button>
           )}
 
-          <div className="flex flex-shrink-0 gap-1.5">
+          <div className="flex flex-shrink-0 items-center gap-2">
             {onOpenAttention && <AttentionHubButton onClick={onOpenAttention} variant="touch" />}
-            {onGoHome && (
-              <button
-                type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
-                onClick={onGoHome}
-                title={t('tooltips.goHome', 'Home screen')}
-                aria-label={t('tooltips.goHome', 'Home screen')}
-              >
-                <Home className="h-4 w-4 text-muted-foreground" />
-              </button>
-            )}
             <button
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
+              type="button"
+              className={PHONE_HEADER_BUTTON}
               onClick={onRefresh}
               disabled={isRefreshing}
+              aria-label={t('tooltips.refresh')}
+              data-sidebar-header-action="refresh"
             >
-              <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden />
             </button>
             {!HIDE_PROJECTS && (
               <button
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/90 text-primary-foreground transition-all active:scale-95"
+                type="button"
+                className={PHONE_HEADER_BUTTON}
                 onClick={onCreateProject}
+                aria-label={t('tooltips.createProject')}
+                data-sidebar-header-action="create-project"
               >
-                <FolderPlus className="h-4 w-4" />
+                <FolderPlus className="h-4 w-4" aria-hidden />
               </button>
             )}
           </div>
         </div>
 
-        {/* Mobile nav tabs + search */}
-        <div className="mt-2.5 space-y-2">
+        {/* Mobile nav tabs */}
+        <div className="mt-2.5">
           <NavTabs phone />
-
-          {showSearchTools && (
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
-              <Input
-                type="text"
-                placeholder={searchPlaceholder}
-                value={searchFilter}
-                onChange={(event) => onSearchFilterChange(event.target.value)}
-                className="nav-search-input h-10 rounded-xl border-0 pl-10 pr-9 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-              {searchFilter && (
-                <button
-                  onClick={onClearSearchFilter}
-                  aria-label={t('tooltips.clearSearch')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 hover:bg-accent"
-                >
-                  <X className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              )}
-            </div>
-          )}
         </div>
       </div>
 

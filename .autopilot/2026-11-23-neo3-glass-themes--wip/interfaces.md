@@ -196,3 +196,23 @@ node_modules/.bin/vite build --outDir "$(mktemp -d /tmp/neo3-client-check.XXXXXX
 - `<SettingsRow layout?: 'stacked' | 'inline' />`: на ширине < `md` элемент управления уходит под текст,
   `SettingsToggle` остаётся в ряду с текстом. Новые строки настроек делать через `SettingsRow`.
 - Язычок и оверлей быстрых настроек — на `.glass-surface` и `.glass-scrim`.
+
+### Таск 04 — нижняя панель, «Домой», шторка, «Инструменты» (сдан)
+
+- `src/components/bottom-bar/`: `bottomBarModel.ts` — `isBottomBarVisible(input)`, `activeBottomBarItem({isHome, drawerOpen})`,
+  `pickNewChatProject(projects)`, `settingsTabForAttention(count)`, `BOTTOM_BAR_ITEMS`;
+  `<BottomBar isMobile isHome drawerOpen query onQueryChange searchOpen onSearchOpenChange attentionCount onGoHome onOpenProjects onNewChat onOpenSettings />`;
+  метки `data-bottom-bar`, `data-bottom-bar-item`. Низ панели — `bottom-[var(--keyboard-height,0px)]`.
+  Под настройками и экранами-панелями панель остаётся в разметке — её закрывают слои z-9999/10000.
+- `src/components/tools/`: `TOOL_PANELS`, `ToolPanelKey`, `ToolPanelAccess {isOwner, mods}`, `visibleToolPanels(access)`,
+  `canOpenToolPanel(key, access)`, `isToolPanelKey`, `toolPanelFor`, `toolPanelFromQuery(search)`,
+  `toolPanelFromNavigateMessage(data)`, `useToolPanelAccess()`, `<ToolPanelsHost onOpenSettings />`, `<AttentionCount count />`;
+  `HubPanelKey = ToolPanelKey | 'settings'`.
+- Настройки: вкладка `instruments` — `<InstrumentsSettingsTab access attentionCount onOpenPanel />`; `KNOWN_MAIN_TABS` и
+  `normalizeMainTab` теперь в `settings/constants/constants.ts`; «Настройки» со счётчиком открываются сразу на «Инструментах».
+- `SidebarProps`: `onShowSettings(tab?)`, `searchFilter?`, `onSearchFilterChange?`; `drawerOpen` убран.
+  `HomeLauncher`: `navQuery?`, `navSearchActive?`; `onMenuClick` убран. В шапке шторки на телефоне нет своего поиска и «Домой» — они в панели.
+- Удалены `SidebarMenuItems.tsx`, `sidebarMenuState.ts` и их тесты.
+- Разбор экранов бывшего «Меню» для Димы — `menu-review.md` рядом с этим файлом.
+- Осталось таску 05 (его зона `src/index.css`): плотность шторки на телефоне задают правила `[data-theme=…] .app-sidebar`
+  (0,9 в `glass`, 0,92 в `ember`) — они сильнее `.glass-sheet`, сквозь шторку видны силуэты значков «Домой».

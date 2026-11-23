@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.claude/skills/autopilot",
   "baseCommit": "08e23a90",
   "startedAt": "2026-11-23T17:33:24+03:00",
-  "updatedAt": "2026-11-23T19:42:00+03:00",
+  "updatedAt": "2026-11-23T20:01:23+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -62,8 +62,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 25,
-    "done": 8,
-    "inTicket": 17,
+    "done": 11,
+    "inTicket": 14,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -124,16 +124,19 @@ window.STATE =
       ],
       "review": "да — фундамент",
       "model": "сильная",
-      "status": "review",
-      "retries": 0,
-      "repairs": 0,
+      "status": "done",
       "startedAt": "2026-11-23T18:55:16+03:00",
-      "finishedAt": "2026-11-23T19:33:41+03:00",
+      "finishedAt": "2026-11-23T20:01:23+03:00",
+      "retries": 0,
+      "repairs": 1,
+      "repairFindings": [
+        ".glass-scrim должен и затемнять, и размывать фон за листом"
+      ],
       "tests": {
-        "passed": 2415,
+        "passed": 2432,
         "failed": 0
       },
-      "commit": "52e54b76"
+      "commit": "306edb6c"
     },
     {
       "id": "03",
@@ -156,10 +159,16 @@ window.STATE =
       ],
       "review": "нет",
       "model": "обычная",
-      "status": "in-progress",
+      "status": "done",
+      "startedAt": "2026-11-23T19:33:32+03:00",
+      "finishedAt": "2026-11-23T19:58:07+03:00",
       "retries": 0,
       "repairs": 0,
-      "startedAt": "2026-11-23T19:33:32+03:00"
+      "tests": {
+        "passed": 2432,
+        "failed": 0
+      },
+      "commit": "b7aa46cc"
     },
     {
       "id": "04",
@@ -197,9 +206,10 @@ window.STATE =
       ],
       "review": "нет",
       "model": "сильная",
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "startedAt": "2026-11-23T19:58:08+03:00"
     },
     {
       "id": "05",
@@ -238,7 +248,7 @@ window.STATE =
     }
   ],
   "tests": {
-    "passed": 2415,
+    "passed": 2432,
     "failed": 0
   },
   "debt": {
@@ -268,7 +278,11 @@ window.STATE =
     "src/index.css:2813 — Светлая Claude: белый значок на терракоте у .glass-button-primary 3,1:1",
     "src/contexts/ThemeContext.jsx:109 — backgroundFile больше не импортируется",
     "src/contexts/themeMigration.js:71 — Object.hasOwn против ES5-формы в index.html",
-    "src/contexts/ThemeContext.jsx:292 — неизвестный id темы из аккаунта ставит ember поверх темы устройства (закрывает T03)"
+    "src/contexts/ThemeContext.jsx:292 — неизвестный id темы из аккаунта ставит ember поверх темы устройства (закрывает T03)",
+    "ThemePicker.render.test.ts и SettingsRow.render.test.ts — красное доказательство было по отсутствию модуля / React, а не по поведению",
+    "язычок быстрых настроек: зона нажатия 44 px через ::before на экране не проверялась",
+    "src/contexts/theme-registry.test.ts:584–632 — тесты стекла не проверяют порядок правил CSS",
+    "src/index.css:1344 — сводка классов в шапке раздела называет .glass-scrim только затемнением"
   ],
   "blind": null,
   "beats": [
@@ -291,9 +305,13 @@ window.STATE =
     "2026-11-23T18:55:16+03:00",
     "2026-11-23T19:33:32+03:00",
     "2026-11-23T19:33:41+03:00",
-    "2026-11-23T19:42:00+03:00"
+    "2026-11-23T19:42:00+03:00",
+    "2026-11-23T19:58:07+03:00",
+    "2026-11-23T19:58:08+03:00",
+    "2026-11-23T20:00:15+03:00",
+    "2026-11-23T20:01:23+03:00"
   ],
-  "rev": 30,
+  "rev": 38,
   "waiting": null,
   "waits": [],
   "log": [
@@ -486,6 +504,72 @@ window.STATE =
       "k": "add",
       "key": "concerns",
       "n": 10
+    },
+    {
+      "t": "2026-11-23T19:58:07+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 2432,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-23T19:58:07+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 2
+    },
+    {
+      "t": "2026-11-23T19:58:07+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "repair",
+      "note": ".glass-scrim должен и затемнять, и размывать фон за листом"
+    },
+    {
+      "t": "2026-11-23T19:58:08+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-23T19:58:08+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-23T20:00:15+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "review"
+    },
+    {
+      "t": "2026-11-23T20:01:23+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 2432,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-23T20:01:23+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 2
     }
   ],
   "reqList": [
@@ -582,7 +666,7 @@ window.STATE =
     {
       "id": "G01",
       "text": "«лучше каждому устройству своя тема, остальные настройки одинаковые»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R19i",
@@ -597,12 +681,12 @@ window.STATE =
     {
       "id": "R21i",
       "text": "(подразумевается) тему надо уметь выбрать, видя, чем они отличаются",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G02",
       "text": "«заходишь в настройки… кнопочка оранжевая, она слишком большая. Она сжимает текст и получается… слишком большой блок вместе с ней»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G03",

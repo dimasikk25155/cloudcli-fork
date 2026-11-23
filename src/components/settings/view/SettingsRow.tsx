@@ -43,7 +43,15 @@ export default function SettingsRow({ label, description, children, className, l
           <div className="mt-0.5 text-sm text-muted-foreground">{description}</div>
         )}
       </div>
-      <div className={stacked ? 'min-w-0 md:flex-shrink-0' : 'flex-shrink-0'}>{children}</div>
+      {/* Под текстом элемент не растягивается на всю строку: ширина — по его
+          содержимому, не уже 11rem (как список на компьютере) и не шире строки. */}
+      <div
+        className={stacked
+          ? 'min-w-[min(11rem,100%)] max-w-full self-start md:min-w-0 md:max-w-none md:flex-shrink-0 md:self-auto'
+          : 'flex-shrink-0'}
+      >
+        {children}
+      </div>
     </div>
   );
 }

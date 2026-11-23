@@ -34,6 +34,10 @@ export type MainContentProps = {
   newSessionTrigger: number;
   /** Starts a brand-new chat in the current project (same path as the sidebar button). */
   onStartNewChat?: (project: Project) => void;
+  /** Phone: the bottom bar's search query, handed to Home as is. */
+  navQuery?: string;
+  /** Phone: the bottom bar's search field is open. */
+  navSearchActive?: boolean;
 };
 
 export type MainContentHeaderProps = {
@@ -62,6 +66,9 @@ export type MainContentStateViewProps = {
   onToggleStarProject?: (projectId: string) => void;
   /** Open a chat by id — the status bar on Home («Диалоги»). */
   onNavigateToSession?: (sessionId: string) => void;
+  /** Phone: the bottom bar's search query and whether its field is open. */
+  navQuery?: string;
+  navSearchActive?: boolean;
 };
 
 export type MobileMenuButtonProps = {

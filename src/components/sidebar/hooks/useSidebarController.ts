@@ -71,6 +71,9 @@ type UseSidebarControllerArgs = {
   onProjectDelete?: (projectId: string) => void;
   setSidebarVisible: (visible: boolean) => void;
   sidebarVisible: boolean;
+  /** Filter owned by the caller (phone: the bottom bar's search); both or neither. */
+  searchFilter?: string;
+  onSearchFilterChange?: (value: string) => void;
 };
 
 export function useSidebarController({
@@ -89,6 +92,8 @@ export function useSidebarController({
   onProjectDelete,
   setSidebarVisible,
   sidebarVisible,
+  searchFilter: externalSearchFilter,
+  onSearchFilterChange: onExternalSearchFilterChange,
 }: UseSidebarControllerArgs) {
   const paletteOps = usePaletteOps();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
@@ -102,7 +107,10 @@ export function useSidebarController({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editingSessionName, setEditingSessionName] = useState('');
-  const [searchFilter, setSearchFilter] = useState('');
+  const [ownSearchFilter, setOwnSearchFilter] = useState('');
+  // On a phone the query lives in the app shell and is typed in the bottom bar.
+  const searchFilter = externalSearchFilter ?? ownSearchFilter;
+  const setSearchFilter = onExternalSearchFilterChange ?? setOwnSearchFilter;
   const [deletingProjects, setDeletingProjects] = useState<Set<string>>(new Set());
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteProjectConfirmation | null>(null);
   const [sessionDeleteConfirmation, setSessionDeleteConfirmation] = useState<SessionDeleteConfirmation | null>(null);

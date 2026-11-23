@@ -292,7 +292,7 @@ export default function SidebarProjectItem({
             >
               <div
                 role="menu"
-                className="absolute min-w-[220px] overflow-hidden rounded-2xl bg-background/95 py-1 shadow-[0_18px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/15 backdrop-blur-xl"
+                className="glass-surface absolute min-w-[220px] overflow-hidden py-1"
                 style={{ left: cardMenu.left, top: cardMenu.top }}
                 onClick={(event) => event.stopPropagation()}
               >

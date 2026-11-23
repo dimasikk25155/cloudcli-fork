@@ -12,6 +12,8 @@ export default function MainContentStateView({
   onShowSettings,
   onToggleStarProject,
   onNavigateToSession,
+  navQuery,
+  navSearchActive,
 }: MainContentStateViewProps) {
   const { t } = useTranslation();
 
@@ -20,11 +22,12 @@ export default function MainContentStateView({
       <HomeLauncher
         projects={projects}
         isMobile={isMobile}
-        onMenuClick={onMenuClick}
         onProjectSelect={onProjectSelect ?? (() => undefined)}
         onShowSettings={() => onShowSettings?.()}
         onToggleStarProject={onToggleStarProject}
         onOpenSession={onNavigateToSession}
+        navQuery={navQuery}
+        navSearchActive={navSearchActive}
       />
     );
   }

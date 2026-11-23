@@ -169,7 +169,8 @@ export default function SidebarProjectList({
   );
 
   return (
-    <div className="pb-[var(--safe-bottom)] md:space-y-1">
+    // Нижний отступ (полоса айфона, плавающая панель) держит SidebarContent.
+    <div className="md:space-y-1">
       {!showProjects
         ? state
         : (

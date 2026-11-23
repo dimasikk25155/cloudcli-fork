@@ -8,6 +8,8 @@ import { useModEnabled } from '../../../hooks/useModEnabled';
 import { useSidebarGroupsSync } from '../groups/useSidebarGroups';
 import { useSidebarController } from '../hooks/useSidebarController';
 import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
+import { settingsTabForAttention } from '../../bottom-bar/bottomBarModel';
+import { usePlannerAttention } from '../../consigliere/usePlannerAttention';
 import type { LLMProvider } from '../../../types/app';
 import type { AttentionItem } from '../../attention/types';
 import AttentionHub from '../../attention/view/AttentionHub';
@@ -39,7 +41,8 @@ function Sidebar({
   onCloseSettings,
   isMobile,
   onGoHome,
-  drawerOpen,
+  searchFilter: navSearchFilter,
+  onSearchFilterChange: onNavSearchFilterChange,
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { isPWA } = useDeviceSettings({ trackMobile: false });
@@ -128,7 +131,18 @@ function Sidebar({
     onProjectDelete,
     setSidebarVisible: (visible) => setPreference('sidebarVisible', visible),
     sidebarVisible,
+    searchFilter: navSearchFilter,
+    onSearchFilterChange: onNavSearchFilterChange,
   });
+
+  // The red counter on «Настройки» is «Канцелярия», which lives in the
+  // «Инструменты» tab: with it Settings open right there.
+  const { items: plannerAttention } = usePlannerAttention();
+  const attentionCount = plannerAttention.length;
+  const showSettingsFromSidebar = useCallback(
+    () => onShowSettings(settingsTabForAttention(attentionCount)),
+    [attentionCount, onShowSettings],
+  );
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -272,7 +286,8 @@ function Sidebar({
       {isSidebarCollapsed ? (
         <SidebarCollapsed
           onExpand={handleExpandSidebar}
-          onShowSettings={onShowSettings}
+          onShowSettings={showSettingsFromSidebar}
+          attentionCount={attentionCount}
           onGoHome={onGoHome}
           onOpenAttention={attentionOn ? openAttentionHub : undefined}
           restartRequired={restartRequired}
@@ -320,10 +335,10 @@ function Sidebar({
             onCollapseSidebar={handleCollapseSidebar}
             restartRequired={restartRequired}
             currentVersion={currentVersion}
-            onShowSettings={onShowSettings}
+            onShowSettings={showSettingsFromSidebar}
+            attentionCount={attentionCount}
             onGoHome={onGoHome}
             onOpenAttention={attentionOn ? openAttentionHub : undefined}
-            drawerOpen={drawerOpen}
             projectListProps={projectListProps}
             t={t}
           />

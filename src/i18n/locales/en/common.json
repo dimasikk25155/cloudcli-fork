@@ -116,6 +116,17 @@
       "terminal": "Terminal"
     }
   },
+  "bottomBar": {
+    "label": "Navigation",
+    "home": "Home",
+    "projects": "Projects",
+    "search": "Search",
+    "searchChats": "Projects and chats",
+    "closeSearch": "Close search",
+    "newChat": "New chat",
+    "settings": "Settings",
+    "planner": "Planner"
+  },
   "mainContent": {
     "loading": "Loading Neo3 Agent System",
     "settingUpWorkspace": "Setting up your workspace...",

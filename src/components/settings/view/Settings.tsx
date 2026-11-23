@@ -6,6 +6,7 @@ import ProviderLoginModal from '../../provider-auth/view/ProviderLoginModal';
 import SettingsSidebar from '../view/SettingsSidebar';
 import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
 import AppearanceSettingsTab from '../view/tabs/AppearanceSettingsTab';
+import InstrumentsSettingsTab from '../view/tabs/InstrumentsSettingsTab';
 import CredentialsSettingsTab from '../view/tabs/api-settings/CredentialsSettingsTab';
 import VoiceSettingsTab from '../view/tabs/VoiceSettingsTab';
 import GitSettingsTab from '../view/tabs/git-settings/GitSettingsTab';
@@ -18,6 +19,10 @@ import SettingsSection from '../view/SettingsSection';
 import TelegramSettingsPanel from '../../telegram/TelegramSettingsPanel';
 import { useSettingsController } from '../hooks/useSettingsController';
 import { useWebPush } from '../../../hooks/useWebPush';
+import { usePlannerAttention } from '../../consigliere/usePlannerAttention';
+import { requestHubPanel } from '../../hub/hubPanels';
+import type { ToolPanelKey } from '../../tools/toolPanels';
+import { useToolPanelAccess } from '../../tools/useToolPanelAccess';
 import type { SettingsProps } from '../types/types';
 import { ESCAPE_LAYER_SELECTOR, isBackdropDismiss, shouldCloseSettingsOnEscape } from '../utils/settingsDismiss';
 
@@ -73,6 +78,15 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
     subscribe: pushSubscribe,
     unsubscribe: pushUnsubscribe,
   } = useWebPush();
+
+  // «Инструменты»: экраны бывшего «Меню». Строка закрывает настройки и
+  // открывает экран — его рисует ToolPanelsHost в оболочке приложения.
+  const toolPanelAccess = useToolPanelAccess();
+  const { items: plannerAttention } = usePlannerAttention();
+  const openToolPanel = useCallback((key: ToolPanelKey) => {
+    onClose();
+    requestHubPanel(key);
+  }, [onClose]);
 
   const handleEnablePush = async () => {
     await pushSubscribe();
@@ -191,7 +205,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
 
         {/* Body: sidebar + content */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
-          <SettingsSidebar activeTab={activeTab} onChange={setActiveTab} />
+          <SettingsSidebar activeTab={activeTab} onChange={setActiveTab} attentionCount={plannerAttention.length} />
 
           {/* Content */}
           <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
@@ -205,6 +219,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                   onCodeEditorShowMinimapChange={(value) => updateCodeEditorSetting('showMinimap', value)}
                   onCodeEditorLineNumbersChange={(value) => updateCodeEditorSetting('lineNumbers', value)}
                   onCodeEditorFontSizeChange={(value) => updateCodeEditorSetting('fontSize', value)}
+                />
+              )}
+
+              {activeTab === 'instruments' && (
+                <InstrumentsSettingsTab
+                  access={toolPanelAccess}
+                  attentionCount={plannerAttention.length}
+                  onOpenPanel={openToolPanel}
                 />
               )}
 
