@@ -30,9 +30,10 @@ export default function QuickSettingsHandle({
   const { t } = useTranslation('settings');
 
   const placementClass = isOpen ? 'right-64' : 'right-0';
-  // Цвета — только токены темы. С хардкодом gray/blue язычок оставался белой
-  // плашкой поверх любой тёмной темы и первым бросался в глаза на скриншоте.
-  const borderClass = isDragging ? 'border-primary' : 'border-border';
+  // Материал — общее стекло темы (`glass-surface`), а не своё размытие. Язычок
+  // узкий и полупрозрачный, пока его не трогают: на телефоне он стоит у края
+  // экрана поверх текста сообщений. Зона нажатия 44 px — за счёт `::before`.
+  const dragClass = isDragging ? 'opacity-100 !border-primary' : 'opacity-60 hover:opacity-100';
   const transitionClass = isDragging
     ? ''
     : 'transition-all duration-150 ease-out';
@@ -52,7 +53,7 @@ export default function QuickSettingsHandle({
       onClick={onClick}
       onMouseDown={onMouseDown}
       onTouchStart={onTouchStart}
-      className={`fixed ${placementClass} z-50 ${transitionClass} border border-r-0 bg-card/80 ${borderClass} rounded-l-md p-2 shadow-md backdrop-blur transition-colors hover:bg-accent ${cursorClass} touch-none`}
+      className={`fixed ${placementClass} z-50 ${transitionClass} glass-surface border-r-0 ${dragClass} rounded-l-md rounded-r-none px-1 py-3 before:absolute before:-inset-y-1 before:-left-5 before:right-0 before:content-[''] ${cursorClass} touch-none`}
       style={{
         ...style,
         touchAction: 'none',
@@ -63,11 +64,11 @@ export default function QuickSettingsHandle({
       title={title}
     >
       {isDragging ? (
-        <GripVertical className="h-5 w-5 text-primary" />
+        <GripVertical className="h-4 w-4 text-primary" />
       ) : isOpen ? (
-        <ChevronRight className="h-5 w-5 text-muted-foreground" />
+        <ChevronRight className="h-4 w-4 text-muted-foreground" />
       ) : (
-        <ChevronLeft className="h-5 w-5 text-muted-foreground" />
+        <ChevronLeft className="h-4 w-4 text-muted-foreground" />
       )}
     </button>
   );

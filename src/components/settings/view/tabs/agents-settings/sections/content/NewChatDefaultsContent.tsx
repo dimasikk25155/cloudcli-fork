@@ -122,7 +122,7 @@ export default function NewChatDefaultsContent({ agent }: NewChatDefaultsContent
 
   const effortValues = modelsDefinition?.OPTIONS.find((option) => option.value === model)?.effort?.values ?? [];
 
-  const selectClassName = 'w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-56';
+  const selectClassName = 'w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary md:w-56';
 
   return (
     <div className="space-y-8">

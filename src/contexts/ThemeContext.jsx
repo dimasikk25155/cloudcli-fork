@@ -3,10 +3,10 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { authenticatedFetch } from '../utils/api';
 import { applyTweaks, hslTripletToHex, parseTweakMap } from '../utils/themeTweaks';
 
+import { readDeviceTheme, resolveAccountTheme } from './deviceTheme';
 import {
   DEFAULT_NEON_VARIANT,
   NEON_VARIANTS,
-  isNeonVariant,
   migrateThemeId,
   resolveNeonVariant,
 } from './themeMigration';
@@ -246,9 +246,12 @@ export const ThemeProvider = ({ children }) => {
   // с собой и тему (`neon`), и вариант. Обычно подмену уже сделал inline-скрипт
   // index.html; здесь — та же таблица на случай, если он не отработал.
   const [initialTheme] = useState(() => {
-    const saved = localStorage.getItem('appTheme') || localStorage.getItem('shaderVariant');
+    const saved = readDeviceTheme(localStorage);
     const migrated = migrateThemeId(saved || DEFAULT_THEME);
     return {
+      // Была ли тема на устройстве ДО этого запуска: эффект ниже запишет
+      // `appTheme` сразу при первом рендере, раньше ответа сервера.
+      deviceTheme: saved,
       theme: migrated.theme,
       neonVariant: migrated.neonVariant || resolveNeonVariant(localStorage.getItem('neonVariant')),
     };
@@ -269,10 +272,10 @@ export const ThemeProvider = ({ children }) => {
   // The active theme decides whether the app is dark or light.
   const isDarkMode = !LIGHT_THEMES.includes(theme);
 
-  // Account-wide theme/shader defaults, loaded once on mount and applied on
-  // top of whatever localStorage had (server is the cross-device source of
-  // truth; localStorage is just this browser's instant-paint cache). Uses
-  // the raw setters so this doesn't itself trigger a sync-back PUT.
+  // Account-wide defaults, loaded once on mount and applied on top of whatever
+  // localStorage had. Исключение — тема: она своя на каждом устройстве, аккаунт
+  // даёт её только новому устройству (resolveAccountTheme). Uses the raw
+  // setters so this doesn't itself trigger a sync-back PUT.
   useEffect(() => {
     let cancelled = false;
     authenticatedFetch('/api/settings/ui-preferences')
@@ -287,14 +290,17 @@ export const ThemeProvider = ({ children }) => {
           uiScale: savedUiScale,
           themeBackgrounds: savedBackgrounds,
         } = data.preferences;
-        if (typeof savedTheme === 'string' && savedTheme) {
-          // В аккаунте может лежать убранный id — сервер их не проверяет.
-          const migrated = migrateThemeId(savedTheme);
-          setThemeRaw(migrated.theme);
-          // Вариант диктует только убранная фото-тема и только устройству,
-          // которое своего ещё не выбирало.
-          if (migrated.neonVariant && !isNeonVariant(localStorage.getItem('neonVariant'))) {
-            setNeonVariantRaw(migrated.neonVariant);
+        // Тема своя на каждом устройстве: аккаунт даёт её только устройству,
+        // у которого своей ещё нет (после этого запуска `appTheme` уже записан).
+        const fromAccount = resolveAccountTheme({
+          deviceTheme: initialTheme.deviceTheme,
+          accountTheme: savedTheme,
+        });
+        if (fromAccount.apply) {
+          setThemeRaw(fromAccount.theme);
+          // Вариант диктует только убранная фото-тема.
+          if (fromAccount.neonVariant) {
+            setNeonVariantRaw(fromAccount.neonVariant);
           }
         }
         if (typeof savedShaderEnabled === 'boolean') {

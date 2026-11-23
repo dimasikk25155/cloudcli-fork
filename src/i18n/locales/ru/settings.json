@@ -318,6 +318,10 @@
         }
       },
       "wasValue": "было {{value}}"
+    },
+    "themePicker": {
+      "neonColor": "Цвет «Неона»",
+      "neonColorLabel": "Цвет"
     }
   },
   "mcpForm": {

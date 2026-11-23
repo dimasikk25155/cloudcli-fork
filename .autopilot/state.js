@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.claude/skills/autopilot",
   "baseCommit": "08e23a90",
   "startedAt": "2026-11-23T17:33:24+03:00",
-  "updatedAt": "2026-11-23T19:33:32+03:00",
+  "updatedAt": "2026-11-23T19:42:00+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -62,8 +62,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 25,
-    "done": 2,
-    "inTicket": 23,
+    "done": 8,
+    "inTicket": 17,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -127,7 +127,13 @@ window.STATE =
       "status": "review",
       "retries": 0,
       "repairs": 0,
-      "startedAt": "2026-11-23T18:55:16+03:00"
+      "startedAt": "2026-11-23T18:55:16+03:00",
+      "finishedAt": "2026-11-23T19:33:41+03:00",
+      "tests": {
+        "passed": 2415,
+        "failed": 0
+      },
+      "commit": "52e54b76"
     },
     {
       "id": "03",
@@ -232,8 +238,8 @@ window.STATE =
     }
   ],
   "tests": {
-    "passed": 2361,
-    "failed": 7
+    "passed": 2415,
+    "failed": 0
   },
   "debt": {
     "placeholders": [],
@@ -252,7 +258,17 @@ window.STATE =
     "встроенный браузер не рисует backdrop-filter в снимок — размытие на стенде не проверить глазами",
     "P3: внутренности панели «Расписания» — вне рамок (внутренности экранов-панелей)",
     "Неон: акценты «Мятный», «Синий», «Зелёный» разведены по тону и не совпадают с цветами прежних тем",
-    "Оранжевая: под лентой чата и полем ввода добавлена тёмная вуаль 60 % (читаемость над видео)"
+    "Оранжевая: под лентой чата и полем ввода добавлена тёмная вуаль 60 % (читаемость над видео)",
+    "src/index.css:1441 — .glass-scrim только затемняет, размытия нет (BLOCKING ревью T02, ремонт после T03)",
+    "src/index.css:188–194 — производные --glass-ring/-accent-*/-active-*/-radius считаются на :root, во вложенном data-theme остаются от активной темы",
+    "index.html:95–103 — запись в localStorage раньше setAttribute: при отказе setItem подменённая тема без data-theme; нет теста с бросающим хранилищем",
+    "src/contexts/theme-registry.test.ts:141–147 — regex по форме кода эффекта ThemeContext.jsx",
+    "src/contexts/theme-registry.test.ts:639 — запрет подстроки mobile-nav слишком широкий",
+    "src/index.css:1948,2168,2414,2579,2873 — хвосты тем на [data-slot='prompt-input'] сильнее .glass-surface (снять в T05)",
+    "src/index.css:2813 — Светлая Claude: белый значок на терракоте у .glass-button-primary 3,1:1",
+    "src/contexts/ThemeContext.jsx:109 — backgroundFile больше не импортируется",
+    "src/contexts/themeMigration.js:71 — Object.hasOwn против ES5-формы в index.html",
+    "src/contexts/ThemeContext.jsx:292 — неизвестный id темы из аккаунта ставит ember поверх темы устройства (закрывает T03)"
   ],
   "blind": null,
   "beats": [
@@ -273,9 +289,11 @@ window.STATE =
     "2026-11-23T18:55:11+03:00",
     "2026-11-23T18:55:14+03:00",
     "2026-11-23T18:55:16+03:00",
-    "2026-11-23T19:33:32+03:00"
+    "2026-11-23T19:33:32+03:00",
+    "2026-11-23T19:33:41+03:00",
+    "2026-11-23T19:42:00+03:00"
   ],
-  "rev": 27,
+  "rev": 30,
   "waiting": null,
   "waits": [],
   "log": [
@@ -442,6 +460,32 @@ window.STATE =
         "03"
       ],
       "act": "start"
+    },
+    {
+      "t": "2026-11-23T19:33:41+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 2415,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-23T19:33:41+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "review"
+    },
+    {
+      "t": "2026-11-23T19:42:00+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 10
     }
   ],
   "reqList": [
@@ -488,7 +532,7 @@ window.STATE =
     {
       "id": "R09",
       "text": "«дизайн… у тем практически идентичный, ничем особо не меняется»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R10",
@@ -498,7 +542,7 @@ window.STATE =
     {
       "id": "R11",
       "text": "«сделать из них меньше, но более как бы качественнее»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R12",
@@ -518,17 +562,17 @@ window.STATE =
     {
       "id": "R15",
       "text": "«стеклянный эффект от Apple… скрин отправлю для примера, как это выглядит, чтобы я хотел видеть»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R16",
       "text": "«может быть у нас это не получится встроить»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R17",
       "text": "«И это касается бы… всех тем»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R18",
@@ -543,7 +587,7 @@ window.STATE =
     {
       "id": "R19i",
       "text": "(подразумевается) у кого стояла убранная тема, приложение не ломается",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R20i",

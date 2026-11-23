@@ -21,7 +21,7 @@ import SettingsToggle from '../SettingsToggle';
 import ThemeTweakPreview from './ThemeTweakPreview';
 
 const selectClass =
-  'w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44';
+  'w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary md:w-44';
 
 type SliderKey = (typeof SLIDERS)[number]['key'];
 

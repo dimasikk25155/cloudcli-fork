@@ -185,3 +185,14 @@ node_modules/.bin/vite build --outDir "$(mktemp -d /tmp/neo3-client-check.XXXXXX
 - Характер тем: Оранжевая — Geologica, 10px, тёплое дымчатое стекло; Графит — системный шрифт, 8px, матовый, без теней;
   Био — General Sans + IBM Plex Mono в чипах, 12px, чёрный с волосяными линиями; Неон — JetBrains Mono, 6px, свечение акцента;
   Бирюзовая — Outfit, 16px, белый иней; Светлая Claude — системный + засечные заголовки, 10px, бумага и калька.
+
+### Таск 03 — тема на устройстве, карточки тем, строки настроек (сдан)
+
+- `src/contexts/deviceTheme.js`: `readDeviceTheme(storage)` → `string | null`;
+  `resolveAccountTheme({ deviceTheme, accountTheme })` → `{ apply: false } | { apply: true, theme, neonVariant }`.
+  Тема из ответа сервера применяется только при пустом устройстве; убранный id подменяется, незнакомый не применяется.
+- `<ThemePicker theme neonVariant onThemeChange onNeonVariantChange compact? />` (`settings/view/tabs/ThemePicker.tsx`);
+  карточки `data-theme-card` + `data-theme` + `aria-pressed`; ряд вариантов `data-neon-variants`, кнопки `data-neon-variant`.
+- `<SettingsRow layout?: 'stacked' | 'inline' />`: на ширине < `md` элемент управления уходит под текст,
+  `SettingsToggle` остаётся в ряду с текстом. Новые строки настроек делать через `SettingsRow`.
+- Язычок и оверлей быстрых настроек — на `.glass-surface` и `.glass-scrim`.

@@ -311,6 +311,10 @@
         }
       },
       "wasValue": "was {{value}}"
+    },
+    "themePicker": {
+      "neonColor": "Neon colour",
+      "neonColorLabel": "Colour"
     }
   },
   "mcpForm": {
