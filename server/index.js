@@ -17,7 +17,7 @@ import mime from 'mime-types';
 
 import { WORKSPACES_ROOT, apiErrorHandler, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { broadcastProjectEvent, createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
+import { broadcastProjectEvent, createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createQueuedSendControl, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -112,6 +112,7 @@ import { startKeepAwake } from './modules/keep-awake/index.js';
 import { sessionTokenUsageRoute } from './routes/session-token-usage.js';
 import { relayRoutes } from './modules/relay/index.js';
 import { autoRelayRoutes, autoRelayService } from './modules/auto-relay/index.js';
+import { queuedAttentionListener, queuedMessagesRoutes, queuedMessagesService, setQueuedSendControl } from './modules/queued-messages/index.js';
 import { improvementIdeas } from './modules/improvement-ideas/improvement-ideas.service.js';
 import { createImprovementIdeasRouter } from './modules/improvement-ideas/improvement-ideas.routes.js';
 import { createIdeaRunControl } from './modules/websocket/services/chat-websocket.service.js';
@@ -234,6 +235,9 @@ btwService.setRunControl(createAutoRelayRunControl(chatDependencies));
 setMasterSessionRunControl(createThreadRunControl(chatDependencies));
 // «Агенты»: the first message of a chat with an agent goes through the same gateway.
 agentsService.setRunControl(createAgentRunControl(chatDependencies));
+// «Очередь сообщений»: a message queued during a turn is sent by the server
+// through the same gateway when the turn ends — no open tab is needed.
+setQueuedSendControl(createQueuedSendControl(chatDependencies));
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
 const wss = createWebSocketServer(server, {
@@ -404,6 +408,8 @@ app.use('/api/sessions', authenticateToken, sessionLinksRoutes);
 // Relay: checks the handoff note an agent wrote before a continuation chat is opened.
 app.use('/api/sessions', authenticateToken, relayRoutes);
 app.use('/api/sessions', authenticateToken, autoRelayRoutes);
+// «Очередь сообщений»: /:sessionId/queued-message (requireSessionAccess inside).
+app.use('/api/sessions', authenticateToken, queuedMessagesRoutes);
 // Vault-note suggestions (replaces the obsidian-memory Stop hook inside Neo3).
 // Writing and dismissing are admin-only inside the router.
 app.use('/api/memory-suggestions', authenticateToken, memorySuggestionsRoutes);
@@ -1638,6 +1644,10 @@ async function startServer() {
         // of the handoff turn opens the continuation.
         sessionAttention.onChange((change) => { void autoRelayService.handleAttentionChange(change); });
 
+        // «Очередь сообщений»: a turn that ended with «готово» releases the
+        // chat's queued message; a question, an error or «Стоп» holds it.
+        sessionAttention.onChange(queuedAttentionListener());
+
         // «Не засыпать»: Mac не уходит в сон, пока идут прогоны (мод modKeepAwake).
         startKeepAwake({ sessionAttention });
 
@@ -1647,6 +1657,14 @@ async function startServer() {
             sessionAttention.reconcileOnBoot();
         } catch (error) {
             console.warn('[attention] could not reconcile session statuses:', error?.message || error);
+        }
+
+        // «Очередь сообщений»: the runs of the previous process are gone —
+        // whatever was queued stays in its card and waits for the user.
+        try {
+            queuedMessagesService.recoverOnBoot();
+        } catch (error) {
+            console.warn('[queue] could not hold queued messages:', error?.message || error);
         }
 
         // Auto-relay moves cut short by the restart: told once, switched off.

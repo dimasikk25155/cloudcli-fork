@@ -22,6 +22,7 @@ import {
   SIDEBAR_GROUPS_TABLE_SCHEMA_SQL,
   SESSION_ATTENTION_TABLE_SCHEMA_SQL,
   SESSION_AUTO_RELAY_TABLE_SCHEMA_SQL,
+  SESSION_QUEUED_MESSAGES_TABLE_SCHEMA_SQL,
   SESSION_THREADS_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
   THREAD_TOKENS_TABLE_SCHEMA_SQL,
@@ -599,6 +600,8 @@ export const runMigrations = (db: Database) => {
     const safariLiveColumnNames = getTableInfo(db, 'safari_live_bindings').map((column) => column.name);
     addColumnToTableIfNotExists(db, 'safari_live_bindings', safariLiveColumnNames, 'page_id', 'TEXT');
     addColumnToTableIfNotExists(db, 'safari_live_bindings', safariLiveColumnNames, 'url', 'TEXT');
+    // «Очередь сообщений»: one queued message per chat, sent by the server (queued-messages module).
+    db.exec(SESSION_QUEUED_MESSAGES_TABLE_SCHEMA_SQL);
     // «Агенты» and «Конвейер» (agents, agent-queue modules).
     db.exec(AGENTS_TABLE_SCHEMA_SQL);
     db.exec(AGENT_RULES_TABLE_SCHEMA_SQL);

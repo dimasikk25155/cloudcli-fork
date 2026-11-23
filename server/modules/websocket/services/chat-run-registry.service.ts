@@ -10,6 +10,7 @@ import { linksOfRow } from '@/modules/session-links/index.js';
 import { sessionAttention } from '@/modules/session-attention/index.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastProjectEvent } from '@/modules/websocket/services/project-access.service.js';
+import { logChatEvent } from '@/shared/chat-event-log.js';
 import { isModOn, type IsModOn, type ModUserId } from '@/shared/mods.js';
 import type {
   LLMProvider,
@@ -228,6 +229,14 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     outbound.actualSessionId = run.appSessionId;
     run.status = 'completed';
     run.completedAt = Date.now();
+    logChatEvent('run_complete', {
+      sessionId: run.appSessionId,
+      userId: run.userId,
+      exitCode: typeof message.exitCode === 'number' ? message.exitCode : 0,
+      aborted: message.aborted === true,
+      durationMs: Math.max(0, run.completedAt - run.startedAt),
+      events: run.lastSeq,
+    });
     if (!message.aborted && message.success !== false
       && (message.exitCode === undefined || message.exitCode === 0) && run.lastAnswer) {
       const durationMs = Math.max(0, Math.round(run.now() - run.monotonicStart));
@@ -419,6 +428,12 @@ export const chatRunRegistry = {
     });
 
     runs.set(input.appSessionId, run);
+    logChatEvent('run_start', {
+      sessionId: run.appSessionId,
+      userId: run.userId,
+      provider: run.provider,
+      resume: Boolean(run.providerSessionId),
+    });
 
     // «По моим сообщениям»: a run starts with the user's turn, so the chat
     // moves up now; the agent's replies never touch this time.

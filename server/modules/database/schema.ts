@@ -565,6 +565,26 @@ CREATE TABLE IF NOT EXISTS safari_live_bindings (
 );
 `;
 
+// «Очередь сообщений»: the one message a chat holds while its agent is busy
+// (queued-messages module). The server sends it when the turn ends, so no tab
+// has to be open. `hold_reason` NULL = goes out by itself; `send_now` = the
+// user asked to interrupt the turn and send. No foreign keys, same reason as
+// session_attention.
+export const SESSION_QUEUED_MESSAGES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_queued_messages (
+    session_id TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER,
+    content TEXT NOT NULL,
+    options_json TEXT,
+    images_json TEXT,
+    hold_reason TEXT,
+    last_error TEXT,
+    send_now INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+`;
+
 export const IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS improvement_ideas (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -762,6 +782,7 @@ ${MEMORY_SUGGESTIONS_TABLE_SCHEMA_SQL}
 ${IMPROVEMENT_IDEAS_TABLE_SCHEMA_SQL}
 ${SIDEBAR_GROUPS_TABLE_SCHEMA_SQL}
 ${SAFARI_LIVE_BINDINGS_TABLE_SCHEMA_SQL}
+${SESSION_QUEUED_MESSAGES_TABLE_SCHEMA_SQL}
 ${AGENTS_TABLE_SCHEMA_SQL}
 ${AGENT_RULES_TABLE_SCHEMA_SQL}
 ${AGENT_SESSIONS_TABLE_SCHEMA_SQL}

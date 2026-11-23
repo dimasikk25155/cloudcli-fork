@@ -1,4 +1,5 @@
 import { workspaceSessionHasGrant } from '../../agent-workspace/index.js';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import type { WebSocket } from 'ws';
@@ -22,6 +23,7 @@ import { beginServiceTurn } from '@/shared/service-turns.js';
 import { isRelayRequestText } from '../../../../shared/relay-rules.js';
 import type { ThreadRunControl } from '@/modules/threads/index.js';
 import type { AgentRunControl } from '@/modules/agents/index.js';
+import type { QueuedSendControl } from '@/modules/queued-messages/index.js';
 import { backgroundConsoleOn, chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities, readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -44,6 +46,7 @@ import {
   takeGrokQuestion,
   takeGrokQuestionsForAppSession,
 } from '@/shared/grok-question.js';
+import { logChatEvent } from '@/shared/chat-event-log.js';
 import { isModOn, MOD_OFF, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession, isAdminUser } from '@/shared/project-access.js';
 import { teamTelegram, teamTelegramUrl } from '@/modules/team-telegram/index.js';
@@ -196,7 +199,10 @@ function readRequiredSessionId(data: AnyRecord): string | null {
   return sessionId.length > 0 ? sessionId : null;
 }
 
-type ChatSendStart = { started: false } | { started: true; finished: Promise<void> };
+/** A refused send names its protocol error code — the same one the socket was told. */
+type ChatSendStart =
+  | { started: false; code: string; error: string }
+  | { started: true; finished: Promise<void> };
 
 /**
  * Whose access decides a `chat.send`.
@@ -209,6 +215,10 @@ type ChatSendStart = { started: false } | { started: true; finished: Promise<voi
  *   canStartLinkedRun).
  * - `agent`: the first message of a chat with a Neo3 agent (see
  *   canStartAgentRun).
+ * - `queue`: a message the user queued while the agent was busy, sent by the
+ *   server when the turn ended (queued-messages). Checked like a socket send:
+ *   by the rights the user has at the moment of sending. `watcher` is the
+ *   connection that followed the chat's previous run, if it is still entitled.
  */
 type ChatSendAccess =
   | { kind: 'socket' }
@@ -216,7 +226,8 @@ type ChatSendAccess =
   | { kind: 'idea'; userId: number }
   | { kind: 'thread'; userId: number; parentSessionId: string }
   | { kind: 'auto-relay'; userId: number; parentSessionId: string }
-  | { kind: 'agent'; userId: number };
+  | { kind: 'agent'; userId: number }
+  | { kind: 'queue'; userId: number; watcher?: RealtimeClientConnection | null };
 
 /**
  * `agent` access («Агенты»): an admin, with access to the chat's project now,
@@ -286,7 +297,8 @@ async function handleChatSend(
 /**
  * Synchronous half of `chat.send`: validation, access check and run
  * registration. `started` is the explicit result of registering the run;
- * `finished` settles when the runtime is done.
+ * `finished` settles when the runtime is done. Every attempt — whoever made
+ * it — leaves one `send` line in the chat journal (no message text).
  */
 function beginChatSend(
   ws: RealtimeClientConnection,
@@ -296,21 +308,42 @@ function beginChatSend(
   dependencies: ChatWebSocketDependencies,
   access: ChatSendAccess,
 ): ChatSendStart {
+  const start = startChatSend(ws, userId, userRole, data, dependencies, access);
+  logChatEvent('send', {
+    sessionId: readRequiredSessionId(data) ?? '',
+    userId,
+    access: access.kind,
+    started: start.started,
+    ...(start.started ? {} : { code: start.code }),
+  });
+  return start;
+}
+
+function startChatSend(
+  ws: RealtimeClientConnection,
+  userId: string | number | null,
+  userRole: string | null,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies,
+  access: ChatSendAccess,
+): ChatSendStart {
+  const refuse = (code: string, error: string, refusedSessionId?: string): ChatSendStart => {
+    sendProtocolError(ws, code, error, refusedSessionId);
+    return { started: false, code, error };
+  };
+
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
-    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.send requires a sessionId.');
-    return { started: false };
+    return refuse('SESSION_ID_REQUIRED', 'chat.send requires a sessionId.');
   }
 
   const session = sessionsDb.getSessionById(sessionId);
   if (!session) {
-    sendProtocolError(
-      ws,
+    return refuse(
       'SESSION_NOT_FOUND',
       `Session "${sessionId}" was not found. Create it via POST /api/providers/sessions first.`,
       sessionId
     );
-    return { started: false };
   }
 
   // Non-admin employees may only open sessions for projects an admin granted
@@ -322,6 +355,8 @@ function beginChatSend(
   // `pendingAnswers` has already checked (see ChatSendAccess).
   const accessDenied = access.kind === 'socket'
     ? !canAccessSession(clientIdentities.get(ws), sessionId)
+    : access.kind === 'queue'
+      ? !canAccessSession({ id: access.userId }, sessionId)
     : access.kind === 'idea'
       ? !isAdminUser({ id: access.userId }) || !canAccessSession({ id: access.userId }, sessionId)
       : access.kind === 'thread'
@@ -330,20 +365,13 @@ function beginChatSend(
       ? !canStartAgentRun(access, sessionId)
       : access.kind === 'auto-relay' && !canStartLinkedRun(access, sessionId, 'relay');
   if (accessDenied) {
-    sendProtocolError(
-      ws,
-      'PROJECT_ACCESS_DENIED',
-      'You do not have access to this project.',
-      sessionId
-    );
-    return { started: false };
+    return refuse('PROJECT_ACCESS_DENIED', 'You do not have access to this project.', sessionId);
   }
 
   const provider = session.provider as LLMProvider;
   const spawnFn = dependencies.spawnFns[provider];
   if (!spawnFn) {
-    sendProtocolError(ws, 'UNSUPPORTED_PROVIDER', `Provider "${provider}" is not available.`, sessionId);
-    return { started: false };
+    return refuse('UNSUPPORTED_PROVIDER', `Provider "${provider}" is not available.`, sessionId);
   }
 
   // Non-admins work inside their project folder only: their engine runs in a
@@ -351,12 +379,10 @@ function beginChatSend(
   // cannot be fenced are closed to them.
   const jail = (dependencies.userJailFor ?? userJailFor)(userId, session.project_path);
   if (jail === 'deny') {
-    sendProtocolError(ws, 'PROJECT_JAIL_DENIED', JAIL_DENIED_MESSAGE, sessionId);
-    return { started: false };
+    return refuse('PROJECT_JAIL_DENIED', JAIL_DENIED_MESSAGE, sessionId);
   }
   if (jail && !JAILED_PROVIDERS.has(provider)) {
-    sendProtocolError(ws, 'PROJECT_JAIL_PROVIDER', JAIL_PROVIDER_MESSAGE, sessionId);
-    return { started: false };
+    return refuse('PROJECT_JAIL_PROVIDER', JAIL_PROVIDER_MESSAGE, sessionId);
   }
 
   const run = chatRunRegistry.startRun({
@@ -370,13 +396,7 @@ function beginChatSend(
   });
 
   if (!run) {
-    sendProtocolError(
-      ws,
-      'RUN_IN_PROGRESS',
-      `Session "${sessionId}" already has a run in progress.`,
-      sessionId
-    );
-    return { started: false };
+    return refuse('RUN_IN_PROGRESS', `Session "${sessionId}" already has a run in progress.`, sessionId);
   }
 
   // Typing an answer while Grok's synthetic question panel is up is the
@@ -397,9 +417,30 @@ function beginChatSend(
   const clientOptions = (data.options ?? {}) as AnyRecord;
   const rawContent = typeof data.content === 'string' ? data.content : '';
 
+  // A queued message has no tab that sent it: nobody drew the user's bubble
+  // and no socket follows the run. The connection that watched the previous
+  // turn keeps watching, and the bubble is the run's first event — live for
+  // that tab, replayed to any tab that subscribes later. The id is a local
+  // echo's (`local_*`): the client drops it once the transcript has the row.
+  if (access.kind === 'queue') {
+    if (access.watcher) {
+      run.writer.updateWebSocket(access.watcher);
+    }
+    run.writer.send(createNormalizedMessage({
+      id: `local_queue_${randomUUID()}`,
+      kind: 'text',
+      role: 'user',
+      content: rawContent,
+      images: Array.isArray(clientOptions.images) && clientOptions.images.length > 0 ? clientOptions.images : undefined,
+      sessionId,
+      provider,
+    }));
+  }
+
   // Auto-relay repeats a person's engine settings (model, effort, mode, tools)
-  // on its own turns; only runs a person started count.
-  if (access.kind === 'socket' || access.kind === 'idea' || access.kind === 'agent') {
+  // on its own turns; only runs a person started count — a queued message is
+  // the person's message too.
+  if (access.kind === 'socket' || access.kind === 'idea' || access.kind === 'agent' || access.kind === 'queue') {
     rememberRunOptions(sessionId, clientOptions);
   }
 
@@ -616,8 +657,10 @@ async function abortSessionRun(
 ): Promise<boolean> {
   const run = chatRunRegistry.getRun(sessionId);
   if (!run || run.status !== 'running') {
+    logChatEvent('abort', { sessionId, userId, stopped: false });
     return false;
   }
+  logChatEvent('abort', { sessionId, userId, stopped: true });
 
   const abortFn = dependencies.abortFns[run.provider];
 
@@ -758,6 +801,7 @@ function handleChatSubscribe(
 
     const run = chatRunRegistry.getRun(sessionId);
     const isProcessing = chatRunRegistry.isProcessing(sessionId);
+    logChatEvent('subscribe', { sessionId, userId, processing: isProcessing, lastSeq });
 
     // Future live events for this run should land on the socket that asked —
     // this is what makes mid-stream page refreshes work for all providers.
@@ -963,6 +1007,82 @@ export function createAutoRelayRunControl(dependencies: ChatWebSocketDependencie
         // Unknown = none: the fan-out of the run itself is gone with its process.
         return 0;
       }
+    },
+  };
+}
+
+/** What the queue shows in its card when the gateway refused to start the run. */
+const QUEUED_SEND_REFUSALS: Record<string, string> = {
+  SESSION_NOT_FOUND: 'Чат не найден',
+  PROJECT_ACCESS_DENIED: 'Нет доступа к проекту этого чата',
+  UNSUPPORTED_PROVIDER: 'Движок этого чата сейчас недоступен',
+  RUN_IN_PROGRESS: 'В чате уже идёт ход',
+};
+
+/**
+ * The connection that followed the chat's last run, when it is a live socket
+ * whose user may still open the chat. Anything else (a detached run, a closed
+ * tab, a user whose access was taken away) is not carried over.
+ */
+function watcherOfLastRun(sessionId: string): RealtimeClientConnection | null {
+  const connection = chatRunRegistry.getRun(sessionId)?.writer.ws;
+  if (!connection || connection.readyState !== WS_OPEN_STATE || !connectedClients.has(connection)) {
+    return null;
+  }
+  return canAccessSession(clientIdentities.get(connection), sessionId) ? connection : null;
+}
+
+/**
+ * The chat gateway's side of the message queue (queued-messages): a queued
+ * message is an ordinary run — registry, indicator, Stop, «Ждут тебя»,
+ * «Новые / Недавние», the teammate jail — started without a socket for the
+ * user who queued it (`queue` access, their rights at this moment). Nobody
+ * has to be watching: the events are buffered and replayed on subscribe.
+ */
+export function createQueuedSendControl(dependencies: ChatWebSocketDependencies): QueuedSendControl {
+  return {
+    send({ sessionId, userId, content, options, images }) {
+      if (userId === null) {
+        return { started: false, busy: false, error: 'Неизвестно, кто поставил сообщение в очередь' };
+      }
+      const start = beginChatSend(
+        createDetachedConnection(),
+        userId,
+        // Same source as the access rule: the role is read from the database.
+        isAdminUser({ id: userId }) ? 'admin' : null,
+        { sessionId, content, options: images.length > 0 ? { ...options, images } : options },
+        dependencies,
+        { kind: 'queue', userId, watcher: watcherOfLastRun(sessionId) },
+      );
+      if (!start.started) {
+        return {
+          started: false,
+          busy: start.code === 'RUN_IN_PROGRESS',
+          // Jail refusals are already written for a person.
+          error: QUEUED_SEND_REFUSALS[start.code] ?? start.error,
+        };
+      }
+      void start.finished.catch((error: unknown) => {
+        console.error('[Chat] Queued run failed', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+      return { started: true };
+    },
+    isRunLive(sessionId) {
+      return chatRunRegistry.isProcessing(sessionId);
+    },
+    abortRun(sessionId, userId) {
+      return abortSessionRun(sessionId, dependencies, userId);
+    },
+    lastRunStopped(sessionId) {
+      const run = chatRunRegistry.getRun(sessionId);
+      if (!run || run.status !== 'completed') {
+        return false;
+      }
+      const last = run.events[run.events.length - 1];
+      return last?.kind === 'complete' && last.aborted === true;
     },
   };
 }

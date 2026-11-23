@@ -46,6 +46,8 @@ export type { CreateScheduleInput, ScheduleKind, ScheduleRow, UpdateScheduleInpu
 export { pipelinesDb } from '@/modules/database/repositories/pipelines.db.js';
 export { safariLiveBindingsDb } from '@/modules/database/repositories/safari-live-bindings.db.js';
 export type { SafariLiveBindingRow } from '@/modules/database/repositories/safari-live-bindings.db.js';
+export { queuedMessagesDb } from '@/modules/database/repositories/queued-messages.db.js';
+export type { QueuedMessageInsert, QueuedMessageRow, QueuedMessagesDb } from '@/modules/database/repositories/queued-messages.db.js';
 export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 export { sessionLinksDb } from '@/modules/database/repositories/session-links.db.js';

@@ -1,4 +1,8 @@
-import { clientIdentities, readSocketUserId } from './project-access.service.js';
+import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+
+import { QUEUED_MESSAGE_CHANGED } from '../../../../shared/queued-message.js';
+
+import { broadcastProjectEvent, clientIdentities, readSocketUserId } from './project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from './websocket-state.service.js';
 
 /** Content-free "your settings changed, re-read them" frame. Not a chat row. */
@@ -57,4 +61,16 @@ export function notifySafariLiveChanged(userId: number, sessionId: string): void
  */
 export function notifySecretRequestsChanged(userId: number): void {
   sendToUser(userId, { kind: SECRET_REQUESTS_CHANGED });
+}
+
+/**
+ * «Очередь сообщений»: the queued message of a chat changed (queued, edited,
+ * held, sent, removed). Only the chat id goes out, to every socket that may
+ * see the chat's project; the client re-reads
+ * `GET /api/sessions/:id/queued-message`, where access is checked again.
+ */
+export function notifyQueuedMessageChanged(sessionId: string): void {
+  const projectPath = sessionsDb.getSessionById(sessionId)?.project_path ?? null;
+  const projectId = projectPath ? projectsDb.getProjectPath(projectPath)?.project_id ?? null : null;
+  broadcastProjectEvent(JSON.stringify({ kind: QUEUED_MESSAGE_CHANGED, sessionId }), projectId);
 }
