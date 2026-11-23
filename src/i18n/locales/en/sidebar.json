@@ -64,7 +64,8 @@
     "clearSearch": "Clear search",
     "openCommandPalette": "Open command palette",
     "attentionRequiredIndicator": "Session needs attention",
-    "hideFromRecent": "Hide from the journal"
+    "hideFromRecent": "Hide from the journal",
+    "closeSession": "Archive or delete"
   },
   "navigation": {
     "chat": "Chat",
@@ -177,5 +178,12 @@
     "emptyTitle": "The journal is empty",
     "emptyDescription": "Sessions you work in show up here and stay until you hide them with the ✕.",
     "noMatchingSessions": "Nothing found among recent sessions."
+  },
+  "sessionSort": {
+    "label": "Chat order",
+    "created": "New",
+    "prompt": "Recent",
+    "createdHint": "Chats by creation date, newest first",
+    "promptHint": "The chat you last wrote in goes first"
   }
 }

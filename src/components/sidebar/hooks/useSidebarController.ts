@@ -12,6 +12,7 @@ import type {
   ProjectSortOrder,
   SidebarSearchMode,
   SessionDeleteConfirmation,
+  SessionSortOrder,
   SessionWithProvider,
 } from '../types/types';
 import {
@@ -28,8 +29,13 @@ import {
   PROJECT_SORT_CHANGED_EVENT,
   PROJECT_SORT_STORAGE_KEY,
   readProjectSortOrder,
+  readSessionSortOrder,
+  SESSION_SORT_CHANGED_EVENT,
+  SESSION_SORT_STORAGE_KEY,
+  sortSessionsByPrompt,
   writeExpandedJournalProjectIds,
   writeProjectSortOrder,
+  writeSessionSortOrder,
 } from '../utils/utils';
 import { sortProjects } from '../utils/projectSort';
 import { useSidebarGroups } from '../groups/useSidebarGroups';
@@ -92,6 +98,7 @@ export function useSidebarController({
   const [initialSessionsLoaded, setInitialSessionsLoaded] = useState<Set<string>>(new Set());
   const [currentTime, setCurrentTime] = useState(new Date());
   const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>(readProjectSortOrder);
+  const [sessionSortOrder, setSessionSortOrder] = useState<SessionSortOrder>(readSessionSortOrder);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editingSessionName, setEditingSessionName] = useState('');
@@ -197,6 +204,25 @@ export function useSidebarController({
   const changeProjectSortOrder = useCallback((order: ProjectSortOrder) => {
     setProjectSortOrder(order);
     writeProjectSortOrder(order);
+  }, []);
+
+  // Chat order inside projects; other tabs of this device follow via `storage`.
+  useEffect(() => {
+    const load = () => setSessionSortOrder(readSessionSortOrder());
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === SESSION_SORT_STORAGE_KEY) load();
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener(SESSION_SORT_CHANGED_EVENT, load);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(SESSION_SORT_CHANGED_EVENT, load);
+    };
+  }, []);
+
+  const changeSessionSortOrder = useCallback((order: SessionSortOrder) => {
+    setSessionSortOrder(order);
+    writeSessionSortOrder(order);
   }, []);
 
   useEffect(() => {
@@ -371,8 +397,11 @@ export function useSidebarController({
         void persistSessionOrder(next);
         return next;
       });
+      // Dragging means «my own order»: in «Недавние» the list would snap back
+      // to message time, so the drag switches to «Новые», where it holds.
+      if (sessionSortOrder === 'prompt') changeSessionSortOrder('created');
     },
-    [persistSessionOrder],
+    [changeSessionSortOrder, persistSessionOrder, sessionSortOrder],
   );
 
   useEffect(() => {
@@ -591,8 +620,10 @@ export function useSidebarController({
   );
 
   const getProjectSessions = useCallback(
-    (project: Project) => applyManualSessionOrder(getAllSessions(project), sessionOrderByProject[project.projectId]),
-    [sessionOrderByProject],
+    (project: Project) => (sessionSortOrder === 'prompt'
+      ? sortSessionsByPrompt(getAllSessions(project))
+      : applyManualSessionOrder(getAllSessions(project), sessionOrderByProject[project.projectId])),
+    [sessionOrderByProject, sessionSortOrder],
   );
 
   const loadMoreSessionsForProject = useCallback(async (projectId: string) => {
@@ -1056,6 +1087,8 @@ export function useSidebarController({
     currentTime,
     projectSortOrder,
     changeProjectSortOrder,
+    sessionSortOrder,
+    changeSessionSortOrder,
     isRefreshing,
     editingSession,
     editingSessionName,

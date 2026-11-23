@@ -64,7 +64,8 @@
     "cancel": "Отмена",
     "clearSearch": "Очистить поиск",
     "openCommandPalette": "Открыть палитру команд",
-    "attentionRequiredIndicator": "Сессия требует внимания"
+    "attentionRequiredIndicator": "Сессия требует внимания",
+    "closeSession": "Архивировать или удалить"
   },
   "navigation": {
     "chat": "Чат",
@@ -160,7 +161,7 @@
   },
   "deleteConfirmation": {
     "deleteProject": "Убрать проект",
-    "deleteSession": "Удалить сеанс",
+    "deleteSession": "Убрать чат",
     "confirmDelete": "Что вы хотите сделать с",
     "sessionCount_one": "Этот проект содержит {{count}} разговор.",
     "sessionCount_few": "Этот проект содержит {{count}} разговора.",
@@ -169,7 +170,11 @@
     "removeFromSidebar": "Убрать только из боковой панели",
     "deleteAllData": "Удалить все данные навсегда",
     "allConversationsDeleted": "Проект будет убран из боковой панели. Ваши файлы, воспоминания и данные сеансов сохранятся.",
-    "cannotUndo": "Вы сможете добавить проект позже."
+    "cannotUndo": "Вы сможете добавить проект позже.",
+    "archiveSession": "Архивировать — убрать из списка",
+    "deleteSessionPermanently": "Удалить навсегда",
+    "archiveSessionNotice": "Архив прячет чат из списка, история сохраняется. Удаление стирает чат без возврата.",
+    "archivedSessionNotice": "Чат уже в архиве. Можно оставить его там или удалить навсегда."
   },
   "nightshift": {
     "title": "Системные задачи",
@@ -183,5 +188,12 @@
     "everyMinutes": "каждые {{n}} мин",
     "everyHours": "каждые {{n}} ч",
     "noSchedule": "по требованию"
+  },
+  "sessionSort": {
+    "label": "Порядок чатов",
+    "created": "Новые",
+    "prompt": "Недавние",
+    "createdHint": "Чаты по дате создания — новые сверху",
+    "promptHint": "Сверху чат, где ты писал последним"
   }
 }

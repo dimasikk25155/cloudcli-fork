@@ -186,6 +186,7 @@ async function buildSessionUpsertedEvent(updatedProviderSessionId: string): Prom
       messageCount: 0,
       createdAt: row.created_at ?? row.updated_at ?? new Date().toISOString(),
       lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+      lastPromptAt: row.last_prompt_at ?? null,
       links: linksOfRow(row),
       // «Агенты»: the sidebar marks a chat of an agent with its name.
       ...agentNameOf(row.session_id),

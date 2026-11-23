@@ -2,7 +2,7 @@ import type { TFunction } from 'i18next';
 
 import type { SessionLinkRef, SessionLinks } from '../../../../shared/session-links';
 import type { LLMProvider, Project, ProjectSession } from '../../../types/app';
-import type { ProjectSortOrder, SettingsProject, SessionViewModel, SessionWithProvider } from '../types/types';
+import type { ProjectSortOrder, SessionSortOrder, SettingsProject, SessionViewModel, SessionWithProvider } from '../types/types';
 
 /** Device-local sidebar order. The old `claude-settings.projectSortOrder` is not read: it held «по алфавиту» from defaults (23.11). */
 export const PROJECT_SORT_STORAGE_KEY = 'neo3-project-sort';
@@ -29,6 +29,32 @@ export const writeProjectSortOrder = (order: ProjectSortOrder): void => {
     // Private mode / full storage: the choice still applies to open views below.
   }
   window.dispatchEvent(new CustomEvent(PROJECT_SORT_CHANGED_EVENT, { detail: order }));
+};
+
+/** Device-local order of chats inside projects. */
+export const SESSION_SORT_STORAGE_KEY = 'neo3-session-sort';
+export const SESSION_SORT_CHANGED_EVENT = 'neo3:session-sort-changed';
+export const DEFAULT_SESSION_SORT_ORDER: SessionSortOrder = 'created';
+
+export const isSessionSortOrder = (value: unknown): value is SessionSortOrder =>
+  value === 'created' || value === 'prompt';
+
+export const readSessionSortOrder = (): SessionSortOrder => {
+  try {
+    const stored = localStorage.getItem(SESSION_SORT_STORAGE_KEY);
+    return isSessionSortOrder(stored) ? stored : DEFAULT_SESSION_SORT_ORDER;
+  } catch {
+    return DEFAULT_SESSION_SORT_ORDER;
+  }
+};
+
+export const writeSessionSortOrder = (order: SessionSortOrder): void => {
+  try {
+    localStorage.setItem(SESSION_SORT_STORAGE_KEY, order);
+  } catch {
+    // Private mode / full storage: the choice still applies to open views below.
+  }
+  window.dispatchEvent(new CustomEvent(SESSION_SORT_CHANGED_EVENT, { detail: order }));
 };
 
 /**
@@ -291,6 +317,23 @@ export const getAllSessions = (project: Project): SessionWithProvider[] => {
     return byCreation !== 0 ? byCreation : String(a.id).localeCompare(String(b.id));
   });
 };
+
+/**
+ * When Dima last wrote in the chat: `lastPromptAt` from the server (start of
+ * his last turn in Neo3; agent replies do not move it), else the creation time
+ * — a chat is created by its first message.
+ */
+export const getSessionPromptTime = (session: SessionWithProvider): number => {
+  const prompted = typeof session.lastPromptAt === 'string' ? Date.parse(session.lastPromptAt) : Number.NaN;
+  return Number.isFinite(prompted) ? prompted : getSessionCreatedDate(session).getTime();
+};
+
+/** «Недавние» order: the chat Dima wrote in last goes first; drag order does not apply. */
+export const sortSessionsByPrompt = (sessions: SessionWithProvider[]): SessionWithProvider[] =>
+  [...sessions].sort((a, b) => {
+    const diff = getSessionPromptTime(b) - getSessionPromptTime(a);
+    return diff !== 0 ? diff : String(a.id).localeCompare(String(b.id));
+  });
 
 /**
  * Applies the user's drag-and-drop order on top of the creation-time default.

@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { ScrollArea } from '../../../../shared/view/ui';
 import type { Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ProjectSortOrder, SidebarSearchMode } from '../../types/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ProjectSortOrder, SessionSortOrder, SidebarSearchMode } from '../../types/types';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import { getAllSessions } from '../../utils/utils';
 
@@ -116,6 +116,8 @@ type SidebarContentProps = {
   onOpenAttention?: () => void;
   projectSortOrder?: ProjectSortOrder;
   onProjectSortOrderChange?: (order: ProjectSortOrder) => void;
+  sessionSortOrder?: SessionSortOrder;
+  onSessionSortOrderChange?: (order: SessionSortOrder) => void;
   drawerOpen?: boolean;
   projectListProps: SidebarProjectListProps;
   t: TFunction;
@@ -152,6 +154,8 @@ export default function SidebarContent({
   onOpenAttention,
   projectSortOrder,
   onProjectSortOrderChange,
+  sessionSortOrder,
+  onSessionSortOrderChange,
   drawerOpen,
   projectListProps,
   t,
@@ -185,6 +189,8 @@ export default function SidebarContent({
         onOpenAttention={onOpenAttention}
         projectSortOrder={projectSortOrder}
         onProjectSortOrderChange={onProjectSortOrderChange}
+        sessionSortOrder={sessionSortOrder}
+        onSessionSortOrderChange={onSessionSortOrderChange}
         t={t}
       />
 

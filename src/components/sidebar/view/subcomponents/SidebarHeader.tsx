@@ -1,4 +1,4 @@
-import { Activity, Folder, FolderPlus, History, Home, Plus, RefreshCw, Search, X, PanelLeftClose, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronLeft, FolderPlus, Home, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button, Input } from '../../../../shared/view/ui';
@@ -6,11 +6,12 @@ import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
 import { IS_PLATFORM } from '../../../../constants/config';
 import { HIDE_PROJECTS } from '../../../../utils/instanceConfig';
 import { cn } from '../../../../lib/utils';
-import type { ProjectSortOrder, SidebarSearchMode } from '../../types/types';
+import type { ProjectSortOrder, SessionSortOrder, SidebarSearchMode } from '../../types/types';
 import AttentionHubButton from '../../../attention/view/AttentionHubButton';
 import Neo3Logo from '../../../branding/Neo3Logo';
 
 import ProjectSortToggle from './ProjectSortToggle';
+import SessionSortToggle from './SessionSortToggle';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -39,6 +40,8 @@ type SidebarHeaderProps = {
   /** Sidebar project order; the switch shows only on the «Проекты» tab when both are given. */
   projectSortOrder?: ProjectSortOrder;
   onProjectSortOrderChange?: (order: ProjectSortOrder) => void;
+  sessionSortOrder?: SessionSortOrder;
+  onSessionSortOrderChange?: (order: SessionSortOrder) => void;
   t: TFunction;
 };
 
@@ -64,6 +67,8 @@ export default function SidebarHeader({
   onOpenAttention,
   projectSortOrder,
   onProjectSortOrderChange,
+  sessionSortOrder,
+  onSessionSortOrderChange,
   t,
 }: SidebarHeaderProps) {
   const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0 || recentSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
@@ -75,52 +80,31 @@ export default function SidebarHeader({
         ? t('search.recentPlaceholder', 'Search recent sessions...')
         : t('projects.searchPlaceholder');
   const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
-  const recentBadgeText = recentSessionsCount > 99 ? '99+' : String(recentSessionsCount);
 
-  // claude.ai's own split is two flat text tabs (Home / Code) — no boxes,
-  // no icon rail. "Проекты"/"Недавние" get the same treatment; the
-  // "Running" indicator doesn't have a claude.ai counterpart, so it rides
-  // along as a small pill on the far right instead of a third equal tab.
-  type NavTab = { key: 'projects' | 'recent'; icon: LucideIcon; label: string };
-
-  const primaryTabs: NavTab[] = [
-    { key: 'projects', icon: Folder, label: t('search.modeProjects') },
-    { key: 'recent', icon: History, label: t('search.modeRecent', 'Recent') },
-  ];
-
-  // The phone row is a 320–365 px drawer minus its padding (296–341 px). With
-  // the tab icons, both counters and the «Недавние / А–Я» switch it needed
-  // ~322 px, and ⚡N went past the right edge (review 23.11). On the phone the
-  // tabs are plain text like claude.ai's own split, gaps are tighter, the
-  // right cluster never shrinks, and the labels truncate as a last resort.
+  // One list only (23.11, Dima's voice note): the «Проекты / Недавние» tabs
+  // are gone. The row holds the chat order (Новые / Недавние — by his own
+  // last message), the project order (🕐 / А–Я) and ⚡N. ⚡N toggles the
+  // running view; leaving any other view returns to the projects list.
   const NavTabs = ({ phone = false }: { phone?: boolean }) => (
     !showSearchTools ? null : (
       <div
-        className={cn('flex min-w-0 items-center', phone ? 'gap-3' : 'gap-4')}
+        className={cn('flex min-w-0 items-center', phone ? 'gap-3' : 'gap-2')}
         data-sidebar-tabs={phone ? 'phone' : 'desktop'}
       >
-        {primaryTabs.map(({ key, icon: Icon, label }) => {
-          const active = searchMode === key;
-          return (
-            <button
-              key={key}
-              onClick={() => onSearchModeChange(key)}
-              aria-pressed={active}
-              className={cn(
-                'sidebar-nav-tab flex min-w-0 items-center gap-1.5 border-b-2 pb-1 text-sm font-normal transition-colors',
-                active
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {!phone && <Icon className="h-3.5 w-3.5 flex-shrink-0" />}
-              <span className="truncate">{label}</span>
-              {key === 'recent' && recentSessionsCount > 0 && (
-                <span className="flex-shrink-0 text-[11px] text-muted-foreground/70">{recentBadgeText}</span>
-              )}
-            </button>
-          );
-        })}
+        {searchMode === 'projects' ? (
+          sessionSortOrder && onSessionSortOrderChange && (
+            <SessionSortToggle order={sessionSortOrder} onChange={onSessionSortOrderChange} t={t} />
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={() => onSearchModeChange('projects')}
+            className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronLeft className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="truncate">{t('search.modeProjects')}</span>
+          </button>
+        )}
 
         <div className={cn('ml-auto flex flex-shrink-0 items-center', phone ? 'gap-3' : 'gap-2')}>
           {searchMode === 'projects' && projectSortOrder && onProjectSortOrderChange && (
@@ -128,7 +112,7 @@ export default function SidebarHeader({
           )}
           {runningSessionsCount > 0 && (
             <button
-              onClick={() => onSearchModeChange('running')}
+              onClick={() => onSearchModeChange(searchMode === 'running' ? 'projects' : 'running')}
               aria-pressed={searchMode === 'running'}
               title={t('search.runningTooltip', 'Running sessions')}
               className={cn(

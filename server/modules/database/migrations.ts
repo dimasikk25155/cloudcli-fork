@@ -438,6 +438,9 @@ const addSessionLinkColumns = (db: Database): void => {
   const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'parent_session_id', 'TEXT');
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'relation', 'TEXT');
+  // When the user last started a turn in this chat (sidebar order «по моим
+  // сообщениям»); agent replies do not move it. NULL = never from Neo3.
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'last_prompt_at', 'TEXT');
 };
 
 /**

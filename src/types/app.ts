@@ -148,6 +148,8 @@ export interface ProjectSession {
   created_at?: string;
   updated_at?: string;
   lastActivity?: string;
+  /** When the user last started a turn in this chat (server); null/absent = never from Neo3. */
+  lastPromptAt?: string | null;
   messageCount?: number;
   provider?: LLMProvider;
   __provider?: LLMProvider;

@@ -121,6 +121,7 @@ async function broadcastCanonicalSessionUpsert(appSessionId: string): Promise<vo
       messageCount: 0,
       createdAt: row.created_at ?? row.updated_at ?? new Date().toISOString(),
       lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+      lastPromptAt: row.last_prompt_at ?? null,
       links: linksOfRow(row),
       // «Агенты»: the sidebar marks a chat of an agent with its name.
       ...agentNameOf(row.session_id),
@@ -418,6 +419,18 @@ export const chatRunRegistry = {
     });
 
     runs.set(input.appSessionId, run);
+
+    // «По моим сообщениям»: a run starts with the user's turn, so the chat
+    // moves up now; the agent's replies never touch this time.
+    try {
+      sessionsDb.markSessionPrompted(run.appSessionId);
+      void broadcastCanonicalSessionUpsert(run.appSessionId).catch(() => {});
+    } catch (error) {
+      console.error('[ChatRunRegistry] Prompt time failed', {
+        appSessionId: run.appSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     try {
       sessionAttention.recordRunStart({

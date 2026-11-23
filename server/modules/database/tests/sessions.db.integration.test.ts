@@ -133,3 +133,16 @@ test('repository reads normalize SQLite UTC timestamps to ISO strings', async ()
     assert.match(row?.updated_at ?? '', /^\d{4}-\d{2}-\d{2}T/);
   });
 });
+
+test('the user\'s last turn is stored per chat and survives a disk resync', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createSession('session-prompted', 'claude', '/workspace/demo-project', 'Chat');
+    assert.equal(sessionsDb.getSessionById('session-prompted')?.last_prompt_at, null);
+
+    sessionsDb.markSessionPrompted('session-prompted', '2026-11-23T10:15:00.000Z');
+    sessionsDb.createSession('session-prompted', 'claude', '/workspace/demo-project', 'Chat renamed');
+
+    const row = sessionsDb.getSessionsByProjectPath('/workspace/demo-project')[0];
+    assert.equal(row?.last_prompt_at, '2026-11-23T10:15:00.000Z');
+  });
+});

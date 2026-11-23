@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { Check, Edit2, Loader2, Trash2, X } from 'lucide-react';
+import { Check, Edit2, Loader2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Tooltip, buttonVariants } from '../../../../shared/view/ui';
@@ -392,13 +392,10 @@ export default function SidebarSessionItem({
                     event.stopPropagation();
                     onDeleteSession(session, sessionView.sessionName);
                   }}
-                  title={isRecentView ? t('tooltips.hideFromRecent', 'Remove from journal') : t('tooltips.deleteSession')}
+                  title={isRecentView ? t('tooltips.hideFromRecent', 'Remove from journal') : t('tooltips.closeSession', 'Архивировать или удалить')}
                 >
-                  {isRecentView ? (
-                    <X className="h-3.5 w-3.5 text-muted-foreground" />
-                  ) : (
-                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                  )}
+                  {/* ✕ opens «Архивировать / Удалить навсегда»; a red bin read as instant deletion (23.11). */}
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </>
             )}
@@ -529,21 +526,15 @@ export default function SidebarSessionItem({
                 <button
                   className={cn(
                     'flex h-6 w-6 items-center justify-center rounded-ui-sm transition-colors duration-fast ease-ui',
-                    isRecentView
-                      ? 'bg-secondary hover:bg-secondary/70'
-                      : 'bg-destructive/10 hover:bg-destructive/20',
+                    'bg-secondary hover:bg-secondary/70',
                   )}
                   onClick={(event) => {
                     event.stopPropagation();
                     onDeleteSession(session, sessionView.sessionName);
                   }}
-                  title={isRecentView ? t('tooltips.hideFromRecent', 'Remove from journal') : t('tooltips.deleteSession')}
+                  title={isRecentView ? t('tooltips.hideFromRecent', 'Remove from journal') : t('tooltips.closeSession', 'Архивировать или удалить')}
                 >
-                  {isRecentView ? (
-                    <X className="h-3 w-3 text-muted-foreground" />
-                  ) : (
-                    <Trash2 className="h-3 w-3 text-destructive" />
-                  )}
+                  <X className="h-3 w-3 text-muted-foreground" />
                 </button>
               </>
             )}

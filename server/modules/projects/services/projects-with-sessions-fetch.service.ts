@@ -16,6 +16,8 @@ type SessionSummary = {
   messageCount: number;
   createdAt: string;
   lastActivity: string;
+  /** When the user last started a turn here; null = never from Neo3. */
+  lastPromptAt: string | null;
   model: string | null;
   effort: string | null;
   /** Chat links (relay / thread) for the sidebar; `{children: []}` when none. */
@@ -33,6 +35,7 @@ type SessionRepositoryRow = {
   custom_name?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
+  last_prompt_at?: string | null;
   model?: string | null;
   effort?: string | null;
 };
@@ -179,6 +182,7 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     messageCount: 0,
     createdAt,
     lastActivity: row.updated_at ?? createdAt,
+    lastPromptAt: row.last_prompt_at ?? null,
     model: row.model ?? null,
     effort: row.effort ?? null,
     links: { children: [] },

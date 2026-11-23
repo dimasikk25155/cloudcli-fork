@@ -110,6 +110,8 @@ function Sidebar({
     setSessionDeleteConfirmation,
     projectSortOrder,
     changeProjectSortOrder,
+    sessionSortOrder,
+    changeSessionSortOrder,
   } = useSidebarController({
     projects,
     selectedProject,
@@ -296,6 +298,8 @@ function Sidebar({
             onSearchModeChange={setSearchMode}
             projectSortOrder={projectSortOrder}
             onProjectSortOrderChange={changeProjectSortOrder}
+            sessionSortOrder={sessionSortOrder}
+            onSessionSortOrderChange={changeSessionSortOrder}
             onRestoreArchivedProject={restoreArchivedProject}
             onArchivedSessionClick={openArchivedSession}
             onRestoreArchivedSession={restoreArchivedSession}

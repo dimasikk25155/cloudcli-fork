@@ -3,6 +3,8 @@ import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
 
 /** Sidebar project order: by last chat activity (default) or by name. */
 export type ProjectSortOrder = 'recent' | 'name';
+/** Chats inside a project: `created` = newest chat first (plus drag order), `prompt` = the chat Dima last wrote in first. */
+export type SessionSortOrder = 'created' | 'prompt';
 export type SidebarSearchMode = 'projects' | 'running' | 'recent' | 'archived';
 export type ArchivedProjectListItem = Project & { isArchived: true };
 

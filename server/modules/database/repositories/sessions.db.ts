@@ -20,11 +20,13 @@ type SessionRow = {
   relation: string | null;
   /** 1 when some session names this one as its parent. */
   has_children: number;
+  /** ISO time the user last started a turn here; NULL = never from Neo3. */
+  last_prompt_at: string | null;
 };
 
 const SESSION_ROW_COLUMNS =
   'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, isArchived, created_at, updated_at, '
-  + 'parent_session_id, relation, '
+  + 'parent_session_id, relation, last_prompt_at, '
   + 'EXISTS (SELECT 1 FROM sessions AS link_child WHERE link_child.parent_session_id = sessions.session_id) AS has_children';
 
 // SQLite UTC → ISO; the one parser shared with session-links.
@@ -241,6 +243,16 @@ export const sessionsDb = {
        SET effort = ?
        WHERE session_id = ?`
     ).run(effort, sessionId);
+  },
+
+  /** The user started a turn: the chat moves up in the «по моим сообщениям» order. */
+  markSessionPrompted(sessionId: string, at: string = new Date().toISOString()): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET last_prompt_at = ?
+       WHERE session_id = ?`
+    ).run(at, sessionId);
   },
 
   getSessionById(sessionId: string): SessionRow | null {

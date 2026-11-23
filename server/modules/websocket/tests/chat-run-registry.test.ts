@@ -124,10 +124,13 @@ test('session_created is swallowed and persisted as the provider-id mapping', as
     });
 
     // The provider-native event itself is never forwarded...
+    // Two cards: the start of the user's turn (with lastPromptAt, so the chat
+    // moves up in «Недавние») and the provider-id mapping.
     const sessionUpserts = connection.frames.filter((frame) => frame.kind === 'session_upserted');
-    assert.equal(sessionUpserts.length, 1);
-    assert.equal(sessionUpserts[0]?.sessionId, 'app-run-2');
-    assert.equal(sessionUpserts[0]?.providerSessionId, 'cursor-native-7');
+    assert.equal(sessionUpserts.length, 2);
+    assert.ok(sessionUpserts.every((frame) => frame.sessionId === 'app-run-2'));
+    assert.ok(sessionUpserts.every((frame) => typeof (frame.session as { lastPromptAt?: unknown })?.lastPromptAt === 'string'));
+    assert.ok(sessionUpserts.some((frame) => frame.providerSessionId === 'cursor-native-7'));
     // ...but the canonical mapping is recorded and persisted in the database.
     assert.equal(run.providerSessionId, 'cursor-native-7');
     assert.equal(sessionsDb.getSessionById('app-run-2')?.provider_session_id, 'cursor-native-7');
