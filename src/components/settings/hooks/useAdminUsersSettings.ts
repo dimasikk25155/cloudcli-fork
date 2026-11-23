@@ -9,6 +9,7 @@ import type {
   AdminUserRole,
   AdminUsersResponse,
 } from '../view/tabs/admin-settings/types';
+import { sortAdminProjects } from '../view/tabs/admin-settings/projectOrder';
 
 const getApiError = (payload: { error?: string } | undefined, fallback: string) => (
   payload?.error || fallback
@@ -43,7 +44,7 @@ export function useAdminUsersSettings() {
       ]);
 
       setUsers(usersPayload.users || []);
-      setProjects(projectsPayload.projects || []);
+      setProjects(sortAdminProjects(projectsPayload.projects || []));
     } catch (error) {
       console.error('Error fetching admin data:', error);
     } finally {
