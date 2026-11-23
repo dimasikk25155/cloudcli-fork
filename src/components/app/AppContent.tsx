@@ -261,12 +261,11 @@ function AppContentInner() {
 
   return (
     <div className="app-shell fixed inset-0 flex">
-      {/* Темы "Claude" (тёмная) и "Светлая Claude" — как claude.ai: там фон
-          статичный, без анимации, поэтому для них фон-компонент не рендерим
-          вообще. Для остальных тем фон рендерится ВСЕГДА: тумблер "Живой фон"
-          выключает только движение, а не саму картинку — иначе тема
-          схлопывалась в пустую заливку и переставала быть собой. */}
-      {((theme !== 'claude' && theme !== 'claudeLight') || customBackgroundUrl) && (
+      {/* «Светлая Claude» — как claude.ai: там фон статичный, без картинки,
+          поэтому для неё фон-компонент не рендерим вообще (кроме своей
+          загруженной картинки). Какой фон у остальных тем — видео, фото
+          варианта или ничего — решает сам ThemeBackground. */}
+      {(theme !== 'claudeLight' || customBackgroundUrl) && (
         <ThemeBackground
           theme={theme}
           enabled={shaderEnabled}

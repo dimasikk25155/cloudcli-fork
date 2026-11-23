@@ -7,18 +7,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Neo3 Agent System</title>
 
-    <!-- Шрифты. Encode Sans (UI по умолчанию) + Merriweather (чат) были здесь
-         с самого начала. Остальные пять добавлены под темы: пока весь
-         интерфейс набирался одной гарнитурой, темы отличались только цветом и
-         читались как одна и та же тема в разной покраске. Гарнитура — самый
-         сильный различитель, сильнее палитры.
-           Geologica      → ember     (тёплый техно-гротеск)
-           Barlow + Condensed → gt    (узкий гротеск, заголовки капсом)
-           Work Sans      → editorial (спокойный редакционный гротеск)
-           Outfit         → glass     (мягкая геометрия)
+    <!-- Шрифты. Гарнитура — самый сильный различитель темы, сильнее палитры:
+         пока весь интерфейс набирался одной, темы читались как одна и та же
+         в разной покраске.
+           Geologica      → ember («Оранжевая»: тёплый техно-гротеск)
+           системный      → codex («Графит») и claudeLight («Светлая Claude»)
            Source Serif 4 → claudeLight (засечные заголовки, SIL OFL, с кириллицей)
+           Outfit         → glass («Бирюзовая»: мягкая геометрия)
+           JetBrains Mono → neon («Неон»: моноширинный интерфейс) и код во всех темах
+           Encode Sans    → neon (переписка и список чатов: длинный текст — гротеском)
            General Sans + IBM Plex Mono → bio (лежат в самом Neo3: public/fonts,
-             @font-face в src/index.css; без внешних запросов) -->
+             @font-face в src/index.css; без внешних запросов)
+         Merriweather, Barlow и Work Sans больше не шрифт ни одной темы, но
+         остаются в выборе «Тонкая настройка темы» (FONT_STACKS в
+         src/utils/themeTweaks.ts) — список там обязан совпадать с загруженным. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -51,19 +53,60 @@
 
     <!-- Тема до первой отрисовки. Без этого страница рисуется без data-theme
          и класса dark, пока не загрузится бандл, и светлая тема мигает тёмным
-         (а тёмная — светлым). Список светлых тем — копия LIGHT_THEMES из
-         src/contexts/ThemeContext.jsx (совпадение проверяет theme-registry.test.ts),
-         цвет фона — тот, что ThemeContext сохранил из токена темы. -->
+         (а тёмная — светлым). Здесь же подменяется убранная тема: id, которого
+         больше нет, дал бы страницу без оформления до монтирования React.
+         Списки ниже — копии из src/contexts (THEMES и LIGHT_THEMES в
+         ThemeContext.jsx, LEGACY_THEME_MAP и NEON_VARIANTS в themeMigration.js):
+         скрипт до отрисовки импортировать модуль не может. Совпадение копий
+         проверяют theme-registry.test.ts и themeMigration.test.ts.
+         Цвет фона — тот, что ThemeContext сохранил из токена темы. -->
     <script>
       (function () {
-        var LIGHT_THEMES = ['editorial', 'glass', 'claudeLight'];
+        var THEMES = ['ember', 'codex', 'bio', 'neon', 'glass', 'claudeLight'];
+        var LIGHT_THEMES = ['glass', 'claudeLight'];
+        var NEON_VARIANTS = ['city', 'synthwave', 'nebula', 'mission', 'bento', 'chrome', 'zen', 'kinetic'];
+        var LEGACY_THEME_MAP = {
+          neonCity: ['neon', 'city'],
+          synthwaveDrive: ['neon', 'synthwave'],
+          nebulaFlow: ['neon', 'nebula'],
+          missionControl: ['neon', 'mission'],
+          bento3d: ['neon', 'bento'],
+          liquidChrome: ['neon', 'chrome'],
+          zenParticles: ['neon', 'zen'],
+          kineticType: ['neon', 'kinetic'],
+          gt: ['ember'],
+          claude: ['ember'],
+          editorial: ['glass']
+        };
         try {
           var root = document.documentElement;
-          var theme = localStorage.getItem('appTheme') || localStorage.getItem('shaderVariant') || 'ember';
+          var saved = localStorage.getItem('appTheme') || localStorage.getItem('shaderVariant');
+          var theme = saved || 'ember';
+          var variant = localStorage.getItem('neonVariant');
+          var color = localStorage.getItem('appThemeColor');
+          if (THEMES.indexOf(theme) === -1) {
+            // Убранная тема → ближайшая живая; всё неизвестное → оранжевая.
+            var legacy = Object.prototype.hasOwnProperty.call(LEGACY_THEME_MAP, theme)
+              ? LEGACY_THEME_MAP[theme]
+              : ['ember'];
+            theme = legacy[0];
+            if (legacy[1]) {
+              variant = legacy[1];
+              localStorage.setItem('neonVariant', variant);
+            }
+            localStorage.setItem('appTheme', theme);
+            // Сохранённый цвет окна принадлежал прежней теме.
+            localStorage.removeItem('appThemeColor');
+            color = null;
+          }
           var dark = LIGHT_THEMES.indexOf(theme) === -1;
           root.setAttribute('data-theme', theme);
+          if (theme === 'neon') {
+            root.setAttribute('data-theme-variant', NEON_VARIANTS.indexOf(variant) === -1 ? 'city' : variant);
+          } else {
+            root.removeAttribute('data-theme-variant');
+          }
           root.classList.toggle('dark', dark);
-          var color = localStorage.getItem('appThemeColor');
           if (!/^#[0-9a-f]{6}$/i.test(color || '')) {
             color = dark ? '#141414' : '#faf9f5';
           }

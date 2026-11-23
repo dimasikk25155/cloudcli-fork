@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 
-import { useAuth } from '../auth';
+import { useAuth } from '../auth/context/AuthContext';
 import DuetHubList from '../duet/DuetHubList';
 import { pendingDecisions } from '../duet/duetModel';
 import { useDuetState } from '../duet/useDuetState';

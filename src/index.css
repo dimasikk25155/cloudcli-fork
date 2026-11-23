@@ -55,33 +55,30 @@
     --radius: 0.5rem;
 
     /* --- Контракт темы, часть вторая: всё, что не цвет -------------------
-       Разбор референсов (neo3-hub/redesign/REFERENCES.md) показал: пять тем
+       Разбор референсов (neo3-hub/redesign/REFERENCES.md) показал: темы
        различаются НЕ палитрой, а шрифтовой парой, шкалой радиусов, наличием
-       теней, плотностью и характером движения. Значения ниже — ровно те, что
-       раньше были зашиты в index.html и CSS-хвостах; тема переопределяет их
-       в своём блоке [data-theme=…], как уже делает с цветами. */
+       теней, плотностью и характером движения. Значения ниже — запасные, для
+       страницы без data-theme: каждая тема задаёт всё это в своём блоке
+       [data-theme=…] (раздел «ТЕМЫ» ниже), ничего отсюда не наследуя. */
 
-    /* Шрифты. Значения — ровно те, что были: моно оставлен дефолтным стеком
-       Tailwind осознанно. У 'SF Mono' нет кириллических глифов, и русский
-       текст в блоках кода уезжает в засечный — kineticType лечит это своим
-       хвостом (см. ниже). Ставить лечение всем темам сразу здесь нельзя:
-       Этап 2 обязан быть визуально нейтральным, это отдельное решение. */
+    /* Шрифты. Моно здесь — дефолтный стек Tailwind. У 'SF Mono' нет
+       кириллических глифов, и русский текст в блоках кода уезжает в засечный,
+       поэтому каждая тема ставит в своём --font-mono гарнитуру с кириллицей
+       (JetBrains Mono, Menlo, IBM Plex Mono) ВПЕРЕДИ системной. */
     --font-ui: "Encode Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
       "Helvetica Neue", Arial, sans-serif;
     /* Переписка = шрифт поля ввода. Раньше здесь был Merriweather: на тёмном
        он «худеет» (в файле нет начертания 500, браузер падает в 400), и ответ
        визуально тонше того, что человек только что набрал. Засечный остаётся
-       опцией в подстройке темы («Чат» → Merriweather) и на заголовках editorial. */
+       опцией в подстройке темы («Чат» → Merriweather). */
     --font-chat: var(--font-ui);
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
       "Liberation Mono", "Courier New", monospace;
-    /* Гарнитура заголовков отдельной ручкой. Раньше тема задавала её прямо в
-       хвосте (`[data-theme=gt] h1 { font-family: 'Barlow Condensed' }`), и
-       подкрутить шрифт заголовков из панели было нечем: токена не существовало.
-       По умолчанию наследует интерфейсный — тема с одной гарнитурой ничего не
-       теряет. */
+    /* Гарнитура заголовков отдельной ручкой: пока тема задавала её прямо в
+       хвосте (`h1 { font-family: … }`), подкрутить шрифт заголовков из панели
+       было нечем. У «Светлой Claude» здесь засечный, у остальных — интерфейсный. */
     --font-display: var(--font-ui);
-    /* Отдельная гарнитура боковой панели: в кинетике интерфейс моноширинный, а
+    /* Отдельная гарнитура боковой панели: в «Неоне» интерфейс моноширинный, а
        список сессий им набирать нельзя — моно слишком широк. По умолчанию
        наследует интерфейсный, то есть для остальных тем ничего не меняет. */
     --font-sidebar: var(--font-ui);
@@ -101,16 +98,15 @@
     --shadow-3: 0 12px 32px hsl(0 0% 0% / 0.14);
 
     /* Материал корпуса и панелей — часть третья контракта.
-       Разбор отмеченных Димой референсов (light-2/01, gt/03, light-1/04)
-       показал общее, чего не было в контракте: панель НЕ залита непрозрачной
-       краской, она лежит НА материале и просвечивает. Пока корпус заливался
-       непрозрачным --background, любая тема сводилась к «плоская заливка плюс
-       цветная кнопка»: градиент стеклянной темы был закрыт заливкой, сетка gt
-       (написанная на body) — тоже, а backdrop-filter размывал ровный цвет,
-       то есть не давал ничего.
-       Значения по умолчанию повторяют прежний вид один в один: корпус
-       непрозрачен, панели непрозрачны, размытия нет. Тринадцать старых тем
-       не двигаются.
+       Разбор отмеченных Димой референсов показал общее, чего не было в
+       контракте: панель НЕ залита непрозрачной краской, она лежит НА материале
+       и просвечивает. Пока корпус заливался непрозрачным --background, любая
+       тема сводилась к «плоская заливка плюс цветная кнопка»: градиент
+       стеклянной темы был закрыт заливкой, а backdrop-filter размывал ровный
+       цвет, то есть не давал ничего.
+       Значения по умолчанию: корпус непрозрачен, панели непрозрачны, размытия
+       нет. Так выглядят «Графит», «Био» и «Светлая Claude»; у «Оранжевой»,
+       «Неона» и «Бирюзовой» панели просвечивают.
        Прозрачность и размытие разложены на отдельные ручки (`--panel-tint` +
        `--panel-alpha`, `--panel-blur-radius` + `--panel-saturate`), потому что
        одним готовым значением вида `blur(34px) saturate(1.9)` ползунок крутить
@@ -143,14 +139,7 @@
     --ease-ui: cubic-bezier(0.2, 0, 0, 1);
     --ease-ui-inout: cubic-bezier(0.4, 0, 0.2, 1);
 
-    /* Nav design tokens */
-    --nav-glass-bg: 44 22% 96% / 0.7;
-    --nav-glass-blur: 20px;
-    --nav-glass-saturate: 1.8;
-    --nav-tab-glow: 15 63% 60% / 0.18;
-    --nav-tab-ring: 15 63% 60% / 0.10;
-    --nav-float-shadow: 0 0% 0% / 0.06;
-    --nav-float-ring: 44 14% 87% / 0.5;
+    /* Шторка: разделитель и поле поиска (.nav-divider, .nav-search-input). */
     --nav-divider-color: 44 14% 87% / 0.5;
     --nav-input-bg: 44 15% 91% / 0.5;
     --nav-input-focus-ring: 15 63% 60% / 0.22;
@@ -171,11 +160,38 @@
        заголовок чата, прижатый к ней, попадал под размытие (23.11). */
     --pwa-header-air: 16px;
 
-    /* Mobile navigation dimensions - Single source of truth */
-    /* Floating nav: ~52px bar + 8px bottom margin + 12px px-3 top spacing */
-    --mobile-nav-height: 52px;
-    --mobile-nav-padding: 20px;
-    --mobile-nav-total: calc(var(--mobile-nav-height) + var(--mobile-nav-padding) + env(safe-area-inset-bottom, 0px));
+    /* Место под плавающую нижнюю панель телефона. Ноль, пока панели нет;
+       `html.has-bottom-bar` (его ставит сама панель) поднимает до её высоты.
+       Кто должен освободить место — читает эту переменную. */
+    --bottom-bar-space: 0px;
+
+    /* --- Стекло ------------------------------------------------------------
+       Один материал на все темы: полупрозрачный фон + размытие с насыщенностью
+       + светлая кромка + блик по верхней кромке + тень. Восемь значений ниже
+       каждая тема задаёт В СВОЁМ блоке (плюс цвет затемнения за листом);
+       здесь — запасные, для страницы без data-theme.
+       Читают их только классы .glass-* (раздел «Стекло» ниже). Компоненты
+       сами backdrop-filter и backdrop-blur-* не пишут. */
+    --glass-bg: hsl(0 0% 100% / 0.6);
+    --glass-bg-strong: hsl(0 0% 100% / 0.86);
+    --glass-blur: 20px;
+    --glass-saturate: 1.4;
+    --glass-border: hsl(0 0% 0% / 0.08);
+    --glass-highlight: hsl(0 0% 100% / 0.8);
+    --glass-shadow: 0 8px 24px -12px hsl(0 0% 0% / 0.25);
+    --glass-fallback-bg: hsl(0 0% 100%);
+    --glass-scrim: hsl(0 0% 0% / 0.4);
+
+    /* Производные: считаются из значений темы, поэтому заданы один раз.
+       Тема переопределяет их, только если её акцент устроен иначе
+       (у «Светлой Claude» заливка акцента и цвет акцентного текста — разные). */
+    --glass-ring: hsl(var(--ring));
+    --glass-accent-bg: hsl(var(--primary));
+    --glass-accent-fg: hsl(var(--primary-foreground));
+    --glass-active-bg: hsl(var(--primary) / 0.18);
+    --glass-active-fg: hsl(var(--primary));
+    /* Скругление стеклянной карточки (поле ввода): от шкалы темы, ~22–32px. */
+    --glass-radius: calc(var(--radius) + 16px);
 
     /* Header safe area dimensions */
     --header-safe-area-top: env(safe-area-inset-top, 0px);
@@ -229,17 +245,24 @@
     --input: 60 3% 26%;
     --ring: 16 86% 67%;
 
-    /* Nav design tokens — dark overrides */
-    --nav-glass-bg: 60 3% 18% / 0.55;
-    --nav-glass-blur: 24px;
-    --nav-glass-saturate: 1.6;
-    --nav-tab-glow: 16 86% 67% / 0.32;
-    --nav-tab-ring: 16 86% 67% / 0.22;
-    --nav-float-shadow: 0 0% 0% / 0.35;
-    --nav-float-ring: 60 3% 22% / 0.3;
+    /* Шторка — тёмные значения */
     --nav-divider-color: 60 3% 22% / 0.5;
     --nav-input-bg: 60 3% 21% / 0.5;
     --nav-input-focus-ring: 16 86% 67% / 0.25;
+
+    /* Стекло — тёмные запасные значения */
+    --glass-bg: hsl(0 0% 100% / 0.08);
+    --glass-bg-strong: hsl(60 3% 16% / 0.82);
+    --glass-border: hsl(0 0% 100% / 0.12);
+    --glass-highlight: hsl(0 0% 100% / 0.1);
+    --glass-shadow: 0 10px 28px -12px hsl(0 0% 0% / 0.6);
+    --glass-fallback-bg: hsl(60 3% 18%);
+    --glass-scrim: hsl(0 0% 0% / 0.55);
+  }
+
+  /* Нижняя панель телефона: 64px самой панели + нижняя полоса айфона. */
+  html.has-bottom-bar {
+    --bottom-bar-space: calc(64px + var(--safe-bottom));
   }
 }
 
@@ -366,10 +389,9 @@
      .sidebar-root. Пока корпус был непрозрачным, он ничего не портил; теперь
      он на 80% замутняет материал темы, и стеклянный сайдбар перестаёт быть
      стеклянным. Темы с материалом гасят этот слой: фон панели уже дал
-     .app-sidebar. Остальные темы не трогаем — там он и есть фон. */
+     .app-sidebar. В «Графите» и «Био» панель сплошная — там он и есть фон. */
   [data-theme='ember'] .sidebar-root,
-  [data-theme='gt'] .sidebar-root,
-  [data-theme='editorial'] .sidebar-root,
+  [data-theme='neon'] .sidebar-root,
   [data-theme='glass'] .sidebar-root,
   [data-theme='claudeLight'] .sidebar-root {
     background-color: transparent;
@@ -458,25 +480,6 @@
   .sidebar-transition {
     transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
                 opacity 300ms ease-in-out;
-  }
-
-  /* Nav glass surface — uses theme tokens */
-  .nav-glass {
-    background: hsl(var(--nav-glass-bg));
-    backdrop-filter: blur(var(--nav-glass-blur)) saturate(var(--nav-glass-saturate));
-    -webkit-backdrop-filter: blur(var(--nav-glass-blur)) saturate(var(--nav-glass-saturate));
-  }
-
-  /* Nav tab active pill glow — uses theme tokens */
-  .nav-tab-active {
-    box-shadow: 0 1px 8px hsl(var(--nav-tab-glow)),
-                0 0 0 1px hsl(var(--nav-tab-ring));
-  }
-
-  /* Floating mobile nav bar — uses theme tokens */
-  .mobile-nav-float {
-    box-shadow: 0 -1px 20px hsl(var(--nav-float-shadow)),
-                0 0 0 1px hsl(var(--nav-float-ring));
   }
 
   /* Subtle sidebar divider — uses theme tokens */
@@ -1320,157 +1323,1392 @@
 }
 
 /* =========================================================================
-   THEME: Claude (literal 1:1 clone of claude.ai — DARK)
-   Same warm near-black palette as "Тёмная", but flat: no animated/photo
-   background (gated off in AppContent.tsx via `theme !== 'claude'`) and the
-   accent uses the true, undoctored brand terracotta (#D97757, same value as
-   light mode) rather than the brighter variant "Тёмная" uses.
+   Стекло
+
+   Имитация стеклянного материала Apple средствами сайта: полупрозрачный фон,
+   размытие и насыщенность того, что под ним, светлая кромка, блик по верхней
+   кромке и тень. Настоящее системное стекло iOS (преломление, блики от
+   движения) сайту недоступно — доступно ровно это.
+
+   Значения — в блоке каждой темы (--glass-*), поэтому один и тот же класс в
+   «Оранжевой» — тёплое дымчатое стекло, в «Графите» — матовый графит, в «Био»
+   — чёрное стекло с волосяной кромкой, в «Неоне» — тонированное со свечением
+   акцента, в «Бирюзовой» — белый иней, в «Светлой Claude» — плотная калька.
+
+   .glass-surface        небольшая плавающая карточка: поле ввода, меню, полосы
+   .glass-sheet          крупная поверхность: шапка, шторка, шапка панели
+   .glass-pill           пилюля (высота ≥ 36, зона нажатия ≥ 44)
+   .glass-button         круглая кнопка 44×44
+   .glass-button-primary залитая акцентом круглая кнопка (отправить, новый чат)
+   .glass-active         модификатор активного пункта
+   .glass-scrim          затемнение за листом (шторка, модальный экран)
+
+   Правила для тех, кто ставит классы:
+   - стекло делается только этими классами: backdrop-blur-* и backdrop-filter
+     в компонентах не пишутся;
+   - у листа под живыми обоями размытия нет (см. ниже) — не рассчитывать на
+     него как на единственный источник читаемости;
+   - размытие делает элемент опорой для position: fixed внутри него — не
+     класть фиксированные слои внутрь стекла.
    ========================================================================= */
-[data-theme='claude'] {
-  /* Pure-black canvas. Everything that must stay readable on it (cards,
-     composer, popovers, hover fills) is lifted a few percent instead —
-     otherwise a flat #000 swallows the composer whole. */
-  --background: 0 0% 0%;
-  --foreground: 48 15% 93%;
-  --card: 60 3% 7%;
-  --card-foreground: 48 15% 93%;
-  --popover: 60 3% 7%;
-  --popover-foreground: 48 15% 93%;
-  --primary: 15 63% 60%;
-  --primary-foreground: 60 3% 10%;
-  --secondary: 60 3% 11%;
-  --secondary-foreground: 48 15% 93%;
-  --muted: 60 3% 11%;
-  --muted-foreground: 45 5% 63%;
-  --accent: 60 3% 13%;
-  --accent-foreground: 48 15% 93%;
-  --destructive: 0 72% 58%;
+@layer components {
+  /* glass:start — всё до glass:end читает только значения --glass-* */
+  .glass-surface {
+    background-color: var(--glass-bg-strong);
+    border-radius: var(--glass-radius);
+  }
+
+  .glass-sheet {
+    background-color: var(--glass-bg-strong);
+  }
+
+  .glass-pill {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 9999px;
+    background-color: var(--glass-bg);
+    color: inherit;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 120ms ease-out, filter 120ms ease-out, background-color 120ms ease-out;
+  }
+
+  /* Зона нажатия: пилюля может быть ниже 44px, палец — нет. */
+  .glass-pill::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 100%;
+    min-height: 44px;
+    transform: translateY(-50%);
+  }
+
+  .glass-button,
+  .glass-button-primary {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 9999px;
+    background-color: var(--glass-bg);
+    color: inherit;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 120ms ease-out, filter 120ms ease-out, background-color 120ms ease-out;
+  }
+
+  /* Общий материал: кромка, блик по верхней кромке, тень, размытие. */
+  .glass-surface,
+  .glass-sheet,
+  .glass-pill,
+  .glass-button {
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  }
+
+  /* Главная кнопка — заливка акцентом; размытие ей не нужно. */
+  .glass-button-primary {
+    border: 1px solid transparent;
+    background-color: var(--glass-accent-bg);
+    color: var(--glass-accent-fg);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* Активный пункт: подцветка акцентом ПОВЕРХ фона стекла — отдельным слоем,
+     чтобы запасной плотный фон (ветки ниже) её не стирал. */
+  .glass-active {
+    background-image: linear-gradient(var(--glass-active-bg), var(--glass-active-bg));
+    color: var(--glass-active-fg);
+  }
+
+  .glass-scrim {
+    background-color: var(--glass-scrim);
+  }
+
+  @media (hover: hover) {
+    .glass-pill:hover,
+    .glass-button:hover {
+      background-color: var(--glass-bg-strong);
+    }
+
+    .glass-button-primary:hover {
+      filter: brightness(1.08);
+    }
+  }
+
+  /* Отклик на нажатие: сжатие и затемнение. */
+  .glass-pill:active,
+  .glass-button:active,
+  .glass-button-primary:active {
+    transform: scale(0.96);
+    filter: brightness(0.88);
+  }
+
+  .glass-pill:focus-visible,
+  .glass-button:focus-visible,
+  .glass-button-primary:focus-visible {
+    outline: 2px solid var(--glass-ring);
+    outline-offset: 2px;
+  }
+
+  .glass-pill:disabled,
+  .glass-button:disabled,
+  .glass-button-primary:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  /* Живые обои: размытие большой площади пересчитывается на каждый кадр
+     ролика (замер: 45 кадров в секунду со стеклом против 60 без). Лист
+     остаётся без размытия и становится плотным; мелкие плавающие элементы —
+     кнопки, пилюли, карточка ввода — размытие сохраняют: их площадь мала. */
+  html.has-live-wallpaper .glass-sheet {
+    background-color: var(--glass-fallback-bg);
+    background-color: color-mix(in srgb, var(--glass-fallback-bg) 92%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* «Уменьшить прозрачность» в системе: стекло — плотный фон темы. */
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-surface,
+    .glass-sheet,
+    .glass-pill,
+    .glass-button {
+      background-color: var(--glass-fallback-bg);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+
+  /* Браузер без размытия: полупрозрачный фон без него нечитаем. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass-surface,
+    .glass-sheet,
+    .glass-pill,
+    .glass-button {
+      background-color: var(--glass-fallback-bg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .glass-pill,
+    .glass-button,
+    .glass-button-primary {
+      transition: none;
+    }
+
+    .glass-pill:active,
+    .glass-button:active,
+    .glass-button-primary:active {
+      transform: none;
+    }
+  }
+  /* glass:end */
+}
+
+/* =========================================================================
+   ТЕМЫ
+
+   Шесть тем, у каждой свой характер. Палитра — последнее, чем они
+   различаются; сначала шрифт, форма, тени, плотность, скорость и материал:
+
+     тема                шрифт             угол   тень            материал
+     Оранжевая  ember    Geologica 500     10px   одна, глубокая  тёплый уголь, живое видео, зерно
+     Графит     codex    системный 400      8px   нет             сплошной матовый графит
+     Био        bio      General Sans      12px   нет вовсе       чистый чёрный, волосяные линии
+     Неон       neon     JetBrains Mono     6px   свечение        фото + тонированное стекло
+     Бирюзовая  glass    Outfit            16px   широкие мягкие  пастельный градиент под инеем
+     Светлая Claude      системный+засечки 10px   едва заметные   плоская тёплая бумага
+
+   Каждая тема обязана задать в СВОЁМ блоке полный набор: цвета поверхностей
+   и текста, акцент, статусы, шрифт, скругление, тени, плотность, длительности,
+   материал (--shell-*, --panel-*) и стекло (--glass-*). Наследовать от :root
+   нельзя — именно так темы и становились одинаковыми. Полноту, различимость
+   и контраст проверяет src/contexts/theme-registry.test.ts.
+
+   Блок значений темы плоский: от `[data-theme='…'] {` до первой `}` в начале
+   строки — только объявления, без вложенных правил. В комментариях внутри
+   блока строку нельзя начинать с имени значения (`--…:`): тест читает блок
+   построчно. Убранные темы (gt, editorial, claude и восемь фото-тем) подменяет
+   src/contexts/themeMigration.js.
+   ========================================================================= */
+
+/* =========================================================================
+   Общий слой фона-картинки и живых обоев (ThemeBackground.tsx): фото варианта
+   «Неона», своя загруженная картинка в любой теме, ролик «Оранжевой».
+   Настоящая фотография во весь экран с медленным дрейфом и тёмным затемнением
+   под текст — нарисованные в CSS сцены выглядели дешёвой подделкой.
+   ========================================================================= */
+.theme-photo-bg {
+  position: absolute;
+  inset: -3%;
+  background-size: cover;
+  background-position: center;
+  filter: saturate(1.08);
+  animation: theme-photo-drift 46s ease-in-out infinite alternate;
+}
+/* Затемнение под интерфейсом. Держим его сильным намеренно: фон у кино-тем —
+   контрастная фотография, и на проекторе (где чёрное поднимается, а полутона
+   съедаются) текст поверх неё сливается с картинкой. Центр гасим отдельным
+   пятном — именно там лежит колонка чата и пустые состояния, а к краям
+   отпускаем, чтобы фон было видно и тема осталась собой. */
+.theme-photo-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(75% 65% at 50% 50%, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.45) 55%, transparent 100%),
+    radial-gradient(120% 90% at 50% 0%, transparent 30%, rgba(0, 0, 0, 0.5) 100%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.35) 30%, rgba(0, 0, 0, 0.7) 100%);
+}
+@keyframes theme-photo-drift {
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.06) translate(-1%, -1%); }
+}
+/* Тумблер "Живой фон" выключен: фотография остаётся, уезжает только дрейф.
+   Сбрасываем и inset -3%, который нужен был лишь как запас под движение. */
+.theme-photo-bg--static {
+  inset: 0;
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-photo-bg { animation: none !important; }
+}
+
+/* Живые обои. Лежат поверх постера и проявляются, когда ролик реально пошёл, —
+   до этого момента виден тот же кадр картинкой, поэтому мигания нет.
+   Ни filter, ни border-radius, ни backdrop-filter здесь быть не должно: любой
+   из них снимает видео с быстрой ветки композитора, и вместо дешёвого фона
+   получается перерисовка полэкрана на каждый кадр. Затемнение делает
+   отдельный слой .theme-photo-scrim — статическим градиентом, то есть даром. */
+.theme-video-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 420ms ease;
+  contain: strict;
+}
+/* Живые обои уже тёмные (уголь, огонь). Фото-скрим 72% чёрного в центре
+   для них — это второе затемнение поверх чёрного: искры уходят в тень,
+   хотя в исходном ролике они яркие. Панели чата и сайдбара сами непрозрачные
+   (panel-alpha 0.88), текст на них читается без этой плёнки. Оставляем
+   лёгкую вуаль по краям и снизу, чтобы стык с панелями не светился. */
+.theme-video-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 58% at 50% 48%, rgba(0, 0, 0, 0.22) 0%, transparent 70%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.12) 0%, transparent 18%, transparent 82%, rgba(0, 0, 0, 0.2) 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-video-bg { display: none; }
+}
+
+/* =========================================================================
+   THEME: Оранжевая (ember — тёплый уголь + оранжевый акцент, DARK)
+
+   Тема по умолчанию и тема Димы. Собрана по разбору референсов
+   (neo3-hub/redesign/REFERENCES.md §3) и описана ПОЧТИ ЦЕЛИКОМ ТОКЕНАМИ — ни
+   одного `!important`: если тема требует CSS-хвостов, значит в контракте
+   чего-то не хватает.
+
+   Что взято из разбора:
+   - фон тёплый уголь, не чистый чёрный и не нейтральный серый (hue 24);
+   - поверхности ступенями: фон 9% → панель 13% → всплывающее 16%;
+   - оранжевый ТОЛЬКО как состояние (активный пункт, основное действие,
+     фокус) — крупных цветных заливок нет;
+   - тёмное разделяется линией, а не глубиной: --shadow-1/2 сняты в none,
+     мягкая тень осталась только у всплывающего (--shadow-3);
+   - радиусы средние: --radius 10px разворачивается в шкалу 6…22px;
+   - движение мягкое, 200ms.
+   ========================================================================= */
+[data-theme='ember'] {
+  --background: 24 7% 9%;
+  --foreground: 30 12% 94%;
+  --card: 24 7% 13%;
+  --card-foreground: 30 12% 94%;
+  --popover: 24 7% 16%;
+  --popover-foreground: 30 12% 94%;
+  --primary: 22 92% 54%;
+  --primary-foreground: 24 20% 8%;
+  --secondary: 24 6% 19%;
+  --secondary-foreground: 30 10% 92%;
+  --muted: 24 6% 17%;
+  /* 72%, а не «деликатные» 60%: на проекторе полутона съедаются, и подписи
+     пропадают первыми. */
+  --muted-foreground: 28 7% 72%;
+  --accent: 24 32% 19%;
+  --accent-foreground: 28 85% 88%;
+
+  /* Статусы разведены по тону от оранжевого акцента намеренно: в оранжевой
+     теме «предупреждение» янтарём слилось бы с активным пунктом, и цвет
+     перестал бы означать состояние. Предупреждение уведено в жёлтый,
+     ошибка — в красный с уклоном в розовый, информация — в холодный. */
+  --destructive: 358 72% 58%;
   --destructive-foreground: 0 0% 100%;
-  --border: 60 3% 15%;
-  --input: 60 3% 18%;
-  --ring: 15 63% 60%;
+  --success: 152 55% 46%;
+  --success-foreground: 0 0% 100%;
+  --warning: 45 96% 56%;
+  --warning-foreground: 24 20% 8%;
+  --info: 199 85% 52%;
+  --info-foreground: 0 0% 100%;
 
-  --nav-glass-bg: 0 0% 4% / 0.55;
-  --nav-glass-blur: 24px;
-  --nav-glass-saturate: 1.6;
-  --nav-tab-glow: 15 63% 60% / 0.32;
-  --nav-tab-ring: 15 63% 60% / 0.22;
-  --nav-float-shadow: 0 0% 0% / 0.35;
-  --nav-float-ring: 60 3% 15% / 0.3;
-  --nav-divider-color: 60 3% 15% / 0.5;
-  --nav-input-bg: 60 3% 10% / 0.5;
-  --nav-input-focus-ring: 15 63% 60% / 0.25;
+  --border: 24 6% 25%;
+  --input: 24 6% 19%;
+  --ring: 22 92% 54%;
+  --radius: 0.625rem;
+
+  /* Гарнитура — главный различитель темы. Тёплое техно: широкие овалы,
+     срезанные окончания, без академической сухости Encode Sans.
+       Было 'Space Grotesk' — он в чёрном списке заезженных (штатный шрифт
+     ИИ-лендингов). Geologica держит тот же характер, кириллица родная, в
+     списке не числится. Замена сделана по решению Димы 07.08. */
+  --font-ui: Geologica, 'Encode Sans', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, sans-serif;
+  --font-chat: var(--font-ui);
+  --font-display: var(--font-ui);
+  --font-sidebar: var(--font-ui);
+  --tracking-ui: -0.005em;
+
+  /* Моноширинный с кириллицей ВПЕРЕДИ: у 'SF Mono' нет кириллических глифов,
+     и русский текст в блоках кода уезжает в засечный (см. :root). */
+  --font-mono: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono',
+    ui-monospace, monospace;
+
+  /* Разделение линией, а не глубиной. Тень осталась одна — под всплывающим. */
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: 0 18px 44px -12px hsl(24 40% 2% / 0.7);
+
+  --density: 1;
+
+  --duration-fast: 140ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+  --ease-ui: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  /* Материал: тёплый уголь с двумя очагами света и зерном. Референс
+     pin-e4ea01 — «оранжево-угольный градиент с зерном», pin-366928 —
+     «чёрный у ember должен быть тёплым, а не серым». Ровная заливка не
+     передаёт ни того, ни другого. */
+  --shell-bg: hsl(24 8% 8%);
+  --shell-material:
+    radial-gradient(1000px 640px at 10% -8%, hsl(24 62% 32% / 0.34), transparent 62%),
+    radial-gradient(820px 620px at 92% 106%, hsl(16 55% 26% / 0.28), transparent 60%);
+  --shell-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  --shell-grain-opacity: 0.06;
+  --panel-tint: 24 7% 13%;
+  --panel-alpha: 0.74;
+  --panel-blur-radius: 14px;
+  --panel-saturate: 1.2;
+  --panel-bg: hsl(var(--panel-tint) / var(--panel-alpha));
+  --panel-blur: blur(var(--panel-blur-radius)) saturate(var(--panel-saturate));
+  --panel-border: hsl(28 14% 46% / 0.26);
+  --panel-shadow: none;
+
+  /* Стекло: тёплое дымчатое. Под ним живой огонь, поэтому насыщенность
+     поднята — оранжевый проступает сквозь кнопку, а не сереет; кромка и блик
+     тёплые, тень глубокая. Плотный вариант — уголь на 80%: под текстом поля
+     ввода огонь читаться не должен. */
+  --glass-bg: hsl(28 16% 22% / 0.56);
+  --glass-bg-strong: hsl(24 8% 13% / 0.8);
+  --glass-blur: 24px;
+  --glass-saturate: 1.5;
+  --glass-border: hsl(30 40% 86% / 0.16);
+  --glass-highlight: hsl(32 80% 92% / 0.14);
+  --glass-shadow: 0 10px 30px -12px hsl(20 60% 2% / 0.72);
+  --glass-fallback-bg: hsl(24 8% 14%);
+  --glass-scrim: hsl(20 30% 3% / 0.62);
+  /* Активный пункт на стекле над огнём: оранжевый текст на оранжевом зареве
+     терялся, поэтому подпись светлее акцента, а подцветка плотнее. */
+  --glass-active-bg: hsl(22 92% 54% / 0.26);
+  --glass-active-fg: hsl(28 100% 76%);
+
+  --nav-divider-color: 24 8% 45% / 0.25;
+  --nav-input-bg: 24 6% 15% / 0.7;
+  --nav-input-focus-ring: 22 92% 54% / 0.3;
+}
+/* ---- Характер ember: типографская иерархия и материал поверхностей -------
+   Первая сборка темы была плоской, потому что жила одними цветами: гарнитура
+   у всех тем была общая, заголовки ничем не отличались от текста, поверхности
+   различались только тоном. Ниже — то, что даёт лицо, не нарушая «ноль
+   декоративных градиентов»: контраст кегля, микро-лейблы капсом вразрядку и
+   светлая линия сверху у панели (материал, а не декор). */
+/* Базовый вес интерфейса. Geologica в 400 на тёмном угле «худеет»: тёмный
+   фон съедает штрих, и подписи выглядят выцветшими (жалоба Димы 22.08).
+   500 возвращает плотность, не превращая интерфейс в жирный. Вес наследуется
+   от <html data-theme='ember'>, поэтому одно правило держит всё дерево. */
+[data-theme='ember'] {
+  font-weight: 500;
+}
+/* Явный font-normal в компонентах — это 400, то есть ровно та худоба, от
+   которой уходим. В оранжевой теме поднимаем его до базовых 500. */
+[data-theme='ember'] .font-normal {
+  font-weight: 500;
+}
+[data-theme='ember'] .font-medium {
+  font-weight: 600;
+}
+[data-theme='ember'] h1,
+[data-theme='ember'] h2,
+[data-theme='ember'] h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+/* Одно значение крупно, подписи микро — главный приём отмеченных референсов. */
+[data-theme='ember'] .text-\[11px\].uppercase,
+[data-theme='ember'] .text-\[10px\].uppercase {
+  letter-spacing: 0.18em;
+  font-weight: 600;
+}
+[data-theme='ember'] .bg-card {
+  background-color: var(--panel-bg);
+  -webkit-backdrop-filter: var(--panel-blur);
+  backdrop-filter: var(--panel-blur);
+  border-color: var(--panel-border);
+  box-shadow: inset 0 1px 0 hsl(30 60% 90% / 0.06);
+}
+/* Активный пункт помечается цветом текста и иконки — ровно как в разборе
+   («иконка активного пункта — тоже акцентом»). Полоску-рейку на краю не
+   ставим: это самый узнаваемый штамп ИИ-интерфейсов. */
+[data-theme='ember'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']),
+[data-theme='ember'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) svg {
+  color: hsl(22 92% 66%);
 }
 
-/* Sidebar shares the pure-black canvas; the border alone separates it from
-   the chat area. The inner panel's translucent bg-background/80 is cleared
-   so it doesn't wash the black back out. */
-[data-theme='claude'] .app-sidebar {
-  background-color: hsl(0 0% 0%);
+/* Переписка лежит прямо на живых обоях, без подложки: время, «MD» и ссылки
+   на ярком огне не читались (разбор экранов, C10). Вуаль только под лентой и
+   полем ввода — «Домой» и края экрана остаются с огнём в полную силу.
+   Это ровная заливка, а не размытие: на кадры ролика она ничего не стоит. */
+[data-theme='ember'] .chat-messages-pane,
+[data-theme='ember'] .chat-composer-shell {
+  background-color: hsl(24 12% 5% / 0.6);
 }
-[data-theme='claude'] .app-sidebar .bg-background\/80 {
-  background-color: transparent;
+/* Синяя ссылка на оранжевом теряется; светлый янтарь держит 9:1 на вуали. */
+[data-theme='ember'] .chat-message a {
+  color: hsl(34 96% 70%);
 }
-
-/* Composer 1:1 with claude.ai: opaque lifted panel (--card, a few percent
-   above the black canvas), generous pill-like radius, soft elevation, no
-   divider line between the textarea and the toolbar row. */
-[data-theme='claude'] [data-slot='prompt-input'] {
-  border-radius: 1.5rem;
-  border-color: hsl(60 3% 18% / 0.6);
-  background-color: hsl(var(--card));
-  box-shadow: 0 4px 24px hsl(0 0% 0% / 0.25);
-}
-[data-theme='claude'] [data-slot='prompt-input'].rounded-t-none {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-[data-theme='claude'] [data-slot='prompt-input-footer'] {
-  border-top-color: transparent;
+/* Шторка телефона лежит ПОВЕРХ «Домой», а не рядом с ним: при остановленном
+   ролике (74% + размытие) сквозь неё проступали значки проектов. На телефоне
+   она плотная всегда — так же, как под играющим роликом. */
+@media (max-width: 767px) {
+  [data-theme='ember'] .app-sidebar {
+    background-color: hsl(var(--panel-tint) / 0.93);
+  }
 }
 
-/* Keyboard focus on the composer stays neutral like claude.ai — no
-   terracotta border/ring creeping in from the shared PromptInput styles. */
-[data-theme='claude'] [data-slot='prompt-input']:focus-within {
-  border-color: hsl(60 3% 24%);
-  box-shadow: 0 4px 24px hsl(0 0% 0% / 0.25);
+/* Пока живые обои реально играют, стеклянные панели теряют размытие.
+   Причина не в красоте, а в арифметике: `backdrop-filter` пересчитывает блюр
+   по площади элемента НА КАЖДЫЙ кадр видео и на каждый кадр прокрутки.
+   Замер на neo3.ru: 45.1 fps со стеклом против 60.0 без него — и там под
+   панелями лежал всего лишь градиент. Здесь под ними движущийся кадр, то есть
+   дороже.
+   Взамен панель становится плотнее (0.74 → 0.88), иначе без размытия сквозь
+   неё читается огонь и текст интерфейса теряет контраст. Цвет тот же токен —
+   тема остаётся собой, уходит только приём.
+   Класс снимается вместе с паузой видео, поэтому в свёрнутом окне и при
+   выключенном фоне стекло возвращается само. То же правило для стекла общее
+   на все темы: `html.has-live-wallpaper .glass-sheet` в разделе «Стекло». */
+[data-theme='ember'].has-live-wallpaper {
+  --panel-alpha: 0.88;
+  --panel-blur-radius: 0px;
+  --panel-blur: none;
+}
+[data-theme='ember'].has-live-wallpaper .sidebar-root {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
-/* claude.ai's composer toolbar is TEXT, not a row of outlined pills: the
-   model reads as plain white text, the level as muted text beside it, and
-   the meta chips carry no chrome at all. */
-[data-theme='claude'] .composer-chip {
-  border-color: transparent;
-  background-color: transparent;
+/* =========================================================================
+   THEME: Графит (codex — DARK)
+
+   Нейтральный графит без единого цветного пятна: родной шрифт системы,
+   сплошные матовые поверхности, плотная компоновка, короткое движение.
+   Характер — в отсутствии: нет фона-картинки, нет свечения, нет тёплого или
+   холодного уклона; акцент — почти белый. Всё, что в других темах стекло,
+   здесь матовое и почти непрозрачное.
+   Значки проектов и провайдеров и все действия — как в остальных темах.
+   ========================================================================= */
+[data-theme='codex'] {
+  --background: 0 0% 9.4%;
+  --foreground: 0 0% 83%;
+  --card: 0 0% 17.3%;
+  --card-foreground: 0 0% 83%;
+  --popover: 0 0% 17.3%;
+  --popover-foreground: 0 0% 88%;
+  --primary: 0 0% 94%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 20%;
+  --secondary-foreground: 0 0% 83%;
+  --muted: 0 0% 18%;
+  --muted-foreground: 0 0% 62%;
+  --accent: 0 0% 23%;
+  --accent-foreground: 0 0% 92%;
+
+  /* Статусы приглушены под графит: цвет здесь только у состояний, и кричать
+     ему незачем — на сером он и так единственный. */
+  --destructive: 4 76% 63%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 40% 56%;
+  --success-foreground: 0 0% 10%;
+  --warning: 40 78% 60%;
+  --warning-foreground: 0 0% 10%;
+  --info: 217 91% 72%;
+  --info-foreground: 0 0% 10%;
+
+  --border: 0 0% 23%;
+  --input: 0 0% 18%;
+  --ring: 0 0% 65%;
+  /* Самое сдержанное скругление набора после «Неона»: 8px, шкала 4…20px. */
+  --radius: 0.5rem;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-chat: var(--font-ui);
+  --font-sidebar: var(--font-ui);
+  --font-display: var(--font-ui);
+  /* Menlo впереди: у 'SF Mono' нет кириллицы (см. :root). */
+  --font-mono: Menlo, 'JetBrains Mono', 'DejaVu Sans Mono', ui-monospace, monospace;
+  --tracking-ui: normal;
+
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: 0 8px 24px rgb(0 0 0 / 0.25);
+
+  /* Плотнее базовой: отступы на 8% меньше — «компактный хром» редактора. */
+  --density: 0.92;
+
+  --duration-fast: 90ms;
+  --duration-base: 150ms;
+  --duration-slow: 220ms;
+  --ease-ui: cubic-bezier(0.2, 0, 0, 1);
+
+  --shell-bg: #181818;
+  --shell-material: none;
+  --shell-grain: none;
+  --shell-grain-opacity: 0;
+  --panel-tint: 0 0% 17.3%;
+  --panel-alpha: 1;
+  --panel-blur-radius: 0px;
+  --panel-saturate: 1;
+  --panel-bg: #2c2c2c;
+  --panel-blur: none;
+  --panel-border: #383838;
+  --panel-shadow: none;
+
+  /* Стекло: матовый графит. Почти непрозрачное, размытие слабое, насыщенность
+     не поднята — под ним серое, усиливать нечего. Кромка — волосок белого. */
+  --glass-bg: hsl(0 0% 21% / 0.86);
+  --glass-bg-strong: hsl(0 0% 17% / 0.94);
+  --glass-blur: 12px;
+  --glass-saturate: 1;
+  --glass-border: hsl(0 0% 100% / 0.09);
+  --glass-highlight: hsl(0 0% 100% / 0.05);
+  --glass-shadow: 0 6px 18px -8px hsl(0 0% 0% / 0.55);
+  --glass-fallback-bg: hsl(0 0% 17.3%);
+  --glass-scrim: hsl(0 0% 0% / 0.56);
+
+  --nav-divider-color: 0 0% 23%;
+  --nav-input-bg: 0 0% 18%;
+  --nav-input-focus-ring: 0 0% 65% / 0.3;
+  font-weight: 400;
+}
+[data-theme='codex'] .app-sidebar,
+[data-theme='codex'] .sidebar-root { background: #242424; backdrop-filter: none; }
+[data-theme='codex'] .pwa-header-safe { border-bottom-color: transparent; }
+[data-theme='codex'] .chat-messages-pane > div,
+[data-theme='codex'] .chat-composer-shell > div { max-width: 48rem; }
+[data-theme='codex'] .chat-message { font-size: 14px; line-height: 1.65; }
+[data-theme='codex'] .chat-message.user .bg-muted {
+  background: #303030;
+  border-radius: 16px;
+  box-shadow: none;
+  padding: 12px 16px;
+}
+[data-theme='codex'] [data-slot='prompt-input'] {
+  background: #2c2c2c;
+  border: 1px solid #353535;
+  border-radius: 18px;
   box-shadow: none;
 }
-[data-theme='claude'] .composer-chip:hover {
-  background-color: hsl(var(--accent) / 0.6);
+[data-theme='codex'] [data-slot='prompt-input']:focus-within { border-color: #626262; }
+[data-theme='codex'] [data-slot='prompt-input-textarea'] { min-height: 64px; font-size: 14px; }
+[data-theme='codex'] .composer-chip { border-color: transparent; background: transparent; box-shadow: none; font-weight: 400; }
+[data-theme='codex'] .composer-chip:hover { background: #393939; }
+[data-theme='codex'] .composer-submit { width: 30px; height: 30px; border-radius: 50%; }
+[data-theme='codex'] .chat-message a { color: #75a7f8; }
+@media (min-width: 768px) {
+  [data-theme='codex'] .sidebar-root { width: 260px; }
+  [data-theme='codex'] .chat-composer-shell { padding-bottom: 16px; }
 }
-[data-theme='claude'] .composer-chip-effort {
-  color: hsl(var(--muted-foreground));
-}
-/* Model + level read as one control, so only the level keeps a chevron. */
-[data-theme='claude'] .composer-chip-model .composer-chip-chevron {
-  display: none;
-}
-/* The little terracotta icon tiles on the token/limit chips are exactly the
-   "orange everywhere" noise — flatten them to muted glyphs. */
-[data-theme='claude'] .composer-chip-icon {
-  background-color: transparent;
-  color: hsl(var(--muted-foreground));
+@media (max-width: 767px) {
+  [data-theme='codex'] [data-slot='prompt-input-textarea'] { font-size: 16px; }
 }
 
-/* Composer breathes like claude.ai: taller text area, roomier toolbar. */
-[data-theme='claude'] [data-slot='prompt-input-textarea'] {
-  padding: 1rem 1.25rem 0.5rem;
-}
-[data-theme='claude'] [data-slot='prompt-input-footer'] {
-  padding: 0.5rem 0.75rem 0.75rem;
-}
-/* Send/stop is a circle, not a wide rounded slab. */
-[data-theme='claude'] .composer-submit {
-  border-radius: 9999px;
-  width: 2.5rem;
+[data-theme='codex'] .main-content-title { left: 44px; transform: translateY(-50%); }
+[data-theme='codex'] textarea::placeholder { color: #a0a0a0 !important; }
+.codex-environment { display: none; }
+@media (min-width: 1280px) {
+  .codex-environment { display: block; align-self: flex-start; width: 240px; flex-shrink: 0; margin: 12px 16px 0 8px; padding: 14px 12px; background: #2c2c2c; border: 1px solid #353535; border-radius: 18px; }
+  .codex-environment button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 4px; border-radius: 6px; text-align: left; font-size: 13px; }
+  .codex-environment button:hover { background: #393939; }
 }
 
-/* claude.ai's left nav is FLAT: plain text rows, no card chrome, no filled
-   buttons, no logo/color spam. Same utility-targeting trick as
-   .bg-background\/80 above, scoped to the sidebar only. */
-[data-theme='claude'] .app-sidebar .sidebar-logo {
-  display: none;
+/* =========================================================================
+   THEME: Био (bio — дизайн-система hu22.ai — DARK)
+   Почти чёрный однотонный фон, поверхности разделены тонкой светлой линией,
+   а не тенью; один голубой акцент #38c6f4 на кнопках, ссылках, активной
+   вкладке и фокусе. Гарнитуры — General Sans (текст) и IBM Plex Mono (код,
+   цифры, подписи); файлы лежат в public/fonts, внешних запросов нет.
+   У General Sans нет кириллицы: русский текст берёт system-ui — так же, как
+   на самом hu22.ai. @font-face объявлены глобально, но браузер качает файл,
+   только когда шрифт реально применён: другие темы ничего лишнего не грузят.
+   ========================================================================= */
+@font-face {
+  font-family: 'General Sans';
+  font-style: normal;
+  font-weight: 200;
+  font-display: swap;
+  src: url('/fonts/GeneralSans-200.woff2') format('woff2');
 }
-[data-theme='claude'] .app-sidebar h1 {
-  font-size: 1.0625rem;
+@font-face {
+  font-family: 'General Sans';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/GeneralSans-300.woff2') format('woff2');
 }
-[data-theme='claude'] .app-sidebar .bg-card {
+@font-face {
+  font-family: 'General Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/GeneralSans-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'General Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/GeneralSans-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'General Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/GeneralSans-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-400-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-500-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-500-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-500-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+[data-theme='bio'] {
+  /* Палитра hu22.ai (09.11): фон #030305, карточка #0a0a0e, поповер #101016,
+     приподнятое #15151c, текст #ededf0, серый #8b8b93, акцент #38c6f4. */
+  --background: 240 25% 1.6%;
+  --foreground: 240 9.1% 93.5%;
+  --card: 240 16.7% 4.7%;
+  --card-foreground: 240 9.1% 93.5%;
+  --popover: 240 15.8% 7.5%;
+  --popover-foreground: 240 9.1% 93.5%;
+  --primary: 195 89.5% 58.8%;
+  --primary-foreground: 205 75% 6.3%;
+  --secondary: 240 14.3% 9.6%;
+  --secondary-foreground: 240 9.1% 93.5%;
+  --muted: 240 14.3% 9.6%;
+  --muted-foreground: 240 3.6% 56.1%;
+  --accent: 197 66.2% 12.7%;
+  --accent-foreground: 195 89.6% 84.9%;
+  --link: 207 100% 74.3%;
+
+  --destructive: 358 100% 67.6%;
+  --destructive-foreground: 240 25% 1.6%;
+  --success: 152 55% 52%;
+  --success-foreground: 240 25% 1.6%;
+  --warning: 21 100% 64.9%;
+  --warning-foreground: 240 25% 1.6%;
+  --info: 217 91.2% 59.8%;
+  --info-foreground: 240 25% 1.6%;
+
+  /* Линии — белый 11% (обычная) и 14% (поле ввода) поверх фона. */
+  --border: 240 1.6% 12.4%;
+  --input: 240 2.6% 15.3%;
+  --ring: 195 89.5% 58.8%;
+  --radius: 0.75rem;
+
+  --font-ui: "General Sans", system-ui, -apple-system, sans-serif;
+  --font-chat: "General Sans", system-ui, -apple-system, sans-serif;
+  --font-sidebar: "General Sans", system-ui, -apple-system, sans-serif;
+  --font-display: "General Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --tracking-ui: normal;
+
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: none;
+
+  --density: 1;
+
+  /* Самое медленное движение набора: всё проявляется, а не выскакивает. */
+  --duration-fast: 160ms;
+  --duration-base: 300ms;
+  --duration-slow: 600ms;
+  --ease-ui: cubic-bezier(.2,.7,.2,1);
+
+  --shell-bg: hsl(240 25% 1.6%);
+  --shell-material: none;
+  --shell-grain: none;
+  --shell-grain-opacity: 0;
+  --panel-tint: 240 25% 1.6%;
+  --panel-alpha: 1;
+  --panel-blur-radius: 0px;
+  --panel-saturate: 1;
+  --panel-bg: hsl(240 25% 1.6%);
+  --panel-blur: none;
+  --panel-border: hsl(240 1.6% 12.4%);
+  --panel-shadow: none;
+
+  /* Стекло: чёрное с волосяной кромкой. Тени нет вовсе — тема разделяет
+     поверхности линией, не глубиной; блик едва заметен, свечения нет. */
+  --glass-bg: hsl(240 12% 12% / 0.62);
+  --glass-bg-strong: hsl(240 16% 5% / 0.86);
+  --glass-blur: 18px;
+  --glass-saturate: 1.15;
+  --glass-border: hsl(0 0% 100% / 0.11);
+  --glass-highlight: hsl(0 0% 100% / 0.05);
+  --glass-shadow: 0 0 0 0 transparent;
+  --glass-fallback-bg: hsl(240 15.8% 7.5%);
+  --glass-scrim: hsl(240 25% 1% / 0.72);
+
+  --nav-divider-color: 240 1.6% 12.4% / 1;
+  --nav-input-bg: 240 16.7% 4.7% / 0.9;
+  --nav-input-focus-ring: 195 89.5% 58.8% / 0.35;
+}
+/* Карточки — заливка и волосяная линия, без размытия и свечения. */
+[data-theme='bio'] .bg-card {
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--border));
+  box-shadow: none;
+}
+/* Акцентная кнопка — плоский циан без градиента и подсветки. */
+[data-theme='bio'] .bg-primary {
+  background-image: none;
+  box-shadow: none;
+}
+/* Пузырь пользователя и композер — карточка с тонкой рамкой. */
+[data-theme='bio'] .chat-message.user .bg-muted {
+  background-color: hsl(var(--card));
+  box-shadow: inset 0 0 0 1px hsl(var(--border));
+}
+[data-theme='bio'] [data-slot='prompt-input'] {
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--border));
+  box-shadow: none;
+}
+[data-theme='bio'] [data-slot='prompt-input']:focus-within {
+  border-color: hsl(var(--primary) / 0.45);
+}
+[data-theme='bio'] .composer-chip {
+  box-shadow: none;
+}
+[data-theme='bio'] .chat-message a,
+[data-theme='bio'] a.text-blue-600 {
+  color: hsl(var(--link));
+  text-underline-offset: 2px;
+}
+/* Заголовки тонкие и плотные, как на hu22.ai; капс-подписи — с разрядкой. */
+[data-theme='bio'] h1,
+[data-theme='bio'] h2,
+[data-theme='bio'] h3 {
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+[data-theme='bio'] h1.uppercase,
+[data-theme='bio'] h2.uppercase,
+[data-theme='bio'] h3.uppercase,
+[data-theme='bio'] h4.uppercase {
+  letter-spacing: 0.08em;
+}
+/* Подписи приборным моно: чипы поля ввода (модель, проценты, лимиты) и
+   микро-подписи капсом — «цифры и подписи» в дизайн-системе hu22.ai набраны
+   IBM Plex Mono. У General Sans нет кириллицы, и без этого русский интерфейс
+   «Био» шёл одним системным шрифтом — как «Графит», только чернее. */
+[data-theme='bio'] .composer-chip,
+[data-theme='bio'] .text-\[11px\].uppercase,
+[data-theme='bio'] .text-\[10px\].uppercase {
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+/* =========================================================================
+   THEME: Неон (neon — DARK)
+
+   Одна тема вместо восьми фото-тем. Прежние «Голубая», «Розовая», «Мятная»,
+   «Синяя», «Зелёная», «Сиреневая», «Янтарная» и «Лаймовая» были одним
+   шаблоном с другим оттенком и другой фотографией — теперь это ВАРИАНТЫ:
+   `data-theme-variant` на <html> задаёт цвет акцента, фото берётся по нему же
+   (NEON_VARIANTS в src/contexts/themeMigration.js).
+
+   Характер темы, общий для всех восьми вариантов:
+   - интерфейс набран моноширинным — приборная панель, а не страница;
+     переписка и список чатов — гротеском, читать длинный текст моно тяжело;
+   - самые острые углы набора: 6px;
+   - вместо тени — свечение акцента: кромка стекла, кнопка, активный пункт;
+   - поверхности — тонированное стекло над фотографией, не заливка;
+   - движение короткое и упругое.
+
+   Блок темы задаёт всё; блок варианта — только акцент и то, что от него
+   зависит (заливку активного пункта). Кромки, свечение, кольцо фокуса и поле
+   поиска читают `--primary` и меняются вместе с ним сами.
+   ========================================================================= */
+[data-theme='neon'] {
+  --background: 234 34% 5%;
+  --foreground: 220 30% 94%;
+  --card: 232 30% 10%;
+  --card-foreground: 220 30% 94%;
+  --popover: 232 32% 9%;
+  --popover-foreground: 220 30% 94%;
+  /* Акцент по умолчанию — «Голубой»; вариант его перекрывает. */
+  --primary: 190 95% 58%;
+  --primary-foreground: 234 45% 6%;
+  --secondary: 232 24% 16%;
+  --secondary-foreground: 220 26% 92%;
+  --muted: 232 22% 15%;
+  --muted-foreground: 224 16% 72%;
+  --accent: 190 55% 17%;
+  --accent-foreground: 190 90% 90%;
+
+  /* Статусы яркие, под стать акценту, и не совпадают ни с одним вариантом
+     по тону и светлоте сразу: ошибка — малиновый, успех — холодный зелёный,
+     предупреждение — жёлтый, информация — васильковый. */
+  --destructive: 350 88% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 150 70% 52%;
+  --success-foreground: 234 45% 6%;
+  --warning: 52 96% 58%;
+  --warning-foreground: 234 45% 6%;
+  --info: 206 96% 68%;
+  --info-foreground: 234 45% 6%;
+
+  --border: 230 26% 24%;
+  --input: 232 26% 18%;
+  --ring: var(--primary);
+  --radius: 0.375rem;
+
+  /* Моноширинный с кириллицей впереди: у 'SF Mono' её нет (см. :root). */
+  --font-ui: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', ui-monospace, monospace;
+  --font-display: var(--font-ui);
+  --font-mono: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono',
+    ui-monospace, monospace;
+  /* Длинный текст — гротеском: моно слишком широк и для списка чатов, и для
+     ответа на три экрана. */
+  --font-chat: "Encode Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sidebar: "Encode Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --tracking-ui: -0.01em;
+
+  /* Вместо тени — свечение: чем выше слой, тем шире ореол акцента. */
+  --shadow-1: 0 0 0 1px hsl(var(--primary) / 0.12);
+  --shadow-2: 0 0 18px -6px hsl(var(--primary) / 0.38);
+  --shadow-3: 0 0 0 1px hsl(var(--primary) / 0.22), 0 18px 48px -14px hsl(234 60% 2% / 0.85),
+    0 0 42px -14px hsl(var(--primary) / 0.45);
+
+  --density: 0.96;
+
+  --duration-fast: 100ms;
+  --duration-base: 160ms;
+  --duration-slow: 240ms;
+  --ease-ui: cubic-bezier(0.2, 0.9, 0.2, 1);
+
+  /* Материал: ночь с заревом акцента. Виден, когда фото выключено; с фото
+     он остаётся под ним и подсвечивает края при загрузке. */
+  --shell-bg: hsl(234 34% 5%);
+  --shell-material:
+    radial-gradient(1100px 620px at 50% -12%, hsl(var(--primary) / 0.18), transparent 64%),
+    radial-gradient(900px 700px at 100% 112%, hsl(var(--primary) / 0.09), transparent 60%);
+  --shell-grain: none;
+  --shell-grain-opacity: 0;
+  --panel-tint: 232 30% 10%;
+  --panel-alpha: 0.68;
+  --panel-blur-radius: 16px;
+  --panel-saturate: 1.6;
+  --panel-bg: hsl(var(--panel-tint) / var(--panel-alpha));
+  --panel-blur: blur(var(--panel-blur-radius)) saturate(var(--panel-saturate));
+  --panel-border: hsl(var(--primary) / 0.22);
+  --panel-shadow: 0 0 24px -10px hsl(var(--primary) / 0.35);
+
+  /* Стекло: тёмное тонированное. Кромка и блик — цветом акцента, вместо
+     тени — ореол: кнопка светится тем же цветом, что и вариант. Насыщенность
+     самая высокая из тёмных тем — огни фотографии под стеклом остаются огнями. */
+  --glass-bg: hsl(232 40% 14% / 0.46);
+  --glass-bg-strong: hsl(232 34% 9% / 0.76);
+  --glass-blur: 20px;
+  --glass-saturate: 1.8;
+  --glass-border: hsl(var(--primary) / 0.34);
+  --glass-highlight: hsl(var(--primary) / 0.22);
+  --glass-shadow: 0 0 26px -8px hsl(var(--primary) / 0.45), 0 12px 28px -14px hsl(234 60% 2% / 0.8);
+  --glass-fallback-bg: hsl(232 32% 10%);
+  --glass-scrim: hsl(234 50% 2% / 0.66);
+
+  --nav-divider-color: var(--primary) / 0.25;
+  --nav-input-bg: 232 28% 14% / 0.6;
+  --nav-input-focus-ring: var(--primary) / 0.4;
+}
+
+/* Варианты: акцент и заливка активного пункта. Тон соседних вариантов
+   разведён минимум на 20° — прежние «Голубая», «Мятная» и «Синяя» стояли на
+   176°, 187° и 190° и не различались. */
+[data-theme='neon'][data-theme-variant='city'] {
+  --primary: 190 95% 58%;
+  --accent: 190 55% 17%;
+  --accent-foreground: 190 90% 90%;
+}
+[data-theme='neon'][data-theme-variant='synthwave'] {
+  --primary: 326 100% 66%;
+  --accent: 326 50% 19%;
+  --accent-foreground: 326 95% 92%;
+}
+[data-theme='neon'][data-theme-variant='nebula'] {
+  --primary: 160 84% 56%;
+  --accent: 160 50% 15%;
+  --accent-foreground: 160 80% 88%;
+}
+[data-theme='neon'][data-theme-variant='mission'] {
+  --primary: 216 100% 70%;
+  --accent: 216 55% 20%;
+  --accent-foreground: 216 100% 92%;
+}
+[data-theme='neon'][data-theme-variant='bento'] {
+  --primary: 132 76% 58%;
+  --accent: 132 45% 15%;
+  --accent-foreground: 132 75% 88%;
+}
+[data-theme='neon'][data-theme-variant='chrome'] {
+  --primary: 264 92% 76%;
+  --accent: 264 42% 22%;
+  --accent-foreground: 264 95% 93%;
+}
+[data-theme='neon'][data-theme-variant='zen'] {
+  --primary: 38 96% 58%;
+  --accent: 38 55% 16%;
+  --accent-foreground: 40 95% 88%;
+}
+[data-theme='neon'][data-theme-variant='kinetic'] {
+  --primary: 78 100% 55%;
+  --accent: 78 50% 14%;
+  --accent-foreground: 78 90% 88%;
+}
+
+/* Список чатов и поля в нём — гротеском, без разрядки моно. */
+[data-theme='neon'] .sidebar-root,
+[data-theme='neon'] .sidebar-root input,
+[data-theme='neon'] .sidebar-root button {
+  letter-spacing: normal;
+}
+/* Заголовки — тем же моно, плотно и с разрядкой: подпись прибора. */
+[data-theme='neon'] h1,
+[data-theme='neon'] h2,
+[data-theme='neon'] h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+/* В переписке заголовки ответа — часть текста, а не интерфейса; в шторке
+   названия проектов — часть списка, он набран гротеском. */
+[data-theme='neon'] .chat-message h1,
+[data-theme='neon'] .chat-message h2,
+[data-theme='neon'] .chat-message h3 {
+  font-family: var(--font-chat);
+  letter-spacing: normal;
+}
+[data-theme='neon'] .app-sidebar h1,
+[data-theme='neon'] .app-sidebar h2,
+[data-theme='neon'] .app-sidebar h3 {
+  font-family: var(--font-sidebar);
+  letter-spacing: normal;
+}
+[data-theme='neon'] .text-\[11px\].uppercase,
+[data-theme='neon'] .text-\[10px\].uppercase {
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+/* Карточка — тонированное стекло с кромкой акцента и ореолом. */
+[data-theme='neon'] .bg-card {
+  background-color: var(--panel-bg);
+  -webkit-backdrop-filter: var(--panel-blur);
+  backdrop-filter: var(--panel-blur);
+  border-color: var(--panel-border);
+  box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.12), var(--panel-shadow);
+}
+/* Залитая акцентом кнопка светится. */
+[data-theme='neon'] .bg-primary {
+  box-shadow: 0 0 18px -4px hsl(var(--primary) / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.28);
+}
+/* Поле ввода — та же панель; на фокусе кромка разгорается. */
+[data-theme='neon'] [data-slot='prompt-input'] {
+  background-color: var(--panel-bg);
+  border-radius: var(--radius-xl);
+  border-color: hsl(var(--primary) / 0.3);
+  box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.14), var(--panel-shadow);
+}
+[data-theme='neon'] [data-slot='prompt-input']:focus-within {
+  border-color: hsl(var(--primary) / 0.65);
+  box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.2), 0 0 28px -8px hsl(var(--primary) / 0.55);
+}
+/* Сообщение человека — плашка с кромкой акцента, углы острые, как у всей темы. */
+[data-theme='neon'] .chat-message.user .bg-muted {
+  background-color: hsl(var(--primary) / 0.1);
+  border-radius: var(--radius-xl);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.32);
+}
+[data-theme='neon'] .chat-message a {
+  color: hsl(var(--primary));
+  text-underline-offset: 2px;
+}
+/* Активный пункт шторки — цветом акцента, без полоски на краю. */
+[data-theme='neon'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']),
+[data-theme='neon'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) svg {
+  color: hsl(var(--primary));
+}
+/* Шторка телефона лежит ПОВЕРХ «Домой», а не рядом с ним: на 68% сквозь неё
+   читались значки проектов. На телефоне она плотная — фото остаётся намёком,
+   список читается и там, где размытия нет вовсе. */
+@media (max-width: 767px) {
+  [data-theme='neon'] .app-sidebar {
+    background-color: hsl(var(--panel-tint) / 0.93);
+  }
+}
+
+/* =========================================================================
+   THEME: Бирюзовая (glass — стеклянная, LIGHT)
+
+   REFERENCES.md §5. Тема, которой ОДНИХ ТОКЕНОВ НЕ ХВАТИЛО:
+   полупрозрачность и размытие поверхностей в контракт темы не входят (там
+   только цвет, шрифт, радиус, тень, плотность, движение), поэтому ниже есть
+   хвост на `.bg-card`. Это не недосмотр Этапа 2, а честная граница: сделать
+   `--card` полупрозрачным нельзя — переменная хранит тройку HSL без альфы.
+
+   Фон — мягкий градиент. Единственный градиент во всём наборе, и он работает
+   как материал: без него стекло не за что размывать. По разбору именно эта
+   тема — та, где пользовательская картинка работает по назначению.
+   ========================================================================= */
+[data-theme='glass'] {
+  --background: 210 32% 95%;
+  --foreground: 215 28% 16%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 28% 16%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 28% 16%;
+  /* Светлота 34%, а не 42%: белая подпись на кнопке давала 3.22:1 при норме
+     WCAG AA 4.5:1. Тон и насыщенность не тронуты — темнее ровно настолько,
+     чтобы подпись прошла (4.66:1). Белый текст на акценте безопасен только в
+     тёмной теме, где акцент светлее фона; в светлой его надо затемнять. */
+  --primary: 194 84% 34%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 28% 90%;
+  --secondary-foreground: 215 25% 22%;
+  --muted: 210 26% 91%;
+  --muted-foreground: 215 14% 40%;
+  --accent: 194 50% 88%;
+  --accent-foreground: 196 70% 22%;
+
+  --destructive: 352 70% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 158 62% 34%;
+  --success-foreground: 0 0% 100%;
+  --warning: 32 88% 44%;
+  --warning-foreground: 0 0% 100%;
+  --info: 205 80% 44%;
+  --info-foreground: 0 0% 100%;
+
+  /* Граница почти не видна: по разбору светлые разделяются глубиной, а не линией. */
+  --border: 210 24% 86%;
+  --input: 210 24% 86%;
+  --ring: 194 84% 42%;
+  /* Самое мягкое скругление набора: 16px, шкала 12…28px. */
+  --radius: 1rem;
+
+  /* Мягкая геометрия под стать материалу: круглые овалы, низкий контраст
+     штриха — единственная гарнитура набора, которая читается «спокойно». */
+  --font-ui: Outfit, 'Encode Sans', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, sans-serif;
+  --font-chat: var(--font-ui);
+  --font-display: var(--font-ui);
+  --font-sidebar: var(--font-ui);
+  --tracking-ui: -0.01em;
+
+  --font-mono: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono',
+    ui-monospace, monospace;
+
+  /* Мягкие широкие тени — здесь они несут разделение поверхностей. */
+  --shadow-1: 0 2px 8px hsl(210 40% 30% / 0.06);
+  --shadow-2: 0 10px 28px hsl(210 40% 30% / 0.10);
+  --shadow-3: 0 24px 60px hsl(210 40% 30% / 0.16);
+
+  /* Воздуха больше, чем в любой другой теме. */
+  --density: 1.05;
+
+  --duration-fast: 160ms;
+  --duration-base: 260ms;
+  --duration-slow: 320ms;
+  --ease-ui: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Материал под стеклом. Раньше он лежал на body — и был целиком закрыт
+     непрозрачной заливкой корпуса, поэтому размывать панелям было нечего и
+     «стекло» выглядело просто светлой темой. Теперь материал красит корпус,
+     а панели пропускают его сквозь себя.
+     Пятна намеренно разноцветные и крупные: матовость читается только там,
+     где под стеклом есть переход цвета. По ровной заливке blur не виден. */
+  --shell-bg: hsl(200 30% 90%);
+  --shell-material:
+    radial-gradient(1100px 820px at 6% -10%, hsl(166 62% 82% / 0.95), transparent 62%),
+    radial-gradient(940px 760px at 98% 2%, hsl(268 68% 88% / 0.9), transparent 60%),
+    radial-gradient(1000px 880px at 62% 110%, hsl(32 82% 84% / 0.85), transparent 62%),
+    radial-gradient(760px 640px at 80% 58%, hsl(196 74% 84% / 0.8), transparent 58%);
+  --shell-grain: none;
+  --shell-grain-opacity: 0;
+  --panel-tint: 0 0% 100%;
+  --panel-alpha: 0.42;
+  --panel-blur-radius: 34px;
+  --panel-saturate: 1.9;
+  --panel-bg: hsl(var(--panel-tint) / var(--panel-alpha));
+  --panel-blur: blur(var(--panel-blur-radius)) saturate(var(--panel-saturate));
+  --panel-border: hsl(0 0% 100% / 0.62);
+  --panel-shadow: 0 18px 48px -22px hsl(210 40% 28% / 0.4);
+
+  /* Стекло: белый иней. Самое сильное размытие и насыщенность набора —
+     пастельные пятна материала под ним растекаются в цветной туман; кромка
+     и блик почти белые, тень широкая и холодная. Плотный вариант — 82%
+     белого: под текстом (поле ввода, шторка) материал остаётся намёком. */
+  --glass-bg: hsl(0 0% 100% / 0.52);
+  --glass-bg-strong: hsl(0 0% 100% / 0.82);
+  --glass-blur: 30px;
+  --glass-saturate: 1.9;
+  --glass-border: hsl(0 0% 100% / 0.72);
+  --glass-highlight: hsl(0 0% 100% / 0.9);
+  --glass-shadow: 0 14px 36px -18px hsl(210 40% 28% / 0.42);
+  --glass-fallback-bg: hsl(210 36% 97%);
+  /* Затемнение тёмное и в светлой теме: вуаль цвета фона осветляла экран под
+     шторкой вместо того, чтобы его приглушить (разбор экранов, D2). */
+  --glass-scrim: hsl(212 40% 14% / 0.4);
+
+  --nav-divider-color: 210 24% 80% / 0.5;
+  --nav-input-bg: 0 0% 100% / 0.42;
+  --nav-input-focus-ring: 194 84% 42% / 0.25;
+}
+/* Поле поиска — такое же стекло, как панели: без размытия оно читалось как
+   единственная матовая заливка в стеклянном сайдбаре. */
+[data-theme='glass'] .nav-search-input {
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.6);
+}
+/* Стекло на всех поверхностях, а не на одной карточке. Референс light-2/01:
+   матовыми там являются ВСЕ панели — шапка, список, полка снизу; между ними
+   везде просвечивает фон. Одна стеклянная карточка посреди непрозрачного
+   корпуса стеклом не читается.
+   Верхний внутренний блик — кромка стекла, а не декоративная полоска: он
+   ловит свет там, где панель обрывается. */
+[data-theme='glass'] .bg-card,
+[data-theme='glass'] [data-slot='prompt-input'],
+[data-theme='glass'] .composer-chip {
+  background-color: var(--panel-bg);
+  -webkit-backdrop-filter: var(--panel-blur);
+  backdrop-filter: var(--panel-blur);
+  border-color: var(--panel-border);
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.75), var(--panel-shadow);
+}
+/* Сайдбар стеклянной темы чуть плотнее панелей: под ним лежит самая пёстрая
+   часть градиента, и на 42% текст списка сессий терял контраст. 0.46 — низ
+   безопасного коридора: foreground здесь 16% светлоты и держит 12:1 даже
+   над самым светлым пятном материала. Дальше плотность не нужна — край
+   панели показывают кромка и верхний блик, а не белила. */
+[data-theme='glass'] .app-sidebar {
+  background-color: hsl(0 0% 100% / 0.46);
+  border-right: 1px solid hsl(0 0% 100% / 0.55);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.75),
+    8px 0 32px -28px hsl(210 40% 28% / 0.55);
+}
+[data-theme='glass'] h1,
+[data-theme='glass'] h2,
+[data-theme='glass'] h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+  font-weight: 600;
+}
+[data-theme='glass'] .text-\[11px\].uppercase,
+[data-theme='glass'] .text-\[10px\].uppercase {
+  letter-spacing: 0.16em;
+  font-weight: 500;
+}
+/* `[class*='bg-accent']` подстрокой ловил и `hover:bg-accent/60` — то есть
+   красил в акцент элементы, у которых accent появляется ТОЛЬКО на наведении.
+   Из-за этого всё нижнее меню сайдбара стояло синим в покое. Исключение по
+   `hover:` возвращает правилу его смысл: акцент на том, что выделено сейчас. */
+[data-theme='glass'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']),
+[data-theme='glass'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) svg {
+  color: hsl(196 80% 30%);
+}
+/* Выделенный проект — единственная непрозрачная плашка, оставшаяся в списке.
+   Тот же материал, что у кнопки: подсветку несёт цветная кромка, а не заливка. */
+[data-theme='glass'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) {
+  background-color: hsl(194 60% 94% / 0.5);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  backdrop-filter: blur(14px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.7),
+    0 0 0 1px hsl(194 70% 60% / 0.28);
+}
+
+/* Два места сайдбара красились плоским цветом поверх стеклянной панели —
+   залитая акцентом кнопка «Новый сеанс» и нижнее меню, которому
+   `--muted-foreground` (hue 215) на тёплом материале давал вид «синего
+   списка». В теме, где свет проходит сквозь всё остальное, обе заливки
+   читаются как наклейки поверх стекла. */
+
+/* Главное действие списка остаётся главным за счёт кромки, блика и тёмного
+   цианового текста (5.6:1 на белом стекле), а не за счёт заливки акцентом.
+   Градиент сверху вниз — не декор: он изображает толщину стекла, у верхней
+   кромки материал светлее, чем у нижней. */
+[data-theme='glass'] .app-sidebar .new-session-btn {
   background-color: transparent;
+  background-image: linear-gradient(hsl(0 0% 100% / 0.58), hsl(0 0% 100% / 0.3));
+  -webkit-backdrop-filter: blur(18px) saturate(1.7);
+  backdrop-filter: blur(18px) saturate(1.7);
+  border: 1px solid hsl(0 0% 100% / 0.7);
+  border-radius: 0.75rem;
+  color: hsl(196 72% 26%);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.9),
+    0 8px 20px -14px hsl(210 40% 28% / 0.6);
 }
-[data-theme='claude'] .app-sidebar [class*='border-border'],
-[data-theme='claude'] .app-sidebar [class*='border-success'],
-[data-theme='claude'] .app-sidebar [class*='border-primary'],
-[data-theme='claude'] .app-sidebar [class*='border-warning'] {
-  border-color: transparent;
+[data-theme='glass'] .app-sidebar .new-session-btn:hover {
+  background-image: linear-gradient(hsl(0 0% 100% / 0.88), hsl(0 0% 100% / 0.58));
+  color: hsl(196 84% 20%);
 }
-/* Selected chat = quiet neutral highlight, not a terracotta tint. */
-[data-theme='claude'] .app-sidebar [class*='bg-primary/5'] {
-  background-color: hsl(var(--accent) / 0.6);
+[data-theme='glass'] .app-sidebar .new-session-btn svg {
+  opacity: 0.75;
 }
-/* Favorites: keep the star, drop the amber paint. */
-[data-theme='claude'] .app-sidebar [class*='bg-warning'] {
-  background-color: transparent;
+
+/* Нижнее меню: нейтральный графит вместо синеватого приглушённого, стекло
+   приходит на hover. Мобильные строки этой же группы плашку сохраняют —
+   там пальцу нужна цель, — но плашка тоже стеклянная. */
+[data-theme='glass'] .sidebar-footer-item {
+  color: hsl(215 10% 32%);
+  background-color: hsl(0 0% 100% / 0.34);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
 }
-[data-theme='claude'] .app-sidebar .lucide-star {
-  color: hsl(45 5% 63%);
+[data-theme='glass'] .sidebar-footer-item svg {
+  color: hsl(215 10% 32%);
+  opacity: 0.62;
 }
-/* "Новый сеанс" as a quiet "New chat"-style row instead of a filled button. */
-[data-theme='claude'] .app-sidebar .new-session-btn {
-  background-color: transparent;
-  color: hsl(var(--muted-foreground));
+[data-theme='glass'] .sidebar-footer-item:hover {
+  background-color: hsl(0 0% 100% / 0.55);
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.8);
+  color: hsl(215 28% 16%);
 }
-[data-theme='claude'] .app-sidebar .new-session-btn:hover {
-  background-color: hsl(var(--accent) / 0.6);
-  color: hsl(var(--foreground));
+[data-theme='glass'] .sidebar-footer-item:hover svg {
+  opacity: 0.9;
+}
+/* Плитки меню (`menu-icons/MenuTile`) яркие сами по себе: графит и
+   приглушение выше гасили белые значки и красили краба серым. В стекле
+   плитка такая же, как в тёмной теме; цвет — от самой плитки. */
+[data-theme='glass'] .sidebar-footer-item [data-menu-tile] svg,
+[data-theme='glass'] .sidebar-footer-item:hover [data-menu-tile] svg {
+  color: inherit;
+  opacity: 1;
+}
+@media (min-width: 768px) {
+  /* Десктопные строки — текстовые: четыре подряд стеклянные плашки шумят
+     сильнее, чем сам список сессий над ними. */
+  [data-theme='glass'] .sidebar-footer-item {
+    background-color: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  [data-theme='glass'] .sidebar-footer-item:hover {
+    background-color: hsl(0 0% 100% / 0.5);
+    -webkit-backdrop-filter: blur(14px) saturate(1.5);
+    backdrop-filter: blur(14px) saturate(1.5);
+  }
+}
+
+/* Шторка телефона лежит поверх «Домой», а не рядом с ним: на 46% белого
+   сквозь неё читались значки проектов (разбор экранов, D2). На телефоне она
+   плотная — материал остаётся намёком по краям, список читается и там, где
+   размытия нет вовсе. */
+@media (max-width: 767px) {
+  [data-theme='glass'] .app-sidebar {
+    background-color: hsl(210 40% 98% / 0.9);
+  }
 }
 
 /* =========================================================================
@@ -1480,8 +2718,8 @@
    листа, сайдбар на ступень темнее, белые карточки, тонкие тёплые границы,
    почти чёрный тёплый текст и терракотовый акцент. Плоская: без картинки,
    шейдера и материала (FLAT_THEMES + условие фона в AppContent.tsx).
-   Устройство хвостов — как у тёмной `claude` выше: композер-«пилюля»,
-   плоский сайдбар без плашек, панель композера текстом.
+   Устройство хвостов: композер-«пилюля», плоский сайдбар без плашек, панель
+   композера текстом.
 
    Акцент разведён на два токена. `--accent-fill` = фирменная терракота
    #D97757 — только заливки без текста (кнопка отправки, фокус, кольцо).
@@ -1537,23 +2775,44 @@
   --shadow-2: 0 2px 10px hsl(40 20% 20% / 0.06);
   --shadow-3: 0 12px 32px hsl(40 20% 20% / 0.1);
 
+  --density: 1;
+
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+  --duration-slow: 300ms;
+  --ease-ui: cubic-bezier(0.4, 0, 0.2, 1);
+
   --shell-bg: hsl(48 33% 97%);
   --shell-material: none;
   --shell-grain: none;
   --shell-grain-opacity: 0;
   --panel-tint: 48 25% 92%;
   --panel-alpha: 1;
+  --panel-blur-radius: 0px;
+  --panel-saturate: 1;
   --panel-bg: hsl(var(--sidebar));
   --panel-blur: none;
   --panel-border: hsl(50 21% 87%);
+  --panel-shadow: none;
 
-  --nav-glass-bg: 48 33% 97% / 0.92;
-  --nav-glass-blur: 12px;
-  --nav-glass-saturate: 1;
-  --nav-tab-glow: 15 63% 60% / 0;
-  --nav-tab-ring: 50 21% 82% / 0.9;
-  --nav-float-shadow: 40 20% 20% / 0.06;
-  --nav-float-ring: 50 21% 85% / 0.8;
+  /* Стекло: плотная калька. Тема бумажная и плоская, поэтому стекло здесь
+     почти непрозрачное, размытие самое слабое из набора, насыщенность не
+     поднята; кромка — тёплый волосок, тень — та же мягкая, что у карточек. */
+  --glass-bg: hsl(48 30% 98% / 0.84);
+  --glass-bg-strong: hsl(0 0% 100% / 0.94);
+  --glass-blur: 10px;
+  --glass-saturate: 1.05;
+  --glass-border: hsl(48 14% 60% / 0.34);
+  --glass-highlight: hsl(0 0% 100% / 0.9);
+  --glass-shadow: 0 2px 12px hsl(40 20% 20% / 0.08);
+  --glass-fallback-bg: hsl(0 0% 100%);
+  --glass-scrim: hsl(40 14% 12% / 0.36);
+  /* Заливка акцента — фирменная терракота из --accent-fill; затемнённый
+     акцент (--primary) оставлен тексту. Значок на заливке белый: 3.1:1 —
+     норма для значков, не для текста. */
+  --glass-accent-bg: hsl(var(--accent-fill));
+  --glass-accent-fg: hsl(0 0% 100%);
+
   --nav-divider-color: 50 21% 87% / 0.9;
   --nav-input-bg: 0 0% 100% / 0.9;
   --nav-input-focus-ring: 15 63% 60% / 0.25;
@@ -1701,1231 +2960,6 @@
   letter-spacing: 0.04em;
 }
 
-/* Переключатель вкладок в шапке: активная — белая карточка. */
-[data-theme='claudeLight'] .nav-tab-active {
-  background-color: hsl(var(--card));
-  color: hsl(var(--foreground));
-  box-shadow: 0 0 0 1px hsl(var(--border)), var(--shadow-1);
-}
-
-/* =========================================================================
-   THEME: Neon City (cyberpunk — DARK)
-   Blade-Runner cyan + magenta over a near-black blue, neon perspective grid,
-   volumetric fog, glassy dark panels with neon edges.
-   ========================================================================= */
-[data-theme='neonCity'] {
-  --background: 230 45% 5%;
-  --foreground: 190 55% 92%;
-  --card: 226 42% 10%;
-  --card-foreground: 190 45% 92%;
-  --popover: 226 44% 9%;
-  --popover-foreground: 190 45% 92%;
-  --primary: 187 90% 55%;
-  --primary-foreground: 230 45% 6%;
-  --secondary: 226 36% 15%;
-  --secondary-foreground: 190 40% 90%;
-  --muted: 226 30% 16%;
-  --muted-foreground: 200 22% 66%;
-  --accent: 320 70% 26%;
-  --accent-foreground: 320 90% 92%;
-  --destructive: 350 85% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 195 60% 24%;
-  --input: 220 40% 18%;
-  --ring: 187 90% 55%;
-  --radius: 0.55rem;
-
-  --nav-glass-bg: 226 45% 9% / 0.5;
-  --nav-glass-blur: 22px;
-  --nav-glass-saturate: 1.7;
-  --nav-tab-glow: 187 90% 55% / 0.45;
-  --nav-tab-ring: 187 90% 60% / 0.4;
-  --nav-float-shadow: 230 80% 2% / 0.6;
-  --nav-float-ring: 187 80% 55% / 0.25;
-  --nav-divider-color: 187 70% 55% / 0.25;
-  --nav-input-bg: 220 40% 14% / 0.6;
-  --nav-input-focus-ring: 187 90% 55% / 0.4;
-}
-
-/* Тот же порядок, что и у kineticType: кириллические моно впереди SF Mono. */
-[data-theme='neonCity'] body {
-  font-family: 'JetBrains Mono', 'Menlo', 'SF Mono', ui-monospace, monospace;
-}
-[data-theme='neonCity'] .bg-card {
-  background-color: hsl(226 44% 11% / 0.72) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.6);
-  backdrop-filter: blur(14px) saturate(1.6);
-  border-color: hsl(187 90% 55% / 0.22);
-  box-shadow: inset 0 1px 0 hsl(187 90% 70% / 0.14),
-    0 0 22px -6px hsl(187 90% 50% / 0.25);
-}
-[data-theme='neonCity'] .bg-primary {
-  background-image: linear-gradient(135deg, #22d3ee 0%, #0ea5e9 55%, #d946ef 140%) !important;
-  box-shadow: 0 0 20px -4px hsl(187 90% 55% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.25);
-}
-[data-theme='neonCity'] .nav-tab-active {
-  box-shadow: 0 0 16px hsl(187 90% 55% / 0.5),
-    inset 0 1px 0 hsl(187 90% 80% / 0.25),
-    0 0 0 1px hsl(187 90% 60% / 0.5) !important;
-}
-
-/* =========================================================================
-   THEME: Synthwave Drive (retro-future — DARK)
-   80s sunset gradient (indigo→magenta→orange), big gradient sun with scan
-   slots, endless neon grid road driving to the horizon.
-   ========================================================================= */
-[data-theme='synthwaveDrive'] {
-  --background: 258 60% 7%;
-  --foreground: 320 60% 94%;
-  --card: 260 50% 12%;
-  --card-foreground: 320 55% 94%;
-  --popover: 260 52% 11%;
-  --popover-foreground: 320 55% 94%;
-  --primary: 328 100% 62%;
-  --primary-foreground: 260 60% 8%;
-  --secondary: 260 40% 18%;
-  --secondary-foreground: 320 50% 92%;
-  --muted: 260 34% 18%;
-  --muted-foreground: 290 30% 74%;
-  --accent: 190 90% 30%;
-  --accent-foreground: 190 90% 92%;
-  --destructive: 350 90% 62%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 315 60% 34%;
-  --input: 260 40% 20%;
-  --ring: 328 100% 62%;
-  --radius: 0.5rem;
-
-  --nav-glass-bg: 260 52% 11% / 0.5;
-  --nav-glass-blur: 20px;
-  --nav-glass-saturate: 1.8;
-  --nav-tab-glow: 328 100% 62% / 0.45;
-  --nav-tab-ring: 190 90% 55% / 0.4;
-  --nav-float-shadow: 270 80% 3% / 0.6;
-  --nav-float-ring: 328 90% 60% / 0.3;
-  --nav-divider-color: 320 70% 60% / 0.28;
-  --nav-input-bg: 260 40% 16% / 0.6;
-  --nav-input-focus-ring: 328 100% 62% / 0.4;
-}
-
-[data-theme='synthwaveDrive'] .bg-card {
-  background-color: hsl(260 50% 13% / 0.66) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.7);
-  backdrop-filter: blur(16px) saturate(1.7);
-  border-color: hsl(328 90% 65% / 0.28);
-  box-shadow: inset 0 1px 0 hsl(328 100% 80% / 0.18),
-    0 0 26px -8px hsl(328 100% 55% / 0.35);
-}
-[data-theme='synthwaveDrive'] .bg-primary {
-  background-image: linear-gradient(135deg, #ff5cc8 0%, #ff2e97 50%, #ff8a3d 130%) !important;
-  box-shadow: 0 0 22px -4px hsl(328 100% 60% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.3);
-}
-[data-theme='synthwaveDrive'] .nav-tab-active {
-  box-shadow: 0 0 18px hsl(328 100% 60% / 0.5),
-    inset 0 1px 0 hsl(328 100% 85% / 0.25),
-    0 0 0 1px hsl(190 90% 60% / 0.45) !important;
-}
-
-/* =========================================================================
-   Shared photographic background layer, used by every "cinematic photo"
-   theme (see PHOTO_THEMES in ThemeBackground.tsx). A single real generated
-   still image per theme, full-bleed with a slow Ken Burns drift and a dark
-   scrim so foreground text stays readable — replaces hand-drawn CSS shapes,
-   which read as cheap approximations of scenes like a nebula or a cockpit.
-   ========================================================================= */
-.theme-photo-bg {
-  position: absolute;
-  inset: -3%;
-  background-size: cover;
-  background-position: center;
-  filter: saturate(1.08);
-  animation: theme-photo-drift 46s ease-in-out infinite alternate;
-}
-/* Затемнение под интерфейсом. Держим его сильным намеренно: фон у кино-тем —
-   контрастная фотография, и на проекторе (где чёрное поднимается, а полутона
-   съедаются) текст поверх неё сливается с картинкой. Центр гасим отдельным
-   пятном — именно там лежит колонка чата и пустые состояния, а к краям
-   отпускаем, чтобы фон было видно и тема осталась собой. */
-.theme-photo-scrim {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(75% 65% at 50% 50%, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.45) 55%, transparent 100%),
-    radial-gradient(120% 90% at 50% 0%, transparent 30%, rgba(0, 0, 0, 0.5) 100%),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.35) 30%, rgba(0, 0, 0, 0.7) 100%);
-}
-@keyframes theme-photo-drift {
-  0% { transform: scale(1) translate(0, 0); }
-  100% { transform: scale(1.06) translate(-1%, -1%); }
-}
-/* Тумблер "Живой фон" выключен: фотография остаётся, уезжает только дрейф.
-   Сбрасываем и inset -3%, который нужен был лишь как запас под движение. */
-.theme-photo-bg--static {
-  inset: 0;
-  animation: none !important;
-}
-@media (prefers-reduced-motion: reduce) {
-  .theme-photo-bg { animation: none !important; }
-}
-
-/* Живые обои. Лежат поверх постера и проявляются, когда ролик реально пошёл, —
-   до этого момента виден тот же кадр картинкой, поэтому мигания нет.
-   Ни filter, ни border-radius, ни backdrop-filter здесь быть не должно: любой
-   из них снимает видео с быстрой ветки композитора, и вместо дешёвого фона
-   получается перерисовка полэкрана на каждый кадр. Затемнение делает
-   отдельный слой .theme-photo-scrim — статическим градиентом, то есть даром. */
-.theme-video-bg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: opacity 420ms ease;
-  contain: strict;
-}
-/* Живые обои уже тёмные (уголь, огонь). Фото-скрим 72% чёрного в центре
-   для них — это второе затемнение поверх чёрного: искры уходят в тень,
-   хотя в исходном ролике они яркие. Панели чата и сайдбара сами непрозрачные
-   (panel-alpha 0.88), текст на них читается без этой плёнки. Оставляем
-   лёгкую вуаль по краям и снизу, чтобы стык с панелями не светился. */
-.theme-video-scrim {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(42% 58% at 50% 48%, rgba(0, 0, 0, 0.22) 0%, transparent 70%),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.12) 0%, transparent 18%, transparent 82%, rgba(0, 0, 0, 0.2) 100%);
-}
-@media (prefers-reduced-motion: reduce) {
-  .theme-video-bg { display: none; }
-}
-
-/* Пока живые обои реально играют, стеклянные панели теряют размытие.
-   Причина не в красоте, а в арифметике: `backdrop-filter` пересчитывает блюр
-   по площади элемента НА КАЖДЫЙ кадр видео и на каждый кадр прокрутки.
-   Замер на neo3.ru: 45.1 fps со стеклом против 60.0 без него — и там под
-   панелями лежал всего лишь градиент. Здесь под ними движущийся кадр, то есть
-   дороже.
-   Взамен панель становится плотнее (0.74 → 0.88), иначе без размытия сквозь
-   неё читается огонь и текст интерфейса теряет контраст. Цвет тот же токен —
-   тема остаётся собой, уходит только приём.
-   Класс снимается вместе с паузой видео, поэтому в свёрнутом окне и при
-   выключенном фоне стекло возвращается само. */
-[data-theme='ember'].has-live-wallpaper {
-  --panel-alpha: 0.88;
-  --panel-blur-radius: 0px;
-  --panel-blur: none;
-  --nav-glass-bg: 24 7% 11% / 0.9;
-  --nav-glass-blur: 0px;
-}
-[data-theme='ember'].has-live-wallpaper .nav-glass,
-[data-theme='ember'].has-live-wallpaper .sidebar-root {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-
-/* =========================================================================
-   THEME: Nebula Flow (calm cosmic — DARK)
-   ========================================================================= */
-[data-theme='nebulaFlow'] {
-  --background: 250 45% 7%;
-  --foreground: 265 40% 95%;
-  --card: 252 38% 13%;
-  --card-foreground: 265 35% 95%;
-  --popover: 252 40% 11%;
-  --popover-foreground: 265 35% 95%;
-  --primary: 176 80% 55%;
-  --primary-foreground: 250 45% 8%;
-  --secondary: 255 30% 19%;
-  --secondary-foreground: 265 30% 93%;
-  --muted: 255 26% 18%;
-  --muted-foreground: 260 18% 72%;
-  --accent: 280 45% 26%;
-  --accent-foreground: 280 70% 94%;
-  --destructive: 350 80% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 260 40% 32%;
-  --input: 255 30% 20%;
-  --ring: 176 80% 55%;
-  --radius: 1rem;
-
-  --nav-glass-bg: 252 40% 12% / 0.4;
-  --nav-glass-blur: 30px;
-  --nav-glass-saturate: 1.8;
-  --nav-tab-glow: 176 80% 55% / 0.35;
-  --nav-tab-ring: 280 60% 70% / 0.3;
-  --nav-float-shadow: 255 70% 3% / 0.55;
-  --nav-float-ring: 260 50% 65% / 0.25;
-  --nav-divider-color: 260 50% 70% / 0.22;
-  --nav-input-bg: 255 30% 16% / 0.5;
-  --nav-input-focus-ring: 176 80% 55% / 0.35;
-}
-[data-theme='nebulaFlow'] .bg-card {
-  background-color: hsl(252 36% 15% / 0.5) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(1.6);
-  backdrop-filter: blur(24px) saturate(1.6);
-  border-color: hsl(265 60% 82% / 0.16);
-  box-shadow: inset 0 1px 0 hsl(265 85% 92% / 0.14), 0 20px 50px -22px hsl(255 60% 3% / 0.6);
-}
-[data-theme='nebulaFlow'] .bg-primary {
-  background-image: linear-gradient(135deg, #7ffbe6 0%, #34d9c4 55%, #8b6bff 140%) !important;
-  box-shadow: 0 0 20px -4px hsl(176 80% 55% / 0.6), inset 0 1px 0 hsl(0 0% 100% / 0.3);
-}
-[data-theme='nebulaFlow'] .nav-tab-active {
-  box-shadow: 0 0 14px hsl(176 80% 55% / 0.35),
-    inset 0 1px 0 hsl(265 85% 90% / 0.2), 0 0 0 1px hsl(280 70% 75% / 0.3) !important;
-}
-
-/* =========================================================================
-   THEME: Mission Control (sci-fi cockpit HUD — DARK)
-   ========================================================================= */
-[data-theme='missionControl'] {
-  --background: 214 55% 6%;
-  --foreground: 195 35% 94%;
-  --card: 214 42% 11%;
-  --card-foreground: 195 30% 94%;
-  --popover: 214 44% 10%;
-  --popover-foreground: 195 30% 94%;
-  --primary: 190 90% 52%;
-  --primary-foreground: 214 55% 7%;
-  --secondary: 214 30% 17%;
-  --secondary-foreground: 195 25% 92%;
-  --muted: 214 26% 17%;
-  --muted-foreground: 200 16% 68%;
-  --accent: 27 70% 25%;
-  --accent-foreground: 30 80% 92%;
-  --destructive: 350 80% 58%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 195 45% 28%;
-  --input: 214 30% 19%;
-  --ring: 190 90% 52%;
-  --radius: 0.5rem;
-
-  --nav-glass-bg: 214 44% 10% / 0.45;
-  --nav-glass-blur: 24px;
-  --nav-glass-saturate: 1.7;
-  --nav-tab-glow: 190 90% 52% / 0.4;
-  --nav-tab-ring: 190 90% 58% / 0.35;
-  --nav-float-shadow: 214 70% 2% / 0.55;
-  --nav-float-ring: 190 80% 55% / 0.22;
-  --nav-divider-color: 190 70% 55% / 0.22;
-  --nav-input-bg: 214 30% 15% / 0.55;
-  --nav-input-focus-ring: 190 90% 52% / 0.35;
-}
-[data-theme='missionControl'] .bg-card {
-  background-color: hsl(214 42% 12% / 0.6) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(1.6);
-  backdrop-filter: blur(18px) saturate(1.6);
-  border-color: hsl(190 80% 60% / 0.2);
-  box-shadow: inset 0 1px 0 hsl(195 85% 85% / 0.14), 0 0 24px -8px hsl(190 90% 50% / 0.25);
-}
-[data-theme='missionControl'] .bg-primary {
-  background-image: linear-gradient(135deg, #5fe3ff 0%, #16a5c9 55%, #ff9d4d 150%) !important;
-  box-shadow: 0 0 18px -4px hsl(190 90% 52% / 0.6), inset 0 1px 0 hsl(0 0% 100% / 0.3);
-}
-[data-theme='missionControl'] .nav-tab-active {
-  box-shadow: 0 0 14px hsl(190 90% 52% / 0.4),
-    inset 0 1px 0 hsl(195 85% 85% / 0.2), 0 0 0 1px hsl(190 90% 58% / 0.35) !important;
-}
-
-/* =========================================================================
-   THEME: Bento 3D (playful pastel tiles — DARK)
-   ========================================================================= */
-[data-theme='bento3d'] {
-  --background: 220 12% 8%;
-  --foreground: 220 15% 95%;
-  --card: 220 12% 14%;
-  --card-foreground: 220 15% 95%;
-  --popover: 220 12% 13%;
-  --popover-foreground: 220 15% 95%;
-  --primary: 165 65% 62%;
-  --primary-foreground: 220 12% 9%;
-  --secondary: 220 10% 20%;
-  --secondary-foreground: 220 15% 92%;
-  --muted: 220 10% 19%;
-  --muted-foreground: 220 8% 68%;
-  --accent: 20 70% 30%;
-  --accent-foreground: 20 80% 92%;
-  --destructive: 350 75% 58%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 220 10% 26%;
-  --input: 220 10% 22%;
-  --ring: 165 65% 62%;
-  --radius: 1.15rem;
-
-  --nav-glass-bg: 220 12% 13% / 0.5;
-  --nav-glass-blur: 20px;
-  --nav-glass-saturate: 1.5;
-  --nav-tab-glow: 165 65% 62% / 0.3;
-  --nav-tab-ring: 20 80% 62% / 0.25;
-  --nav-float-shadow: 220 40% 2% / 0.4;
-  --nav-float-ring: 220 15% 40% / 0.25;
-  --nav-divider-color: 220 12% 40% / 0.3;
-  --nav-input-bg: 220 10% 18% / 0.6;
-  --nav-input-focus-ring: 165 65% 62% / 0.3;
-}
-[data-theme='bento3d'] .bg-card {
-  background-color: hsl(220 12% 15% / 0.72) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  backdrop-filter: blur(14px) saturate(1.4);
-  border-color: hsl(220 15% 60% / 0.14);
-  box-shadow: inset 0 1px 0 hsl(220 20% 90% / 0.1), 0 16px 36px -18px hsl(220 40% 2% / 0.5);
-}
-[data-theme='bento3d'] .bg-primary {
-  background-image: linear-gradient(135deg, #a6f2d8 0%, #5fd6b0 55%, #ffb27a 140%) !important;
-  box-shadow: 0 0 16px -4px hsl(165 65% 62% / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.3);
-}
-[data-theme='bento3d'] .nav-tab-active {
-  box-shadow: 0 0 12px hsl(165 65% 62% / 0.3),
-    inset 0 1px 0 hsl(220 20% 90% / 0.2), 0 0 0 1px hsl(20 70% 62% / 0.25) !important;
-}
-
-/* =========================================================================
-   THEME: Kinetic Type (brutalist mono + acid lime — DARK)
-   ========================================================================= */
-[data-theme='kineticType'] {
-  --background: 0 0% 5%;
-  --foreground: 0 0% 96%;
-  --card: 0 0% 10%;
-  --card-foreground: 0 0% 96%;
-  --popover: 0 0% 9%;
-  --popover-foreground: 0 0% 96%;
-  --primary: 78 100% 55%;
-  --primary-foreground: 0 0% 6%;
-  --secondary: 0 0% 16%;
-  --secondary-foreground: 0 0% 92%;
-  --muted: 0 0% 15%;
-  /* Подняли с 62% и 26%: на проекторе полутона съедаются, и подписи с рамками
-     пропадали первыми — на макбуке они выглядели "деликатно", в зале никак. */
-  --muted-foreground: 0 0% 74%;
-  --accent: 78 40% 18%;
-  --accent-foreground: 78 90% 90%;
-  --destructive: 0 80% 58%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 36%;
-  --input: 0 0% 18%;
-  --ring: 78 100% 55%;
-  --radius: 0.15rem;
-
-  --nav-glass-bg: 0 0% 8% / 0.55;
-  --nav-glass-blur: 14px;
-  --nav-glass-saturate: 1.2;
-  --nav-tab-glow: 78 100% 55% / 0.35;
-  --nav-tab-ring: 78 100% 60% / 0.3;
-  --nav-float-shadow: 0 0% 0% / 0.6;
-  --nav-float-ring: 0 0% 40% / 0.2;
-  --nav-divider-color: 0 0% 40% / 0.3;
-  --nav-input-bg: 0 0% 14% / 0.6;
-  --nav-input-focus-ring: 78 100% 55% / 0.3;
-}
-/* Шрифты кинетика переехали из хвоста `body` в токены темы. Вид не изменился,
-   но появилась управляемость: пока гарнитура задавалась прямо в правиле, она
-   шла мимо переменной, и панель твиков в этой теме не двигала вообще ничего.
-   Моноширинный стек с кириллицей ВПЕРЕДИ: у 'SF Mono' нет кириллических
-   глифов, система молча подставляла для русского текста засечный шрифт, и
-   интерфейс шёл вперемешку — латиница моно, русские слова серифом. */
-[data-theme='kineticType'] {
-  --font-ui: 'JetBrains Mono', 'Menlo', 'SF Mono', ui-monospace, monospace;
-  --tracking-ui: -0.01em;
-  /* Сайдбар остаётся рубленым: моно слишком широк для списка сессий. */
-  --font-sidebar: "Encode Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-[data-theme='kineticType'] .sidebar-root,
-[data-theme='kineticType'] .sidebar-root input,
-[data-theme='kineticType'] .sidebar-root button {
-  letter-spacing: normal;
-}
-[data-theme='kineticType'] .bg-card {
-  background-color: hsl(0 0% 11% / 0.7) !important;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  border-color: hsl(0 0% 40% / 0.3);
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08), 0 14px 30px -16px hsl(0 0% 0% / 0.7);
-}
-[data-theme='kineticType'] .bg-primary {
-  background-image: linear-gradient(135deg, #d4ff5c 0%, #b8e600 60%, #8fb800 140%) !important;
-  box-shadow: 0 0 16px -4px hsl(78 100% 55% / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.25);
-}
-[data-theme='kineticType'] .nav-tab-active {
-  box-shadow: 0 0 0 1px hsl(78 100% 55% / 0.5) !important;
-}
-
-/* =========================================================================
-   THEME: Liquid Chrome (dark premium metal — DARK)
-   ========================================================================= */
-[data-theme='liquidChrome'] {
-  --background: 220 20% 6%;
-  --foreground: 220 15% 95%;
-  --card: 220 16% 12%;
-  --card-foreground: 220 15% 95%;
-  --popover: 220 18% 11%;
-  --popover-foreground: 220 15% 95%;
-  --primary: 225 60% 68%;
-  --primary-foreground: 220 20% 8%;
-  --secondary: 220 14% 18%;
-  --secondary-foreground: 220 15% 92%;
-  --muted: 220 12% 18%;
-  --muted-foreground: 220 8% 68%;
-  --accent: 260 30% 24%;
-  --accent-foreground: 260 60% 92%;
-  --destructive: 350 75% 58%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 220 20% 32%;
-  --input: 220 14% 20%;
-  --ring: 225 60% 68%;
-  --radius: 0.75rem;
-
-  --nav-glass-bg: 220 18% 11% / 0.5;
-  --nav-glass-blur: 26px;
-  --nav-glass-saturate: 1.5;
-  --nav-tab-glow: 225 60% 68% / 0.35;
-  --nav-tab-ring: 225 60% 72% / 0.3;
-  --nav-float-shadow: 220 60% 2% / 0.55;
-  --nav-float-ring: 225 40% 60% / 0.22;
-  --nav-divider-color: 225 30% 60% / 0.22;
-  --nav-input-bg: 220 14% 16% / 0.6;
-  --nav-input-focus-ring: 225 60% 68% / 0.3;
-}
-[data-theme='liquidChrome'] .bg-card {
-  background-color: hsl(220 16% 13% / 0.62) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  backdrop-filter: blur(20px) saturate(1.5);
-  border-color: hsl(220 30% 75% / 0.18);
-  box-shadow: inset 0 1px 0 hsl(220 40% 90% / 0.16), 0 18px 40px -20px hsl(220 60% 2% / 0.6);
-}
-[data-theme='liquidChrome'] .bg-primary {
-  background-image: linear-gradient(135deg, #e6ecff 0%, #9fb3ff 55%, #6d7fce 140%) !important;
-  box-shadow: 0 0 16px -4px hsl(225 60% 68% / 0.5), inset 0 1px 0 hsl(0 0% 100% / 0.35);
-}
-[data-theme='liquidChrome'] .nav-tab-active {
-  box-shadow: 0 0 14px hsl(225 60% 68% / 0.3),
-    inset 0 1px 0 hsl(220 40% 90% / 0.2), 0 0 0 1px hsl(225 60% 72% / 0.25) !important;
-}
-
-/* =========================================================================
-   THEME: Zen Particles (calm minimal depth — DARK)
-   ========================================================================= */
-[data-theme='zenParticles'] {
-  --background: 30 8% 7%;
-  --foreground: 40 15% 92%;
-  --card: 30 8% 12%;
-  --card-foreground: 40 15% 92%;
-  --popover: 30 8% 11%;
-  --popover-foreground: 40 15% 92%;
-  --primary: 32 70% 58%;
-  --primary-foreground: 30 8% 8%;
-  --secondary: 30 6% 18%;
-  --secondary-foreground: 40 12% 90%;
-  --muted: 30 6% 17%;
-  --muted-foreground: 35 6% 64%;
-  --accent: 32 40% 20%;
-  --accent-foreground: 32 70% 90%;
-  --destructive: 0 60% 55%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 30 8% 24%;
-  --input: 30 6% 18%;
-  --ring: 32 70% 58%;
-  --radius: 1.2rem;
-
-  --nav-glass-bg: 30 8% 11% / 0.4;
-  --nav-glass-blur: 28px;
-  --nav-glass-saturate: 1.3;
-  --nav-tab-glow: 32 70% 58% / 0.25;
-  --nav-tab-ring: 32 70% 60% / 0.2;
-  --nav-float-shadow: 30 20% 2% / 0.5;
-  --nav-float-ring: 30 10% 40% / 0.2;
-  --nav-divider-color: 30 10% 45% / 0.22;
-  --nav-input-bg: 30 6% 15% / 0.5;
-  --nav-input-focus-ring: 32 70% 58% / 0.25;
-}
-[data-theme='zenParticles'] .bg-card {
-  background-color: hsl(30 8% 13% / 0.55) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(1.3);
-  backdrop-filter: blur(22px) saturate(1.3);
-  border-color: hsl(35 15% 60% / 0.12);
-  box-shadow: inset 0 1px 0 hsl(40 20% 85% / 0.08), 0 16px 36px -18px hsl(30 30% 2% / 0.5);
-}
-[data-theme='zenParticles'] .bg-primary {
-  background-image: linear-gradient(135deg, #ffd2a3 0%, #e8a35c 60%, #c47f3d 140%) !important;
-  box-shadow: 0 0 14px -4px hsl(32 70% 58% / 0.45), inset 0 1px 0 hsl(0 0% 100% / 0.25);
-}
-[data-theme='zenParticles'] .nav-tab-active {
-  box-shadow: 0 0 10px hsl(32 70% 58% / 0.2),
-    inset 0 1px 0 hsl(40 20% 85% / 0.15), 0 0 0 1px hsl(32 60% 60% / 0.2) !important;
-}
-
-/* =========================================================================
-   THEME: Ember (тёплый уголь + оранжевый акцент — DARK)
-
-   Первая из четырёх тем, собранных по разбору референсов
-   (neo3-hub/redesign/REFERENCES.md §3). Отличие от всех тем выше: она
-   описана ПОЧТИ ЦЕЛИКОМ ТОКЕНАМИ — ни одного `!important`, ни одного
-   градиента, ни одного хвоста вида `[data-theme=…] .bg-card`. Это и есть
-   проверка расширенного контракта Этапа 2: если тема требует CSS-хвостов,
-   значит в контракте чего-то не хватает.
-
-   Что взято из разбора:
-   - фон тёплый уголь, не чистый чёрный и не нейтральный серый (hue 24);
-   - поверхности ступенями: фон 9% → панель 13% → всплывающее 16%;
-   - оранжевый ТОЛЬКО как состояние (активный пункт, основное действие,
-     фокус) — крупных цветных заливок нет;
-   - тёмное разделяется линией, а не глубиной: --shadow-1/2 сняты в none,
-     мягкая тень осталась только у всплывающего (--shadow-3);
-   - радиусы средние: --radius 10px разворачивается в шкалу 6…22px;
-   - движение мягкое, 200ms.
-   ========================================================================= */
-[data-theme='ember'] {
-  --background: 24 7% 9%;
-  --foreground: 30 12% 94%;
-  --card: 24 7% 13%;
-  --card-foreground: 30 12% 94%;
-  --popover: 24 7% 16%;
-  --popover-foreground: 30 12% 94%;
-  --primary: 22 92% 54%;
-  --primary-foreground: 24 20% 8%;
-  --secondary: 24 6% 19%;
-  --secondary-foreground: 30 10% 92%;
-  --muted: 24 6% 17%;
-  /* 72%, а не «деликатные» 60%: урок кинетика — на проекторе полутона
-     съедаются, и подписи пропадают первыми. */
-  --muted-foreground: 28 7% 72%;
-  --accent: 24 32% 19%;
-  --accent-foreground: 28 85% 88%;
-
-  /* Статусы разведены по тону от оранжевого акцента намеренно: в оранжевой
-     теме «предупреждение» янтарём слилось бы с активным пунктом, и цвет
-     перестал бы означать состояние. Предупреждение уведено в жёлтый,
-     ошибка — в красный с уклоном в розовый, информация — в холодный. */
-  --destructive: 358 72% 58%;
-  --destructive-foreground: 0 0% 100%;
-  --success: 152 55% 46%;
-  --success-foreground: 0 0% 100%;
-  --warning: 45 96% 56%;
-  --warning-foreground: 24 20% 8%;
-  --info: 199 85% 52%;
-  --info-foreground: 0 0% 100%;
-
-  --border: 24 6% 25%;
-  --input: 24 6% 19%;
-  --ring: 22 92% 54%;
-  --radius: 0.625rem;
-
-  /* Гарнитура — главный различитель темы. Тёплое техно: широкие овалы,
-     срезанные окончания, без академической сухости Encode Sans.
-       Было 'Space Grotesk' — он в чёрном списке заезженных (штатный шрифт
-     ИИ-лендингов). Geologica держит тот же характер, кириллица родная, в
-     списке не числится. Замена сделана по решению Димы 07.08. */
-  --font-ui: Geologica, 'Encode Sans', -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, sans-serif;
-  --tracking-ui: -0.005em;
-
-  /* Моноширинный с кириллицей ВПЕРЕДИ: у 'SF Mono' нет кириллических глифов,
-     и русский текст в блоках кода уезжает в засечный (см. :root). Кинетик
-     чинит это своим хвостом; здесь лечение едет токеном, как и задумано. */
-  --font-mono: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono',
-    ui-monospace, monospace;
-
-  /* Разделение линией, а не глубиной. Тень осталась одна — под всплывающим. */
-  --shadow-1: none;
-  --shadow-2: none;
-  --shadow-3: 0 18px 44px -12px hsl(24 40% 2% / 0.7);
-
-  --duration-fast: 140ms;
-  --duration-base: 200ms;
-  --duration-slow: 300ms;
-  --ease-ui: cubic-bezier(0.25, 0.1, 0.25, 1);
-
-  /* Материал: тёплый уголь с двумя очагами света и зерном. Референс
-     pin-e4ea01 — «оранжево-угольный градиент с зерном», pin-366928 —
-     «чёрный у ember должен быть тёплым, а не серым». Ровная заливка не
-     передаёт ни того, ни другого. */
-  --shell-bg: hsl(24 8% 8%);
-  --shell-material:
-    radial-gradient(1000px 640px at 10% -8%, hsl(24 62% 32% / 0.34), transparent 62%),
-    radial-gradient(820px 620px at 92% 106%, hsl(16 55% 26% / 0.28), transparent 60%);
-  --shell-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-  --shell-grain-opacity: 0.06;
-  --panel-tint: 24 7% 13%;
-  --panel-alpha: 0.74;
-  --panel-blur-radius: 14px;
-  --panel-saturate: 1.2;
-  --panel-bg: hsl(var(--panel-tint) / var(--panel-alpha));
-  --panel-blur: blur(var(--panel-blur-radius)) saturate(var(--panel-saturate));
-  --panel-border: hsl(28 14% 46% / 0.26);
-
-  --nav-glass-bg: 24 7% 11% / 0.62;
-  --nav-glass-blur: 18px;
-  --nav-glass-saturate: 1.2;
-  --nav-tab-glow: 22 92% 54% / 0.22;
-  --nav-tab-ring: 22 92% 58% / 0.35;
-  --nav-float-shadow: 24 40% 2% / 0.6;
-  --nav-float-ring: 24 8% 40% / 0.25;
-  --nav-divider-color: 24 8% 45% / 0.25;
-  --nav-input-bg: 24 6% 15% / 0.7;
-  --nav-input-focus-ring: 22 92% 54% / 0.3;
-}
-[data-theme='ember'] .nav-tab-active {
-  box-shadow: 0 0 0 1px hsl(22 92% 54% / 0.45);
-}
-/* ---- Характер ember: типографская иерархия и материал поверхностей -------
-   Первая сборка темы была плоской, потому что жила одними цветами: гарнитура
-   у всех тем была общая, заголовки ничем не отличались от текста, поверхности
-   различались только тоном. Ниже — то, что даёт лицо, не нарушая «ноль
-   декоративных градиентов»: контраст кегля, микро-лейблы капсом вразрядку и
-   светлая линия сверху у панели (материал, а не декор). */
-/* Базовый вес интерфейса. Geologica в 400 на тёмном угле «худеет»: тёмный
-   фон съедает штрих, и подписи выглядят выцветшими (жалоба Димы 22.08).
-   500 возвращает плотность, не превращая интерфейс в жирный. Вес наследуется
-   от <html data-theme='ember'>, поэтому одно правило держит всё дерево. */
-[data-theme='ember'] {
-  font-weight: 500;
-}
-/* Явный font-normal в компонентах — это 400, то есть ровно та худоба, от
-   которой уходим. В оранжевой теме поднимаем его до базовых 500. */
-[data-theme='ember'] .font-normal {
-  font-weight: 500;
-}
-[data-theme='ember'] .font-medium {
-  font-weight: 600;
-}
-[data-theme='ember'] h1,
-[data-theme='ember'] h2,
-[data-theme='ember'] h3 {
-  font-family: var(--font-display);
-  letter-spacing: -0.02em;
-  font-weight: 700;
-}
-/* Одно значение крупно, подписи микро — главный приём отмеченных референсов. */
-[data-theme='ember'] .text-\[11px\].uppercase,
-[data-theme='ember'] .text-\[10px\].uppercase {
-  letter-spacing: 0.18em;
-  font-weight: 600;
-}
-[data-theme='ember'] .bg-card {
-  background-color: var(--panel-bg);
-  -webkit-backdrop-filter: var(--panel-blur);
-  backdrop-filter: var(--panel-blur);
-  border-color: var(--panel-border);
-  box-shadow: inset 0 1px 0 hsl(30 60% 90% / 0.06);
-}
-/* Активный пункт помечается цветом текста и иконки — ровно как в разборе
-   («иконка активного пункта — тоже акцентом»). Полоску-рейку на краю не
-   ставим: это самый узнаваемый штамп ИИ-интерфейсов. */
-[data-theme='ember'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']),
-[data-theme='ember'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) svg {
-  color: hsl(22 92% 66%);
-}
-
-/* =========================================================================
-   THEME: GT (красно-чёрная, гоночная — DARK)
-
-   REFERENCES.md §2. Отличается от ember не «другим цветом», а характером:
-   рубленые углы (радиус 4px), нулевые тени, повышенная плотность и резкое
-   короткое движение 100-130ms вместо мягкого. Фон — холодный чёрный с еле
-   заметной сеткой: по разбору «сетка вместо пустоты».
-
-   Красный здесь работает и как акцент, и как знак опасности, поэтому
-   --primary и --destructive намеренно разведены по тону: акцент — глубокий
-   гоночный кармин, опасность — яркий алый. Один и тот же красный на
-   «активном пункте» и на кнопке «удалить» сделал бы цвет бессмысленным.
-   ========================================================================= */
-[data-theme='gt'] {
-  --background: 220 14% 6%;
-  --foreground: 210 14% 95%;
-  --card: 220 12% 10%;
-  --card-foreground: 210 14% 95%;
-  --popover: 220 12% 13%;
-  --popover-foreground: 210 14% 95%;
-  --primary: 352 78% 48%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 220 10% 17%;
-  --secondary-foreground: 210 12% 92%;
-  --muted: 220 10% 15%;
-  --muted-foreground: 215 8% 72%;
-  --accent: 352 40% 18%;
-  --accent-foreground: 352 85% 90%;
-
-  --destructive: 4 90% 62%;
-  --destructive-foreground: 0 0% 100%;
-  --success: 150 45% 46%;
-  --success-foreground: 0 0% 100%;
-  --warning: 42 95% 55%;
-  --warning-foreground: 220 14% 6%;
-  --info: 205 80% 58%;
-  --info-foreground: 0 0% 100%;
-
-  --border: 215 8% 28%;
-  --input: 220 10% 17%;
-  --ring: 352 78% 48%;
-  /* Рубленые углы: 4px разворачиваются в шкалу 0…16px. */
-  --radius: 0.25rem;
-
-  /* Узкий гротеск из разбора: буквы уже, строка плотнее, экран читается как
-     тайминг-башня, а не как обычная админка. */
-  --font-ui: Barlow, 'Encode Sans', -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, sans-serif;
-  /* Заголовки узким гротеском — теперь токеном, а не хвостом: панель твиков
-     умеет крутить только то, что объявлено переменной. */
-  --font-display: 'Barlow Condensed', Barlow, sans-serif;
-  --tracking-ui: 0.005em;
-
-  --font-mono: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono',
-    ui-monospace, monospace;
-
-  /* Теней нет вообще — поверхности разделяет линия 1px. */
-  --shadow-1: none;
-  --shadow-2: none;
-  --shadow-3: none;
-
-  /* Плотность выше базовой: строка = объект, как в тайминг-башне. */
-  --density: 0.9;
-
-  --duration-fast: 100ms;
-  --duration-base: 130ms;
-  --duration-slow: 180ms;
-  --ease-ui: cubic-bezier(0, 0, 0.2, 1);
-  --ease-ui-inout: cubic-bezier(0, 0, 0.2, 1);
-
-  /* Материал: приборный чёрный. Сетка вместо пустоты, свет из-под верхней
-     кромки и виньетка по углам — по отмеченному dribbble-23010695 темнота
-     работает вместо границ. Панели полупрозрачные: в gt/03 ни одна панель не
-     залита плашкой, все просвечивают материал под собой. */
-  --shell-bg: hsl(220 16% 5%);
-  --shell-material:
-    repeating-linear-gradient(0deg, hsl(212 14% 62% / 0.05) 0 1px, transparent 1px 34px),
-    repeating-linear-gradient(90deg, hsl(212 14% 62% / 0.05) 0 1px, transparent 1px 34px),
-    radial-gradient(1400px 620px at 50% -14%, hsl(352 64% 34% / 0.2), transparent 66%),
-    radial-gradient(1100px 900px at 50% 116%, hsl(220 34% 12% / 0.9), transparent 62%);
-  --panel-tint: 220 14% 8%;
-  --panel-alpha: 0.68;
-  --panel-blur-radius: 10px;
-  --panel-saturate: 1.1;
-  --panel-bg: hsl(var(--panel-tint) / var(--panel-alpha));
-  --panel-blur: blur(var(--panel-blur-radius)) saturate(var(--panel-saturate));
-  --panel-border: hsl(212 14% 58% / 0.2);
-
-  --nav-glass-bg: 220 14% 8% / 0.7;
-  --nav-glass-blur: 12px;
-  --nav-glass-saturate: 1.1;
-  --nav-tab-glow: 352 78% 48% / 0.25;
-  --nav-tab-ring: 352 78% 55% / 0.4;
-  --nav-float-shadow: 220 40% 1% / 0.7;
-  --nav-float-ring: 215 10% 40% / 0.25;
-  --nav-divider-color: 215 10% 45% / 0.28;
-  --nav-input-bg: 220 10% 13% / 0.75;
-  --nav-input-focus-ring: 352 78% 48% / 0.35;
-}
-/* Панели gt: хайрлайн 1px и просвет материала, теней нет вообще. */
-[data-theme='gt'] .bg-card {
-  background-color: var(--panel-bg);
-  -webkit-backdrop-filter: var(--panel-blur);
-  backdrop-filter: var(--panel-blur);
-  border-color: var(--panel-border);
-}
-[data-theme='gt'] .nav-tab-active {
-  box-shadow: 0 0 0 1px hsl(352 78% 55% / 0.5);
-}
-/* ---- Характер gt: заголовки капсом узким гротеском ----------------------
-   Приём взят из отмеченного хиро RACE INTELLIGENCE: крупный капс вразрядку и
-   микро-данные под ним. Это, а не красный цвет, отличает гоночную тему. */
-[data-theme='gt'] h1,
-[data-theme='gt'] h2,
-[data-theme='gt'] h3 {
-  font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 600;
-}
-[data-theme='gt'] .text-\[11px\].uppercase,
-[data-theme='gt'] .text-\[10px\].uppercase {
-  font-family: var(--font-display);
-  letter-spacing: 0.22em;
-  font-weight: 600;
-}
-/* Строка = объект: активный ряд выделяется цветом набора, а не полосой. */
-[data-theme='gt'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']),
-[data-theme='gt'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) svg {
-  color: hsl(352 85% 68%);
-}
-
-/* =========================================================================
-   THEME: Editorial (белая редакционная — LIGHT)
-
-   REFERENCES.md §4. Единственная светлая из четырёх новых. Фон — тёплый
-   off-white, а не белый лист; теней нет вообще, разделение только линией и
-   воздухом; плотность НИЖЕ базовой (--density 1.15 = отступы на 15%
-   больше), движение спокойное 220-260ms.
-
-   Акцент намеренно не цветной: по разбору «данные не раскрашиваем, а
-   укрупняем». Основное действие — тёплые чернила, почти чёрные. Цвет
-   остаётся только на статусах, и оттого читается как статус.
-   ========================================================================= */
-[data-theme='editorial'] {
-  --background: 40 30% 97%;
-  --foreground: 40 12% 10%;
-  --card: 0 0% 100%;
-  --card-foreground: 40 12% 10%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 40 12% 10%;
-  /* Оранжевый, а не чернила. В прошлой сборке акцент был почти чёрным «чтобы
-     данные не раскрашивать» — это была моя трактовка поверх брифа, и тема
-     осталась без единого цветного пятна. Жжёный оранжевый работает как
-     состояние: основное действие, активный пункт, фокус.
-       Светлота 38%, а не 48%: белая подпись на кнопке давала 3.68:1 при норме
-     WCAG AA 4.5:1, стало 5.50:1. Тон и насыщенность те же. */
-  --primary: 20 88% 38%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 40 20% 93%;
-  --secondary-foreground: 40 12% 14%;
-  --muted: 40 18% 94%;
-  --muted-foreground: 40 6% 42%;
-  --accent: 40 24% 91%;
-  --accent-foreground: 40 12% 12%;
-
-  --destructive: 0 62% 46%;
-  --destructive-foreground: 0 0% 100%;
-  --success: 152 48% 32%;
-  --success-foreground: 0 0% 100%;
-  --warning: 34 82% 40%;
-  --warning-foreground: 0 0% 100%;
-  --info: 215 65% 42%;
-  --info-foreground: 0 0% 100%;
-
-  --border: 40 15% 88%;
-  --input: 40 15% 88%;
-  --ring: 20 88% 48%;
-  --radius: 0.25rem;
-
-  /* Акцидентная пара из разбора: спокойный гротеск на интерфейсе + засечный
-     на заголовках. Merriweather несёт крупные заголовки — ровно тот
-     редакционный контраст, ради которого тема. Переписка наследует
-     --font-ui (Work Sans), как поле ввода: иначе набор и ответы — разные лица. */
-  --font-ui: 'Work Sans', 'Encode Sans', -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, sans-serif;
-  --tracking-ui: normal;
-  --font-display: Merriweather, Georgia, serif;
-  --font-mono: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono',
-    ui-monospace, monospace;
-
-  /* Теней нет вообще: только линия и воздух. */
-  --shadow-1: none;
-  --shadow-2: none;
-  --shadow-3: none;
-
-  --density: 1.15;
-
-  --duration-fast: 140ms;
-  --duration-base: 220ms;
-  --duration-slow: 260ms;
-  --ease-ui: cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* Материал: тёплая бумага, в которую из правого края втекает зернистый
-     пастельный градиент. Ровно приём отмеченного light-1/04 — лист там не
-     белый и не пустой, цвет приходит краем и уходит в бумагу. Панели —
-     чистая белая карточка поверх этой бумаги, как в light-1/07. */
-  --shell-bg: hsl(38 34% 96%);
-  --shell-material:
-    radial-gradient(920px 760px at 106% -4%, hsl(16 88% 64% / 0.26), transparent 58%),
-    radial-gradient(780px 640px at 98% 76%, hsl(272 62% 76% / 0.18), transparent 58%),
-    radial-gradient(700px 580px at -6% 104%, hsl(202 64% 76% / 0.16), transparent 60%);
-  --shell-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-  --shell-grain-opacity: 0.05;
-  --panel-tint: 40 40% 98%;
-  --panel-alpha: 0.72;
-  --panel-blur-radius: 8px;
-  --panel-saturate: 1.05;
-  --panel-bg: hsl(var(--panel-tint) / var(--panel-alpha));
-  --panel-blur: blur(var(--panel-blur-radius)) saturate(var(--panel-saturate));
-  --panel-border: hsl(38 18% 86% / 0.9);
-
-  --nav-glass-bg: 40 30% 97% / 0.8;
-  --nav-glass-blur: 16px;
-  --nav-glass-saturate: 1.1;
-  --nav-tab-glow: 20 88% 48% / 0.1;
-  --nav-tab-ring: 20 88% 48% / 0.2;
-  --nav-float-shadow: 40 20% 40% / 0.08;
-  --nav-float-ring: 40 15% 82% / 0.6;
-  --nav-divider-color: 40 15% 86% / 0.9;
-  --nav-input-bg: 40 20% 94% / 0.7;
-  --nav-input-focus-ring: 20 88% 48% / 0.25;
-}
-/* Карточка на бумаге: белее фона, граница-волосок, теней нет. */
-[data-theme='editorial'] .bg-card {
-  background-color: hsl(0 0% 100% / 0.9);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  border-color: var(--panel-border);
-}
-[data-theme='editorial'] .nav-tab-active {
-  box-shadow: 0 0 0 1px hsl(30 12% 16% / 0.2);
-}
-/* ---- Характер editorial: засечные заголовки против гротеска интерфейса ---
-   Это и есть «редакционность». Без пары гарнитур светлая тема выглядит просто
-   белым фоном — тем самым, за что её и ругали. */
-[data-theme='editorial'] h1,
-[data-theme='editorial'] h2,
-[data-theme='editorial'] h3 {
-  font-family: var(--font-display);
-  letter-spacing: -0.015em;
-  font-weight: 700;
-}
-[data-theme='editorial'] .text-\[11px\].uppercase,
-[data-theme='editorial'] .text-\[10px\].uppercase {
-  letter-spacing: 0.2em;
-  font-weight: 600;
-}
-/* Разделение только линией и воздухом: активный пункт набирается плотнее и
-   чернее, без цветных плашек по краю. */
-[data-theme='editorial'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) {
-  font-weight: 600;
-  color: hsl(20 88% 40%);
-}
-
-/* =========================================================================
-   THEME: Glass (стеклянная — LIGHT)
-
-   REFERENCES.md §5. Единственная из четырёх, которой ОДНИХ ТОКЕНОВ НЕ ХВАТИЛО:
-   полупрозрачность и размытие поверхностей в контракт темы не входят (там
-   только цвет, шрифт, радиус, тень, плотность, движение), поэтому ниже есть
-   хвост на `.bg-card`. Это не недосмотр Этапа 2, а честная граница: сделать
-   `--card` полупрозрачным нельзя — переменная хранит тройку HSL без альфы.
-
-   Фон — мягкий градиент. Единственный градиент во всём наборе, и он работает
-   как материал: без него стекло не за что размывать. По разбору именно эта
-   тема — та, где пользовательская картинка работает по назначению.
-   ========================================================================= */
-[data-theme='glass'] {
-  --background: 210 32% 95%;
-  --foreground: 215 28% 16%;
-  --card: 0 0% 100%;
-  --card-foreground: 215 28% 16%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 215 28% 16%;
-  /* Светлота 34%, а не 42%: белая подпись на кнопке давала 3.22:1 при норме
-     WCAG AA 4.5:1. Тон и насыщенность не тронуты — темнее ровно настолько,
-     чтобы подпись прошла (4.66:1). Белый текст на акценте безопасен только в
-     тёмной теме, где акцент светлее фона; в светлой его надо затемнять. */
-  --primary: 194 84% 34%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 210 28% 90%;
-  --secondary-foreground: 215 25% 22%;
-  --muted: 210 26% 91%;
-  --muted-foreground: 215 14% 40%;
-  --accent: 194 50% 88%;
-  --accent-foreground: 196 70% 22%;
-
-  --destructive: 352 70% 50%;
-  --destructive-foreground: 0 0% 100%;
-  --success: 158 62% 34%;
-  --success-foreground: 0 0% 100%;
-  --warning: 32 88% 44%;
-  --warning-foreground: 0 0% 100%;
-  --info: 205 80% 44%;
-  --info-foreground: 0 0% 100%;
-
-  /* Граница почти не видна: по разбору светлые разделяются глубиной, а не линией. */
-  --border: 210 24% 86%;
-  --input: 210 24% 86%;
-  --ring: 194 84% 42%;
-  --radius: 1rem;
-
-  /* Мягкая геометрия под стать материалу: круглые овалы, низкий контраст
-     штриха — единственная гарнитура набора, которая читается «спокойно». */
-  --font-ui: Outfit, 'Encode Sans', -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, sans-serif;
-  --tracking-ui: -0.01em;
-
-  --font-mono: 'JetBrains Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono',
-    ui-monospace, monospace;
-
-  /* Мягкие широкие тени — здесь они несут разделение поверхностей. */
-  --shadow-1: 0 2px 8px hsl(210 40% 30% / 0.06);
-  --shadow-2: 0 10px 28px hsl(210 40% 30% / 0.10);
-  --shadow-3: 0 24px 60px hsl(210 40% 30% / 0.16);
-
-  --density: 1.05;
-
-  --duration-fast: 160ms;
-  --duration-base: 260ms;
-  --duration-slow: 320ms;
-  --ease-ui: cubic-bezier(0.32, 0.72, 0, 1);
-
-  /* Материал под стеклом. Раньше он лежал на body — и был целиком закрыт
-     непрозрачной заливкой корпуса, поэтому размывать панелям было нечего и
-     «стекло» выглядело просто светлой темой. Теперь материал красит корпус,
-     а панели пропускают его сквозь себя.
-     Пятна намеренно разноцветные и крупные: матовость читается только там,
-     где под стеклом есть переход цвета. По ровной заливке blur не виден. */
-  --shell-bg: hsl(200 30% 90%);
-  --shell-material:
-    radial-gradient(1100px 820px at 6% -10%, hsl(166 62% 82% / 0.95), transparent 62%),
-    radial-gradient(940px 760px at 98% 2%, hsl(268 68% 88% / 0.9), transparent 60%),
-    radial-gradient(1000px 880px at 62% 110%, hsl(32 82% 84% / 0.85), transparent 62%),
-    radial-gradient(760px 640px at 80% 58%, hsl(196 74% 84% / 0.8), transparent 58%);
-  --panel-tint: 0 0% 100%;
-  --panel-alpha: 0.42;
-  --panel-blur-radius: 34px;
-  --panel-saturate: 1.9;
-  --panel-bg: hsl(var(--panel-tint) / var(--panel-alpha));
-  --panel-blur: blur(var(--panel-blur-radius)) saturate(var(--panel-saturate));
-  --panel-border: hsl(0 0% 100% / 0.62);
-  --panel-shadow: 0 18px 48px -22px hsl(210 40% 28% / 0.4);
-
-  --nav-glass-bg: 210 32% 97% / 0.55;
-  --nav-glass-blur: 28px;
-  --nav-glass-saturate: 1.6;
-  --nav-tab-glow: 194 84% 42% / 0.18;
-  --nav-tab-ring: 194 84% 50% / 0.25;
-  --nav-float-shadow: 210 40% 30% / 0.12;
-  --nav-float-ring: 0 0% 100% / 0.6;
-  --nav-divider-color: 210 24% 80% / 0.5;
-  --nav-input-bg: 0 0% 100% / 0.42;
-  --nav-input-focus-ring: 194 84% 42% / 0.25;
-}
-/* Поле поиска — такое же стекло, как панели: без размытия оно читалось как
-   единственная матовая заливка в стеклянном сайдбаре. */
-[data-theme='glass'] .nav-search-input {
-  -webkit-backdrop-filter: blur(14px) saturate(1.5);
-  backdrop-filter: blur(14px) saturate(1.5);
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.6);
-}
-/* Стекло на всех поверхностях, а не на одной карточке. Референс light-2/01:
-   матовыми там являются ВСЕ панели — шапка, список, полка снизу; между ними
-   везде просвечивает фон. Одна стеклянная карточка посреди непрозрачного
-   корпуса стеклом не читается.
-   Верхний внутренний блик — кромка стекла, а не декоративная полоска: он
-   ловит свет там, где панель обрывается. */
-[data-theme='glass'] .bg-card,
-[data-theme='glass'] [data-slot='prompt-input'],
-[data-theme='glass'] .composer-chip {
-  background-color: var(--panel-bg);
-  -webkit-backdrop-filter: var(--panel-blur);
-  backdrop-filter: var(--panel-blur);
-  border-color: var(--panel-border);
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.75), var(--panel-shadow);
-}
-/* Сайдбар стеклянной темы чуть плотнее панелей: под ним лежит самая пёстрая
-   часть градиента, и на 42% текст списка сессий терял контраст. 0.46 — низ
-   безопасного коридора: foreground здесь 16% светлоты и держит 12:1 даже
-   над самым светлым пятном материала. Дальше плотность не нужна — край
-   панели показывают кромка и верхний блик, а не белила. */
-[data-theme='glass'] .app-sidebar {
-  background-color: hsl(0 0% 100% / 0.46);
-  border-right: 1px solid hsl(0 0% 100% / 0.55);
-  box-shadow:
-    inset 0 1px 0 hsl(0 0% 100% / 0.75),
-    8px 0 32px -28px hsl(210 40% 28% / 0.55);
-}
-[data-theme='glass'] .nav-tab-active {
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.7), 0 0 0 1px hsl(194 84% 45% / 0.25);
-}
-[data-theme='glass'] h1,
-[data-theme='glass'] h2,
-[data-theme='glass'] h3 {
-  font-family: var(--font-display);
-  letter-spacing: -0.025em;
-  font-weight: 600;
-}
-[data-theme='glass'] .text-\[11px\].uppercase,
-[data-theme='glass'] .text-\[10px\].uppercase {
-  letter-spacing: 0.16em;
-  font-weight: 500;
-}
-/* `[class*='bg-accent']` подстрокой ловил и `hover:bg-accent/60` — то есть
-   красил в акцент элементы, у которых accent появляется ТОЛЬКО на наведении.
-   Из-за этого всё нижнее меню сайдбара стояло синим в покое. Исключение по
-   `hover:` возвращает правилу его смысл: акцент на том, что выделено сейчас. */
-[data-theme='glass'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']),
-[data-theme='glass'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) svg {
-  color: hsl(196 80% 30%);
-}
-/* Выделенный проект — единственная непрозрачная плашка, оставшаяся в списке.
-   Тот же материал, что у кнопки: подсветку несёт цветная кромка, а не заливка. */
-[data-theme='glass'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) {
-  background-color: hsl(194 60% 94% / 0.5);
-  -webkit-backdrop-filter: blur(14px) saturate(1.6);
-  backdrop-filter: blur(14px) saturate(1.6);
-  box-shadow:
-    inset 0 1px 0 hsl(0 0% 100% / 0.7),
-    0 0 0 1px hsl(194 70% 60% / 0.28);
-}
-
-/* Два места сайдбара красились плоским цветом поверх стеклянной панели —
-   залитая акцентом кнопка «Новый сеанс» и нижнее меню, которому
-   `--muted-foreground` (hue 215) на тёплом материале давал вид «синего
-   списка». В теме, где свет проходит сквозь всё остальное, обе заливки
-   читаются как наклейки поверх стекла. */
-
-/* Главное действие списка остаётся главным за счёт кромки, блика и тёмного
-   цианового текста (5.6:1 на белом стекле), а не за счёт заливки акцентом.
-   Градиент сверху вниз — не декор: он изображает толщину стекла, у верхней
-   кромки материал светлее, чем у нижней. */
-[data-theme='glass'] .app-sidebar .new-session-btn {
-  background-color: transparent;
-  background-image: linear-gradient(hsl(0 0% 100% / 0.58), hsl(0 0% 100% / 0.3));
-  -webkit-backdrop-filter: blur(18px) saturate(1.7);
-  backdrop-filter: blur(18px) saturate(1.7);
-  border: 1px solid hsl(0 0% 100% / 0.7);
-  border-radius: 0.75rem;
-  color: hsl(196 72% 26%);
-  box-shadow:
-    inset 0 1px 0 hsl(0 0% 100% / 0.9),
-    0 8px 20px -14px hsl(210 40% 28% / 0.6);
-}
-[data-theme='glass'] .app-sidebar .new-session-btn:hover {
-  background-image: linear-gradient(hsl(0 0% 100% / 0.88), hsl(0 0% 100% / 0.58));
-  color: hsl(196 84% 20%);
-}
-[data-theme='glass'] .app-sidebar .new-session-btn svg {
-  opacity: 0.75;
-}
-
-/* Нижнее меню: нейтральный графит вместо синеватого приглушённого, стекло
-   приходит на hover. Мобильные строки этой же группы плашку сохраняют —
-   там пальцу нужна цель, — но плашка тоже стеклянная. */
-[data-theme='glass'] .sidebar-footer-item {
-  color: hsl(215 10% 32%);
-  background-color: hsl(0 0% 100% / 0.34);
-  -webkit-backdrop-filter: blur(14px) saturate(1.5);
-  backdrop-filter: blur(14px) saturate(1.5);
-}
-[data-theme='glass'] .sidebar-footer-item svg {
-  color: hsl(215 10% 32%);
-  opacity: 0.62;
-}
-[data-theme='glass'] .sidebar-footer-item:hover {
-  background-color: hsl(0 0% 100% / 0.55);
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.8);
-  color: hsl(215 28% 16%);
-}
-[data-theme='glass'] .sidebar-footer-item:hover svg {
-  opacity: 0.9;
-}
-/* Плитки меню (`menu-icons/MenuTile`) яркие сами по себе: графит и
-   приглушение выше гасили белые значки и красили краба серым. В стекле
-   плитка такая же, как в тёмной теме; цвет — от самой плитки. */
-[data-theme='glass'] .sidebar-footer-item [data-menu-tile] svg,
-[data-theme='glass'] .sidebar-footer-item:hover [data-menu-tile] svg {
-  color: inherit;
-  opacity: 1;
-}
-@media (min-width: 768px) {
-  /* Десктопные строки — текстовые: четыре подряд стеклянные плашки шумят
-     сильнее, чем сам список сессий над ними. */
-  [data-theme='glass'] .sidebar-footer-item {
-    background-color: transparent;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  [data-theme='glass'] .sidebar-footer-item:hover {
-    background-color: hsl(0 0% 100% / 0.5);
-    -webkit-backdrop-filter: blur(14px) saturate(1.5);
-    backdrop-filter: blur(14px) saturate(1.5);
-  }
-}
-
 /* =========================================================================
    Превью подстройки темы (настройки → внешний вид)
    Сцена показывает ровно то, что крутят ползунки: материал корпуса, зерно,
@@ -3026,311 +3060,6 @@
 /* Round neon button (Home: settings next to the clock). */
 .neo3-neon.neo3-neon-round {
   border-radius: 9999px;
-}
-
-/* Codex reference: neutral graphite surfaces, native Mac typography, compact chrome.
-   Existing provider/project icons and all interactions are preserved. */
-[data-theme='codex'] {
-  --background: 0 0% 9.4%;
-  --foreground: 0 0% 83%;
-  --card: 0 0% 17.3%;
-  --card-foreground: 0 0% 83%;
-  --popover: 0 0% 17.3%;
-  --popover-foreground: 0 0% 88%;
-  --primary: 0 0% 94%;
-  --primary-foreground: 0 0% 10%;
-  --secondary: 0 0% 20%;
-  --secondary-foreground: 0 0% 83%;
-  --muted: 0 0% 18%;
-  --muted-foreground: 0 0% 62%;
-  --accent: 0 0% 23%;
-  --accent-foreground: 0 0% 92%;
-  --border: 0 0% 23%;
-  --input: 0 0% 18%;
-  --ring: 0 0% 65%;
-  --radius: 0.625rem;
-  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-chat: var(--font-ui);
-  --font-sidebar: var(--font-ui);
-  --font-display: var(--font-ui);
-  --tracking-ui: normal;
-  --shadow-1: none;
-  --shadow-2: none;
-  --shadow-3: 0 8px 24px rgb(0 0 0 / 0.25);
-  --shell-bg: #181818;
-  --shell-material: none;
-  --shell-grain: none;
-  --shell-grain-opacity: 0;
-  --panel-bg: #2c2c2c;
-  --panel-blur: none;
-  --panel-border: #383838;
-  --nav-glass-bg: 0 0% 9.4%;
-  --nav-glass-blur: 0px;
-  --nav-glass-saturate: 1;
-  --nav-tab-glow: 0 0% 0% / 0;
-  --nav-tab-ring: 0 0% 0% / 0;
-  --nav-divider-color: 0 0% 23%;
-  --nav-input-bg: 0 0% 18%;
-  --nav-input-focus-ring: 0 0% 65% / 0.3;
-  font-weight: 400;
-}
-[data-theme='codex'] .app-sidebar,
-[data-theme='codex'] .sidebar-root { background: #242424; backdrop-filter: none; }
-[data-theme='codex'] .pwa-header-safe { border-bottom-color: transparent; }
-[data-theme='codex'] .chat-messages-pane > div,
-[data-theme='codex'] .chat-composer-shell > div { max-width: 48rem; }
-[data-theme='codex'] .chat-message { font-size: 14px; line-height: 1.65; }
-[data-theme='codex'] .chat-message.user .bg-muted {
-  background: #303030;
-  border-radius: 16px;
-  box-shadow: none;
-  padding: 12px 16px;
-}
-[data-theme='codex'] [data-slot='prompt-input'] {
-  background: #2c2c2c;
-  border: 1px solid #353535;
-  border-radius: 18px;
-  box-shadow: none;
-}
-[data-theme='codex'] [data-slot='prompt-input']:focus-within { border-color: #626262; }
-[data-theme='codex'] [data-slot='prompt-input-textarea'] { min-height: 64px; font-size: 14px; }
-[data-theme='codex'] .composer-chip { border-color: transparent; background: transparent; box-shadow: none; font-weight: 400; }
-[data-theme='codex'] .composer-chip:hover { background: #393939; }
-[data-theme='codex'] .composer-submit { width: 30px; height: 30px; border-radius: 50%; }
-[data-theme='codex'] .nav-tab-active { background: #343434; color: #ededed; box-shadow: none; }
-[data-theme='codex'] .chat-message a { color: #75a7f8; }
-@media (min-width: 768px) {
-  [data-theme='codex'] .sidebar-root { width: 260px; }
-  [data-theme='codex'] .chat-composer-shell { padding-bottom: 16px; }
-}
-@media (max-width: 767px) {
-  [data-theme='codex'] [data-slot='prompt-input-textarea'] { font-size: 16px; }
-}
-
-[data-theme='codex'] .main-content-title { left: 44px; transform: translateY(-50%); }
-[data-theme='codex'] textarea::placeholder { color: #a0a0a0 !important; }
-.codex-environment { display: none; }
-@media (min-width: 1280px) {
-  .codex-environment { display: block; align-self: flex-start; width: 240px; flex-shrink: 0; margin: 12px 16px 0 8px; padding: 14px 12px; background: #2c2c2c; border: 1px solid #353535; border-radius: 18px; }
-  .codex-environment button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 4px; border-radius: 6px; text-align: left; font-size: 13px; }
-  .codex-environment button:hover { background: #393939; }
-}
-
-/* =========================================================================
-   THEME: Био — голубая (дизайн-система hu22.ai — DARK)
-   Почти чёрный однотонный фон, поверхности разделены тонкой светлой линией,
-   а не тенью; один голубой акцент #38c6f4 на кнопках, ссылках, активной
-   вкладке и фокусе. Гарнитуры — General Sans (текст) и IBM Plex Mono (код,
-   цифры, подписи); файлы лежат в public/fonts, внешних запросов нет.
-   У General Sans нет кириллицы: русский текст берёт system-ui — так же, как
-   на самом hu22.ai. @font-face объявлены глобально, но браузер качает файл,
-   только когда шрифт реально применён: другие темы ничего лишнего не грузят.
-   ========================================================================= */
-@font-face {
-  font-family: 'General Sans';
-  font-style: normal;
-  font-weight: 200;
-  font-display: swap;
-  src: url('/fonts/GeneralSans-200.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'General Sans';
-  font-style: normal;
-  font-weight: 300;
-  font-display: swap;
-  src: url('/fonts/GeneralSans-300.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'General Sans';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/GeneralSans-400.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'General Sans';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/GeneralSans-500.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'General Sans';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/GeneralSans-600.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'IBM Plex Mono';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/IBMPlexMono-400-cyrillic.woff2') format('woff2');
-  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
-}
-@font-face {
-  font-family: 'IBM Plex Mono';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/IBMPlexMono-400-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-@font-face {
-  font-family: 'IBM Plex Mono';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/IBMPlexMono-400-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: 'IBM Plex Mono';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/IBMPlexMono-500-cyrillic.woff2') format('woff2');
-  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
-}
-@font-face {
-  font-family: 'IBM Plex Mono';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/IBMPlexMono-500-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-@font-face {
-  font-family: 'IBM Plex Mono';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/IBMPlexMono-500-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-[data-theme='bio'] {
-  /* Палитра hu22.ai (09.11): фон #030305, карточка #0a0a0e, поповер #101016,
-     приподнятое #15151c, текст #ededf0, серый #8b8b93, акцент #38c6f4. */
-  --background: 240 25% 1.6%;
-  --foreground: 240 9.1% 93.5%;
-  --card: 240 16.7% 4.7%;
-  --card-foreground: 240 9.1% 93.5%;
-  --popover: 240 15.8% 7.5%;
-  --popover-foreground: 240 9.1% 93.5%;
-  --primary: 195 89.5% 58.8%;
-  --primary-foreground: 205 75% 6.3%;
-  --secondary: 240 14.3% 9.6%;
-  --secondary-foreground: 240 9.1% 93.5%;
-  --muted: 240 14.3% 9.6%;
-  --muted-foreground: 240 3.6% 56.1%;
-  --accent: 197 66.2% 12.7%;
-  --accent-foreground: 195 89.6% 84.9%;
-  --link: 207 100% 74.3%;
-
-  --destructive: 358 100% 67.6%;
-  --destructive-foreground: 240 25% 1.6%;
-  --success: 152 55% 52%;
-  --success-foreground: 240 25% 1.6%;
-  --warning: 21 100% 64.9%;
-  --warning-foreground: 240 25% 1.6%;
-  --info: 217 91.2% 59.8%;
-  --info-foreground: 240 25% 1.6%;
-
-  /* Линии — белый 11% (обычная) и 14% (поле ввода) поверх фона. */
-  --border: 240 1.6% 12.4%;
-  --input: 240 2.6% 15.3%;
-  --ring: 195 89.5% 58.8%;
-  --radius: 0.75rem;
-
-  --font-ui: "General Sans", system-ui, -apple-system, sans-serif;
-  --font-chat: "General Sans", system-ui, -apple-system, sans-serif;
-  --font-sidebar: "General Sans", system-ui, -apple-system, sans-serif;
-  --font-display: "General Sans", system-ui, -apple-system, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
-  --tracking-ui: normal;
-
-  --shadow-1: none;
-  --shadow-2: none;
-  --shadow-3: none;
-
-  --duration-base: 300ms;
-  --duration-slow: 600ms;
-  --ease-ui: cubic-bezier(.2,.7,.2,1);
-
-  --shell-bg: hsl(240 25% 1.6%);
-  --shell-material: none;
-  --shell-grain: none;
-  --shell-grain-opacity: 0;
-  --panel-tint: 240 25% 1.6%;
-  --panel-alpha: 1;
-  --panel-blur-radius: 0px;
-  --panel-saturate: 1;
-  --panel-bg: hsl(240 25% 1.6%);
-  --panel-blur: none;
-  --panel-border: hsl(240 1.6% 12.4%);
-  --panel-shadow: none;
-
-  --nav-glass-bg: 240 16.7% 4.7% / 0.92;
-  --nav-glass-blur: 0px;
-  --nav-glass-saturate: 1;
-  --nav-tab-glow: 195 89.5% 58.8% / 0;
-  --nav-tab-ring: 195 89.5% 58.8% / 0.45;
-  --nav-float-shadow: 0 0% 0% / 0.5;
-  --nav-float-ring: 240 1.6% 12.4% / 1;
-  --nav-divider-color: 240 1.6% 12.4% / 1;
-  --nav-input-bg: 240 16.7% 4.7% / 0.9;
-  --nav-input-focus-ring: 195 89.5% 58.8% / 0.35;
-}
-/* Карточки — заливка и волосяная линия, без размытия и свечения. */
-[data-theme='bio'] .bg-card {
-  background-color: hsl(var(--card));
-  border-color: hsl(var(--border));
-  box-shadow: none;
-}
-/* Акцентная кнопка — плоский циан без градиента и подсветки. */
-[data-theme='bio'] .bg-primary {
-  background-image: none;
-  box-shadow: none;
-}
-[data-theme='bio'] .nav-tab-active {
-  background-color: hsl(var(--card));
-  color: hsl(var(--foreground));
-  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.45) !important;
-}
-/* Пузырь пользователя и композер — карточка с тонкой рамкой. */
-[data-theme='bio'] .chat-message.user .bg-muted {
-  background-color: hsl(var(--card));
-  box-shadow: inset 0 0 0 1px hsl(var(--border));
-}
-[data-theme='bio'] [data-slot='prompt-input'] {
-  background-color: hsl(var(--card));
-  border-color: hsl(var(--border));
-  box-shadow: none;
-}
-[data-theme='bio'] [data-slot='prompt-input']:focus-within {
-  border-color: hsl(var(--primary) / 0.45);
-}
-[data-theme='bio'] .composer-chip {
-  box-shadow: none;
-}
-[data-theme='bio'] .chat-message a,
-[data-theme='bio'] a.text-blue-600 {
-  color: hsl(var(--link));
-  text-underline-offset: 2px;
-}
-/* Заголовки тонкие и плотные, как на hu22.ai; капс-подписи — с разрядкой. */
-[data-theme='bio'] h1,
-[data-theme='bio'] h2,
-[data-theme='bio'] h3 {
-  font-weight: 500;
-  letter-spacing: -0.02em;
-}
-[data-theme='bio'] h1.uppercase,
-[data-theme='bio'] h2.uppercase,
-[data-theme='bio'] h3.uppercase,
-[data-theme='bio'] h4.uppercase {
-  letter-spacing: 0.08em;
 }
 
 /* =========================================================================

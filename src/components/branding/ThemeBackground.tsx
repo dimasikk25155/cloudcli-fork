@@ -1,66 +1,45 @@
 import {
-  backgroundFile,
   backgroundsForTheme,
   isVideoTheme,
+  useTheme,
   videoFile,
   videoPosterFile,
   videoTallFile,
   videoTallPosterFile,
 } from '../../contexts/ThemeContext';
+import { neonVariantFile } from '../../contexts/themeMigration';
 
-import ShaderBackground from './ShaderBackground';
 import ThemeVideoBackground from './ThemeVideoBackground';
 
 /**
  * Per-theme full-viewport background, rendered behind the whole app at z-0.
  *
  * Each theme owns its own backdrop so themes look genuinely different, not
- * just recoloured. Cinematic themes use a real generated 4K photograph
- * (public/theme-bg/<key>.jpg) with a subtle Ken Burns drift and a dark scrim
- * for text legibility, rather than hand-drawn CSS shapes — attempts at
- * replicating scenes like a command bridge or a nebula in pure CSS read as
- * cheap; a real photographic still does not.
+ * just recoloured:
+ *   - «Оранжевая» (ember) — живые обои, зацикленный ролик;
+ *   - «Неон» (neon) — фотография варианта (цвет акцента и фото выбираются
+ *     вместе, см. NEON_VARIANTS) с медленным дрейфом и затемнением под текст;
+ *   - остальные — плоские: их фон красит материал темы (`--shell-*`).
  */
-const PHOTO_THEMES = new Set([
-  'neonCity',
-  'synthwaveDrive',
-  'nebulaFlow',
-  'missionControl',
-  'bento3d',
-  'kineticType',
-  'liquidChrome',
-  'zenParticles',
-]);
+const PHOTO_THEMES = new Set(['neon']);
 
 /**
- * `enabled` = тумблер "Фон" в настройках. Выключенный гасит фон ЦЕЛИКОМ —
- * остаются только цвета темы на плоской заливке. Раньше этот тумблер назывался
- * "Движение фона" и гасил лишь анимацию, но движение к тому моменту осталось
- * только у двух тем из тринадцати, так что тумблер выглядел неработающим.
- * По явному запросу: нужна возможность убрать картинку, а не притормозить её.
+ * Темы, у которых фон — материал самой темы (`--shell-*`) и ничего больше:
+ * ровный графит, чистый чёрный «Био», пастельный градиент «Бирюзовой», бумага
+ * «Светлой Claude». Картинка за ними эту работу ломает.
  */
-/**
- * Темы, у которых фон — плоская заливка `--background` и ничего больше.
- * Разбор референсов дал прямое требование «ноль декоративных градиентов»:
- * такая тема разделяет поверхности линией и ступенью тона, а картинка или
- * шейдер за ними эту работу ломают. Без этого списка любая новая тема
- * молча проваливалась бы в WebGL-фон из ветки по умолчанию.
- */
-const FLAT_THEMES = new Set(['codex', 'gt', 'editorial', 'glass', 'claudeLight', 'bio']);
+const FLAT_THEMES = new Set(['codex', 'glass', 'claudeLight', 'bio']);
 
 /**
- * Темы с живыми обоями — зацикленный ролик вместо фотографии.
+ * `enabled` = тумблер «Фон» в настройках. Выключенный гасит фон ЦЕЛИКОМ —
+ * остаётся материал темы. По явному запросу: нужна возможность убрать
+ * картинку, а не притормозить её.
  *
- * `ember` до 22.08.2026 числилась плоской: разбор референсов требовал «ноль
- * декоративных градиентов», и это было верное решение для градиента. Ролик —
- * не градиент: он не спорит с интерфейсом за внимание, потому что уходит под
- * тот же скрим, что и фотографии кино-тем. Решение принято владельцем продукта
- * явно, поэтому старое правило здесь отменено осознанно, а не потеряно.
- *
- * Цена движения оплачена в самом ролике и в компоненте: родные 24 кадра,
- * без замедления, пауза при уходе окна в фон — см. `ThemeVideoBackground`.
+ * Живые обои «Оранжевой»: ролик не спорит с интерфейсом за внимание, потому
+ * что уходит под затемнение. Цена движения оплачена в самом ролике и в
+ * компоненте: родные 24 кадра, без замедления, пауза при уходе окна в фон —
+ * см. `ThemeVideoBackground`.
  */
-
 export default function ThemeBackground({
   theme = 'default',
   enabled = true,
@@ -74,6 +53,9 @@ export default function ThemeBackground({
   customUrl?: string | null;
   onVideoEnded?: () => void;
 }) {
+  // Вариант «Неона» — свой на устройстве; фото едет за ним без перезагрузки.
+  const { neonVariant } = useTheme() as { neonVariant: string };
+
   if (!enabled) {
     return null;
   }
@@ -110,22 +92,19 @@ export default function ThemeBackground({
     return null;
   }
 
-  // Анимацию оставляем включённой всегда: отдельного тумблера на неё больше
-  // нет, а темы, где движение есть, без него выглядят наполовину собранными.
-  const animated = true;
-
   if (PHOTO_THEMES.has(theme)) {
     return (
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div
-          className={animated ? 'theme-photo-bg' : 'theme-photo-bg theme-photo-bg--static'}
-          style={{ backgroundImage: `url(${backgroundFile(theme, variant)})` }}
+          className="theme-photo-bg"
+          style={{ backgroundImage: `url(${neonVariantFile(neonVariant)})` }}
         />
         <div className="theme-photo-scrim" />
       </div>
     );
   }
 
-  // Default theme: original animated WebGL background.
-  return <ShaderBackground variant="default" frozen={!animated} />;
+  // Неизвестная тема (до ThemeBackground не доходит: id подменяет
+  // migrateThemeId) — без слоя, фон даёт материал темы.
+  return null;
 }

@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.claude/skills/autopilot",
   "baseCommit": "08e23a90",
   "startedAt": "2026-11-23T17:33:24+03:00",
-  "updatedAt": "2026-11-23T18:18:05+03:00",
+  "updatedAt": "2026-11-23T19:33:32+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -62,8 +62,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 25,
-    "done": 0,
-    "inTicket": 25,
+    "done": 2,
+    "inTicket": 23,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -85,10 +85,16 @@ window.STATE =
       ],
       "review": "нет",
       "model": "сильная",
-      "status": "in-progress",
+      "status": "done",
+      "startedAt": "2026-11-23T18:18:05+03:00",
+      "finishedAt": "2026-11-23T18:55:07+03:00",
       "retries": 0,
       "repairs": 0,
-      "startedAt": "2026-11-23T18:18:05+03:00"
+      "tests": {
+        "passed": 2361,
+        "failed": 7
+      },
+      "commit": "f71e6916"
     },
     {
       "id": "02",
@@ -118,9 +124,10 @@ window.STATE =
       ],
       "review": "да — фундамент",
       "model": "сильная",
-      "status": "pending",
+      "status": "review",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "startedAt": "2026-11-23T18:55:16+03:00"
     },
     {
       "id": "03",
@@ -143,9 +150,10 @@ window.STATE =
       ],
       "review": "нет",
       "model": "обычная",
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "startedAt": "2026-11-23T19:33:32+03:00"
     },
     {
       "id": "04",
@@ -223,7 +231,10 @@ window.STATE =
       "repairs": 0
     }
   ],
-  "tests": null,
+  "tests": {
+    "passed": 2361,
+    "failed": 7
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -236,7 +247,13 @@ window.STATE =
     "deferred": 0,
     "items": []
   },
-  "concerns": [],
+  "concerns": [
+    "база 609f75f8: HomeLauncher.render.test.ts красный до сборки (xterm.css под node) — чинит T02",
+    "встроенный браузер не рисует backdrop-filter в снимок — размытие на стенде не проверить глазами",
+    "P3: внутренности панели «Расписания» — вне рамок (внутренности экранов-панелей)",
+    "Неон: акценты «Мятный», «Синий», «Зелёный» разведены по тону и не совпадают с цветами прежних тем",
+    "Оранжевая: под лентой чата и полем ввода добавлена тёмная вуаль 60 % (читаемость над видео)"
+  ],
   "blind": null,
   "beats": [
     "2026-11-23T17:33:24+03:00",
@@ -250,9 +267,15 @@ window.STATE =
     "2026-11-23T17:47:47+03:00",
     "2026-11-23T18:17:41+03:00",
     "2026-11-23T18:18:03+03:00",
-    "2026-11-23T18:18:05+03:00"
+    "2026-11-23T18:18:05+03:00",
+    "2026-11-23T18:55:07+03:00",
+    "2026-11-23T18:55:09+03:00",
+    "2026-11-23T18:55:11+03:00",
+    "2026-11-23T18:55:14+03:00",
+    "2026-11-23T18:55:16+03:00",
+    "2026-11-23T19:33:32+03:00"
   ],
-  "rev": 19,
+  "rev": 27,
   "waiting": null,
   "waits": [],
   "log": [
@@ -359,6 +382,66 @@ window.STATE =
         "01"
       ],
       "act": "start"
+    },
+    {
+      "t": "2026-11-23T18:55:07+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 2361,
+        "failed": 7
+      }
+    },
+    {
+      "t": "2026-11-23T18:55:09+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-23T18:55:11+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-23T18:55:14+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 3
+    },
+    {
+      "t": "2026-11-23T18:55:16+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-23T19:33:32+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "review"
+    },
+    {
+      "t": "2026-11-23T19:33:32+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 2
+    },
+    {
+      "t": "2026-11-23T19:33:32+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "start"
     }
   ],
   "reqList": [
@@ -400,7 +483,7 @@ window.STATE =
     {
       "id": "R08",
       "text": "«лучше сделай пока без моего айфона, там, на своем тестовом, который ты можешь»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R09",
@@ -420,7 +503,7 @@ window.STATE =
     {
       "id": "R12",
       "text": "«Оцените дизайн, посмотрите, что-то улучшите»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R13",
@@ -504,7 +587,7 @@ window.STATE =
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-23T18:17:41+03:00",
+      "at": "2026-11-23T18:55:11+03:00",
       "problems": 0
     }
   },

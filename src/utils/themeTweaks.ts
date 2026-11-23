@@ -163,8 +163,16 @@ const sanitize = (value: unknown): ThemeTweaks => {
   return tweaks;
 };
 
-/** Разбирает карту твиков из строки (так она лежит в настройках аккаунта). */
-export const parseTweakMap = (json: unknown): TweakMap => {
+/**
+ * Разбирает карту твиков из строки (так она лежит в настройках аккаунта).
+ *
+ * `themeIds` — живые темы. Записи с любым другим ключом отбрасываются: после
+ * пересборки тем в картах остались поправки к убранным (`gt`, `editorial`,
+ * `claude`, восемь фото-тем). Переносить их некуда — у новых тем другие
+ * исходные значения, — а оставлять нельзя: карта целиком уезжает в аккаунт при
+ * каждой правке. Без списка (тесты, разовый разбор) ключи не фильтруются.
+ */
+export const parseTweakMap = (json: unknown, themeIds?: readonly string[]): TweakMap => {
   if (typeof json !== 'string' || json.length === 0) {
     return {};
   }
@@ -175,6 +183,9 @@ export const parseTweakMap = (json: unknown): TweakMap => {
     }
     const map: TweakMap = {};
     Object.entries(parsed as Record<string, unknown>).forEach(([themeKey, value]) => {
+      if (themeIds && !themeIds.includes(themeKey)) {
+        return;
+      }
       const tweaks = sanitize(value);
       if (Object.keys(tweaks).length > 0) {
         map[themeKey] = tweaks;

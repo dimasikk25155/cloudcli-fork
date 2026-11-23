@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
@@ -23,6 +23,7 @@ const cssSource = readFileSync(path.join(here, '..', 'index.css'), 'utf8');
 const backgroundSource = readFileSync(path.join(here, '..', 'components', 'branding', 'ThemeBackground.tsx'), 'utf8');
 const appContentSource = readFileSync(path.join(here, '..', 'components', 'app', 'AppContent.tsx'), 'utf8');
 const indexHtmlSource = readFileSync(path.join(here, '..', '..', 'index.html'), 'utf8');
+const tailwindSource = readFileSync(path.join(here, '..', '..', 'tailwind.config.js'), 'utf8');
 
 /** Достаёт список строковых литералов из экспортируемого массива по имени. */
 function readStringArray(name: string): string[] {
@@ -30,6 +31,13 @@ function readStringArray(name: string): string[] {
   assert.ok(match, `не нашёл массив ${name} в ThemeContext.jsx`);
   return [...match[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1]);
 }
+
+/** Убранные темы: ни в реестре, ни в CSS их быть не должно. */
+const REMOVED_THEMES = [
+  'gt', 'editorial', 'claude', 'neonCity', 'synthwaveDrive', 'nebulaFlow',
+  'missionControl', 'bento3d', 'liquidChrome', 'zenParticles', 'kineticType',
+];
+const NEON_VARIANT_IDS = ['city', 'synthwave', 'nebula', 'mission', 'bento', 'chrome', 'zen', 'kinetic'];
 
 const themes = readStringArray('THEMES');
 const lightThemes = readStringArray('LIGHT_THEMES');
@@ -74,6 +82,87 @@ describe('реестр тем', () => {
   it('по умолчанию оранжевая, не стекло', () => {
     const match = contextSource.match(/export const DEFAULT_THEME = '([^']+)'/);
     assert.equal(match?.[1], 'ember');
+  });
+
+  it('тем ровно шесть, в порядке выбора, с подписями из спецификации', () => {
+    assert.deepEqual(themes, ['ember', 'codex', 'bio', 'neon', 'glass', 'claudeLight']);
+    const labels: Record<string, string> = {
+      ember: 'Оранжевая',
+      codex: 'Графит',
+      bio: 'Био',
+      neon: 'Неон',
+      glass: 'Бирюзовая',
+      claudeLight: 'Светлая Claude',
+    };
+    for (const [theme, label] of Object.entries(labels)) {
+      assert.match(contextSource, new RegExp(`^\\s{2}${theme}: '${label}',$`, 'm'), `подпись темы ${theme}`);
+    }
+    assert.equal(themeLabels.length, 6, 'в THEME_LABELS остались подписи убранных тем');
+    assert.deepEqual([...lightThemes].sort(), ['claudeLight', 'glass']);
+  });
+
+  it('убранные темы не существуют ни в реестре, ни в CSS', () => {
+    for (const removed of REMOVED_THEMES) {
+      assert.ok(!themes.includes(removed), `${removed} всё ещё в THEMES`);
+      assert.ok(
+        !cssSource.includes(`[data-theme='${removed}']`) && !cssSource.includes(`[data-theme="${removed}"]`),
+        `в index.css остался селектор темы ${removed}`
+      );
+    }
+  });
+
+  it('«Неон» — одна тема и восемь коротких блоков вариантов', () => {
+    assert.ok(cssSource.includes("[data-theme='neon'] {"), 'нет блока темы neon');
+    for (const variant of NEON_VARIANT_IDS) {
+      const tokens = readBlockTokens(`[data-theme='neon'][data-theme-variant='${variant}'] {`);
+      assert.ok(tokens['--primary'], `вариант ${variant} не задаёт акцент`);
+      // Вариант — только акцент и то, что от него зависит: поверхности, шрифт,
+      // форма и стекло у всех восьми общие, иначе это снова восемь тем.
+      const names = Object.keys(tokens);
+      assert.ok(names.length <= 5, `вариант ${variant}: ${names.length} значений — это уже отдельная тема`);
+      for (const name of names) {
+        assert.match(name, /^--(primary|accent|accent-foreground|ring|neon-[a-z0-9-]+)$/, `вариант ${variant} задаёт ${name}`);
+      }
+    }
+    const variantBlocks = [...cssSource.matchAll(/\[data-theme='neon'\]\[data-theme-variant='([a-z]+)'\] \{/g)]
+      .map((entry) => entry[1]);
+    assert.deepEqual(variantBlocks, NEON_VARIANT_IDS);
+    // Акценты вариантов различимы: тон соседей отличается минимум на 20°.
+    const hues = NEON_VARIANT_IDS
+      .map((variant) => Number(readBlockTokens(`[data-theme='neon'][data-theme-variant='${variant}'] {`)['--primary'].split(' ')[0]))
+      .sort((a, b) => a - b);
+    hues.forEach((hue, index) => {
+      const next = index === hues.length - 1 ? hues[0] + 360 : hues[index + 1];
+      assert.ok(next - hue >= 20, `акценты ${hue}° и ${next % 360}° слишком близки`);
+    });
+  });
+
+  it('контекст отдаёт вариант «Неона» и ставит его атрибутом только у этой темы', () => {
+    assert.match(contextSource, /^\s{4}neonVariant,$/m, 'в значении useTheme() нет neonVariant');
+    assert.match(contextSource, /^\s{4}setNeonVariant,$/m, 'в значении useTheme() нет setNeonVariant');
+    assert.match(contextSource, /root\.setAttribute\('data-theme-variant', neonVariant\)/);
+    assert.match(contextSource, /root\.removeAttribute\('data-theme-variant'\)/);
+    assert.match(contextSource, /localStorage\.setItem\('neonVariant', neonVariant\)/);
+    // Вариант — свой на устройстве: в аккаунт не уходит.
+    assert.doesNotMatch(contextSource, /JSON\.stringify\(\{\s*neonVariant/);
+  });
+
+  it('фон: «Неон» — фото варианта, плоские темы — без картинки, оранжевая — видео', () => {
+    const flat = backgroundSource.match(/FLAT_THEMES = new Set\(\[([^\]]*)\]\)/);
+    assert.ok(flat, 'не нашёл FLAT_THEMES');
+    assert.deepEqual(
+      [...flat[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1]).sort(),
+      ['bio', 'claudeLight', 'codex', 'glass']
+    );
+    const photo = backgroundSource.match(/PHOTO_THEMES = new Set\(\[([^\]]*)\]\)/);
+    assert.ok(photo, 'не нашёл PHOTO_THEMES');
+    assert.deepEqual([...photo[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1]), ['neon']);
+    assert.match(backgroundSource, /neonVariantFile\(neonVariant\)/, 'фото «Неона» берётся по варианту');
+    assert.match(backgroundSource, /isVideoTheme\(theme\)/);
+    // Условие фона больше не знает убранной тёмной «Claude».
+    const gate = appContentSource.match(/\{\(([^\n]*?customBackgroundUrl)\) && \(/);
+    assert.ok(gate, 'не нашёл условие фона в AppContent');
+    assert.doesNotMatch(gate[1], /'claude'/);
   });
 
   it('у оранжевой темы в списке живых обоев есть угольки, биткоин и город', () => {
@@ -123,16 +212,21 @@ describe('реестр тем', () => {
   });
 });
 
-/** Токены одного блока `[data-theme='…'] { … }` из index.css. */
-function readThemeTokens(theme: string): Record<string, string> {
-  const start = cssSource.indexOf(`[data-theme='${theme}'] {`);
-  assert.ok(start >= 0, `нет блока темы ${theme}`);
+/** Токены блока, который открывается строкой `opener` и идёт до первой `\n}`. */
+function readBlockTokens(opener: string): Record<string, string> {
+  const start = cssSource.indexOf(opener);
+  assert.ok(start >= 0, `нет блока ${opener}`);
   const body = cssSource.slice(start, cssSource.indexOf('\n}', start));
   const tokens: Record<string, string> = {};
   for (const match of body.matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);/gm)) {
     tokens[match[1]] = match[2].trim();
   }
   return tokens;
+}
+
+/** Токены одного блока `[data-theme='…'] { … }` из index.css. */
+function readThemeTokens(theme: string): Record<string, string> {
+  return readBlockTokens(`[data-theme='${theme}'] {`);
 }
 
 /** WCAG 2.x: относительная яркость и контраст по тройке HSL из токена. */
@@ -203,9 +297,9 @@ describe('«Светлая Claude»: палитра и контраст', () => 
 
 
 describe('«Био — голубая»: палитра hu22.ai, шрифты и контраст', () => {
-  it('зарегистрирована тёмной и плоской, подпись «Био — голубая»', () => {
+  it('зарегистрирована тёмной и плоской, подпись «Био»', () => {
     assert.ok(themes.includes('bio'), 'bio нет в THEMES');
-    assert.match(contextSource, /^\s{2}bio: 'Био — голубая',$/m);
+    assert.match(contextSource, /^\s{2}bio: 'Био',$/m);
     assert.ok(!lightThemes.includes('bio'), 'bio тёмная — не в LIGHT_THEMES');
     const flat = backgroundSource.match(/FLAT_THEMES = new Set\(\[([^\]]*)\]\)/);
     assert.ok(flat, 'не нашёл FLAT_THEMES');
@@ -255,5 +349,304 @@ describe('«Био — голубая»: палитра hu22.ai, шрифты и
       const ratio = contrast(text, surface);
       assert.ok(ratio >= 4.5, `${name}: ${ratio.toFixed(2)}:1 < 4.5:1`);
     }
+  });
+});
+
+/**
+ * Контракт темы: что обязана задать КАЖДАЯ тема в своём блоке. Наследование
+ * от `:root` — это и была причина «темы практически идентичные»: тема меняла
+ * палитру, а шрифт, форму, тени, плотность и материал брала общие.
+ */
+const GLASS_TOKENS = [
+  '--glass-bg', '--glass-bg-strong', '--glass-blur', '--glass-saturate',
+  '--glass-border', '--glass-highlight', '--glass-shadow', '--glass-fallback-bg',
+];
+const REQUIRED_TOKENS: Record<string, string[]> = {
+  'поверхности и текст': [
+    '--background', '--foreground', '--card', '--card-foreground', '--popover', '--popover-foreground',
+    '--secondary', '--secondary-foreground', '--muted', '--muted-foreground',
+    '--accent', '--accent-foreground', '--border', '--input', '--ring',
+  ],
+  акцент: ['--primary', '--primary-foreground'],
+  статусы: [
+    '--destructive', '--destructive-foreground', '--success', '--success-foreground',
+    '--warning', '--warning-foreground', '--info', '--info-foreground',
+  ],
+  'шрифт и форма': ['--font-ui', '--font-display', '--font-mono', '--tracking-ui', '--radius'],
+  тени: ['--shadow-1', '--shadow-2', '--shadow-3'],
+  'плотность и движение': ['--density', '--duration-fast', '--duration-base', '--duration-slow', '--ease-ui'],
+  материал: [
+    '--shell-bg', '--shell-material', '--shell-grain', '--shell-grain-opacity',
+    '--panel-tint', '--panel-alpha', '--panel-blur-radius', '--panel-saturate',
+    '--panel-bg', '--panel-blur', '--panel-border', '--panel-shadow',
+  ],
+  стекло: GLASS_TOKENS,
+  'живые значения шторки': ['--nav-divider-color', '--nav-input-bg', '--nav-input-focus-ring'],
+};
+
+/** Первая гарнитура стека — та, которую человек реально видит. */
+const firstFamily = (stack: string) => stack.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
+
+/** `hsl(H S% L%)` или `hsl(H S% L% / A)` → тройка `H S% L%`. */
+function hslFunctionTriplet(value: string): string {
+  const match = value.match(/^hsl\(\s*(-?[\d.]+\s+[\d.]+%\s+[\d.]+%)\s*(?:\/\s*[\d.]+\s*)?\)$/);
+  assert.ok(match, `ожидал hsl(H S% L%): ${value}`);
+  return match[1];
+}
+
+describe('шесть тем: полный набор, различимость, контраст', () => {
+  const tokensByTheme = Object.fromEntries(themes.map((theme) => [theme, readThemeTokens(theme)]));
+
+  it('каждая тема задаёт полный набор в своём блоке и ничего не наследует от :root', () => {
+    for (const theme of themes) {
+      for (const [group, names] of Object.entries(REQUIRED_TOKENS)) {
+        for (const name of names) {
+          assert.ok(
+            tokensByTheme[theme][name] !== undefined && tokensByTheme[theme][name] !== '',
+            `тема ${theme}: не задано ${name} (${group})`
+          );
+        }
+      }
+    }
+  });
+
+  it('любые две темы отличаются шрифтом или скруглением — и стеклом', () => {
+    for (let i = 0; i < themes.length; i += 1) {
+      for (let j = i + 1; j < themes.length; j += 1) {
+        const [a, b] = [tokensByTheme[themes[i]], tokensByTheme[themes[j]]];
+        const pair = `${themes[i]} и ${themes[j]}`;
+        assert.ok(
+          firstFamily(a['--font-ui']) !== firstFamily(b['--font-ui']) || a['--radius'] !== b['--radius'],
+          `${pair}: один и тот же шрифт интерфейса и одно скругление`
+        );
+        assert.ok(
+          a['--glass-bg'] !== b['--glass-bg'] || a['--glass-blur'] !== b['--glass-blur'],
+          `${pair}: одно и то же стекло`
+        );
+      }
+    }
+  });
+
+  it('характер не сводится к цвету: у тем разные скругления, плотность и скорость', () => {
+    const distinct = (name: string) => new Set(themes.map((theme) => tokensByTheme[theme][name])).size;
+    assert.ok(distinct('--radius') >= 5, 'скругление совпадает больше чем у одной пары тем');
+    assert.ok(distinct('--density') >= 3, 'плотность у всех почти одна');
+    assert.ok(distinct('--duration-base') >= 4, 'скорость движения у всех почти одна');
+    assert.ok(distinct('--glass-blur') >= 5, 'размытие стекла у всех почти одно');
+    assert.equal(new Set(themes.map((theme) => firstFamily(tokensByTheme[theme]['--font-ui']))).size >= 5, true);
+  });
+
+  it('основной текст ≥ 4,5:1, приглушённый ≥ 3:1, текст на акценте ≥ 4,5:1', () => {
+    for (const theme of themes) {
+      const tokens = tokensByTheme[theme];
+      const checks: Array<[string, string, string, number]> = [
+        ['основной текст на фоне', tokens['--foreground'], tokens['--background'], 4.5],
+        ['основной текст на карточке', tokens['--card-foreground'], tokens['--card'], 4.5],
+        ['текст всплывающего окна', tokens['--popover-foreground'], tokens['--popover'], 4.5],
+        ['приглушённый текст на фоне', tokens['--muted-foreground'], tokens['--background'], 3],
+        ['приглушённый текст на карточке', tokens['--muted-foreground'], tokens['--card'], 3],
+        ['текст на акценте', tokens['--primary-foreground'], tokens['--primary'], 4.5],
+      ];
+      for (const [name, text, surface, minimum] of checks) {
+        const ratio = contrast(text, surface);
+        assert.ok(ratio >= minimum, `${theme}: ${name} — ${ratio.toFixed(2)}:1 < ${minimum}:1`);
+      }
+    }
+  });
+
+  it('каждый вариант «Неона» держит текст на акценте и акцент на фоне', () => {
+    const neon = tokensByTheme.neon;
+    for (const variant of NEON_VARIANT_IDS) {
+      const accent = readBlockTokens(`[data-theme='neon'][data-theme-variant='${variant}'] {`)['--primary'];
+      const onAccent = contrast(neon['--primary-foreground'], accent);
+      assert.ok(onAccent >= 4.5, `neon/${variant}: текст на акценте ${onAccent.toFixed(2)}:1`);
+      const asText = contrast(accent, neon['--background']);
+      assert.ok(asText >= 4.5, `neon/${variant}: акцент как текст на фоне ${asText.toFixed(2)}:1`);
+    }
+  });
+
+  it('без размытия стекло становится плотным фоном, на котором текст читается', () => {
+    for (const theme of themes) {
+      const tokens = tokensByTheme[theme];
+      const fallback = tokens['--glass-fallback-bg'];
+      assert.doesNotMatch(fallback, /\//, `${theme}: запасной фон стекла обязан быть непрозрачным`);
+      const surface = hslFunctionTriplet(fallback);
+      const ratio = contrast(tokens['--foreground'], surface);
+      assert.ok(ratio >= 4.5, `${theme}: текст на запасном фоне стекла ${ratio.toFixed(2)}:1`);
+      const muted = contrast(tokens['--muted-foreground'], surface);
+      assert.ok(muted >= 3, `${theme}: приглушённый текст на запасном фоне стекла ${muted.toFixed(2)}:1`);
+      assert.match(tokens['--glass-blur'], /^\d+px$/, `${theme}: --glass-blur в px`);
+      assert.match(tokens['--glass-saturate'], /^\d+(\.\d+)?$/, `${theme}: --glass-saturate числом`);
+      for (const name of ['--glass-bg', '--glass-bg-strong', '--glass-border', '--glass-highlight']) {
+        assert.match(tokens[name], /\/\s*[\d.]+\s*\)$/, `${theme}: ${name} — цвет с альфой`);
+      }
+    }
+  });
+
+  it('светлые и тёмные темы помечены верно: фон светлых светлее текста', () => {
+    for (const theme of themes) {
+      const tokens = tokensByTheme[theme];
+      const lightBackground = luminance(tokens['--background']) > luminance(tokens['--foreground']);
+      assert.equal(lightBackground, lightThemes.includes(theme), `${theme}: LIGHT_THEMES не совпадает с палитрой`);
+    }
+  });
+});
+
+describe('стекло: классы и запасные ветки', () => {
+  const start = cssSource.indexOf('/* glass:start');
+  const end = cssSource.indexOf('/* glass:end */');
+  const glassCss = start >= 0 && end > start ? cssSource.slice(start, end) : '';
+  /** Тело первого правила, чей селектор — ровно `selector`. */
+  const rule = (selector: string) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = glassCss.match(new RegExp(`(?:^|[\\n,}])\\s*${escaped}\\s*(?:,[^{]*)?\\{([^}]*)\\}`));
+    return match ? match[1] : '';
+  };
+
+  it('раздел стекла есть, и в нём шесть классов', () => {
+    assert.ok(glassCss.length > 0, 'в index.css нет раздела /* glass:start … glass:end */');
+    for (const name of ['glass-surface', 'glass-sheet', 'glass-pill', 'glass-button', 'glass-button-primary', 'glass-active']) {
+      assert.match(glassCss, new RegExp(`\\.${name}(?![a-z-])`), `нет класса .${name}`);
+    }
+  });
+
+  it('классы берут только значения --glass-*: ни жёстких цветов, ни чужих переменных', () => {
+    const withoutComments = glassCss.replace(/\/\*[\s\S]*?\*\//g, '');
+    const used = [...withoutComments.matchAll(/var\((--[a-z0-9-]+)/g)].map((entry) => entry[1]);
+    assert.ok(used.length > 0);
+    for (const name of used) {
+      assert.match(name, /^--glass-/, `класс стекла читает ${name}`);
+    }
+    for (const name of GLASS_TOKENS) {
+      assert.ok(used.includes(name), `ни один класс стекла не читает ${name}`);
+    }
+    assert.doesNotMatch(withoutComments, /#[0-9a-f]{3,8}\b/i, 'жёсткий hex в классах стекла');
+    assert.doesNotMatch(withoutComments, /\b(?:rgb|rgba|hsl|hsla)\(\s*[\d.]/, 'жёсткий цвет в классах стекла');
+  });
+
+  it('материал: фон, размытие с насыщенностью, кромка, блик и тень', () => {
+    const blur = /backdrop-filter:\s*blur\(var\(--glass-blur\)\)\s*saturate\(var\(--glass-saturate\)\)/;
+    assert.match(glassCss, blur);
+    assert.match(glassCss, new RegExp(`-webkit-${blur.source}`), 'нет префикса для Safari');
+    assert.match(glassCss, /border:\s*1px solid var\(--glass-border\)/);
+    assert.match(glassCss, /box-shadow:\s*inset 0 1px 0 var\(--glass-highlight\),\s*var\(--glass-shadow\)/);
+    // Под текстом — плотный фон, у мелких плавающих кнопок — лёгкий.
+    assert.match(rule('.glass-surface'), /background-color:\s*var\(--glass-bg-strong\)/);
+    assert.match(rule('.glass-sheet'), /background-color:\s*var\(--glass-bg-strong\)/);
+    assert.match(rule('.glass-pill'), /background-color:\s*var\(--glass-bg\)/);
+    assert.match(rule('.glass-button'), /background-color:\s*var\(--glass-bg\)/);
+  });
+
+  it('кнопки: круг 44×44, пилюля не ниже 36 с зоной нажатия 44, отклик и фокус', () => {
+    const button = rule('.glass-button');
+    assert.match(button, /width:\s*44px/);
+    assert.match(button, /height:\s*44px/);
+    assert.match(button, /border-radius:\s*9999px/);
+    const pill = rule('.glass-pill');
+    assert.match(pill, /min-height:\s*36px/);
+    assert.match(pill, /border-radius:\s*9999px/);
+    const hit = rule('.glass-pill::before');
+    assert.match(hit, /min-height:\s*44px/, 'зона нажатия пилюли меньше 44');
+    assert.match(glassCss, /\.glass-(?:pill|button)[^{]*:active[^{]*\{[^}]*transform:\s*scale\(0\.9\d\)/, 'нет сжатия при нажатии');
+    const durations = [...glassCss.matchAll(/transition:[^;]*?(\d+)ms/g)].map((entry) => Number(entry[1]));
+    assert.ok(durations.length > 0 && durations.every((ms) => ms <= 150), 'отклик на нажатие дольше 150 мс');
+    assert.match(glassCss, /:focus-visible[^{]*\{[^}]*outline:\s*2px solid var\(--glass-ring\)/, 'нет видимого фокуса');
+    // Своё правило главной кнопки (не общее с .glass-button, где задана форма).
+    const primary = glassCss.match(/\}\s*(?:\/\*[\s\S]*?\*\/\s*)?\.glass-button-primary\s*\{([^}]*)\}/)?.[1] ?? '';
+    assert.match(primary, /background-color:\s*var\(--glass-accent-bg\)/);
+    assert.match(primary, /[^-]color:\s*var\(--glass-accent-fg\)/);
+    // Форма у главной кнопки та же, что у обычной: круг 44×44.
+    assert.match(glassCss, /\.glass-button,\s*\.glass-button-primary\s*\{/);
+  });
+
+  it('запасные ветки: «уменьшить прозрачность», нет backdrop-filter, «уменьшить движение»', () => {
+    const opaque = /background-color:\s*var\(--glass-fallback-bg\)[^}]*backdrop-filter:\s*none/;
+    const reducedTransparency = glassCss.match(/@media \(prefers-reduced-transparency: reduce\)\s*\{([\s\S]*?)\n  \}/);
+    assert.ok(reducedTransparency, 'нет ветки prefers-reduced-transparency');
+    assert.match(reducedTransparency[1], opaque);
+    const noBackdrop = glassCss.match(
+      /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)\s*\{([\s\S]*?)\n  \}/
+    );
+    assert.ok(noBackdrop, 'нет ветки @supports not (backdrop-filter…)');
+    assert.match(noBackdrop[1], /background-color:\s*var\(--glass-fallback-bg\)/);
+    const reducedMotion = glassCss.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n  \}/);
+    assert.ok(reducedMotion, 'нет ветки prefers-reduced-motion');
+    assert.match(reducedMotion[1], /transition:\s*none/);
+    assert.match(reducedMotion[1], /transform:\s*none/);
+    // Во всех трёх ветках перечислены все четыре поверхности.
+    for (const branch of [reducedTransparency[1], noBackdrop[1]]) {
+      for (const name of ['glass-surface', 'glass-sheet', 'glass-pill', 'glass-button']) {
+        assert.match(branch, new RegExp(`\\.${name}(?![a-z-])`), `ветка не покрывает .${name}`);
+      }
+    }
+  });
+
+  it('под живыми обоями лист теряет размытие, плавающие элементы — нет', () => {
+    const live = glassCss.match(/html\.has-live-wallpaper ([^{]*)\{([^}]*)\}/);
+    assert.ok(live, 'нет правила html.has-live-wallpaper');
+    assert.match(live[1], /^\.glass-sheet\s*$/, 'размытие под живыми обоями снимается только у листа');
+    assert.match(live[2], /backdrop-filter:\s*none/);
+    assert.match(live[2], /-webkit-backdrop-filter:\s*none/);
+    assert.match(live[2], /background-color:\s*var\(--glass-fallback-bg\)/);
+  });
+
+  it('затемнение за листом — свой тёмный цвет темы, а не её фон', () => {
+    // Разбор D2: шторку затемняли цветом --background, и в светлой теме вуаль
+    // осветляла экран под шторкой вместо того, чтобы его затемнить.
+    assert.match(rule('.glass-scrim'), /background-color:\s*var\(--glass-scrim\)/);
+    for (const theme of themes) {
+      const scrim = readThemeTokens(theme)['--glass-scrim'];
+      assert.ok(scrim, `тема ${theme}: нет --glass-scrim`);
+      const lightness = Number(hslFunctionTriplet(scrim).split(/\s+/)[2].replace('%', ''));
+      assert.ok(lightness <= 20, `тема ${theme}: затемнение светлое (${lightness}%)`);
+    }
+  });
+
+  it('производные значения стекла заданы один раз в :root', () => {
+    const rootStart = cssSource.indexOf(':root {');
+    const rootBlock = cssSource.slice(rootStart, cssSource.indexOf('\n  }', rootStart));
+    for (const name of ['--glass-ring', '--glass-accent-bg', '--glass-accent-fg', '--glass-active-bg', '--glass-active-fg', '--glass-radius']) {
+      assert.match(rootBlock, new RegExp(`^\\s*${name}:`, 'm'), `в :root нет ${name}`);
+    }
+  });
+});
+
+describe('нижняя панель: место под неё', () => {
+  it('по умолчанию ноль, с классом has-bottom-bar — 64px плюс нижний отступ айфона', () => {
+    const rootStart = cssSource.indexOf(':root {');
+    const rootBlock = cssSource.slice(rootStart, cssSource.indexOf('\n  }', rootStart));
+    assert.match(rootBlock, /^\s*--bottom-bar-space:\s*0px;/m);
+    assert.match(
+      cssSource,
+      /html\.has-bottom-bar\s*\{\s*--bottom-bar-space:\s*calc\(64px \+ var\(--safe-bottom\)\);\s*\}/
+    );
+  });
+});
+
+describe('мёртвые остатки старой навигации', () => {
+  const srcRoot = path.join(here, '..');
+  const self = fileURLToPath(import.meta.url);
+  const textFiles: string[] = [];
+  (function walk(dir: string) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(css|tsx?|jsx?|json)$/.test(entry.name) && full !== self) textFiles.push(full);
+    }
+  })(srcRoot);
+
+  it('классов и значений старой плавающей навигации нет ни в src, ни в tailwind.config.js', () => {
+    const dead = /nav-glass|mobile-nav|nav-tab-active|--nav-tab-|--nav-float-/;
+    for (const file of textFiles) {
+      const match = readFileSync(file, 'utf8').match(dead);
+      assert.equal(match, null, `${path.relative(srcRoot, file)}: остался «${match?.[0]}»`);
+    }
+    assert.doesNotMatch(tailwindSource, dead);
+  });
+
+  it('живые разделитель и поле поиска шторки на месте', () => {
+    assert.match(cssSource, /\.nav-divider\s*\{[^}]*var\(--nav-divider-color\)/);
+    assert.match(cssSource, /\.nav-search-input\s*\{[^}]*var\(--nav-input-bg\)/);
+    assert.match(cssSource, /\.nav-search-input:focus-within\s*\{[^}]*var\(--nav-input-focus-ring\)/);
   });
 });

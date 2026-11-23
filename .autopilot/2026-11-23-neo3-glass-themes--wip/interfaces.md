@@ -164,3 +164,24 @@ node_modules/.bin/vite build --outDir "$(mktemp -d /tmp/neo3-client-check.XXXXXX
 ## Что построено
 
 <!-- дописывается после каждого таска: что появилось и как этим пользоваться -->
+
+### Таск 02 — стекло и шесть тем (сдан)
+
+- Реестр: `THEMES = ember, codex, bio, neon, glass, claudeLight`; `LIGHT_THEMES = glass, claudeLight`.
+- Значения стекла в каждой теме: `--glass-bg`, `--glass-bg-strong`, `--glass-blur`, `--glass-saturate`, `--glass-border`,
+  `--glass-highlight`, `--glass-shadow`, `--glass-fallback-bg`, а также `--glass-scrim` (цвет затемнения за листом).
+  Производные в `:root`: `--glass-ring`, `--glass-accent-bg`, `--glass-accent-fg`, `--glass-active-bg`, `--glass-active-fg`, `--glass-radius`.
+- Классы: `.glass-surface`, `.glass-sheet`, `.glass-pill`, `.glass-button`, `.glass-button-primary`, `.glass-active`,
+  `.glass-scrim` (затемнение и размытие ЗА листом — для оверлея шторки и подобных). Раздел в `src/index.css`
+  между `/* glass:start` и `/* glass:end */`. В экранах классы ещё не расставлены — это таски 03–05.
+- `--bottom-bar-space` (`0px`) и `html.has-bottom-bar` заданы.
+- `src/contexts/themeMigration.js`: `NEON_VARIANTS`, `DEFAULT_NEON_VARIANT`, `LEGACY_THEME_MAP`, `migrateThemeId(id)`,
+  `isNeonVariant(id)`, `resolveNeonVariant(id)`, `neonVariantFile(id)`. `ThemeContext` реэкспортирует `NEON_VARIANTS`, `DEFAULT_NEON_VARIANT`.
+- `useTheme()` += `neonVariant`, `setNeonVariant(id)`; id вариантов: `city, synthwave, nebula, mission, bento, chrome, zen, kinetic`.
+- `parseTweakMap(json, themeIds?)` отбрасывает записи чужих тем.
+- `ShaderBackground.tsx` удалён (не импортировался).
+- `useAuth` в коде, который грузится тестами под node, брать из `auth/context/AuthContext`, а не из бочки `../auth`
+  (бочка тянет терминал и `xterm.css`) — так починен D01.
+- Характер тем: Оранжевая — Geologica, 10px, тёплое дымчатое стекло; Графит — системный шрифт, 8px, матовый, без теней;
+  Био — General Sans + IBM Plex Mono в чипах, 12px, чёрный с волосяными линиями; Неон — JetBrains Mono, 6px, свечение акцента;
+  Бирюзовая — Outfit, 16px, белый иней; Светлая Claude — системный + засечные заголовки, 10px, бумага и калька.
