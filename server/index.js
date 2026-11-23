@@ -16,6 +16,7 @@ import cors from 'cors';
 import mime from 'mime-types';
 
 import { WORKSPACES_ROOT, apiErrorHandler, validateWorkspacePath } from '@/shared/utils.js';
+import { checkUsageGuard } from '@/shared/claude-usage.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
 import { broadcastProjectEvent, chatRunRegistry, createAgentRunControl, createAutoRelayRunControl, createPermissionAnswerEngine, createQueuedSendControl, createThreadRunControl, createWebSocketServer } from '@/modules/websocket/index.js';
 
@@ -215,6 +216,11 @@ const chatDependencies = {
     },
     releaseHeldFns: {
         claude: releaseHeldClaudeRun,
+    },
+    // The queue asks Claude's 5-hour guard before it starts a run: the
+    // runtime's own refusal comes after the message has left the queue.
+    usageGuardFns: {
+        claude: checkUsageGuard,
     },
     resolveToolApproval,
     getPendingApprovalsForSession,
@@ -1662,6 +1668,10 @@ async function startServer() {
         // помощников» changes no status) or ended after it had parked («готово»
         // → «готово», also after «Стоп») is the queue's cue just the same.
         chatRunRegistry.onTurnBoundary((sessionId) => pokeQueue({ sessionId }));
+        // The same boundary wakes the threads: a held parent between turns is
+        // free for «Треды готовы», and the end of a held run is the next cue
+        // when its process did not take the message.
+        chatRunRegistry.onTurnBoundary((sessionId) => { void threadsService.handleAttentionChange(sessionId); });
 
         // «Не засыпать»: Mac не уходит в сон, пока идут прогоны (мод modKeepAwake).
         startKeepAwake({ sessionAttention });

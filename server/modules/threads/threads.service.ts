@@ -26,6 +26,7 @@ import type { LLMProvider } from '@/shared/types.js';
 
 import { withAgentBrief } from '../../../shared/agent-brief.js';
 import { lastReplyTurn, type ReplyTurnMessage } from '../../../shared/reply-turn.js';
+import type { RunPhase } from '../../../shared/run-phase.js';
 import { threadTokens as defaultThreadTokens, type ThreadTokenOwner, type ThreadTokens } from './thread-tokens.js';
 
 // ---------------------------------------------------------------------------
@@ -110,6 +111,12 @@ export type ThreadsDependencies = {
   tokens?: ThreadTokens;
   now?: () => Date;
   isProcessing?: (sessionId: string) => boolean;
+  /**
+   * Phase of a chat's live run, null = none. A Claude run kept for its
+   * background («Фон доживает до конца») is alive for up to two hours while
+   * its turn is long over. Absent = every live run is in a turn (`isProcessing`).
+   */
+  runPhase?: (sessionId: string) => RunPhase | null;
   attentionOf?: (sessionId: string) => ThreadAttention | null;
   fetchMessages?: (sessionId: string) => Promise<ReplyTurnMessage[]>;
   /** Claude 5-hour guard; fails open (an unknown usage never blocks). */
@@ -238,15 +245,31 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   });
 
   // The registry lookup is synchronous once loaded; tests inject their own.
-  let registryIsProcessing: ((sessionId: string) => boolean) | null = null;
-  const isProcessingNow = (sessionId: string): boolean => {
-    if (dependencies.isProcessing) return dependencies.isProcessing(sessionId);
-    return registryIsProcessing ? registryIsProcessing(sessionId) : false;
+  let registryRunPhase: ((sessionId: string) => RunPhase | null) | null = null;
+  const phaseNow = (sessionId: string): RunPhase | null => {
+    if (dependencies.runPhase) return dependencies.runPhase(sessionId);
+    if (dependencies.isProcessing) return dependencies.isProcessing(sessionId) ? 'running' : null;
+    return registryRunPhase ? registryRunPhase(sessionId) : null;
+  };
+  /** The chat has a live run — «Стоп» has something to stop. */
+  const isProcessingNow = (sessionId: string): boolean => phaseNow(sessionId) !== null;
+  /**
+   * A turn is going: nothing can be written to the chat. A held run between
+   * turns («ждёт помощников», parked) takes a message into its live process.
+   */
+  const isInTurnNow = (sessionId: string): boolean => phaseNow(sessionId) === 'running';
+  /**
+   * The thread still works: in a turn, or waiting for its own helpers. A
+   * parked one has answered — only a background command of its own lives on.
+   */
+  const isWorkingNow = (sessionId: string): boolean => {
+    const phase = phaseNow(sessionId);
+    return phase === 'running' || phase === 'waiting_helpers';
   };
   const ensureRegistry = async (): Promise<void> => {
-    if (dependencies.isProcessing || registryIsProcessing) return;
+    if (dependencies.runPhase || dependencies.isProcessing || registryRunPhase) return;
     const { chatRunRegistry } = await import('@/modules/websocket/index.js');
-    registryIsProcessing = (sessionId) => chatRunRegistry.isProcessing(sessionId);
+    registryRunPhase = (sessionId) => chatRunRegistry.runPhase(sessionId);
   };
 
   let runControl: ThreadRunControl | null = null;
@@ -354,7 +377,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
   async function statusOf(threadId: string): Promise<ThreadStatusItem> {
     const session = sessionsDb.getSessionById(threadId);
     const row = sessionThreadsDb.get(threadId);
-    const working = isProcessingNow(threadId);
+    const working = isWorkingNow(threadId);
     const attention = working ? null : attentionOf(threadId);
     const rawState = attention?.state;
     const state: ThreadState = working
@@ -421,7 +444,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
       refuse('NESTED_THREAD', 'Тред не может открывать свои треды — вернись с итогом к родителю', 403);
     }
 
-    const working = sessionThreadsDb.listByParent(owner.sessionId).filter((row) => isProcessingNow(row.thread_session_id)).length;
+    const working = sessionThreadsDb.listByParent(owner.sessionId).filter((row) => isWorkingNow(row.thread_session_id)).length;
     const opening = openingByParent.get(owner.sessionId) ?? 0;
     if (working + opening >= MAX_WORKING_THREADS) {
       refuse(
@@ -531,7 +554,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
     const requested = Number(input.wait);
     const waitMs = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_THREAD_WAIT_SEC) * 1000 : 0;
     const deadline = now().getTime() + waitMs;
-    const anyWorking = () => targets.some((id) => isProcessingNow(id));
+    const anyWorking = () => targets.some((id) => isWorkingNow(id));
     while (waitMs > 0 && anyWorking() && now().getTime() < deadline) {
       await sleep(Math.min(pollMs, Math.max(0, deadline - now().getTime())));
     }
@@ -550,7 +573,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
     const row = ownThread(owner, input.threadId);
     const text = readString(input.text);
     if (!text) refuse('TEXT_REQUIRED', 'Нужен текст сообщения для треда (text)', 400);
-    if (isProcessingNow(row.thread_session_id)) {
+    if (isInTurnNow(row.thread_session_id)) {
       refuse('THREAD_BUSY', 'Тред занят — дождись конца его хода (thread_status с wait) или останови его (stop_thread)', 409);
     }
     const options: Record<string, unknown> = {};
@@ -608,9 +631,13 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
     return `${head} — готово: ${item.lastReply ? clip(item.lastReply, SUMMARY_REPLY_MAX) : 'без текста ответа'}`;
   }
 
-  /** Running, or waiting for a human (a question, a plan, an approval, a question in text). */
+  /**
+   * In a turn, or waiting for a human (a question, a plan, an approval, a
+   * question in text). A parent whose process is only kept for its background
+   * is between turns — free: the message goes into that live process.
+   */
   function parentIsBusy(parentSessionId: string): boolean {
-    if (isProcessingNow(parentSessionId)) return true;
+    if (isInTurnNow(parentSessionId)) return true;
     return attentionOf(parentSessionId)?.state === 'waiting';
   }
 
@@ -622,7 +649,7 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
       const pending = sessionThreadsDb.listByParent(parentSessionId)
         .filter((row) => row.seen_at === null && row.notified_at === null);
       if (pending.length === 0) return;
-      if (pending.some((row) => isProcessingNow(row.thread_session_id))) return;
+      if (pending.some((row) => isWorkingNow(row.thread_session_id))) return;
 
       const items = await Promise.all(pending.map((row) => statusOf(row.thread_session_id)));
       if (items.some((item) => item.state === 'working') || parentIsBusy(parentSessionId)) return;
@@ -654,7 +681,11 @@ export function createThreadsService(dependencies: ThreadsDependencies = {}) {
     }
   }
 
-  /** Any status change: a thread settled, or a parent finished its turn. */
+  /**
+   * Any status change: a thread settled, or a parent finished its turn. Also
+   * the gateway's turn boundary (server/index.js): a held run that went
+   * between turns or ended may change no status at all.
+   */
   async function handleAttentionChange(sessionId: string): Promise<void> {
     try {
       await ensureRegistry();

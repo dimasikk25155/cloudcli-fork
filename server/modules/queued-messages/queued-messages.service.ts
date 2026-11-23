@@ -24,6 +24,15 @@
  * the message (a fresh put), presses «send now», or removes it. The queue
  * never retries by itself.
  *
+ * Two more ways into the cell and out of it:
+ * - a message that was SENT (`chat.send`) but that the chat's live process
+ *   could not take is kept here by the gateway (`deferSent`) and leaves when
+ *   that turn or run ends — it is never held as «question»: it is the answer;
+ * - the engine's limit on new runs (Claude's 5-hour guard) is asked BEFORE the
+ *   run (`checkSendLimit`): a run refused inside the runtime would already
+ *   have taken the message out of the cell. Refused → «error» with the reason;
+ *   «send now» on that card is the user's «run anyway».
+ *
  * Everything outside the cell is injected: the gateway (`sendAsUser`,
  * `isRunLive`, `abortRun`), the chat status (`getAttention`) and the
  * content-free frame (`notifyChanged`).
@@ -49,6 +58,8 @@ export type QueuedSendInput = {
   content: string;
   options: Record<string, unknown>;
   images: unknown[];
+  /** The sender's tab already drew this message's bubble (a kept `chat.send`): the gateway draws no second one. */
+  echoed?: boolean;
 };
 
 /**
@@ -74,6 +85,8 @@ export type QueuedSendControl = {
   abortRun(sessionId: string, userId: number | null): Promise<boolean>;
   /** The chat's last run ended with «Стоп». */
   lastRunStopped(sessionId: string): boolean;
+  /** The engine would refuse a new run with this message now: the reason for a person; null = go. */
+  sendLimit?(input: QueuedSendInput): Promise<string | null>;
 };
 
 export type QueuedPutInput = {
@@ -86,6 +99,14 @@ export type QueuedMessagesDependencies = {
   db?: QueuedMessagesDb;
   /** Starts an ordinary run with the message (the chat gateway's `beginChatSend`). */
   sendAsUser: (input: QueuedSendInput) => QueuedSendOutcome | Promise<QueuedSendOutcome>;
+  /**
+   * The engine's limit on new runs, asked before every send: a reason for a
+   * person when the run would be refused now, null = go. With it the message
+   * is sent with `usageGuardOverride` — the limit was asked here, the runtime
+   * must not answer a second time after the message has left the cell.
+   * A failure of the check never blocks. Absent = nobody is asked.
+   */
+  checkSendLimit?: (input: QueuedSendInput) => string | null | Promise<string | null>;
   /** Current status of the chat; null = the chat never ran. */
   getAttention: (sessionId: string) => QueueAttention | null;
   /** A turn of the chat is going right now (a held run between turns is not one). */
@@ -157,6 +178,9 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
+/** A message with its size checked, ready for the cell. */
+type CellContent = { content: string; optionsJson: string | null; imagesJson: string | null; images: number };
+
 export function createQueuedMessagesService(dependencies: QueuedMessagesDependencies) {
   const db = dependencies.db ?? queuedMessagesDb;
   const now = dependencies.now ?? (() => new Date());
@@ -174,6 +198,19 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
   let notifications = 0;
   /** One send at a time per chat: a second trigger while the gateway is starting the run is dropped. */
   const sending = new Set<string>();
+  /**
+   * Cells that hold a kept `chat.send` (see `deferSent`), by their version:
+   * an edit or a hold makes the cell an ordinary queued message again. In
+   * memory only — after a restart everything queued waits for the user anyway.
+   */
+  const sentCells = new Map<string, { version: string; echoed: boolean }>();
+  /** Cells the engine's limit refused, by their version: «send now» on exactly that card runs it anyway. */
+  const limitRefused = new Map<string, string>();
+
+  function forget(sessionId: string): void {
+    sentCells.delete(sessionId);
+    limitRefused.delete(sessionId);
+  }
 
   function notify(sessionId: string): void {
     notifications += 1;
@@ -205,18 +242,46 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
   async function trySend(row: QueuedMessageRow, manual: boolean): Promise<boolean> {
     const sessionId = row.sessionId;
     if (sending.has(sessionId)) return false;
+    const input: QueuedSendInput = {
+      sessionId,
+      userId: row.userId,
+      content: row.content,
+      options: parseObject(row.optionsJson) ?? {},
+      images: parseArray(row.imagesJson) ?? [],
+    };
+    const sentCell = sentCells.get(sessionId);
+    if (sentCell?.version === row.updatedAt && sentCell.echoed) input.echoed = true;
+
+    if (dependencies.checkSendLimit) {
+      // «Send now» on the card the limit refused is the user's «run anyway».
+      const confirmed = manual && limitRefused.get(sessionId) === row.updatedAt;
+      if (!confirmed) {
+        let reason: string | null = null;
+        try {
+          reason = await dependencies.checkSendLimit(input);
+        } catch (error) {
+          console.error('[QueuedMessages] limit check failed', { sessionId, error: error instanceof Error ? error.message : String(error) });
+        }
+        // The answer took a while. Someone else is sending, or the cell moved
+        // on — whoever changed it (a put, a clear) decided for the new one.
+        if (sending.has(sessionId)) return false;
+        const fresh = db.get(sessionId);
+        if (!fresh || fresh.updatedAt !== row.updatedAt) return false;
+        if (reason) {
+          hold(fresh, 'error', clip(reason, ERROR_MAX));
+          const held = db.get(sessionId);
+          if (held) limitRefused.set(sessionId, held.updatedAt);
+          return false;
+        }
+      }
+      input.options = { ...input.options, usageGuardOverride: true };
+    }
+
     sending.add(sessionId);
     try {
-      const images = parseArray(row.imagesJson) ?? [];
       let outcome: QueuedSendOutcome;
       try {
-        outcome = await dependencies.sendAsUser({
-          sessionId,
-          userId: row.userId,
-          content: row.content,
-          options: parseObject(row.optionsJson) ?? {},
-          images,
-        });
+        outcome = await dependencies.sendAsUser(input);
       } catch (error) {
         // The reason is the gateway's own error text, never the message.
         const reason = error instanceof Error ? error.message : String(error);
@@ -225,7 +290,7 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
 
       if (outcome.started) {
         // Only the version that was sent: an edit made meanwhile stays queued.
-        db.remove(sessionId, row.updatedAt);
+        if (db.remove(sessionId, row.updatedAt)) forget(sessionId);
         log('queue_send', { sessionId, userId: row.userId, manual });
         notify(sessionId);
         return true;
@@ -248,7 +313,7 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
     }
   }
 
-  function readPut(input: QueuedPutInput): { content: string; optionsJson: string | null; imagesJson: string | null; images: number } {
+  function readPut(input: QueuedPutInput): CellContent {
     const raw = input as { content?: unknown; options?: unknown; images?: unknown } | null | undefined;
     if (typeof raw?.content !== 'string') {
       throw badRequest('content должен быть строкой');
@@ -301,6 +366,7 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
         imagesJson: message.imagesJson,
         at: stamp(),
       });
+      forget(sessionId);
       const live = dependencies.isRunLive(sessionId);
       const waiting = dependencies.getAttention(sessionId)?.state === 'waiting';
       log('queue_put', { sessionId, userId, chars: message.content.length, images: message.images, live });
@@ -318,10 +384,59 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
       return { queued: current ? toQueued(current) : null, sent: false };
     },
 
+    /**
+     * Keeps a message that was SENT (`chat.send`) while the chat's live
+     * process could not take it: its input is already released, the agent
+     * started a turn by itself, or the sender may not share that process. The
+     * tab has emptied its field and drawn the bubble — a refusal would lose
+     * the message. It leaves when that turn or run ends (the gateway's turn
+     * boundary and `complete` come to `handleAttentionChange`), also when the
+     * chat «ждёт тебя». Nothing is sent from here: the gateway has just
+     * refused it. Synchronous, like the `chat.send` it stands in for.
+     *
+     * The cell already holds a message → nothing is replaced: both texts stay,
+     * the queued one first, with the settings of the newer one. A hold only
+     * the user lifts stays, and the user sends them.
+     */
+    deferSent(sessionId: string, userId: number | null, input: QueuedPutInput): QueuedMessage {
+      const message = readPut(input);
+      const existing = db.get(sessionId);
+      let cell = message;
+      if (existing) {
+        const images = [...(parseArray(existing.imagesJson) ?? []), ...(parseArray(message.imagesJson) ?? [])];
+        cell = readPut({
+          content: [existing.content, message.content].filter((text) => text.trim()).join('\n\n'),
+          options: parseObject(message.optionsJson),
+          images,
+        });
+      }
+      const row = db.put({
+        sessionId,
+        userId,
+        content: cell.content,
+        optionsJson: cell.optionsJson,
+        imagesJson: cell.imagesJson,
+        at: stamp(),
+      });
+      forget(sessionId);
+      log('queue_put', { sessionId, userId, chars: cell.content.length, images: cell.images, live: true });
+      if (existing?.holdReason && STICKY_HOLDS.has(existing.holdReason)) {
+        db.setHold(sessionId, { holdReason: existing.holdReason, lastError: existing.lastError, at: stamp() });
+      } else {
+        // Only the lone message is on the sender's screen as it will be sent.
+        sentCells.set(sessionId, { version: row.updatedAt, echoed: !existing });
+      }
+      notify(sessionId);
+      return toQueued(db.get(sessionId) ?? row);
+    },
+
     /** Removes the queued message. False = the chat had none. */
     clear(sessionId: string): boolean {
       const removed = db.remove(sessionId);
-      if (removed) notify(sessionId);
+      if (removed) {
+        forget(sessionId);
+        notify(sessionId);
+      }
       return removed;
     },
 
@@ -363,6 +478,8 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
         const attention = dependencies.getAttention(sessionId);
         if (!attention) return;
         const sticky = row.holdReason !== null && STICKY_HOLDS.has(row.holdReason);
+        // A kept `chat.send` is the user's answer: an open question does not hold it.
+        const sentAlready = sentCells.get(sessionId)?.version === row.updatedAt;
 
         if (attention.state === 'working') {
           // The question was answered and the agent works on: the message goes with the turn end again.
@@ -377,7 +494,7 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
         }
         if (sticky) return;
 
-        if (attention.state === 'waiting') {
+        if (attention.state === 'waiting' && !sentAlready) {
           if (row.holdReason !== 'question') hold(row, 'question');
           return;
         }
@@ -386,7 +503,7 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
           return;
         }
 
-        // done
+        // done — or a sent message of a chat that asks: it goes when no turn is going
         if (attention.stopped) {
           // «Send now» stops the turn itself and sends when the stop has settled.
           if (!row.sendNow) hold(row, 'stopped');

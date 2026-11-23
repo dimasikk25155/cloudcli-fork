@@ -34,11 +34,14 @@ type World = {
   /** Phase of the chat's live run as the gateway reports it (null = no live run). */
   phase: 'running' | 'waiting_helpers' | 'parked' | null;
   attention: QueueAttention | null;
+  /** What the engine's limit on new runs answers, in worlds that have one: a reason, or null = go. */
+  limit: string | null;
+  limitAsked: number;
   /** The turn ended (or changed its status): tell the queue like session-attention does. */
   turn(attention: QueueAttention, live?: boolean): Promise<void>;
 };
 
-async function withWorld(run: (world: World) => Promise<void>): Promise<void> {
+async function withWorld(run: (world: World) => Promise<void>, options: { withLimit?: boolean } = {}): Promise<void> {
   const previous = process.env.DATABASE_PATH;
   const directory = await mkdtemp(path.join(tmpdir(), 'queued-messages-service-'));
   closeConnection();
@@ -56,6 +59,8 @@ async function withWorld(run: (world: World) => Promise<void>): Promise<void> {
       live: true,
       phase: 'running',
       attention: { state: 'working' },
+      limit: null,
+      limitAsked: 0,
       async turn(attention, live = false) {
         world.attention = attention;
         world.live = live;
@@ -74,6 +79,12 @@ async function withWorld(run: (world: World) => Promise<void>): Promise<void> {
         }
         return world.outcome;
       },
+      ...(options.withLimit ? {
+        checkSendLimit: () => {
+          world.limitAsked += 1;
+          return world.limit;
+        },
+      } : {}),
       getAttention: () => world.attention,
       isRunLive: () => world.live,
       runPhase: () => world.phase,
@@ -469,4 +480,154 @@ test('«ждёт помощников»: the status stays «работает», 
     assert.equal(world.sent.length, 1);
     assert.equal(world.service.get('chat-1')?.holdReason, 'failed');
   });
+});
+
+// Ремонт ветки (F1): a message that was SENT must not be lost when the live
+// process could not take it, and a refused limit must not eat a queued one.
+
+test('a sent message the live process could not take is kept and leaves when that run ends — also when the chat «ждёт тебя»; its bubble is already drawn', async () => {
+  await withWorld(async (world) => {
+    // Between turns, the agent asked a question, the process is on its way out.
+    world.live = false;
+    world.phase = 'parked';
+    world.attention = { state: 'waiting' };
+    const kept = world.service.deferSent('chat-1', DIMA, MESSAGE);
+    assert.equal(kept.content, MESSAGE.content);
+    assert.equal(kept.holdReason, null, 'it is the answer, not a message for later');
+    assert.equal(world.sent.length, 0, 'the gateway has just refused it: no second try at once');
+    assert.deepEqual(world.changed, ['chat-1'], 'the card is told');
+    assert.match(world.lines.join('\n'), /queue_put session=chat-1 user=7/);
+
+    // The run ended. The status says nothing new (it was settled when the turn parked).
+    world.phase = null;
+    await world.service.handleAttentionChange('chat-1');
+    assert.equal(world.sent.length, 1, 'sent although the chat «ждёт тебя»');
+    assert.deepEqual(world.sent[0], {
+      sessionId: 'chat-1',
+      userId: DIMA,
+      content: MESSAGE.content,
+      options: MESSAGE.options,
+      images: MESSAGE.images,
+      echoed: true,
+    });
+    assert.equal(world.service.get('chat-1'), null);
+  });
+});
+
+test('a kept sent message waits out a turn the agent started by itself, stops being special once the user edits it, and is held by «Стоп»', async () => {
+  await withWorld(async (world) => {
+    // The agent woke up by itself: a turn is going.
+    world.service.deferSent('chat-1', DIMA, { content: 'ответ' });
+    await world.turn({ state: 'working' }, true);
+    assert.equal(world.sent.length, 0, 'nothing is written into a running turn');
+    world.phase = 'parked';
+    await world.turn({ state: 'waiting' });
+    assert.equal(world.sent.length, 1, 'the turn is over: it goes, whatever the agent asked');
+    assert.equal(world.service.get('chat-1'), null);
+
+    // An edit in the card is a queued message like any other.
+    world.live = false;
+    world.phase = null;
+    world.attention = { state: 'waiting' };
+    world.service.deferSent('chat-1', DIMA, { content: 'черновик' });
+    await world.service.put('chat-1', DIMA, { content: 'поправил' });
+    assert.equal(world.service.get('chat-1')?.holdReason, 'question');
+    assert.equal(world.sent.length, 1);
+    world.service.clear('chat-1');
+
+    // «Стоп» before the run ended: the user decides.
+    world.service.deferSent('chat-1', DIMA, { content: 'ещё' });
+    await world.turn({ state: 'done', stopped: true });
+    assert.equal(world.service.get('chat-1')?.holdReason, 'stopped');
+    assert.equal(world.sent.length, 1);
+  });
+});
+
+test('a sent message never replaces what the queue already holds: both texts stay in the card, and a hold only the user lifts stays', async () => {
+  await withWorld(async (world) => {
+    await world.service.put('chat-1', DIMA, { content: 'После сборки выкати', images: [{ path: 'a.png' }] });
+    await world.turn({ state: 'done', stopped: true });
+    assert.equal(world.service.get('chat-1')?.holdReason, 'stopped');
+
+    world.live = false;
+    world.phase = 'parked';
+    const kept = world.service.deferSent('chat-1', DIMA, { content: 'Покажи лог', options: { permissionMode: 'plan' }, images: [{ path: 'b.png' }] });
+    assert.equal(kept.content, 'После сборки выкати\n\nПокажи лог');
+    assert.deepEqual(kept.images, [{ path: 'a.png' }, { path: 'b.png' }]);
+    assert.deepEqual(kept.options, { permissionMode: 'plan' });
+    assert.equal(kept.holdReason, 'stopped', 'what waited for the user still waits for the user');
+
+    world.phase = null;
+    await world.turn({ state: 'done' });
+    assert.equal(world.sent.length, 0);
+    assert.equal((await world.service.sendNow('chat-1', DIMA)).sent, true);
+    assert.equal(world.sent[0].content, 'После сборки выкати\n\nПокажи лог');
+    assert.equal('echoed' in world.sent[0], false, 'nobody drew a bubble with both texts');
+  });
+});
+
+test('the engine\'s limit refuses new runs: the message stays in its card as «error» with the reason in Russian, nothing retries, «отправить» runs it anyway', async () => {
+  await withWorld(async (world) => {
+    const reason = 'Использовано 95% 5-часового лимита подписки Claude — новые прогоны придержаны до 21:00 МСК. Нажми «Отправить», чтобы запустить всё равно.';
+    await world.service.put('chat-1', DIMA, MESSAGE);
+    world.limit = reason;
+    await world.turn({ state: 'done' });
+
+    assert.equal(world.sent.length, 0, 'no run was started, so none could swallow the message');
+    const held = world.service.get('chat-1');
+    assert.equal(held?.content, MESSAGE.content);
+    assert.equal(held?.holdReason, 'error');
+    assert.equal(held?.lastError, reason);
+    assert.match(world.lines.join('\n'), /queue_hold session=chat-1 user=7 reason=error/);
+
+    // The queue does not ask again by itself.
+    const asked = world.limitAsked;
+    await world.turn({ state: 'done' });
+    await world.turn({ state: 'working' }, true);
+    await world.turn({ state: 'done' });
+    assert.equal(world.limitAsked, asked);
+    assert.equal(world.sent.length, 0);
+
+    // «Отправить» on that card is the user's «run anyway»: the limit is not asked, the runtime is told.
+    const result = await world.service.sendNow('chat-1', DIMA);
+    assert.equal(result.sent, true);
+    assert.equal(world.limitAsked, asked);
+    assert.deepEqual(world.sent[0].options, { ...MESSAGE.options, usageGuardOverride: true });
+    assert.equal(world.service.get('chat-1'), null);
+  }, { withLimit: true });
+});
+
+test('a limit that lets the run through is not asked a second time by the runtime; a refused card that was edited is asked again', async () => {
+  await withWorld(async (world) => {
+    world.live = false;
+    world.attention = { state: 'done' };
+    assert.equal((await world.service.put('chat-1', DIMA, MESSAGE)).sent, true);
+    assert.equal(world.limitAsked, 1);
+    assert.deepEqual(world.sent[0].options, { ...MESSAGE.options, usageGuardOverride: true });
+
+    // Refused, then edited: «отправить» on the new text is not a confirmation of the old refusal.
+    world.live = false;
+    world.attention = { state: 'done' };
+    world.limit = 'Лимит подписки почти исчерпан';
+    assert.equal((await world.service.put('chat-1', DIMA, MESSAGE)).queued?.holdReason, 'error');
+    world.live = true;
+    await world.service.put('chat-1', DIMA, { content: 'другой текст' });
+    world.live = false;
+    const again = await world.service.sendNow('chat-1', DIMA);
+    assert.equal(again.sent, false);
+    assert.equal(again.queued?.holdReason, 'error');
+    assert.equal(world.sent.length, 1);
+
+    // A check that throws never blocks.
+    const service = createQueuedMessagesService({
+      db: queuedMessagesDb,
+      sendAsUser: (input) => { world.sent.push(input); return { started: true }; },
+      checkSendLimit: () => { throw new Error('usage endpoint is down'); },
+      getAttention: () => ({ state: 'done' }),
+      isRunLive: () => false,
+      abortRun: () => false,
+      log: () => {},
+    });
+    assert.equal((await service.put('chat-2', DIMA, { content: 'проверка упала' })).sent, true);
+  }, { withLimit: true });
 });

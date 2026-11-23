@@ -966,8 +966,30 @@ async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
   let holdCeilingTimer = null;
   // «Готово» of a parked turn was already pushed; the run's end is not news again.
   let turnEndNotified = false;
+  // A sender ended the hold before the CLI said idle (see releaseHeld): the
+  // release that follows its idle is theirs in the journal.
+  let holdEndedBySender = false;
   // The relay's handoff note may be written without asking only in its own turn.
   let relayNoteDir = options.autoRelayNoteDir || null;
+  // The composer settings this process runs with. It cannot change them
+  // between turns, so a follow-up message that names other ones is not
+  // written into it (see acceptInput) — «план» typed after a full-access
+  // message would otherwise edit files. The mode follows an approved plan:
+  // the CLI itself goes to full access then, and the tab's mode chip mirrors it.
+  const readSetting = (value) => (typeof value === 'string' ? value.trim() : '');
+  const processSettings = {
+    model: readSetting(options.model),
+    effort: readSetting(options.effort),
+    permissionMode: readSetting(options.permissionMode) || 'default',
+  };
+  // No mode named = «спрашивать»; no model or effort named = no wish of its own.
+  const asksForOtherSettings = (payload) => {
+    if ((readSetting(payload?.permissionMode) || 'default') !== processSettings.permissionMode) return true;
+    const model = readSetting(payload?.model);
+    if (model && model !== processSettings.model) return true;
+    const effort = readSetting(payload?.effort);
+    return Boolean(effort && effort !== processSettings.effort);
+  };
   const journalFields = () => ({
     sessionId: options.appSessionId || capturedSessionId || sessionId || '',
     userId: ws?.userId ?? null,
@@ -990,6 +1012,7 @@ async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
     ws.send(createNormalizedMessage({ kind: 'run_phase', ...change, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
     if (change.phase === 'running') {
       turnEndNotified = false;
+      holdEndedBySender = false;
       return;
     }
     if (change.phase === 'parked' && !turnEndNotified) {
@@ -1032,6 +1055,12 @@ async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
   if (phaseTracker) {
     runControls.acceptInput = (payload) => {
       if (inputReleased || runState.finished || !phaseTracker.betweenTurns()) return false;
+      if (asksForOtherSettings(payload)) {
+        // Not for this process: the hold ends (once the CLI is idle), and the
+        // sender starts an ordinary run with the message's own settings.
+        runControls.releaseHeld?.();
+        return false;
+      }
       const next = buildUserMessage(String(payload?.command ?? ''), payload?.images, payload?.cwd ?? options.cwd)
         .catch((error) => {
           // A broken attachment must not lose the message: it goes as text.
@@ -1049,9 +1078,16 @@ async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
       return true;
     };
     runControls.releaseHeld = () => {
-      // Only what the CLI itself called idle: closing stdin under working
-      // helpers is not something a plain run would have done either.
-      if (inputReleased || runState.finished || !phaseTracker.betweenTurns() || !phaseTracker.idle()) return false;
+      if (inputReleased || runState.finished || !phaseTracker.betweenTurns()) return false;
+      // From here nothing holds this run: it ends like a run without the hold.
+      phaseTracker.expire();
+      if (!phaseTracker.idle()) {
+        // Stdin is closed only under a CLI that itself said idle (closing it
+        // under working helpers is not something a plain run would have done
+        // either): the release follows that word, see the idle branch below.
+        holdEndedBySender = true;
+        return true;
+      }
       journalHoldRelease('sender');
       releaseInput();
       return true;
@@ -1256,6 +1292,7 @@ async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
         // what the fast path above reads. Without it the callback would keep
         // asking for the rest of the run if the CLI still routes through it.
         sdkOptions.permissionMode = 'bypassPermissions';
+        processSettings.permissionMode = 'bypassPermissions';
         return {
           behavior: 'allow',
           updatedInput: decision.updatedInput ?? input,
@@ -1439,7 +1476,7 @@ async function queryClaudeSDK(command, options = {}, ws, runtime = {}) {
                 // may still be in flight behind this idle event (see
                 // RELEASE_GRACE_MS). Defer the release and re-check at fire
                 // time.
-                scheduleRelease(liveBackgroundTasks().length > 0 ? 'ceiling' : 'background_done');
+                scheduleRelease(holdEndedBySender ? 'sender' : liveBackgroundTasks().length > 0 ? 'ceiling' : 'background_done');
               }
             }
           }
@@ -1830,10 +1867,14 @@ async function stopClaudeTask(sessionId, taskId) {
  * `false` = not taken, nothing was written: the run is mid-turn (a message
  * glued into a running turn overrides its task), its input is already
  * released (the process is on its way out — start a new run instead), it did
- * not ask for the hold, or there is no such run.
+ * not ask for the hold, or there is no such run. Also when the message names
+ * a permission mode, model or effort other than the ones the process runs
+ * with (no mode named = `default`): the process cannot change them, so the
+ * hold is ended instead (as `releaseHeldClaudeRun` does) and the message
+ * belongs to an ordinary new run.
  *
  * @param {string} sessionId - Provider-native (Claude) session id
- * @param {{command: string, images?: Array, cwd?: string, autoRelayNoteDir?: string|null}} promptPayload
+ * @param {{command: string, images?: Array, cwd?: string, autoRelayNoteDir?: string|null, model?: string, effort?: string, permissionMode?: string}} promptPayload
  * @returns {boolean}
  */
 function sendToHeldClaudeRun(sessionId, promptPayload) {
@@ -1850,9 +1891,11 @@ function sendToHeldClaudeRun(sessionId, promptPayload) {
 }
 
 /**
- * Ends the hold of a run that is idle between turns — for a sender whose
- * message cannot go into this process (another user's sandbox). The run then
- * completes as a run without the hold would have. `false` = nothing to end.
+ * Ends the hold of a run that is between turns — for a sender whose message
+ * cannot go into this process (another user's sandbox, other engine
+ * settings). The run then completes as a run without the hold would have:
+ * at once when the CLI is idle, else as soon as it says so. `false` = nothing
+ * to end (mid-turn, already released, not held).
  * @param {string} sessionId - Provider-native (Claude) session id
  * @returns {boolean}
  */

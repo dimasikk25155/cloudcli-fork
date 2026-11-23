@@ -44,6 +44,7 @@ export const queuedMessagesService: QueuedMessagesService = createQueuedMessages
   getAttention: readAttention,
   isRunLive: (sessionId) => control?.isRunLive(sessionId) ?? false,
   runPhase: (sessionId) => control?.runPhase(sessionId) ?? null,
+  checkSendLimit: async (input) => (await control?.sendLimit?.(input)) ?? null,
   abortRun: (sessionId, userId) => control?.abortRun(sessionId, userId) ?? false,
   // Lazy: the websocket module is big and imports half the server.
   notifyChanged: (sessionId) => {

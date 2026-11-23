@@ -15,6 +15,9 @@ import {
 import { getSessionLinks } from '@/modules/session-links/index.js';
 import { createThreadsService, createThreadTokens, ThreadsError } from '@/modules/threads/index.js';
 import type { ThreadRunStart } from '@/modules/threads/index.js';
+import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
+
+import type { RunPhase } from '../../../../shared/run-phase.js';
 
 // Stories 23–30, 26a: spawn_thread / thread_status / message_thread /
 // stop_thread act for the parent chat's user, in the parent's project, with
@@ -29,6 +32,8 @@ type World = {
   starts: ThreadRunStart[];
   aborts: string[];
   running: Set<string>;
+  /** Phase of a chat's live run when it is not simply «in a turn» (a held Claude run between turns). */
+  phases: Map<string, RunPhase>;
   attention: Map<string, Attention>;
   replies: Map<string, string>;
   limit: { blocked: boolean };
@@ -65,6 +70,8 @@ async function withWorld(
     const starts: ThreadRunStart[] = [];
     const aborts: string[] = [];
     const running = new Set<string>();
+    const phases = new Map<string, RunPhase>();
+    const phaseOf = (sessionId: string): RunPhase | null => (running.has(sessionId) ? phases.get(sessionId) ?? 'running' : null);
     const attention = new Map<string, Attention>();
     const replies = new Map<string, string>();
     const limit = { blocked: false };
@@ -76,6 +83,7 @@ async function withWorld(
       tokens,
       now,
       isProcessing: (sessionId) => running.has(sessionId),
+      runPhase: phaseOf,
       attentionOf: (sessionId) => attention.get(sessionId) ?? null,
       fetchMessages: async (sessionId) => {
         const reply = replies.get(sessionId);
@@ -95,14 +103,17 @@ async function withWorld(
     });
     service.setRunControl({
       start: (input) => {
-        if (running.has(input.sessionId)) return false;
+        // Like the gateway: a turn that is going refuses, a held process between turns takes the message.
+        if (phaseOf(input.sessionId) === 'running') return false;
         starts.push(input);
         running.add(input.sessionId);
+        phases.delete(input.sessionId);
         return true;
       },
       abort: async (sessionId) => {
         aborts.push(sessionId);
         running.delete(sessionId);
+        phases.delete(sessionId);
         return true;
       },
     });
@@ -113,7 +124,7 @@ async function withWorld(
     const parentToken = tokens.issue({ sessionId: parentId, userId: member, permissionMode: 'acceptEdits' })!;
 
     await runTest({
-      service, tokens, starts, aborts, running, attention, replies, limit, limitChecks, clockMs,
+      service, tokens, starts, aborts, running, phases, attention, replies, limit, limitChecks, clockMs,
       admin, member, projectA: projectA.project_path, projectAId: projectA.project_id, parentId, parentToken, modsOff,
     });
   } finally {
@@ -556,5 +567,147 @@ test('a thread already running when threads are switched off finishes and the pa
     assert.equal(world.starts.length, 2);
     assert.equal(world.starts[1].sessionId, world.parentId);
     assert.match(world.starts[1].content, /Нашёл три места/);
+  });
+});
+
+// --- «Фон доживает до конца»: a held run is alive, not busy ------------------
+
+/** The chat ended its turn with background work alive: its Claude process is kept (up to 2 hours). */
+function park(world: World, sessionId: string, phase: 'parked' | 'waiting_helpers', attention: Attention, reply?: string): void {
+  world.running.add(sessionId);
+  world.phases.set(sessionId, phase);
+  world.attention.set(sessionId, attention);
+  if (reply) world.replies.set(sessionId, reply);
+}
+
+test('a parent whose held run is between turns is not busy: «Треды готовы» goes into it at once — parked or waiting for helpers; a turn that is going still defers it', async () => {
+  await withWorld(async (world) => {
+    const a = await world.service.spawnThread(world.parentToken, { prompt: 'a', title: 'Поиск' });
+    park(world, world.parentId, 'parked', { state: 'done' });
+    finish(world, a.threadId, { state: 'done' }, 'Нашёл три места');
+    await world.service.handleAttentionChange(a.threadId);
+    assert.equal(world.starts.length, 2, 'the parent\'s process is alive for its background, the parent itself is free');
+    assert.equal(world.starts[1].sessionId, world.parentId);
+    assert.match(world.starts[1].content, /^Треды готовы/);
+
+    // The parent works on (the message started a turn): the next batch waits…
+    const b = await world.service.spawnThread(world.parentToken, { prompt: 'b', title: 'Тесты' });
+    finish(world, b.threadId, { state: 'done' }, 'Тесты зелёные');
+    await world.service.handleAttentionChange(b.threadId);
+    assert.equal(world.starts.length, 3, 'only the spawn: a turn is going');
+
+    // …until the turn ends. «Ждёт помощников» changes no status — the gateway's turn boundary is the cue.
+    park(world, world.parentId, 'waiting_helpers', { state: 'working' });
+    await world.service.handleAttentionChange(world.parentId);
+    assert.equal(world.starts.length, 4);
+    assert.equal(world.starts[3].sessionId, world.parentId);
+    assert.match(world.starts[3].content, /Тесты зелёные/);
+
+    // A parked parent that asked the person something still waits for the person.
+    const c = await world.service.spawnThread(world.parentToken, { prompt: 'c' });
+    finish(world, c.threadId, { state: 'done' }, 'ок');
+    park(world, world.parentId, 'parked', { state: 'waiting', reason: 'text_question' });
+    await world.service.handleAttentionChange(c.threadId);
+    assert.equal(world.starts.length, 5, 'only the spawn');
+  });
+});
+
+test('a thread a person wrote to and that parked on its background is settled: it does not block «Треды готовы», thread_status does not wait for it, message_thread and stop_thread reach it; one waiting for its helpers still works', async () => {
+  await withWorld(async (world) => {
+    const a = await world.service.spawnThread(world.parentToken, { prompt: 'a', title: 'Поиск' });
+    const b = await world.service.spawnThread(world.parentToken, { prompt: 'b', title: 'Сборка' });
+    finish(world, a.threadId, { state: 'done' }, 'Нашёл три места');
+
+    // Thread B waits for its own helper: it works, the batch is not ready.
+    park(world, b.threadId, 'waiting_helpers', { state: 'working' });
+    await world.service.handleAttentionChange(b.threadId);
+    assert.equal(world.starts.length, 2);
+    assert.equal((await world.service.threadStatus(world.parentToken, { threadId: b.threadId })).threads[0].state, 'working');
+
+    // Thread B parked: its answer is ready, only a command of its own is still alive.
+    park(world, b.threadId, 'parked', { state: 'done' }, 'Собрал, сервер в фоне');
+    await world.service.handleAttentionChange(b.threadId);
+    assert.equal(world.starts.length, 3, 'a parked thread does not hold the batch back for two hours');
+    assert.equal(world.starts[2].sessionId, world.parentId);
+    assert.match(world.starts[2].content, /Нашёл три места/);
+    assert.match(world.starts[2].content, /Сборка.+готово: Собрал, сервер в фоне/);
+
+    const startedAt = world.clockMs.value;
+    const status = await world.service.threadStatus(world.parentToken, { threadId: b.threadId, wait: 300 });
+    assert.equal(status.threads[0].state, 'done');
+    assert.equal(status.working, 0);
+    assert.equal(world.clockMs.value, startedAt, 'nothing to wait for');
+
+    // The parked thread takes a message (its live process does), and «Стоп» still stops it.
+    await world.service.messageThread(world.parentToken, { threadId: b.threadId, text: 'Покажи лог' });
+    assert.equal(world.starts.at(-1)?.sessionId, b.threadId);
+    park(world, b.threadId, 'parked', { state: 'done' });
+    assert.deepEqual(await world.service.stopThread(world.parentToken, { threadId: b.threadId }), { threadId: b.threadId, stopped: true });
+  });
+});
+
+test('the gateway\'s turn boundary wakes the threads: a held parent gets «Треды готовы» when it goes between turns, and the end of the held run is a cue again', async () => {
+  await withWorld(async (world) => {
+    const { chatRunRegistry } = await import('@/modules/websocket/index.js');
+    const settle = async () => { for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+    const starts: ThreadRunStart[] = [];
+    let parentTakes = false;
+    // No fakes for the registry: the phases come from the real one.
+    const service = createThreadsService({
+      tokens: world.tokens,
+      fetchMessages: async () => [],
+      checkClaudeLimit: async () => ({ blocked: false }),
+      listModels: async () => [],
+      broadcastUpsert: () => {},
+      isModOn: () => true,
+    });
+    service.setRunControl({
+      start: (input) => {
+        starts.push(input);
+        return input.sessionId !== world.parentId || parentTakes;
+      },
+      abort: async () => false,
+    });
+    // The wiring of server/index.js.
+    const unsubscribe = chatRunRegistry.onTurnBoundary((sessionId) => { void service.handleAttentionChange(sessionId); });
+    try {
+      const thread = await service.spawnThread(world.parentToken, { prompt: 'a', title: 'Поиск' });
+      const run = chatRunRegistry.startRun({
+        appSessionId: world.parentId,
+        provider: 'claude',
+        providerSessionId: 'native-parent',
+        connection: { readyState: 3, send: () => {} },
+        userId: world.member,
+      })!;
+      await service.handleAttentionChange(thread.threadId);
+      assert.equal(starts.length, 1, 'the parent is in a turn');
+
+      // The parent ends its turn with a helper still working: no status change, only the boundary.
+      run.writer.send(createNormalizedMessage({ kind: 'text', role: 'assistant', content: 'Помощник ещё работает.', provider: 'claude', sessionId: world.parentId }));
+      const since = new Date().toISOString();
+      run.writer.send(createNormalizedMessage({
+        kind: 'run_phase' as never,
+        phase: 'waiting_helpers',
+        since,
+        background: { agents: 1, shells: 0 },
+        holdUntil: since,
+        provider: 'claude',
+        sessionId: world.parentId,
+      }));
+      await settle();
+      assert.equal(starts.length, 2, 'between turns the parent is not busy');
+      assert.equal(starts[1].sessionId, world.parentId);
+
+      // Its process did not take the message (it was on its way out). The end of the held run is the next cue.
+      parentTakes = true;
+      run.writer.send(createCompleteMessage({ provider: 'claude', sessionId: world.parentId, exitCode: 0 }));
+      await settle();
+      assert.equal(starts.length, 3);
+      assert.equal(starts[2].sessionId, world.parentId);
+      assert.match(starts[2].content, /^Треды готовы/);
+    } finally {
+      unsubscribe();
+      chatRunRegistry.clearAll();
+    }
   });
 });

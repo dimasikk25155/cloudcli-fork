@@ -20,6 +20,7 @@ const {
   abortClaudeSDKSession,
   queryClaudeSDK,
   releaseHeldClaudeRun,
+  resolveToolApproval,
   sendToHeldClaudeRun,
 } = await import('./claude-sdk.js');
 
@@ -72,6 +73,8 @@ function createFakeCli() {
       wake?.();
     },
     query({ prompt, options }) {
+      // What the process was started with (its permission callback included).
+      cli.options = options;
       const exit = () => { exited = true; wake?.(); };
       options.abortController?.signal.addEventListener('abort', exit, { once: true });
       void (async () => {
@@ -137,6 +140,8 @@ function startRun(t, options = {}) {
     writer,
     { query: cli.query },
   ).finally(() => { finished = true; });
+  // A failed assertion must not leave a held process behind (it would keep the test file alive).
+  t.after(async () => { if (!finished) await abortClaudeSDKSession(cli.sessionId); });
   return { cli, writer, done, isFinished: () => finished };
 }
 
@@ -338,4 +343,94 @@ test('«Стоп» on a held run and a sender that cannot share the process both
   assert.equal(shared.writer.frames.at(-1).kind, 'complete');
   assert.match(journal.find((line) => line.split(' ')[2] === 'hold_release') ?? '', / reason=sender$/);
   assert.equal(releaseHeldClaudeRun(shared.cli.sessionId), false);
+});
+
+// Ремонт ветки (F1): the process keeps the settings of the message that
+// started it. A message that asks for other ones must not run under them.
+test('plan after bypass edits nothing: a message with another mode, model or effort is not written into the held process — the hold ends; the same settings (also after an approved plan) are taken', async (t) => {
+  withHoldMs(t, 60_000);
+  const journal = captureJournal(t);
+  const bypass = { model: 'opus[1m]', effort: 'high', permissionMode: 'bypassPermissions' };
+
+  const first = startRun(t, { holdBackground: true, ...bypass });
+  await firstTurnLeavingBackground(first.cli, BASH);
+  await until(() => first.writer.phases().length === 1, 'the parked frame');
+  // This process edits files without asking anyone.
+  assert.deepEqual(
+    await first.cli.options.canUseTool('Write', { file_path: '/tmp/a.txt', content: 'x' }, {}),
+    { behavior: 'allow', updatedInput: { file_path: '/tmp/a.txt', content: 'x' } },
+  );
+
+  assert.equal(sendToHeldClaudeRun(first.cli.sessionId, { command: 'сначала покажи план', ...bypass, permissionMode: 'plan' }), false);
+  await first.done;
+  assert.equal(first.cli.inputs.length, 1, 'the «план» message never reached the process with full access');
+  assert.equal(first.cli.stdinClosed, true, 'the hold ended: the gateway starts an ordinary run with the message\'s own settings');
+  assert.equal(first.writer.frames.at(-1).kind, 'complete');
+  assert.equal(first.writer.frames.at(-1).exitCode, 0);
+  assert.match(journal.find((line) => line.split(' ')[2] === 'hold_release') ?? '', / reason=sender$/);
+
+  // That ordinary run: plan mode, nothing pre-approved for writing.
+  const plan = startRun(t, { holdBackground: true, ...bypass, permissionMode: 'plan' });
+  await firstTurnLeavingBackground(plan.cli, BASH);
+  await until(() => plan.writer.phases().length === 1, 'the parked frame');
+  assert.equal(plan.cli.options.permissionMode, 'plan');
+
+  // The same mode, no model or effort named (a message the server sends for the user): taken.
+  assert.equal(sendToHeldClaudeRun(plan.cli.sessionId, { command: 'уточни шаг 2', permissionMode: 'plan' }), true);
+  await until(() => plan.cli.inputs.length === 2, 'the message reached the CLI');
+
+  // The person approves the plan in that turn: the process itself goes to full access…
+  plan.cli.emit(running, init);
+  const approval = plan.cli.options.canUseTool('ExitPlanMode', { plan: 'шаги' }, {});
+  await until(() => plan.writer.kinds().includes('permission_request'), 'the plan prompt');
+  resolveToolApproval(plan.writer.frames.find((frame) => frame.kind === 'permission_request').requestId, { allow: true });
+  assert.equal((await approval).behavior, 'allow');
+  plan.cli.emit(say('делаю по плану'), result, idle);
+  await until(() => plan.writer.phases().length === 3, 'parked again');
+
+  // …so the tab's next message, sent with the mode the approval switched to, is not «other settings».
+  assert.equal(sendToHeldClaudeRun(plan.cli.sessionId, { command: 'дальше', ...bypass }), true);
+  await until(() => plan.cli.inputs.length === 3, 'the message reached the CLI');
+  plan.cli.emit(running, init, say('готово'), result, idle);
+  await until(() => plan.writer.phases().length === 5, 'parked a third time');
+
+  // Another model is other settings too.
+  assert.equal(sendToHeldClaudeRun(plan.cli.sessionId, { command: 'x', ...bypass, model: 'sonnet[1m]' }), false);
+  await plan.done;
+  assert.equal(plan.cli.inputs.length, 3);
+
+  // And another effort. A message that names no mode asks for the default one.
+  const third = startRun(t, { holdBackground: true, ...bypass });
+  await firstTurnLeavingBackground(third.cli, BASH);
+  await until(() => third.writer.phases().length === 1, 'the parked frame');
+  assert.equal(sendToHeldClaudeRun(third.cli.sessionId, { command: 'x', ...bypass, effort: 'max' }), false);
+  await third.done;
+  const fourth = startRun(t, { holdBackground: true, ...bypass });
+  await firstTurnLeavingBackground(fourth.cli, BASH);
+  await until(() => fourth.writer.phases().length === 1, 'the parked frame');
+  assert.equal(sendToHeldClaudeRun(fourth.cli.sessionId, { command: 'x' }), false, 'no mode = «спрашивать», not full access');
+  await fourth.done;
+  assert.equal(fourth.cli.inputs.length, 1);
+});
+
+test('the hold ended for a sender while the CLI has not said idle yet: stdin stays open under the working CLI and is released with its idle — not at the two-hour ceiling', async (t) => {
+  withHoldMs(t, 60_000);
+  const journal = captureJournal(t);
+  const { cli, writer, done } = startRun(t, { holdBackground: true, permissionMode: 'bypassPermissions' });
+  await until(() => cli.inputs.length === 1, 'the first message reached the CLI');
+  // The turn ended with a helper alive; the CLI has not reported idle.
+  cli.emit(running, init, background(AGENT), say('жду помощника'), result);
+  await until(() => writer.phases().length === 1, 'the waiting frame');
+  assert.equal(writer.phases()[0].phase, 'waiting_helpers');
+
+  assert.equal(sendToHeldClaudeRun(cli.sessionId, { command: 'сначала план', permissionMode: 'plan' }), false);
+  await sleep(GRACE_MS * 3);
+  assert.equal(cli.stdinClosed, false, 'not closed under a CLI that still works');
+  assert.equal(cli.inputs.length, 1);
+
+  cli.emit(idle);
+  await done;
+  assert.equal(cli.stdinClosed, true);
+  assert.equal(writer.frames.at(-1).kind, 'complete');
+  assert.match(journal.find((line) => line.split(' ')[2] === 'hold_release') ?? '', / reason=sender$/);
 });

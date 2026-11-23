@@ -24,7 +24,7 @@ import { beginServiceTurn } from '@/shared/service-turns.js';
 import { isRelayRequestText } from '../../../../shared/relay-rules.js';
 import type { ThreadRunControl } from '@/modules/threads/index.js';
 import type { AgentRunControl } from '@/modules/agents/index.js';
-import type { QueuedSendControl } from '@/modules/queued-messages/index.js';
+import { queuedMessagesService, type QueuedSendControl } from '@/modules/queued-messages/index.js';
 import { backgroundConsoleOn, chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities, readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -48,6 +48,7 @@ import {
   takeGrokQuestionsForAppSession,
 } from '@/shared/grok-question.js';
 import { logChatEvent } from '@/shared/chat-event-log.js';
+import { formatResetMoscow, type UsageGuardState } from '@/shared/claude-usage.js';
 import { isModOn, MOD_OFF, type IsModOn } from '@/shared/mods.js';
 import { canAccessSession, isAdminUser } from '@/shared/project-access.js';
 import { teamTelegram, teamTelegramUrl } from '@/modules/team-telegram/index.js';
@@ -136,6 +137,17 @@ export type ChatWebSocketDependencies = {
   releaseHeldFns?: Partial<Record<LLMProvider, (providerSessionId: string) => boolean>>;
   /** Ceiling of the hold in ms, 0 = off (default: NEO3_CLAUDE_BACKGROUND_HOLD_MS). */
   backgroundHoldMs?: () => number;
+  /**
+   * Keeps a person's `chat.send` that the chat's live process could not take
+   * (default: the message queue's `deferSent`); it leaves when that run ends.
+   */
+  keepSentMessage?: (sessionId: string, userId: number | null, message: { content: string; options: AnyRecord; images: unknown[] }) => void;
+  /**
+   * Engines whose runtime refuses a new run by a subscription limit (Claude's
+   * 5-hour guard). The queue asks it before it starts a run — a run refused
+   * inside the runtime has already taken the message. Absent = nobody is asked.
+   */
+  usageGuardFns?: Partial<Record<LLMProvider, () => Promise<UsageGuardState>>>;
   resolveToolApproval: (
     requestId: string,
     payload: {
@@ -161,7 +173,21 @@ export type HeldInputPayload = {
   images: AnyRecord[];
   /** Set only for the relay's handoff request: its note is written without asking. */
   autoRelayNoteDir: string | null;
+  /**
+   * The composer settings the message asks for. A live process keeps the ones
+   * it was started with, so the runtime takes no message that names other
+   * ones: it ends the hold instead, and the message starts an ordinary run.
+   */
+  model?: string;
+  effort?: string;
+  permissionMode?: string;
 };
+
+/** The engine settings of a message, as the composer sent them (absent = not named). */
+function engineSettingsOf(options: AnyRecord): Pick<HeldInputPayload, 'model' | 'effort' | 'permissionMode'> {
+  const read = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
+  return { model: read(options.model), effort: read(options.effort), permissionMode: read(options.permissionMode) };
+}
 
 /**
  * Answer to `chat.stop-task`. `turn_ended` = the turn is over, the task is no
@@ -222,7 +248,8 @@ function readRequiredSessionId(data: AnyRecord): string | null {
  * A refused send names its protocol error code — the same one the socket was
  * told. A started one is either a new run (`finished` = the runtime is done)
  * or a message handed to the live process of a held run (`finished` is
- * already settled: that run's own start owns its end).
+ * already settled: that run's own start owns its end). `MESSAGE_QUEUED` is
+ * the one code the socket is not told: the message was kept, not refused.
  */
 type ChatSendStart =
   | { started: false; code: string; error: string }
@@ -286,6 +313,8 @@ function sendQueuedBubble(
  *   server when the turn ended (queued-messages). Checked like a socket send:
  *   by the rights the user has at the moment of sending. `watcher` is the
  *   connection that followed the chat's previous run, if it is still entitled.
+ *   `echoed`: the sender's tab drew the bubble itself (a `chat.send` the queue
+ *   kept), so the run does not start with a second one.
  */
 type ChatSendAccess =
   | { kind: 'socket' }
@@ -294,7 +323,7 @@ type ChatSendAccess =
   | { kind: 'thread'; userId: number; parentSessionId: string }
   | { kind: 'auto-relay'; userId: number; parentSessionId: string }
   | { kind: 'agent'; userId: number }
-  | { kind: 'queue'; userId: number; watcher?: RealtimeClientConnection | null };
+  | { kind: 'queue'; userId: number; watcher?: RealtimeClientConnection | null; echoed?: boolean };
 
 /**
  * `agent` access («Агенты»): an admin, with access to the chat's project now,
@@ -473,10 +502,16 @@ function startChatSend(
         const relayNote = access.kind === 'auto-relay' && isRelayRequestText(rawContent) && session.project_path
           ? path.join(session.project_path, 'docs', 'handoff')
           : null;
-        if (heldInput(liveRun.providerSessionId, { command, images: imageAttachments, autoRelayNoteDir: relayNote })) {
+        const payload: HeldInputPayload = {
+          command,
+          images: imageAttachments,
+          autoRelayNoteDir: relayNote,
+          ...engineSettingsOf(clientOptions),
+        };
+        if (heldInput(liveRun.providerSessionId, payload)) {
           // The bookkeeping of a run start, without a new run.
           chatRunRegistry.continueRun(sessionId, access.kind === 'socket' ? ws : null);
-          if (access.kind === 'queue') {
+          if (access.kind === 'queue' && !access.echoed) {
             sendQueuedBubble(liveRun, provider, rawContent, clientOptions);
           }
           if (access.kind === 'socket' || access.kind === 'idea' || access.kind === 'agent' || access.kind === 'queue') {
@@ -484,6 +519,34 @@ function startChatSend(
           }
           return { started: true, finished: Promise.resolve() };
         }
+      }
+    }
+    // A person's message for a chat whose process has been between turns. The
+    // tab took the chat for free: its field is empty and the bubble is drawn,
+    // so a refusal would lose the message (the input was released a moment
+    // ago, the agent woke up by itself, the sender may not share the process,
+    // the message asks for other settings). It is kept in the server queue
+    // and leaves when this turn or run ends — a run that was held always
+    // announces that. Runs the server starts are refused as before: threads,
+    // the relay and the conveyor rely on it.
+    if (access.kind === 'socket' && liveRun.wasHeld) {
+      const { images, ...options } = clientOptions;
+      const sender = userId === null || !Number.isFinite(Number(userId)) ? null : Number(userId);
+      try {
+        (dependencies.keepSentMessage ?? queuedMessagesService.deferSent)(
+          sessionId,
+          sender,
+          { content: rawContent, options, images: Array.isArray(images) ? images : [] },
+        );
+        // The sender follows the chat from here: the end of this run, then the run with the message.
+        chatRunRegistry.attachConnection(sessionId, ws);
+        return { started: false, code: 'MESSAGE_QUEUED', error: 'Сообщение уйдёт, когда закончится ход.' };
+      } catch (error) {
+        // Not kept (an empty message, a full cell): the old refusal is the honest answer.
+        console.error('[Chat] A sent message could not be kept in the queue', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     return refuse('RUN_IN_PROGRESS', `Session "${sessionId}" already has a run in progress.`, sessionId);
@@ -527,7 +590,10 @@ function startChatSend(
     if (access.watcher) {
       run.writer.updateWebSocket(access.watcher);
     }
-    sendQueuedBubble(run, provider, rawContent, clientOptions);
+    // A kept `chat.send` is already on its sender's screen.
+    if (!access.echoed) {
+      sendQueuedBubble(run, provider, rawContent, clientOptions);
+    }
   }
 
   // Auto-relay repeats a person's engine settings (model, effort, mode, tools)
@@ -1131,6 +1197,12 @@ const QUEUED_SEND_REFUSALS: Record<string, string> = {
   RUN_IN_PROGRESS: 'В чате уже идёт ход',
 };
 
+/** Why the queue did not start a run past the 5-hour guard, for the queue card (its button is «Отправить»). */
+function queuedLimitNotice(guard: UsageGuardState): string {
+  const used = guard.pct === null ? `≥${guard.threshold}` : String(Math.round(guard.pct));
+  return `Использовано ${used}% 5-часового лимита подписки Claude (порог ${guard.threshold}%) — новые прогоны придержаны, окно сбросится в ${formatResetMoscow(guard.resetsAt)}. Нажми «Отправить», чтобы запустить всё равно.`;
+}
+
 /**
  * The connection that followed the chat's last run, when it is a live socket
  * whose user may still open the chat. Anything else (a detached run, a closed
@@ -1153,7 +1225,7 @@ function watcherOfLastRun(sessionId: string): RealtimeClientConnection | null {
  */
 export function createQueuedSendControl(dependencies: ChatWebSocketDependencies): QueuedSendControl {
   return {
-    send({ sessionId, userId, content, options, images }) {
+    send({ sessionId, userId, content, options, images, echoed }) {
       if (userId === null) {
         return { started: false, busy: false, error: 'Неизвестно, кто поставил сообщение в очередь' };
       }
@@ -1164,7 +1236,7 @@ export function createQueuedSendControl(dependencies: ChatWebSocketDependencies)
         isAdminUser({ id: userId }) ? 'admin' : null,
         { sessionId, content, options: images.length > 0 ? { ...options, images } : options },
         dependencies,
-        { kind: 'queue', userId, watcher: watcherOfLastRun(sessionId) },
+        { kind: 'queue', userId, watcher: watcherOfLastRun(sessionId), echoed: echoed === true },
       );
       if (!start.started) {
         return {
@@ -1199,6 +1271,20 @@ export function createQueuedSendControl(dependencies: ChatWebSocketDependencies)
       }
       const last = run.events[run.events.length - 1];
       return last?.kind === 'complete' && last.aborted === true;
+    },
+    async sendLimit({ sessionId, options }) {
+      // Only a new run is guarded: a live process is not asked by the runtime
+      // either, and a message the user already confirmed is not asked twice.
+      if (options.usageGuardOverride === true || chatRunRegistry.runPhase(sessionId) !== null) {
+        return null;
+      }
+      const provider = sessionsDb.getSessionById(sessionId)?.provider as LLMProvider | undefined;
+      const guard = provider ? dependencies.usageGuardFns?.[provider] : undefined;
+      if (!guard) {
+        return null;
+      }
+      const state = await guard();
+      return state.blocked ? queuedLimitNotice(state) : null;
     },
   };
 }

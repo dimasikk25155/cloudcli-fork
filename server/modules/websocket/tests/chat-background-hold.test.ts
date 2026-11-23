@@ -41,13 +41,26 @@ import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.j
 
 type Writer = { send(data: unknown): void };
 type Spawn = { command: string; options: Record<string, unknown>; writer: Writer; finish(): void };
-type HeldPayload = { command: string; images?: unknown[]; autoRelayNoteDir?: string | null };
+type HeldPayload = {
+  command: string;
+  images?: unknown[];
+  autoRelayNoteDir?: string | null;
+  model?: string;
+  effort?: string;
+  permissionMode?: string;
+};
 type Runtime = {
   /** The live process is between turns and holds its input. */
   accepting: boolean;
   taken: HeldPayload[];
   released: string[];
   tasks: Array<{ taskId: string; kind: string }>;
+  /**
+   * Permission mode the live process was started with. Like the real runtime,
+   * the stand-in takes no message that asks for another one and lets go of
+   * the hold instead (null = it does not look).
+   */
+  processMode: string | null;
 };
 type Fixture = {
   dima: number;
@@ -60,6 +73,8 @@ type Fixture = {
   /** What the fake jail answers for a user id (default: nobody is fenced). */
   jails: Map<number, unknown>;
   holdMs: { value: number };
+  /** Claude's 5-hour guard as the gateway is told (default: not blocked). */
+  guard: { blocked: boolean; pct: number | null; threshold: number; resetsAt: string | null; asked: number };
 };
 
 const CHAT = 'claude-native-1';
@@ -101,7 +116,8 @@ async function withWorld(runTest: (fixture: Fixture) => Promise<void>): Promise<
   const aborted: string[] = [];
   const jails = new Map<number, unknown>();
   const holdMs = { value: 7_200_000 };
-  const runtime: Runtime = { accepting: false, taken: [], released: [], tasks: [] };
+  const runtime: Runtime = { accepting: false, taken: [], released: [], tasks: [], processMode: null };
+  const guard: Fixture['guard'] = { blocked: false, pct: 12, threshold: 90, resetsAt: '2026-11-23T18:00:00.000Z', asked: 0 };
   const spawn = (command: string, options: Record<string, unknown>, writer: Writer) => {
     let finish: () => void = () => {};
     const done = new Promise<void>((resolve) => { finish = resolve; });
@@ -119,6 +135,11 @@ async function withWorld(runTest: (fixture: Fixture) => Promise<void>): Promise<
     heldInputFns: {
       claude: (_providerSessionId: string, payload: HeldPayload) => {
         if (!runtime.accepting) return false;
+        if (runtime.processMode && payload.permissionMode !== undefined && payload.permissionMode !== runtime.processMode) {
+          runtime.released.push(_providerSessionId);
+          runtime.accepting = false;
+          return false;
+        }
         runtime.accepting = false;
         runtime.taken.push(payload);
         spawns.at(-1)!.writer.send(phaseFrame('running', []));
@@ -129,6 +150,12 @@ async function withWorld(runTest: (fixture: Fixture) => Promise<void>): Promise<
       claude: (providerSessionId: string) => { runtime.released.push(providerSessionId); runtime.accepting = false; return true; },
     },
     backgroundHoldMs: () => holdMs.value,
+    usageGuardFns: {
+      claude: async () => {
+        guard.asked += 1;
+        return { blocked: guard.blocked, pct: guard.pct, threshold: guard.threshold, resetsAt: guard.resetsAt };
+      },
+    },
     resolveToolApproval: () => {},
     getPendingApprovalsForSession: () => [],
   } as unknown as Parameters<typeof createQueuedSendControl>[0];
@@ -145,7 +172,7 @@ async function withWorld(runTest: (fixture: Fixture) => Promise<void>): Promise<
     const project = projectsDb.createProjectPath('/workspace/hold-run').project!;
     userProjectAccessDb.grantAccess(slavik, project.project_id, dima);
     assert.equal(sessionsDb.createSession(CHAT, 'claude', project.project_path, 'Сборка'), CHAT);
-    await runTest({ dima, slavik, spawns, aborted, runtime, dependencies, control, jails, holdMs });
+    await runTest({ dima, slavik, spawns, aborted, runtime, dependencies, control, jails, holdMs, guard });
   } finally {
     await settle();
     unsubscribe();
@@ -314,7 +341,7 @@ test('phase frames reach the chat\'s tab; parked settles the status like a turn 
   });
 });
 
-test('a message into a parked chat goes into the live process: no new run, the chat moves up and works, the sender\'s tab follows; mid-turn it is RUN_IN_PROGRESS; after the release it is an ordinary new run — sent once', async () => {
+test('a message into a parked chat goes into the live process: no new run, the chat moves up and works, the sender\'s tab follows; mid-turn it is RUN_IN_PROGRESS; after the release it waits in the queue and is an ordinary new run when the process is gone — sent once', async () => {
   await withWorld(async (fixture) => {
     const { dima, dependencies, spawns, runtime } = fixture;
     const tab = connect(dima, 'admin', dependencies);
@@ -365,22 +392,155 @@ test('a message into a parked chat goes into the live process: no new run, the c
     assert.equal(runtime.taken.length, 3);
     assert.equal(spawns.length, 1);
 
-    // The input is released (the process is on its way out): the message is not taken…
+    // The input is released (the process is on its way out): the message is
+    // not taken — and not lost: the sender cleared the field and drew the
+    // bubble, so the server keeps it…
     runtime.accepting = false;
     spawns[0].writer.send(phaseFrame('parked', [BASH]));
     runtime.accepting = false;
     await phone.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Последнее', options: {} });
-    assert.equal(phone.frames.filter((frame) => frame.kind === 'protocol_error').at(-1)?.code, 'RUN_IN_PROGRESS');
+    assert.equal(phone.frames.some((frame) => frame.kind === 'protocol_error'), false, 'no refusal for a message the tab already shows as sent');
     assert.equal(runtime.taken.length, 3);
     assert.equal(spawns.length, 1);
+    assert.equal(queuedMessagesService.get(CHAT)?.content, 'Последнее');
+    assert.equal(queuedMessagesService.get(CHAT)?.holdReason, null);
 
-    // …and once the run is over the same message is an ordinary new run.
+    // …and once the run is over it is an ordinary new run, without anyone sending it again.
     endRun(fixture);
     await settle();
-    await phone.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Последнее', options: {} });
     assert.equal(spawns.length, 2);
     assert.match(spawns[1].command, /^Последнее/);
     assert.equal(runtime.taken.length, 3, 'delivered once, by one path');
+    assert.equal(queuedMessagesService.get(CHAT), null);
+  });
+});
+
+test('a message sent «между ходами» is never lost when the live process cannot take it: no refusal, it waits in the server queue and leaves with the end of that turn — also when the chat «ждёт тебя», without a second bubble', async () => {
+  await withWorld(async (fixture) => {
+    const { dima, dependencies, spawns, runtime } = fixture;
+    const tab = connect(dima, 'admin', dependencies);
+    await tab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Запусти сборку', options: {} });
+
+    // The agent parked with a question; the input was released a moment ago,
+    // `complete` has not come yet — the tab still shows «между ходами».
+    endTurnHeld(fixture, 'Сборка упала на тестах. Чинить или откатить?', [BASH]);
+    await settle();
+    assert.equal(sessionAttentionDb.get(CHAT)?.state, 'waiting');
+    runtime.accepting = false;
+    const phone = connect(dima, 'admin', dependencies);
+    await phone.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Чини', options: { model: 'opus[1m]', permissionMode: 'acceptEdits' } });
+    assert.equal(phone.frames.some((frame) => frame.kind === 'protocol_error'), false);
+    assert.equal(spawns.length, 1);
+    assert.equal(runtime.taken.length, 0);
+    assert.equal(queuedMessagesService.get(CHAT)?.content, 'Чини', 'kept on the server');
+    assert.equal(queuedMessagesService.get(CHAT)?.holdReason, null, 'it is the answer: not held as «агент ждёт твоего ответа»');
+
+    endRun(fixture);
+    await settle();
+    assert.equal(spawns.length, 2, 'left by itself with `complete`');
+    assert.match(spawns[1].command, /^Чини/);
+    assert.equal(spawns[1].options.permissionMode, 'acceptEdits');
+    assert.equal(spawns[1].options.model, 'opus[1m]');
+    assert.equal(queuedMessagesService.get(CHAT), null);
+    assert.equal(phone.frames.some((frame) => frame.kind === 'text' && frame.role === 'user'), false, 'the sender drew its bubble itself');
+    // The tab that sent it follows the run that took it.
+    say(spawns[1], 'Чиню.');
+    assert.equal(phone.frames.at(-1)?.content, 'Чиню.');
+
+    // The agent woke up by itself and the `running` frame did not reach the tab: the same road.
+    endTurnHeld(fixture, 'Починил, прогон тестов в фоне.', [BASH]);
+    await settle();
+    runtime.accepting = false;
+    spawns[1].writer.send(phaseFrame('running', [BASH]));
+    await phone.deliver({ type: 'chat.send', sessionId: CHAT, content: 'И выкати', options: {} });
+    assert.equal(phone.frames.some((frame) => frame.kind === 'protocol_error'), false);
+    assert.equal(runtime.taken.length, 0, 'nothing is glued into a running turn');
+    assert.equal(queuedMessagesService.get(CHAT)?.content, 'И выкати');
+
+    endTurnHeld(fixture, 'Тесты прошли.', [BASH]);
+    await settle();
+    assert.equal(runtime.taken.length, 1, 'the turn ended: it went into the live process');
+    assert.match(runtime.taken[0].command, /^И выкати/);
+    assert.equal(spawns.length, 2);
+    assert.equal(queuedMessagesService.get(CHAT), null);
+  });
+});
+
+test('plan after bypass edits nothing: a message with other engine settings is not written into the live process — the hold ends and it starts an ordinary run with its own settings, once', async () => {
+  await withWorld(async (fixture) => {
+    const { dima, dependencies, spawns, runtime } = fixture;
+    const bypass = { model: 'opus[1m]', effort: 'high', permissionMode: 'bypassPermissions' };
+    const tab = connect(dima, 'admin', dependencies);
+    await tab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Запусти сборку', options: bypass });
+    runtime.processMode = 'bypassPermissions';
+    endTurnHeld(fixture, 'Сборка идёт в фоне.', [BASH]);
+    await settle();
+
+    await tab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Сначала покажи план', options: { ...bypass, permissionMode: 'plan' } });
+    assert.equal(runtime.taken.length, 0, 'the process with full access never saw the «план» message');
+    assert.deepEqual(runtime.released, [CHAT], 'the hold ends');
+    assert.equal(tab.frames.some((frame) => frame.kind === 'protocol_error'), false);
+    assert.equal(spawns.length, 1);
+
+    endRun(fixture);
+    await settle();
+    assert.equal(spawns.length, 2);
+    assert.match(spawns[1].command, /^Сначала покажи план/);
+    assert.equal(spawns[1].options.permissionMode, 'plan', 'the new process runs in the mode of the message');
+    assert.equal(spawns[1].options.model, 'opus[1m]');
+    assert.equal(spawns[1].options.effort, 'high');
+    assert.equal(queuedMessagesService.get(CHAT), null, 'sent once');
+
+    // The same settings: the live process takes the message, with the settings named.
+    runtime.processMode = 'plan';
+    endTurnHeld(fixture, 'План готов.', [BASH]);
+    await settle();
+    await tab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Уточни шаг 2', options: { ...bypass, permissionMode: 'plan' } });
+    assert.equal(spawns.length, 2);
+    assert.equal(runtime.taken.length, 1);
+    assert.deepEqual(
+      { model: runtime.taken[0].model, effort: runtime.taken[0].effort, permissionMode: runtime.taken[0].permissionMode },
+      { model: 'opus[1m]', effort: 'high', permissionMode: 'plan' },
+    );
+  });
+});
+
+test('Claude\'s 5-hour limit and the queue: a blocked limit starts no run and keeps the message in its card with the reason; «отправить» runs it anyway; a live process is not asked', async () => {
+  await withWorld(async (fixture) => {
+    const { dima, dependencies, spawns, runtime, guard } = fixture;
+    const tab = connect(dima, 'admin', dependencies);
+    await tab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Собери', options: {} });
+    await queuedMessagesService.put(CHAT, dima, { content: 'Потом выкати', options: { model: 'opus[1m]' } });
+
+    guard.blocked = true;
+    guard.pct = 95;
+    // The turn ends with a plain answer: «готово» is settled at once, from the text.
+    say(spawns[0], 'Собрал.');
+    endRun(fixture);
+    await settle();
+    assert.equal(spawns.length, 1, 'no run that the runtime would refuse a moment later');
+    const held = queuedMessagesService.get(CHAT);
+    assert.equal(held?.content, 'Потом выкати');
+    assert.equal(held?.holdReason, 'error');
+    assert.match(String(held?.lastError), /95% 5-часового лимита подписки/);
+    assert.match(String(held?.lastError), /21:00 МСК/);
+    assert.match(String(held?.lastError), /«Отправить»/);
+
+    const now = await queuedMessagesService.sendNow(CHAT, dima);
+    await settle();
+    assert.equal(now.sent, true);
+    assert.equal(spawns.length, 2);
+    assert.match(spawns[1].command, /^Потом выкати/);
+    assert.equal(spawns[1].options.usageGuardOverride, true, 'the runtime is told the user confirmed');
+
+    // Between turns the message goes into the live process: no new run, no limit to ask.
+    endTurnHeld(fixture, 'Выкатил, сборка в фоне.', [BASH]);
+    await settle();
+    const asked = guard.asked;
+    const put = await queuedMessagesService.put(CHAT, dima, { content: 'Покажи лог' });
+    assert.equal(put.sent, true);
+    assert.equal(runtime.taken.length, 1);
+    assert.equal(guard.asked, asked);
   });
 });
 
@@ -471,7 +631,7 @@ test('«Стоп» on a parked chat: complete says what was killed, and the queu
   });
 });
 
-test('a fenced teammate\'s message is never written into an admin\'s process: the hold ends, the chat frees up as before', async () => {
+test('a fenced teammate\'s message is never written into an admin\'s process: the hold ends, and the message starts his own fenced run when that process is gone', async () => {
   await withWorld(async (fixture) => {
     const { dima, slavik, dependencies, spawns, runtime, jails } = fixture;
     const tab = connect(dima, 'admin', dependencies);
@@ -482,14 +642,16 @@ test('a fenced teammate\'s message is never written into an admin\'s process: th
     jails.set(slavik, { root: '/workspace/hold-run' });
     const teammateTab = connect(slavik, 'user', dependencies);
     await teammateTab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'От Славика', options: {} });
-    assert.equal(teammateTab.frames.find((frame) => frame.kind === 'protocol_error')?.code, 'RUN_IN_PROGRESS');
+    assert.equal(teammateTab.frames.some((frame) => frame.kind === 'protocol_error'), false, 'his tab already shows the message as sent');
     assert.equal(runtime.taken.length, 0, 'not a byte of it reached the unfenced process');
     assert.deepEqual(runtime.released, [CHAT], 'the hold is released for him');
+    assert.equal(queuedMessagesService.get(CHAT)?.content, 'От Славика');
 
     endRun(fixture);
     await settle();
-    await teammateTab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'От Славика', options: {} });
-    assert.equal(spawns.length, 2);
+    assert.equal(spawns.length, 2, 'sent by the server, nobody had to send it again');
+    assert.match(spawns[1].command, /^От Славика/);
     assert.deepEqual((spawns[1].options.jail as { root: string }).root, '/workspace/hold-run');
+    assert.equal(queuedMessagesService.get(CHAT), null);
   });
 });
