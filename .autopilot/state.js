@@ -1,75 +1,67 @@
 window.STATE =
 {
   "version": 2,
-  "slug": "grokbot-powers",
-  "dir": "2026-11-05-grokbot-powers",
-  "title": "Возможности Grok Bot — в Neo3",
-  "mode": "full",
+  "slug": "neo3-glass-themes",
+  "dir": "2026-11-23-neo3-glass-themes--wip",
+  "title": "Neo3 на телефоне: стекло, 6 тем, нижняя панель",
+  "mode": "semi",
   "depth": "normal",
   "tier": "T2",
-  "briefFile": "2026-11-05-brief.md",
+  "briefFile": "2026-11-23-brief.md",
   "memoryFile": "../CLAUDE.md",
   "memoryOwner": "user",
   "skillDir": "/Users/dimasik/.claude/skills/autopilot",
-  "baseCommit": "3044bd88",
-  "startedAt": "2026-11-05T13:24:06+03:00",
-  "updatedAt": "2026-11-05T15:07:00+03:00",
-  "finishedAt": "2026-11-05T15:07:00+03:00",
+  "baseCommit": null,
+  "startedAt": "2026-11-23T17:33:24+03:00",
+  "updatedAt": "2026-11-23T17:47:23+03:00",
+  "finishedAt": null,
   "stages": [
     {
       "id": "preflight",
       "status": "done",
-      "startedAt": "2026-11-05T13:24:06+03:00",
-      "finishedAt": "2026-11-05T13:24:39+03:00"
+      "startedAt": "2026-11-23T17:33:24+03:00",
+      "finishedAt": "2026-11-23T17:34:18+03:00"
     },
     {
       "id": "manifest",
       "status": "done",
-      "startedAt": "2026-11-05T13:24:39+03:00",
-      "finishedAt": "2026-11-05T13:24:43+03:00"
+      "startedAt": "2026-11-23T17:34:18+03:00",
+      "finishedAt": "2026-11-23T17:34:18+03:00"
     },
     {
       "id": "briefing",
-      "status": "skipped",
-      "startedAt": "2026-11-05T13:24:43+03:00",
-      "finishedAt": "2026-11-05T13:24:58+03:00",
-      "note": "полный автомат — самобрифинг"
+      "status": "done",
+      "startedAt": "2026-11-23T17:34:18+03:00",
+      "finishedAt": "2026-11-23T17:34:19+03:00"
     },
     {
       "id": "spec",
       "status": "done",
-      "startedAt": "2026-11-05T13:25:02+03:00",
-      "finishedAt": "2026-11-05T13:33:21+03:00"
+      "startedAt": "2026-11-23T17:34:19+03:00",
+      "finishedAt": "2026-11-23T17:47:22+03:00"
     },
     {
       "id": "plan",
-      "status": "done",
-      "startedAt": "2026-11-05T13:33:21+03:00",
-      "finishedAt": "2026-11-05T13:35:03+03:00"
+      "status": "active",
+      "startedAt": "2026-11-23T17:47:22+03:00"
     },
     {
       "id": "build",
-      "status": "done",
-      "startedAt": "2026-11-05T13:35:03+03:00",
-      "finishedAt": "2026-11-05T14:39:32+03:00"
+      "status": "pending"
     },
     {
       "id": "review",
-      "status": "done",
-      "startedAt": "2026-11-05T14:39:32+03:00",
-      "finishedAt": "2026-11-05T14:56:56+03:00"
+      "status": "pending"
     },
     {
       "id": "final",
-      "status": "done",
-      "startedAt": "2026-11-05T14:56:56+03:00",
-      "finishedAt": "2026-11-05T15:07:00+03:00"
+      "status": "pending"
     }
   ],
   "requirements": {
-    "total": 10,
-    "done": 10,
-    "inTicket": 0,
+    "total": 22,
+    "done": 0,
+    "inTicket": 22,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -78,742 +70,375 @@ window.STATE =
   "tickets": [
     {
       "id": "01",
-      "title": "Агенты: фундамент и сервер",
+      "title": "Стенд и разбор экранов телефона",
       "requirements": [
-        "R01",
-        "R02",
-        "R04",
-        "R06i",
-        "R07i",
-        "R08i",
-        "R09i",
-        "R10i"
+        "R08",
+        "R12"
       ],
       "blockedBy": [],
       "wave": 1,
       "zone": [
-        "shared/",
-        "server/modules/database/",
-        "server/modules/agents/",
-        "server/modules/agent-run/",
-        "server/modules/websocket/services/chat-websocket.service.ts",
-        "server/index.js",
-        "eslint.config.js"
+        "scripts/preview-stand/",
+        ".autopilot/2026-11-23-neo3-glass-themes--wip/audit.md"
       ],
-      "review": "да — фундамент",
+      "review": "нет",
       "model": "сильная",
-      "status": "done",
-      "startedAt": "2026-11-05T13:35:03+03:00",
-      "finishedAt": "2026-11-05T13:55:36+03:00",
+      "status": "pending",
       "retries": 0,
-      "repairs": 0,
-      "tests": {
-        "passed": 2080,
-        "failed": 0
-      },
-      "commit": "8b9785ff"
+      "repairs": 0
     },
     {
       "id": "02",
-      "title": "Панель «Агенты» и штаб-команда",
+      "title": "Стекло и шесть тем",
       "requirements": [
-        "R01",
-        "R04",
-        "R06i",
-        "R07i",
-        "R08i"
+        "R15",
+        "R16",
+        "R17",
+        "R18",
+        "R09",
+        "R11",
+        "R19i"
       ],
       "blockedBy": [
         "01"
       ],
       "wave": 2,
       "zone": [
-        "src/components/agents/",
-        "src/components/sidebar/",
-        "server/threads-mcp.ts",
-        "server/modules/threads/",
-        "server/modules/agent-workspace/"
+        "src/index.css",
+        "src/contexts/",
+        "index.html",
+        "tailwind.config.js",
+        "src/components/branding/",
+        "src/utils/themeTweaks.ts",
+        "src/utils/themeTweaks.test.ts",
+        "src/components/app/AppContent.tsx"
       ],
-      "review": "нет",
-      "model": "обычная",
-      "status": "done",
-      "startedAt": "2026-11-05T13:53:50+03:00",
-      "finishedAt": "2026-11-05T14:03:13+03:00",
+      "review": "да — фундамент",
+      "model": "сильная",
+      "status": "pending",
       "retries": 0,
-      "repairs": 0,
-      "tests": {
-        "passed": 2100,
-        "failed": 0
-      },
-      "commit": "a016f497"
+      "repairs": 0
     },
     {
       "id": "03",
-      "title": "Конвейер (сервер) и рутины с итогом",
+      "title": "Своя тема на устройстве и выбор карточками",
       "requirements": [
-        "R01",
-        "R04",
-        "R06i",
-        "R07i",
-        "R08i",
-        "R09i"
+        "G01",
+        "R21i"
       ],
       "blockedBy": [
-        "01"
+        "02"
       ],
-      "wave": 2,
+      "wave": 3,
       "zone": [
-        "server/modules/agent-queue/",
-        "server/modules/schedules/",
-        "src/components/schedules/",
-        "server/modules/notifications/",
-        "server/index.js"
+        "src/contexts/ThemeContext.jsx",
+        "src/contexts/deviceTheme.js",
+        "src/components/settings/view/tabs/",
+        "src/components/quick-settings-panel/",
+        "src/i18n/locales/"
       ],
       "review": "нет",
-      "model": "сильная",
-      "status": "done",
-      "startedAt": "2026-11-05T13:53:50+03:00",
-      "finishedAt": "2026-11-05T14:14:50+03:00",
+      "model": "обычная",
+      "status": "pending",
       "retries": 0,
-      "repairs": 0,
-      "tests": {
-        "passed": 2127,
-        "failed": 0
-      },
-      "commit": "b22148fc"
+      "repairs": 0
     },
     {
       "id": "04",
-      "title": "Панель «Конвейер» и запрос ключа",
+      "title": "Нижняя панель, «Домой», шторка и «Инструменты»",
       "requirements": [
         "R01",
+        "R02",
+        "R03",
         "R04",
-        "R07i",
-        "R08i",
-        "R10i"
+        "R05",
+        "R06",
+        "R07",
+        "R20i"
       ],
       "blockedBy": [
         "02",
         "03"
       ],
-      "wave": 3,
+      "wave": 4,
       "zone": [
-        "src/components/agent-queue/",
+        "src/components/bottom-bar/",
+        "src/components/tools/",
+        "src/components/app/",
+        "src/components/home/",
         "src/components/sidebar/",
-        "src/components/attention/",
-        "server/modules/secret-requests/",
-        "server/modules/agent-workspace/",
-        "server/threads-mcp.ts",
-        "server/modules/websocket/services/user-events.service.ts",
-        "server/index.js",
-        "public/sw.js"
+        "src/components/hub/",
+        "src/components/menu-icons/",
+        "src/components/settings/view/",
+        "src/components/settings/hooks/",
+        "src/components/settings/constants/",
+        "src/components/settings/types/",
+        "src/hooks/useProjectsState.ts",
+        "src/i18n/locales/"
       ],
-      "review": "да — ключи и секреты",
+      "review": "нет",
       "model": "сильная",
-      "status": "done",
-      "startedAt": "2026-11-05T14:14:50+03:00",
-      "finishedAt": "2026-11-05T14:39:31+03:00",
+      "status": "pending",
       "retries": 0,
-      "repairs": 0,
-      "tests": {
-        "passed": 2157,
-        "failed": 0
-      },
-      "commit": "a630a643"
+      "repairs": 0
     },
     {
       "id": "05",
-      "title": "Разбор: Grok Bot в проектах и в Neo3",
+      "title": "Чат и панели в стекле, общий проход, DESIGN.md",
       "requirements": [
-        "R03",
-        "R05i",
-        "R01"
+        "R13",
+        "R14",
+        "R10",
+        "R18"
       ],
-      "blockedBy": [],
-      "wave": 1,
+      "blockedBy": [
+        "02",
+        "04"
+      ],
+      "wave": 5,
       "zone": [
-        "docs/grokbot-in-neo3.md",
-        "/Users/dimasik/Antigravity Project/Dimasik-Obsidian/Dimasik/wiki/synthesis/grok-bot-v-neo3-2026-11-05.md"
+        "src/components/chat/",
+        "src/shared/view/ui/",
+        "src/components/main-content/",
+        "src/components/panels/",
+        "src/components/session-hub/",
+        "src/components/relay/",
+        "src/components/crabs/",
+        "src/components/improvement-ideas/",
+        "src/components/threads/",
+        "src/components/settings/view/SettingsHeader.tsx",
+        "src/index.css",
+        "DESIGN.md"
       ],
       "review": "нет",
-      "model": "обычная",
-      "status": "done",
-      "startedAt": "2026-11-05T13:35:03+03:00",
-      "finishedAt": "2026-11-05T13:38:40+03:00",
-      "retries": 0,
-      "repairs": 0,
-      "tests": {
-        "passed": 0,
-        "failed": 0
-      },
-      "commit": "f5d9838a"
-    },
-    {
-      "id": "F1",
-      "title": "Ремонт по ревью ветки",
-      "requirements": [
-        "R01",
-        "R05i",
-        "R07i",
-        "R08i"
-      ],
-      "blockedBy": [],
-      "wave": 4,
-      "zone": [
-        "shared/mods.ts",
-        "shared/queue-verdict.ts",
-        "server/shared/types.ts",
-        "server/shared/utils.ts",
-        "server/shared/tests/",
-        "src/types/app.ts",
-        "server/modules/secret-requests/",
-        "server/modules/agent-queue/",
-        "server/modules/projects/",
-        "server/modules/database/tests/",
-        "src/components/sidebar/",
-        "docs/grokbot-in-neo3.md"
-      ],
-      "review": "да — ремонт ветки",
       "model": "сильная",
-      "status": "done",
+      "status": "pending",
       "retries": 0,
-      "repairs": 0,
-      "startedAt": "2026-11-05T14:46:00+03:00",
-      "finishedAt": "2026-11-05T14:56:56+03:00",
-      "tests": {
-        "passed": 2163,
-        "failed": 0
-      },
-      "commit": "a5dbd541"
+      "repairs": 0
     }
   ],
-  "tests": {
-    "passed": 2163,
-    "failed": 0
-  },
+  "tests": null,
   "debt": {
     "placeholders": [],
-    "assumptions": [
-      "«grok bot» = Grok Bot от xAI (x.ai/bot), «наш cli» = Neo3",
-      "сборка в отдельном worktree claude agent/neo3-grokbot — в основной папке открыта сборка Safari",
-      "выкатка на боевой Neo3 — только после твоего «да»",
-      "9 возможностей Grok Bot не переношу (облачная VM, Routines по событию, Skills показом, групповой чат, бот создаёт ботов, генерация, плагины Cursor, клиенты): уже есть в Neo3 по-своему или не пригодились в проектах — причины в разборе"
-    ],
+    "assumptions": [],
     "emptyEnv": []
   },
   "additions": [],
   "coverage": {
     "found": 5,
-    "fixed": 4,
-    "deferred": 1,
-    "items": [
-      "R01 «все возможности» — 9 возможностей Grok Bot не переносятся (облачная VM, событийные Routines, Skills показом, групповой чат, бот создаёт ботов, генерация, плагины Cursor, клиенты); причины в «Вне рамок» и в разборе"
-    ]
+    "fixed": 5,
+    "deferred": 0,
+    "items": []
   },
-  "concerns": [
-    "docs/grokbot-in-neo3.md — названия кнопок и полей взяты из спецификации; сверить с итоговым интерфейсом на приёмке",
-    "server/modules/agents/agents.service.ts:47 — списки моделей скопированы из threads; разойдутся — spawn_thread{agent} откажет на модели агента",
-    "shared/queue-verdict.ts:26 — вердикт засчитывается не только последней строкой; FAIL без причины даёт пустую причину",
-    "agents.service.ts validProject — принимает архивный проект",
-    "createAgentRunControl — первый прогон чата агента в режиме разрешений по умолчанию: у Claude первый инструмент уйдёт вопросом в «Ждут тебя»",
-    "agent.list при выключенном modAgents — 409 с текстом мода, а не пустой список",
-    "метка агента в сайдбаре и правка/удаление в панели не смотрены в браузере",
-    "agent-queue — выключение мода, когда последний пункт уже в работе: очередь закроется без уведомления",
-    "запрос ключа живёт в хабе «Ждут тебя»: при выключенном modAttention карточку не видно, агент получает «спроси позже»; счётчик хаба запросы ключей не считает",
-    "secret_requests_changed не дописан в зеркальные GatewayEventKind (server/shared/types.ts, src/types/app.ts)",
-    "modSecretRequest без requires modAttention — при выключенном хабе ответить на запрос ключа негде",
-    "server/shared/utils.ts:113 — битый JSON в POST /api/secret-requests/:id: apiErrorHandler печатает err.body (сырое тело со значением)",
-    "secret-requests.service.ts:213 — два одновременных ответа на один запрос оба пишут ключ"
-  ],
-  "blind": {
-    "checked": 4,
-    "matched": 2,
-    "mismatches": [
-      "R01 «все возможности grok bot» — частично: 10 возможностей сознательно не перенесены (причины в docs/grokbot-in-neo3.md)",
-      "R04 «сделай апгрейд» — частично по проверке: живые прогоны движков (чат с агентом, тред-помощник, конвейер с вердиктом, итог рутины пушем/в Telegram) в изоляции не запускались — только API и тесты (103/103)"
-    ]
-  },
+  "concerns": [],
+  "blind": null,
   "beats": [
-    "2026-11-05T13:24:06+03:00",
-    "2026-11-05T13:24:39+03:00",
-    "2026-11-05T13:24:43+03:00",
-    "2026-11-05T13:24:58+03:00",
-    "2026-11-05T13:25:02+03:00",
-    "2026-11-05T13:33:17+03:00",
-    "2026-11-05T13:33:21+03:00",
-    "2026-11-05T13:34:38+03:00",
-    "2026-11-05T13:34:39+03:00",
-    "2026-11-05T13:34:45+03:00",
-    "2026-11-05T13:34:59+03:00",
-    "2026-11-05T13:35:03+03:00",
-    "2026-11-05T13:38:40+03:00",
-    "2026-11-05T13:53:50+03:00",
-    "2026-11-05T13:55:36+03:00",
-    "2026-11-05T14:03:13+03:00",
-    "2026-11-05T14:14:50+03:00",
-    "2026-11-05T14:37:10+03:00",
-    "2026-11-05T14:37:11+03:00",
-    "2026-11-05T14:39:31+03:00",
-    "2026-11-05T14:39:32+03:00",
-    "2026-11-05T14:46:00+03:00",
-    "2026-11-05T14:56:03+03:00",
-    "2026-11-05T14:56:56+03:00",
-    "2026-11-05T15:04:25+03:00",
-    "2026-11-05T15:06:54+03:00",
-    "2026-11-05T15:07:00+03:00"
+    "2026-11-23T17:33:24+03:00",
+    "2026-11-23T17:33:54+03:00",
+    "2026-11-23T17:34:18+03:00",
+    "2026-11-23T17:34:19+03:00",
+    "2026-11-23T17:38:05+03:00",
+    "2026-11-23T17:47:22+03:00",
+    "2026-11-23T17:47:23+03:00"
   ],
-  "rev": 50,
+  "rev": 11,
   "waiting": null,
   "waits": [],
   "log": [
     {
-      "t": "2026-11-05T13:24:06+03:00",
+      "t": "2026-11-23T17:33:24+03:00",
       "k": "init"
     },
     {
-      "t": "2026-11-05T13:24:39+03:00",
+      "t": "2026-11-23T17:34:18+03:00",
       "k": "stage",
       "id": "manifest",
       "act": "start"
     },
     {
-      "t": "2026-11-05T13:24:43+03:00",
+      "t": "2026-11-23T17:34:18+03:00",
       "k": "stage",
       "id": "briefing",
       "act": "start"
     },
     {
-      "t": "2026-11-05T13:24:58+03:00",
-      "k": "add",
-      "key": "debt.assumptions",
-      "n": 3
-    },
-    {
-      "t": "2026-11-05T13:24:58+03:00",
-      "k": "stage",
-      "id": "briefing",
-      "act": "skip",
-      "note": "полный автомат — самобрифинг"
-    },
-    {
-      "t": "2026-11-05T13:25:02+03:00",
+      "t": "2026-11-23T17:34:19+03:00",
       "k": "gate",
       "g": "G1",
       "ok": false,
-      "open": 10,
-      "total": 10
+      "open": 22,
+      "total": 22
     },
     {
-      "t": "2026-11-05T13:25:02+03:00",
+      "t": "2026-11-23T17:34:19+03:00",
       "k": "stage",
       "id": "spec",
       "act": "start"
     },
     {
-      "t": "2026-11-05T13:33:17+03:00",
+      "t": "2026-11-23T17:38:05+03:00",
       "k": "gate",
       "g": "G2",
       "ok": true,
       "found": 5,
-      "fixed": 4,
-      "deferred": 1
+      "fixed": 5,
+      "deferred": 0
     },
     {
-      "t": "2026-11-05T13:33:17+03:00",
-      "k": "add",
-      "key": "debt.assumptions",
-      "n": 1
-    },
-    {
-      "t": "2026-11-05T13:33:21+03:00",
+      "t": "2026-11-23T17:47:22+03:00",
       "k": "stage",
       "id": "plan",
       "act": "start"
     },
     {
-      "t": "2026-11-05T13:34:38+03:00",
+      "t": "2026-11-23T17:47:23+03:00",
       "k": "tier",
       "v": "T2"
     },
     {
-      "t": "2026-11-05T13:34:38+03:00",
+      "t": "2026-11-23T17:47:23+03:00",
       "k": "tickets",
       "n": 5
     },
     {
-      "t": "2026-11-05T13:34:39+03:00",
-      "k": "gate",
-      "g": "G3",
-      "ok": false,
-      "problems": 1
-    },
-    {
-      "t": "2026-11-05T13:34:45+03:00",
-      "k": "tickets",
-      "n": 5
-    },
-    {
-      "t": "2026-11-05T13:34:45+03:00",
+      "t": "2026-11-23T17:47:23+03:00",
       "k": "gate",
       "g": "G3",
       "ok": true,
       "problems": 0
-    },
-    {
-      "t": "2026-11-05T13:35:03+03:00",
-      "k": "stage",
-      "id": "build",
-      "act": "start"
-    },
-    {
-      "t": "2026-11-05T13:35:03+03:00",
-      "k": "ticket",
-      "ids": [
-        "01",
-        "05"
-      ],
-      "act": "start"
-    },
-    {
-      "t": "2026-11-05T13:38:40+03:00",
-      "k": "ticket",
-      "ids": [
-        "05"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 0,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T13:38:40+03:00",
-      "k": "add",
-      "key": "concerns",
-      "n": 1
-    },
-    {
-      "t": "2026-11-05T13:53:50+03:00",
-      "k": "ticket",
-      "ids": [
-        "01"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 2080,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T13:53:50+03:00",
-      "k": "ticket",
-      "ids": [
-        "01"
-      ],
-      "act": "review"
-    },
-    {
-      "t": "2026-11-05T13:53:50+03:00",
-      "k": "ticket",
-      "ids": [
-        "02",
-        "03"
-      ],
-      "act": "start"
-    },
-    {
-      "t": "2026-11-05T13:55:36+03:00",
-      "k": "ticket",
-      "ids": [
-        "01"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 2080,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T13:55:36+03:00",
-      "k": "add",
-      "key": "concerns",
-      "n": 4
-    },
-    {
-      "t": "2026-11-05T14:03:13+03:00",
-      "k": "ticket",
-      "ids": [
-        "02"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 2100,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T14:03:13+03:00",
-      "k": "add",
-      "key": "concerns",
-      "n": 2
-    },
-    {
-      "t": "2026-11-05T14:14:50+03:00",
-      "k": "ticket",
-      "ids": [
-        "03"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 2127,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T14:14:50+03:00",
-      "k": "ticket",
-      "ids": [
-        "04"
-      ],
-      "act": "start"
-    },
-    {
-      "t": "2026-11-05T14:14:50+03:00",
-      "k": "add",
-      "key": "concerns",
-      "n": 1
-    },
-    {
-      "t": "2026-11-05T14:37:10+03:00",
-      "k": "ticket",
-      "ids": [
-        "04"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 2157,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T14:37:10+03:00",
-      "k": "ticket",
-      "ids": [
-        "04"
-      ],
-      "act": "review"
-    },
-    {
-      "t": "2026-11-05T14:37:11+03:00",
-      "k": "add",
-      "key": "concerns",
-      "n": 2
-    },
-    {
-      "t": "2026-11-05T14:39:31+03:00",
-      "k": "ticket",
-      "ids": [
-        "04"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 2157,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T14:39:32+03:00",
-      "k": "add",
-      "key": "concerns",
-      "n": 3
-    },
-    {
-      "t": "2026-11-05T14:39:32+03:00",
-      "k": "stage",
-      "id": "review",
-      "act": "start"
-    },
-    {
-      "t": "2026-11-05T14:46:00+03:00",
-      "k": "tickets",
-      "n": 6
-    },
-    {
-      "t": "2026-11-05T14:46:00+03:00",
-      "k": "gate",
-      "g": "G3",
-      "ok": true,
-      "problems": 0
-    },
-    {
-      "t": "2026-11-05T14:46:00+03:00",
-      "k": "ticket",
-      "ids": [
-        "F1"
-      ],
-      "act": "start"
-    },
-    {
-      "t": "2026-11-05T14:46:00+03:00",
-      "k": "add",
-      "key": "report",
-      "n": 11
-    },
-    {
-      "t": "2026-11-05T14:56:03+03:00",
-      "k": "ticket",
-      "ids": [
-        "F1"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 2163,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T14:56:03+03:00",
-      "k": "ticket",
-      "ids": [
-        "F1"
-      ],
-      "act": "review"
-    },
-    {
-      "t": "2026-11-05T14:56:03+03:00",
-      "k": "add",
-      "key": "report",
-      "n": 1
-    },
-    {
-      "t": "2026-11-05T14:56:56+03:00",
-      "k": "ticket",
-      "ids": [
-        "F1"
-      ],
-      "act": "done",
-      "tests": {
-        "passed": 2163,
-        "failed": 0
-      }
-    },
-    {
-      "t": "2026-11-05T14:56:56+03:00",
-      "k": "stage",
-      "id": "final",
-      "act": "start"
-    },
-    {
-      "t": "2026-11-05T15:04:25+03:00",
-      "k": "gate",
-      "g": "G4",
-      "ok": false,
-      "checked": 4,
-      "matched": 2
-    },
-    {
-      "t": "2026-11-05T15:06:54+03:00",
-      "k": "tests",
-      "passed": 2163,
-      "failed": 0
-    },
-    {
-      "t": "2026-11-05T15:07:00+03:00",
-      "k": "finish",
-      "result": "В Neo3 есть агенты с ролью и памятью, штаб с помощниками, конвейер с вердиктом, рутины с итогом и запрос ключа; разбор Grok Bot — docs/grokbot-in-neo3.md"
     }
   ],
   "reqList": [
     {
       "id": "R01",
-      "text": "«потяни все возможности grok bot»",
-      "status": "done"
+      "text": "«использовалась у него строка меню внизу… в принципе, возможно, это имеет смысл сделать»",
+      "status": "in-ticket"
     },
     {
       "id": "R02",
-      "text": "«в наш cli»",
-      "status": "done"
+      "text": "«это будет неудобно, если мы это сделаем под чатом, в который вводится текст»",
+      "status": "in-ticket"
     },
     {
       "id": "R03",
-      "text": "«тут много проектов где он мы дал пользу, пронализиуй»",
-      "status": "done"
+      "text": "«дизайн достаточно такой приятный был по кнопочкам»",
+      "status": "in-ticket"
     },
     {
       "id": "R04",
-      "text": "«сделай апгрейд»",
-      "status": "done"
+      "text": "«что у меня есть главное и проекты. То есть они либо ярлычками, либо вот в боковом меню»",
+      "status": "in-ticket"
     },
     {
-      "id": "R05i",
-      "text": "(подразумевается) разбор лежит документом: где Grok Bot помог, какой возможностью, что из этого уже есть в Neo3, чего нет",
-      "status": "done"
+      "id": "R05",
+      "text": "«Максимум, что я нажимаю еще настройки»",
+      "status": "in-ticket"
     },
     {
-      "id": "R06i",
-      "text": "(подразумевается) новое работает на всех трёх движках новых чатов (Claude, Codex, Grok), не только на одном",
-      "status": "done"
+      "id": "R06",
+      "text": "«Я кроме настроек ничего туда не нажимал. То есть оно по сути бесполезное»",
+      "status": "in-ticket"
     },
     {
-      "id": "R07i",
-      "text": "(подразумевается) каждая новая возможность — мод со своим выключателем",
-      "status": "done"
+      "id": "R07",
+      "text": "«Надо рассмотреть нужды ли эти реально нам вообще пункты. Как их вообще реализовывать. Для чего»",
+      "status": "in-ticket"
     },
     {
-      "id": "R08i",
-      "text": "(подразумевается) только админ; тиммейты в песочнице прав не получают",
-      "status": "done"
+      "id": "R08",
+      "text": "«лучше сделай пока без моего айфона, там, на своем тестовом, который ты можешь»",
+      "status": "in-ticket"
     },
     {
-      "id": "R09i",
-      "text": "(подразумевается) без платных API и перерасхода: только подписки, без on-demand",
-      "status": "done"
+      "id": "R09",
+      "text": "«дизайн… у тем практически идентичный, ничем особо не меняется»",
+      "status": "in-ticket"
     },
     {
-      "id": "R10i",
-      "text": "(подразумевается) боевой Neo3 не ломается: выкатка с откатом и только с согласия, второй чат / Safari / new-tab сохраняются",
-      "status": "done"
+      "id": "R10",
+      "text": "«полностью пересмотрел всю дизайн-систему… Я имею ввиду сами внешние виды»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R11",
+      "text": "«сделать из них меньше, но более как бы качественнее»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R12",
+      "text": "«Оцените дизайн, посмотрите, что-то улучшите»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R13",
+      "text": "«он меня по основному тревожит только мобильная версия… это очень важно»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R14",
+      "text": "«установил свой сайт через Safari, отправил домой экран»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R15",
+      "text": "«стеклянный эффект от Apple… скрин отправлю для примера, как это выглядит, чтобы я хотел видеть»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R16",
+      "text": "«может быть у нас это не получится встроить»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R17",
+      "text": "«И это касается бы… всех тем»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R18",
+      "text": "«исправила как бы недочеты, которые сделал когда-то фокус»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "G01",
+      "text": "«лучше каждому устройству своя тема, остальные настройки одинаковые»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R19i",
+      "text": "(подразумевается) у кого стояла убранная тема, приложение не ломается",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R20i",
+      "text": "(подразумевается) экраны из «Меню» по-прежнему открываются из уведомлений и ссылок",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R21i",
+      "text": "(подразумевается) тему надо уметь выбрать, видя, чем они отличаются",
+      "status": "in-ticket"
     }
   ],
   "gates": {
     "G1": {
       "ok": false,
-      "at": "2026-11-05T13:25:02+03:00",
-      "open": 10,
-      "total": 10
+      "at": "2026-11-23T17:34:19+03:00",
+      "open": 22,
+      "total": 22
     },
     "G2": {
       "ok": true,
-      "at": "2026-11-05T13:33:17+03:00",
+      "at": "2026-11-23T17:38:05+03:00",
       "found": 5,
-      "fixed": 4,
-      "deferred": 1
+      "fixed": 5,
+      "deferred": 0
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-05T14:46:00+03:00",
+      "at": "2026-11-23T17:47:23+03:00",
       "problems": 0
-    },
-    "G4": {
-      "ok": false,
-      "at": "2026-11-05T15:04:25+03:00",
-      "checked": 4,
-      "matched": 2
     }
   },
-  "result": "В Neo3 есть агенты с ролью и памятью, штаб с помощниками, конвейер с вердиктом, рутины с итогом и запрос ключа; разбор Grok Bot — docs/grokbot-in-neo3.md",
-  "report": [
-    "Списки моделей агентов скопированы из тредов: если их обновят в одном месте, штаб может отказать открыть помощника на модели агента",
-    "Агента можно сохранить в архивной папке проекта",
-    "Чат с агентом на Claude стартует в обычном режиме разрешений: первое действие может прийти вопросом в «Ждут тебя»",
-    "Если выключить «Конвейер», пока последний пункт в работе, итог может не прийти — нажми «Продолжить»",
-    "Счётчик «Ждут тебя» не считает запросы ключей — о них сообщает пуш",
-    "Два одновременных ответа на один запрос ключа: останется последний (оба — твои)",
-    "Тиммейт с доступом к общему проекту может открыть чат агента и прочитать его роль в истории сообщений (как и любые твои чаты там)",
-    "Прогоны конвейера и расписаний не получают инструментов тредов: в них агент не может сам дописать правило памяти или попросить ключ",
-    "Сервер разрешает удалить идущую очередь (в интерфейсе — только после паузы); «Отметить OK» по API работает и для нетронутого пункта",
-    "Помощник-агент в штабе работает в папке штаба, а не в своей папке",
-    "Если удалить агента посреди тика конвейера, этот тик пропустит остальные очереди до следующего",
-    "Метка агента по-прежнему уходит всем участникам проекта в живом обновлении чата (кадр session_upserted) — список чатов её тиммейту уже не отдаёт"
-  ]
+  "result": null
 }
