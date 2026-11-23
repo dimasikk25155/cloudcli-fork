@@ -68,7 +68,7 @@ export default function SessionHubPanel({ onClose, onOpenSession, getProviderLab
         )}
       >
         <DialogTitle>Диалоги</DialogTitle>
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-3">
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-3 pwa-panel-header">
           <div className="flex min-w-0 items-center gap-2">
             <PanelBackButton onClick={onClose} />
             <MessagesSquare className="h-4 w-4 flex-shrink-0 text-primary" aria-hidden />

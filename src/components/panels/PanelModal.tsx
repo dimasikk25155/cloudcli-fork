@@ -42,7 +42,7 @@ export default function PanelModal({
         <DialogTitle>{title}</DialogTitle>
 
         <div
-          className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-3"
+          className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-3 pwa-panel-header"
           data-panel-header
         >
           <div className="flex min-w-0 items-center gap-2">

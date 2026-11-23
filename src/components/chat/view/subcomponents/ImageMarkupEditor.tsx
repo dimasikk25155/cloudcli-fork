@@ -266,7 +266,7 @@ export default function ImageMarkupEditor({ file, onSave, onCancel }: ImageMarku
       aria-label="Пометки на картинке"
       data-testid="image-markup-editor"
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] pwa-panel-header">
         <button
           type="button"
           onClick={onCancel}
