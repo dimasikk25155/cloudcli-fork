@@ -23,10 +23,10 @@ const project = (name: string, daysAgo: number | null, extras: Partial<Project> 
   ...extras,
 });
 
-const render = (projects: Project[], initialGridSize = { width: 342, height: 553 }) =>
+const render = (projects: Project[], initialGridSize = { width: 342, height: 553 }, isMobile = true) =>
   renderToStaticMarkup(React.createElement(HomeLauncher, {
     projects,
-    isMobile: true,
+    isMobile,
     onMenuClick: () => undefined,
     onProjectSelect: () => undefined,
     onShowSettings: () => undefined,
@@ -101,4 +101,45 @@ test('the «работают · ждут · готово» bar of the chat sits 
     globals.fetch = savedFetch;
     globals.localStorage = savedStorage;
   }
+});
+
+test('phone: no ☰ strip on top; ☰ is a round neon button left of the clock digits, settings right', () => {
+  const html = render([project('a', 1)]);
+  // The old strip with the plain ☰ (MobileMenuButton) is gone.
+  assert.doesNotMatch(html, /pwa-menu-button/);
+  assert.doesNotMatch(html, /pwa-header-safe/);
+
+  const row = html.slice(html.indexOf('data-home-clock'), html.indexOf('data-home-grid-area'));
+  const menu = row.indexOf('data-home-menu');
+  const digits = row.indexOf('data-home-time');
+  const settings = row.indexOf('data-home-settings');
+  assert.ok(menu > 0 && digits > 0 && settings > 0, 'menu, digits and settings share the clock line');
+  assert.ok(menu < digits && digits < settings, '☰ — digits — settings');
+
+  // Same look and size as the settings button: a 40 px neon circle.
+  const menuButton = row.slice(menu, row.indexOf('</button>', menu));
+  assert.match(menuButton, /data-neon-shape="circle"/);
+  assert.match(menuButton, /data-neon-glyph="menu"/);
+  assert.match(menuButton, /width="40"/);
+  assert.match(row.slice(settings), /width="40"/);
+  const label = html.match(/aria-label="([^"]+)"[^>]*data-home-menu|data-home-menu[^>]*aria-label="([^"]+)"/);
+  assert.ok(label && (label[1] || label[2]), 'the ☰ button has an aria-label');
+  // Pinned to the edges of the grid column (left / right), centred on the digits.
+  const openTag = (marker: string) => {
+    const at = row.indexOf(marker);
+    return row.slice(row.lastIndexOf('<button', at), row.indexOf('>', at));
+  };
+  const classes = (marker: string) => new Set(/class="([^"]+)"/.exec(openTag(marker))?.[1].split(/\s+/));
+  for (const [marker, edge] of [['data-home-menu', 'left-0'], ['data-home-settings', 'right-0']]) {
+    const tag = classes(marker);
+    for (const name of ['absolute', edge, 'top-1/2', '-translate-y-1/2', 'h-10', 'w-10', 'neo3-neon-round']) {
+      assert.ok(tag.has(name), `${marker}: ${name}`);
+    }
+  }
+});
+
+test('desktop: no ☰ on Home, settings still on the clock line', () => {
+  const html = render([project('a', 1)], { width: 1072, height: 560 }, false);
+  assert.doesNotMatch(html, /data-home-menu/);
+  assert.match(html.slice(html.indexOf('data-home-clock')), /data-home-settings/);
 });

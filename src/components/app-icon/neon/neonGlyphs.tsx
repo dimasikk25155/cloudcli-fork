@@ -711,6 +711,11 @@ const GLYPH_ART = {
     white: <Line d="M33 57L50 40L67 57" w={4} />,
     accent: <Line d="M38 68H62" />,
   },
+  /** ☰ — the side menu button of Home (round, next to the clock). */
+  menu: {
+    white: <Line d="M30 35H70M30 65H70" w={4} />,
+    accent: <Line d="M30 50H70" w={4} />,
+  },
 } satisfies Record<string, NeonGlyphArt>;
 
 export type NeonGlyph = keyof typeof GLYPH_ART;

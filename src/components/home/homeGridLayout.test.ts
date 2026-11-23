@@ -12,15 +12,47 @@ test('iPhone width: four columns with the phone gaps', () => {
   const layout = homeGridLayout({ width: 342, height: 553 });
   assert.equal(layout.columns, 4);
   assert.equal(layout.columnGap, 16);
-  assert.equal(layout.rowGap, 24);
-  // 4 rows take 4 × 106 + 3 × 24 = 496 px; a fifth would need 626.
+  assert.equal(layout.rowGap, 12);
+  // 4 rows take 4 × 106 + 3 × 12 = 460 px; a fifth would need 578.
   assert.equal(layout.rows, 4);
   assert.equal(layout.capacity, 16);
 });
 
 test('rows are whole: one pixel short of a row drops it', () => {
-  assert.equal(homeGridLayout({ width: 342, height: 4 * 106 + 3 * 24 }).rows, 4);
-  assert.equal(homeGridLayout({ width: 342, height: 4 * 106 + 3 * 24 - 1 }).rows, 3);
+  assert.equal(homeGridLayout({ width: 342, height: 4 * 106 + 3 * 12 }).rows, 4);
+  assert.equal(homeGridLayout({ width: 342, height: 4 * 106 + 3 * 12 - 1 }).rows, 3);
+});
+
+// Dima's iPhone, 23.11 09:37 (reference/IMG_0103, 430 × 932 pt PWA): with the
+// ☰ strip on top the first row starts at 317 pt and the app ends at 874 pt,
+// so the grid area was 874 − 12 (bottom padding) − 317 = 545 pt — 4 rows and
+// almost a row of empty space under them. The ☰ moves onto the clock line:
+// its 40 pt strip and 12 pt of trimmed phone padding above the grid
+// (pt-5 → pt-4, two mb-4 → mb-3) go to the grid.
+const IPHONE_430_GRID = { width: 430 - 2 * 24, height: 545 + 40 + 12 };
+// The same Home chrome on a 390 × 844 iPhone (safe area 47 top, 34 bottom):
+// 16 + 48 clock + 26 date + 43 status bar + 12 + 36 search + 12 + 4 = 197 pt
+// above the grid, 12 under it.
+const IPHONE_390_GRID = { width: 390 - 2 * 24, height: 844 - 47 - 34 - 197 - 12 };
+
+test('iPhone 430 × 932 PWA (IMG_0103): five rows, less than half a row left under them', () => {
+  const layout = homeGridLayout(IPHONE_430_GRID);
+  assert.equal(layout.columns, 4);
+  assert.equal(layout.rows, 5);
+  assert.equal(layout.capacity, 20);
+  // The 68 px tile and its two label lines keep their size.
+  assert.equal(layout.cellHeight, 106);
+  const used = layout.rows * layout.cellHeight + (layout.rows - 1) * layout.rowGap;
+  assert.ok(used <= IPHONE_430_GRID.height, 'the last row is not cut');
+  assert.ok(IPHONE_430_GRID.height - used < (106 + layout.rowGap) / 2, 'less than half a row empty');
+});
+
+test('iPhone 390 × 844 PWA keeps its four whole rows', () => {
+  const layout = homeGridLayout(IPHONE_390_GRID);
+  assert.equal(layout.columns, 4);
+  assert.equal(layout.rows, 4);
+  assert.equal(layout.cellHeight, 106);
+  assert.ok(4 * 106 + 3 * layout.rowGap <= IPHONE_390_GRID.height);
 });
 
 test('wider grids take 6, 8 and 10 columns', () => {

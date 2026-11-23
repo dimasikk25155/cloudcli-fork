@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next';
 import type { Project } from '../../types/app';
 import { cn } from '../../lib/utils';
 import NeonTile from '../app-icon/neon/NeonTile';
-import MobileMenuButton from '../main-content/view/subcomponents/MobileMenuButton';
 import SessionHubBar from '../session-hub/SessionHubBar';
 
 import HomeAllProjectsFolder from './HomeAllProjectsFolder';
+import HomeClockRow from './HomeClockRow';
 import HomeProjectTile from './HomeProjectTile';
 import HomeSearchField from './HomeSearchField';
 import type { GridSize } from './homeGridLayout';
@@ -30,7 +30,6 @@ type HomeLauncherProps = {
 };
 
 const ALL_TILE_ACCENT = '#7DD3FC';
-const SETTINGS_ACCENT = '#7DD3FC';
 /** Show the search field once there are more real projects than fit two rows. */
 const SEARCH_MIN_PROJECTS = 8;
 
@@ -105,37 +104,17 @@ export default function HomeLauncher({
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      {isMobile && (
-        <div className="pwa-header-safe flex-shrink-0 p-2 sm:p-3">
-          <MobileMenuButton onMenuClick={onMenuClick} compact />
-        </div>
-      )}
-
-      <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-6 pt-5 sm:px-8 sm:pt-7 lg:px-10">
-        <div className="mb-4 shrink-0 text-center sm:mb-6">
-          {/* Digits stay centred; the settings button hangs off their right edge. */}
-          <div className="relative inline-block" data-home-clock>
-            <p className="text-5xl font-semibold leading-none tracking-tight text-foreground sm:text-6xl">
-              {time}
-            </p>
-            <button
-              type="button"
-              className="neo3-neon neo3-neon-round absolute left-full top-1/2 ml-3 inline-flex h-10 w-10 -translate-y-1/2 overflow-hidden outline-none transition-transform duration-150 ease-out hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-95 sm:ml-4"
-              onClick={onShowSettings}
-              aria-label={t('mainContent.homeSettings', 'Settings')}
-              title={t('mainContent.homeSettings', 'Settings')}
-              data-home-settings
-            >
-              <NeonTile
-                glyph="settings"
-                accent={SETTINGS_ACCENT}
-                size={40}
-                shape="circle"
-                showMark={false}
-                className="h-full w-full"
-              />
-            </button>
-          </div>
+      {/* No ☰ strip on top: on a phone the ☰ sits on the clock line (left),
+          settings on the right, and the strip's height goes to the grid —
+          one more row on Dima's 430 × 932 iPhone (IMG_0103, 23.11 09:38).
+          Phone paddings are trimmed for the same reason (pt-4, mb-3). */}
+      <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-6 pt-4 sm:px-8 sm:pt-7 lg:px-10">
+        <div className="mb-3 shrink-0 text-center sm:mb-6">
+          <HomeClockRow
+            time={time}
+            onMenuClick={isMobile ? onMenuClick : undefined}
+            onShowSettings={onShowSettings}
+          />
           <p className="mt-1.5 text-sm capitalize text-muted-foreground">{date}</p>
           {/* The same «работают · ждут · готово» bar as above the chat
               composer (opens «Диалоги»). It hides itself when nothing runs,
@@ -149,7 +128,7 @@ export default function HomeLauncher({
         </div>
 
         {realProjectCount > SEARCH_MIN_PROJECTS && (
-          <div className="mb-4 shrink-0">
+          <div className="mb-3 shrink-0 sm:mb-4">
             <HomeSearchField value={query} onChange={setQuery} onFocusChange={setSearchFocused} />
           </div>
         )}

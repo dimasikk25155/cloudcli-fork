@@ -23,13 +23,19 @@ export const HOME_CELL_HEIGHT = 106;
 /** Narrowest cell that still gives the 68 px tile and its label room. */
 const MIN_CELL_WIDTH = 88;
 const COLUMN_STEPS = [10, 8, 6, 4] as const;
-/** Grid narrower than this is a phone: tighter gaps, like `gap-x-4 gap-y-6`. */
+/** Grid narrower than this is a phone: tighter gaps, like `gap-x-4 gap-y-3`. */
 const PHONE_MAX_WIDTH = 560;
+/**
+ * Phone row gap. 24 left Dima's 430 × 932 iPhone at 4 rows with almost a row
+ * of empty space (IMG_0103, 23.11 09:37); 12 gives the fifth row without
+ * shrinking the 68 px tile or its labels.
+ */
+const PHONE_ROW_GAP = 12;
 
 export function homeGridLayout({ width, height }: GridSize): HomeGridLayout {
   const phone = width < PHONE_MAX_WIDTH;
   const columnGap = phone ? 16 : 20;
-  const rowGap = phone ? 24 : 28;
+  const rowGap = phone ? PHONE_ROW_GAP : 28;
 
   const columns = COLUMN_STEPS.find(
     (count) => (width - (count - 1) * columnGap) / count >= MIN_CELL_WIDTH,
