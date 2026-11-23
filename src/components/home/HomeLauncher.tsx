@@ -117,13 +117,13 @@ export default function HomeLauncher({
           />
           <p className="mt-1.5 text-sm capitalize text-muted-foreground">{date}</p>
           {/* The same «работают · ждут · готово» bar as above the chat
-              composer (opens «Диалоги»). It hides itself when nothing runs,
+              composer, but here it opens «Ждут тебя» (same counts as the bar). It hides itself when nothing runs,
               so the slot collapses; the grid below measures what is left. */}
           <div
             className="mt-3 empty:hidden [&_[data-session-hub-bar]]:mb-0 [&_[data-session-hub-bar]]:justify-center"
             data-home-status
           >
-            <SessionHubBar onOpenSession={(sessionId) => onOpenSession?.(sessionId)} />
+            <SessionHubBar opens="attention" onOpenSession={(sessionId) => onOpenSession?.(sessionId)} />
           </div>
         </div>
 

@@ -6,6 +6,7 @@ import { useModEnabled } from '../../hooks/useModEnabled';
 import { cn } from '../../lib/utils';
 import type { AttentionItem } from '../attention/types';
 import { useAttention } from '../attention/useAttention';
+import AttentionHub from '../attention/view/AttentionHub';
 
 import SessionHubPanel from './SessionHubPanel';
 import { sessionHubBar } from './sessionHubModel';
@@ -13,6 +14,12 @@ import { sessionHubBar } from './sessionHubModel';
 type SessionHubBarProps = {
   /** Переход в сессию по id (в любом проекте). */
   onOpenSession: (sessionId: string) => void;
+  /**
+   * Что открывает клик: «Диалоги» (над полем ввода) или «Ждут тебя» (на главной:
+   * там те же числа, что в полосе, а не 148 из мастер-сессии — Дима, 23.11).
+   * Мод «Ждут тебя» выключен — всегда «Диалоги».
+   */
+  opens?: 'dialogs' | 'attention';
 };
 
 /**
@@ -20,8 +27,10 @@ type SessionHubBarProps = {
  * проектам и движкам. Клик открывает правую панель «Диалоги». Мод
  * «Панель диалогов» выключен — полосы нет.
  */
-export default function SessionHubBar({ onOpenSession }: SessionHubBarProps) {
+export default function SessionHubBar({ onOpenSession, opens = 'dialogs' }: SessionHubBarProps) {
   const hubOn = useModEnabled('modSessionHub');
+  const attentionOn = useModEnabled('modAttention');
+  const toAttention = opens === 'attention' && attentionOn;
   const { items } = useAttention();
   const [open, setOpen] = useState(false);
   const { t } = useTranslation('sidebar');
@@ -46,7 +55,7 @@ export default function SessionHubBar({ onOpenSession }: SessionHubBarProps) {
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           className="flex min-h-[30px] items-center gap-2 rounded-full border border-border/60 bg-card/90 px-3 text-xs text-muted-foreground backdrop-blur-sm hover:text-foreground"
-          title="Все диалоги и мастер-сессия"
+          title={toAttention ? 'Ждут тебя' : 'Все диалоги и мастер-сессия'}
         >
           <MessagesSquare className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
           <span className="flex items-center gap-1.5">
@@ -74,7 +83,10 @@ export default function SessionHubBar({ onOpenSession }: SessionHubBarProps) {
           )}
         </button>
       </div>
-      {open && (
+      {open && toAttention && (
+        <AttentionHub onClose={() => setOpen(false)} onOpenSession={(item) => onOpenSession(item.sessionId)} />
+      )}
+      {open && !toAttention && (
         <SessionHubPanel
           onClose={() => setOpen(false)}
           onOpenSession={(item: AttentionItem) => onOpenSession(item.sessionId)}
