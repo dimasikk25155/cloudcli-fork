@@ -717,3 +717,17 @@ test('Claude: a just-sent prompt not yet on disk stays after the previous answer
   assert.deepEqual(computeMerged([previous, answer], [next]).map((row) => row.id), ['srv-user', 'srv-asst', 'local_next']);
   assert.deepEqual(pruneRealtimeSupersededByServer([previous, answer], [next]).map((row) => row.id), ['local_next']);
 });
+
+test('a message the SERVER sent from its queue (local_queue_*) and the same text from history make one bubble', () => {
+  const previousAnswer = msg({ id: 'srv-asst-0', kind: 'text', role: 'assistant', content: 'Готово.', timestamp: '2026-11-23T16:00:00.000Z' });
+  const historyUser = msg({ id: 'srv-user-q', kind: 'text', role: 'user', content: 'Теперь сделай вторую часть', timestamp: '2026-11-23T16:05:01.000Z' });
+  const queueBubble = msg({ id: 'local_queue_abc123', kind: 'text', role: 'user', content: 'Теперь сделай вторую часть', timestamp: '2026-11-23T16:05:00.000Z' });
+  const liveAnswer = msg({ id: 'live-asst-1', kind: 'text', role: 'assistant', content: 'Делаю.', timestamp: '2026-11-23T16:05:03.000Z' });
+
+  // Live only: the server's own bubble shows once, in order.
+  assert.deepEqual(computeMerged([previousAnswer], [queueBubble, liveAnswer]).map((row) => row.id), ['srv-asst-0', 'local_queue_abc123', 'live-asst-1']);
+  // After the history reload carries the same text: still one user bubble.
+  const merged = computeMerged([previousAnswer, historyUser], [queueBubble, liveAnswer]);
+  assert.equal(merged.filter((row) => row.role === 'user').length, 1);
+  assert.equal(merged.some((row) => row.id === 'local_queue_abc123'), false);
+});

@@ -27,6 +27,7 @@ import {
 import { attentionStore, useAttentionItem } from '../../attention/useAttention';
 import { isSeenable } from '../../attention/utils/attentionModel';
 import { createStreamBuffers } from '../utils/streamBuffers';
+import { isBetweenTurns } from '../utils/runPhase';
 import { chatPointerOwner, isEscapeForInstance, whenPageVisible } from '../utils/chatInstance';
 import { lastModelActivityAt, latestTimestamp, promptCacheApplies } from '../../../utils/promptCache';
 
@@ -273,6 +274,16 @@ function ChatInterface({
     resetComposerModesAfterSend(sessionId);
   }, [permissionMode, resetComposerModesAfterSend]);
 
+  const composerBusy = isProcessing && !isBetweenTurns(sessionActivity?.phase);
+  // The server sent the queued message (maybe a run started while this tab sat
+  // idle): subscribe again so the run's indicator and its first bubble appear.
+  const resubscribeActiveSession = useCallback(() => {
+    const id = selectedSession?.id || currentSessionId;
+    if (!id) return;
+    statusCheckSentAtRef.current.set(id, Date.now());
+    sendMessage({ type: 'chat.subscribe', sessions: [{ sessionId: id, lastSeq: lastSeqRef.current.get(id) ?? 0 }] });
+  }, [selectedSession?.id, currentSessionId, sendMessage]);
+
   const {
     input,
     setInput,
@@ -343,8 +354,12 @@ function ChatInterface({
     kimiModel,
     geminiModel,
     grokModel,
-    isLoading: isProcessing,
+    // Between turns (the server keeps the run alive for its background work) the
+    // agent is not in a turn: a message goes out as an ordinary chat.send instead
+    // of landing in the queue. «Прервать» stays on the activity bar.
+    isLoading: composerBusy,
     canAbortSession,
+    onQueueConsumed: resubscribeActiveSession,
     tokenBudget,
     sendMessage,
     sendByCtrlEnter,
@@ -788,7 +803,7 @@ function ChatInterface({
           handleGrantToolPermission={handleGrantToolPermission}
           activity={sessionActivity}
           activitySessionId={selectedSession?.id || currentSessionId || null}
-          isLoading={isProcessing}
+          isLoading={composerBusy}
           onAbortSession={handleAbortSession}
           onAppendNow={handleAppendNow}
           isAppendPending={isAppendPending}

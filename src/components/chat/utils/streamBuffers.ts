@@ -11,8 +11,19 @@
 type TimerHandle = unknown;
 
 export type StreamBuffers = {
-  /** Adds a delta; the first one schedules `onFlush(sessionId, textSoFar)` after the delay. */
-  append: (sessionId: string, text: string, onFlush: (sessionId: string, text: string) => void) => void;
+  /**
+   * Adds a delta; the first one schedules `onFlush(sessionId, textSoFar, startedAt)` after the delay.
+   * `timestamp` is the server time of the frame; only the FIRST portion's time is kept, so a bubble
+   * opened mid-stream (the buffered frames replay) is stamped when the answer began, not when the tab opened.
+   */
+  append: (
+    sessionId: string,
+    text: string,
+    onFlush: (sessionId: string, text: string, startedAt?: string) => void,
+    timestamp?: string,
+  ) => void;
+  /** Server time of the session's first buffered portion; undefined if unknown or nothing buffered. */
+  startedAt: (sessionId: string) => string | undefined;
   /** Ends the session's buffer: cancels its pending flush and returns the text ('' if none). */
   take: (sessionId: string) => string;
   /** Drops one session's buffer, or all of them without an id. */
@@ -32,7 +43,7 @@ export function createStreamBuffers({
   cancel = (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   delayMs = STREAM_FLUSH_MS,
 }: StreamBuffersOptions = {}): StreamBuffers {
-  const entries = new Map<string, { text: string; timer: TimerHandle | null }>();
+  const entries = new Map<string, { text: string; timer: TimerHandle | null; startedAt?: string }>();
 
   const drop = (sessionId: string) => {
     const entry = entries.get(sessionId);
@@ -43,21 +54,23 @@ export function createStreamBuffers({
   };
 
   return {
-    append(sessionId, text, onFlush) {
+    append(sessionId, text, onFlush, timestamp) {
       let entry = entries.get(sessionId);
       if (!entry) {
         entry = { text: '', timer: null };
         entries.set(sessionId, entry);
       }
+      if (entry.text === '' && entry.startedAt === undefined && timestamp) entry.startedAt = timestamp;
       entry.text += text;
       if (entry.timer === null) {
         const owner = entry;
         owner.timer = schedule(() => {
           owner.timer = null;
-          onFlush(sessionId, owner.text);
+          onFlush(sessionId, owner.text, owner.startedAt);
         }, delayMs);
       }
     },
+    startedAt: (sessionId) => entries.get(sessionId)?.startedAt,
     take: drop,
     reset(sessionId) {
       if (sessionId) {

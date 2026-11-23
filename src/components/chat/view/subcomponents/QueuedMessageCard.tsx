@@ -1,9 +1,12 @@
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, PencilIcon, SendIcon, XIcon } from 'lucide-react';
 
 interface QueuedMessageCardProps {
   content: string;
   imageCount?: number;
+  /** Why the server holds the message instead of sending it (null = it goes out by itself). */
+  holdLabel?: string | null;
   onEdit: () => void;
   onDelete: () => void;
   /** Soft-stops the running turn and sends this draft immediately (resumes the same session) instead of waiting for the turn to finish on its own. */
@@ -15,6 +18,7 @@ interface QueuedMessageCardProps {
 export default function QueuedMessageCard({
   content,
   imageCount = 0,
+  holdLabel = null,
   onEdit,
   onDelete,
   onSendNow,
@@ -22,6 +26,9 @@ export default function QueuedMessageCard({
   isSendingNow = false,
 }: QueuedMessageCardProps) {
   const { t } = useTranslation('chat');
+  const sendLabel = holdLabel
+    ? t('input.queue.sendHeld', { defaultValue: 'Send' })
+    : t('input.queue.sendNow', { defaultValue: 'Stop and send now' });
 
   return (
     <div className="settings-content-enter mx-auto mb-2 max-w-[54.25rem] rounded-xl border border-dashed border-primary/25 bg-primary/[0.04] px-3 py-2">
@@ -34,7 +41,7 @@ export default function QueuedMessageCard({
             <span className="normal-case text-muted-foreground/60">
               · {isSendingNow
                 ? t('input.queue.sendingNow', { defaultValue: 'Stopping current turn…' })
-                : t('input.queue.willSend', { defaultValue: 'Will send when this finishes' })}
+                : holdLabel ?? t('input.queue.willSend', { defaultValue: 'Will send when this finishes' })}
             </span>
           </div>
           <p className="mt-0.5 line-clamp-2 break-words text-sm text-foreground/90">{content}</p>
@@ -51,8 +58,8 @@ export default function QueuedMessageCard({
               type="button"
               onClick={onSendNow}
               disabled={!canSendNow || isSendingNow}
-              aria-label={t('input.queue.sendNow', { defaultValue: 'Stop and send now' })}
-              title={t('input.queue.sendNow', { defaultValue: 'Stop and send now' })}
+              aria-label={sendLabel}
+              title={sendLabel}
               className="rounded-md p-1.5 text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isSendingNow ? (

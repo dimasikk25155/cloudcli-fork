@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Shimmer } from '../../../../shared/view/ui';
 import { useModEnabled } from '../../../../hooks/useModEnabled';
 import type { SessionActivity } from '../../../../hooks/useSessionProtection';
+import { phaseTranslate, runPhaseLabel } from '../../utils/runPhase';
 import { formatDuration, isStepOverdue } from '../../utils/stepTimer';
 
 import BackgroundTasksButton from './BackgroundTasksButton';
@@ -87,7 +88,10 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
   // The current step (one tool call) has its own clock; the turn's total is secondary.
   const step = backgroundConsoleOn ? renderedActivity.step ?? null : null;
   const isOverdue = isStepOverdue(step, now);
-  const label = (step?.name || phaseLabel || renderedActivity.statusText || actionWords[Math.floor(elapsedSeconds / 4) % actionWords.length])
+  // Between turns the run is kept alive for its background work: say what it waits for
+  // («ждёт помощников: 2 · с 19:02») instead of a bare «идёт ход». No frame → as before.
+  const waitingLabel = runPhaseLabel(renderedActivity.phase, now, phaseTranslate(t));
+  const label = (waitingLabel || step?.name || phaseLabel || renderedActivity.statusText || actionWords[Math.floor(elapsedSeconds / 4) % actionWords.length])
     .replace(/\.+$/, '');
 
   const minutes = Math.floor(elapsedSeconds / 60);
@@ -121,9 +125,9 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
           >
             <span className={`h-1.5 w-1.5 shrink-0 animate-pulse rounded-full ${isOverdue ? 'bg-destructive' : 'bg-primary'}`} aria-hidden />
             {isOverdue
-              ? <span className="truncate font-medium">{`${label}…`}</span>
-              : <Shimmer className="truncate font-medium">{`${label}…`}</Shimmer>}
-            {step ? (
+              ? <span className="truncate font-medium">{waitingLabel ? label : `${label}…`}</span>
+              : <Shimmer className="truncate font-medium">{waitingLabel ? label : `${label}…`}</Shimmer>}
+            {waitingLabel ? null : step ? (
               <>
                 <span className={`shrink-0 tabular-nums ${isOverdue ? 'font-medium' : 'text-muted-foreground/80'}`}>
                   {formatDuration(now - step.startedAt)}

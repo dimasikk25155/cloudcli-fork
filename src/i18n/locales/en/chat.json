@@ -153,6 +153,14 @@
       "sendNow": "Stop and send now",
       "edit": "Edit queued message",
       "delete": "Delete queued message",
+      "sendHeld": "Send",
+      "hold": {
+        "question": "The agent is waiting for your answer",
+        "stopped": "The run was stopped",
+        "failed": "The run ended with an error",
+        "restart": "The server was restarted",
+        "error": "Could not send"
+      },
       "imagesAttached_one": "{{count}} image attached",
       "imagesAttached_other": "{{count}} images attached"
     },
@@ -247,6 +255,11 @@
       "startingNow": "Starting now"
     },
     "usingTools": "Tools: {{name}}",
+    "phase": {
+      "waitingHelpers": "waiting for helpers: {{count}} · since {{time}}",
+      "parked": "turn finished · background: {{count}} — the agent will come back by itself",
+      "killedBackground": "Stopped: {{count}} background tasks killed, they will not continue on their own"
+    },
     "stop": "Stop",
     "controls": {
       "stopGeneration": "Stop Generation",

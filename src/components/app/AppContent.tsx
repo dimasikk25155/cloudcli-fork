@@ -10,7 +10,7 @@ import { PaletteOpsProvider, usePaletteOpsRegister } from '../../contexts/Palett
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
-import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
+import { runLocalQueueMigration } from '../chat/queued/runLocalQueueMigration';
 import { useUiPreferencesSync } from '../../hooks/useUiPreferencesSync';
 import { useAttentionSync } from '../attention/useAttention';
 import { api } from '../../utils/api';
@@ -103,16 +103,11 @@ function AppContentInner() {
   // Settings (incl. mod switches) saved on another device show up here too.
   useUiPreferencesSync();
 
-  // Queued messages for sessions that finish while another session (or none)
-  // is being viewed are sent from here; the viewed session's composer handles
-  // its own queue.
-  useQueuedMessageAutoSend({
-    processingSessions,
-    activeSessionId: selectedSession?.id ?? sessionId ?? null,
-    ws,
-    sendMessage,
-    markSessionProcessing,
-  });
+  // Messages queued in this browser before the queue moved to the server go
+  // over once, here (never per chat view, so the second chat does nothing).
+  useEffect(() => {
+    void runLocalQueueMigration();
+  }, []);
 
   const refreshRunningSessions = useCallback(async () => {
     try {

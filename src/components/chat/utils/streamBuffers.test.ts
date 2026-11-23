@@ -85,3 +85,34 @@ test('a chat_subscribed ack is handled only for a session this chat subscribed t
   assert.equal(shouldHandleSubscribedAck(sentAt, 'other-chat'), false);
   assert.equal(shouldHandleSubscribedAck(sentAt, null), false);
 });
+
+test('the flush carries the time of the FIRST portion, not of the latest one', () => {
+  const timers = manualTimers();
+  const buffers = createStreamBuffers({ schedule: timers.schedule, cancel: timers.cancel });
+  const flushed: Array<[string, string, string | undefined]> = [];
+  const onFlush = (sessionId: string, text: string, startedAt?: string) => flushed.push([sessionId, text, startedAt]);
+
+  buffers.append('A', 'Прив', onFlush, '2026-11-23T19:02:10.000Z');
+  buffers.append('A', 'ет', onFlush, '2026-11-23T19:49:25.000Z');
+  timers.fireAll();
+
+  assert.deepEqual(flushed, [['A', 'Привет', '2026-11-23T19:02:10.000Z']]);
+});
+
+test('a frame without a time leaves the start unknown, and the next buffer starts clean', () => {
+  const timers = manualTimers();
+  const buffers = createStreamBuffers({ schedule: timers.schedule, cancel: timers.cancel });
+  const starts: Array<string | undefined> = [];
+  const onFlush = (_sessionId: string, _text: string, startedAt?: string) => starts.push(startedAt);
+
+  buffers.append('A', 'x', onFlush);
+  assert.equal(buffers.startedAt('A'), undefined);
+  buffers.take('A');
+
+  buffers.append('A', 'y', onFlush, '2026-11-23T20:00:00.000Z');
+  assert.equal(buffers.startedAt('A'), '2026-11-23T20:00:00.000Z');
+  buffers.take('A');
+  assert.equal(buffers.startedAt('A'), undefined);
+  timers.fireAll();
+  assert.deepEqual(starts, []);
+});

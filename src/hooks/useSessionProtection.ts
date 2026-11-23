@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
+import type { RunPhaseFrame } from '../../shared/run-phase';
+
 export type SessionActivityKind = 'thinking' | 'tools';
 
 /** The tool call the agent is in right now: from its tool_use to its tool_result. */
@@ -18,6 +20,12 @@ export interface SessionActivity {
   canInterrupt: boolean;
   /** Current step (top-level tool call) and when it began; null between steps. */
   step?: SessionStep | null;
+  /**
+   * What the live run is doing right now (`run_phase` frame): in a turn, between
+   * turns waiting for helpers, or parked on background commands. Absent = no
+   * frame seen: a turn in progress, as before the server sent phases.
+   */
+  phase?: RunPhaseFrame | null;
   /**
    * When this request was first marked as processing (client clock). Drives
    * the elapsed-time display and the stale `chat_subscribed` idle-ack guard.
@@ -44,6 +52,7 @@ export type MarkSessionProcessing = (
     toolName?: string | null;
     canInterrupt?: boolean;
     step?: SessionStep | null;
+    phase?: RunPhaseFrame | null;
   },
 ) => void;
 
@@ -64,6 +73,14 @@ const sameStep = (left?: SessionStep | null, right?: SessionStep | null): boolea
   (left ?? null) === (right ?? null)
   || (Boolean(left) && Boolean(right) && left!.name === right!.name && left!.startedAt === right!.startedAt);
 
+const samePhase = (left?: RunPhaseFrame | null, right?: RunPhaseFrame | null): boolean =>
+  (left ?? null) === (right ?? null)
+  || (Boolean(left) && Boolean(right)
+    && left!.phase === right!.phase
+    && left!.since === right!.since
+    && left!.background.agents === right!.background.agents
+    && left!.background.shells === right!.background.shells);
+
 const sessionActivityMapsMatch = (
   left: ReadonlyMap<string, SessionActivity>,
   right: ReadonlyMap<string, SessionActivity>,
@@ -82,6 +99,7 @@ const sessionActivityMapsMatch = (
       || leftActivity.canInterrupt !== rightActivity.canInterrupt
       || leftActivity.startedAt !== rightActivity.startedAt
       || !sameStep(leftActivity.step, rightActivity.step)
+      || !samePhase(leftActivity.phase, rightActivity.phase)
     ) {
       return false;
     }
@@ -123,6 +141,7 @@ export function useSessionProtection() {
           activity?.toolName !== undefined ? activity.toolName : existing?.toolName ?? null,
         canInterrupt: activity?.canInterrupt ?? existing?.canInterrupt ?? true,
         step: activity?.step !== undefined ? activity.step : existing?.step ?? null,
+        phase: activity?.phase !== undefined ? activity.phase : existing?.phase ?? null,
         startedAt: existing?.startedAt ?? Date.now(),
       };
 
@@ -133,6 +152,7 @@ export function useSessionProtection() {
         && existing.toolName === next.toolName
         && existing.canInterrupt === next.canInterrupt
         && sameStep(existing.step, next.step)
+        && samePhase(existing.phase, next.phase)
       ) {
         return prev;
       }
@@ -202,6 +222,7 @@ export function useSessionProtection() {
             snapshot.toolName !== undefined ? snapshot.toolName : existing?.toolName ?? null,
           canInterrupt: snapshot.canInterrupt ?? existing?.canInterrupt ?? true,
           step: existing?.step ?? null,
+          phase: existing?.phase ?? null,
           startedAt: snapshotStartedAt ?? existing?.startedAt ?? now,
         });
       }

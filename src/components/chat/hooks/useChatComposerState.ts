@@ -1,6 +1,6 @@
 import { WORKSPACE_CHAT_EVENT } from '../../agent-workspace/handoff';
 import { workspaceApi, workspaceJson } from '../../agent-workspace/api';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -29,13 +29,9 @@ import { getUsageLimits } from '../../../utils/usageLimits';
 import type { MarkSessionProcessing } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import { toWirePermissionMode } from '../utils/autoPlanMode';
-import {
-  clearQueuedMessage,
-  readQueuedMessage,
-  safeLocalStorage,
-  writeQueuedMessage,
-  type QueuedSendOptions,
-} from '../utils/chatStorage';
+import type { QueuedHoldReason } from '../../../../shared/queued-message';
+import { safeLocalStorage, type QueuedSendOptions } from '../utils/chatStorage';
+import { useServerQueuedMessage } from '../queued/useServerQueuedMessage';
 import type {
   ChatMessage,
   PendingPermissionRequest,
@@ -105,6 +101,11 @@ interface UseChatComposerStateArgs {
   grokModel: string;
   isLoading: boolean;
   canAbortSession: boolean;
+  /**
+   * The chat's own tab just saw its queued message leave the queue (the server
+   * sent it): subscribe to the chat again so the run the server started shows.
+   */
+  onQueueConsumed?: () => void;
   tokenBudget: Record<string, unknown> | null;
   sendMessage: (message: unknown) => void;
   sendByCtrlEnter?: boolean;
@@ -270,16 +271,10 @@ export type QueuedDraft = {
    * permission settings while another session is being viewed.
    */
   options?: QueuedSendOptions;
-};
-
-const restoreQueuedDraft = (sessionKey: string): QueuedDraft | null => {
-  const saved = readQueuedMessage(sessionKey);
-  // Raw File objects can't survive a reload, but images uploaded at queue time
-  // persist as descriptors — restore them so a reloaded queued message keeps
-  // its attachment.
-  return saved
-    ? { content: saved.content, images: [], uploadedImages: saved.images, options: saved.options }
-    : null;
+  /** Why the server holds it instead of sending (null = goes out by itself). */
+  holdReason?: QueuedHoldReason | null;
+  /** Text for a person, with holdReason 'error'. */
+  lastError?: string | null;
 };
 
 const getNotificationSessionSummary = (
@@ -320,6 +315,7 @@ export function useChatComposerState({
   grokModel,
   isLoading,
   canAbortSession,
+  onQueueConsumed,
   tokenBudget,
   sendMessage,
   sendByCtrlEnter,
@@ -370,9 +366,6 @@ export function useChatComposerState({
   // no session id yet and would each create a session, spawning two parallel
   // runs. This flag is set synchronously so only one submit is ever in flight.
   const isSubmittingRef = useRef(false);
-  // Text already cleared by the secret guard at queue time; the queue flush
-  // replays it through handleSubmit and must not ask a second time.
-  const secretGuardPassedRef = useRef<string | null>(null);
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const secretGuardOn = useModEnabled('modSecretGuard');
@@ -391,11 +384,6 @@ export function useChatComposerState({
   useEffect(() => {
     attachedImagesRef.current = attachedImages;
   }, [attachedImages]);
-  // Images already uploaded at queue time. When set, handleSubmit sends these
-  // directly instead of re-uploading the (possibly gone) File[] — this is how
-  // a queued attachment survives the flush and a reload. The flush sets it just
-  // before invoking submit; a normal user submit leaves it null.
-  const preUploadedImagesRef = useRef<unknown[] | null>(null);
   const catalogBriefRef = useRef<string | null>(null);
   // «Откуда скрин» for each attachment, keyed by the File object itself so it
   // follows the file through the queue and the markup editor's swap.
@@ -417,17 +405,22 @@ export function useChatComposerState({
     scope: historyScope,
   });
 
-  const [queuedDraft, setQueuedDraft] = useState<QueuedDraft | null>(() => {
-    if (typeof window === 'undefined' || !sessionKey) {
-      return null;
-    }
-    return restoreQueuedDraft(sessionKey);
-  });
-  // Which session the in-memory `queuedDraft` belongs to. On a session switch
-  // there is one commit where `sessionKey` already points at the new session
-  // while `queuedDraft` still holds the old session's draft; the persistence
-  // effect must not write across that gap.
-  const queuedDraftSessionRef = useRef<string | null>(sessionKey);
+  // The queued message lives on the SERVER (sent there when the turn ends, tab
+  // open or not). This tab only shows and edits it; no client-side auto-send.
+  const serverQueue = useServerQueuedMessage(sessionKey, onQueueConsumed);
+  const queuedDraft = useMemo<QueuedDraft | null>(() => (
+    serverQueue.queued
+      ? {
+        content: serverQueue.queued.content,
+        images: [],
+        uploadedImages: serverQueue.queued.images,
+        options: serverQueue.queued.options,
+        holdReason: serverQueue.queued.holdReason,
+        lastError: serverQueue.queued.lastError,
+      }
+      : null
+  ), [serverQueue.queued]);
+  const [isQueueSendPending, setIsQueueSendPending] = useState(false);
 
   const handleBuiltInCommand = useCallback(
     (result: CommandExecutionResult) => {
@@ -1063,8 +1056,6 @@ export function useChatComposerState({
     ) => {
       // Consume the queue-flush pass on entry, so it is gone on every exit
       // path — including the early returns below.
-      const secretGuardPassed = secretGuardPassedRef.current;
-      secretGuardPassedRef.current = null;
       event.preventDefault();
       let currentInput = inputValueRef.current;
       if (!currentInput.trim() || !selectedProject) {
@@ -1078,9 +1069,9 @@ export function useChatComposerState({
       isSubmittingRef.current = true;
       try {
 
-      // Before queueing too: a queued message is persisted and may be sent by
-      // the app-level auto-send without coming back here.
-      const guardedInput = await guardSecrets(currentInput, secretGuardPassed);
+      // Before queueing too: a queued message is kept by the server and sent
+      // from there without coming back here.
+      const guardedInput = await guardSecrets(currentInput);
       if (guardedInput === null) {
         return;
       }
@@ -1090,31 +1081,34 @@ export function useChatComposerState({
         setInput(guardedInput);
       }
 
-      // A turn is already in flight: stash this message instead of sending it.
-      // It's auto-flushed (re-running this same function) once the turn ends,
-      // so it still goes through slash-command interception, image upload, etc.
-      // The queue card's "Send now" is the interrupt path if the user wants it.
-      if (isLoading) {
-        // Upload attachments now, at queue time, rather than at flush time.
-        // The result is a serializable descriptor, so the image survives
-        // persistence and reaches the run no matter which path dispatches it
-        // (composer flush or app-level auto-send) — and across a reload. On
-        // failure, keep the raw Files so the in-memory flush can still retry.
+      // A turn is in flight: hand the message to the server's queue; it sends it
+      // when the turn ends (and keeps it while the agent waits for an answer).
+      // Not in flight — including a chat that waits for an answer to its question
+      // or sits between turns — it goes out as an ordinary chat.send below.
+      // Attachments are uploaded now: the queue stores serializable descriptors.
+      if (isLoading && sessionKey) {
         let queuedUploadedImages: unknown[] | undefined;
         if (attachedImages.length > 0) {
           try {
             queuedUploadedImages = await uploadAttachedImages(attachedImages);
           } catch (error) {
-            console.error('Queue-time image upload failed, will retry at flush:', error);
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            addMessage({ type: 'error', content: `Failed to upload images: ${message}`, timestamp: new Date() });
+            return;
           }
         }
-        queuedDraftSessionRef.current = sessionKey;
-        setQueuedDraft({
-          content: currentInput,
-          images: attachedImages,
-          uploadedImages: queuedUploadedImages,
-          options: buildSendOptions(currentInput),
-        });
+        try {
+          await serverQueue.put({
+            content: currentInput,
+            options: buildSendOptions(currentInput),
+            ...(queuedUploadedImages && queuedUploadedImages.length > 0 ? { images: queuedUploadedImages } : {}),
+          });
+        } catch (error) {
+          // Not queued: the text stays in the field so nothing is lost.
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          addMessage({ type: 'error', content: `Не удалось поставить в очередь: ${message}`, timestamp: new Date() });
+          return;
+        }
         setInput('');
         inputValueRef.current = '';
         setAttachedImages([]);
@@ -1125,7 +1119,6 @@ export function useChatComposerState({
         if (textareaRef.current) {
           textareaRef.current.style.height = 'auto';
         }
-        // selectedProject is guaranteed by the guard at the top of handleSubmit.
         if (draftKey) safeLocalStorage.removeItem(draftKey);
         recordSentMessage(currentInput, sessionKey);
         return;
@@ -1188,15 +1181,8 @@ export function useChatComposerState({
       }
 
       let uploadedImages: unknown[] = [];
-      // A flushed queued message already uploaded its images at queue time —
-      // use those descriptors and skip re-upload (the File[] may be gone, e.g.
-      // after a reload). Consume the ref so it never leaks into a later submit.
-      const preUploaded = preUploadedImagesRef.current;
-      preUploadedImagesRef.current = null;
       const imagesToSend = attachedImagesRef.current;
-      if (preUploaded && preUploaded.length > 0) {
-        uploadedImages = preUploaded;
-      } else if (imagesToSend.length > 0) {
+      if (imagesToSend.length > 0) {
         try {
           uploadedImages = await uploadAttachedImages(imagesToSend);
         } catch (error) {
@@ -1296,6 +1282,8 @@ export function useChatComposerState({
         statusText: null,
         canInterrupt: true,
         step: null,
+        // A new turn: the «между ходами» phase of the held run is over.
+        phase: null,
       });
 
       setIsUserScrolledUp(false);
@@ -1368,75 +1356,20 @@ export function useChatComposerState({
     handleSubmitRef.current = handleSubmit;
   }, [handleSubmit]);
 
-  // Once the in-flight turn ends, replay the queued draft through the normal
-  // submit path (slash commands, image upload, etc. all still apply).
-  const wasLoadingRef = useRef(isLoading);
-  const flushSessionKeyRef = useRef(sessionKey);
-  useEffect(() => {
-    const wasLoading = wasLoadingRef.current;
-    wasLoadingRef.current = isLoading;
-
-    // A session switch changes which session `isLoading` describes, so this
-    // transition says nothing about the queued draft's own session. Never
-    // flush across it — the swap effect below replaces `queuedDraft` with the
-    // new session's saved draft right after this.
-    if (flushSessionKeyRef.current !== sessionKey) {
-      flushSessionKeyRef.current = sessionKey;
-      return;
-    }
-
-    if (isLoading || !queuedDraft) {
-      return;
-    }
-
-    // Turn just ended in this session: flush immediately. Otherwise this is a
-    // saved draft restored into an apparently idle session — hold it briefly
-    // so the `chat_subscribed` ack can flip `isLoading` if a run is actually
-    // still live (the cleanup below cancels the send in that case).
-    const delay = wasLoading ? 0 : 750;
-    const timer = setTimeout(() => {
-      // The saved key is the claim ticket shared with the app-level auto-send
-      // (which handles sessions that finish while not viewed). If it's gone,
-      // the message was already dispatched — don't send it twice.
-      if (sessionKey && !readQueuedMessage(sessionKey)) {
-        setQueuedDraft(null);
-        return;
-      }
-      setQueuedDraft(null);
-      setInput(queuedDraft.content);
-      inputValueRef.current = queuedDraft.content;
-      // Checked by the secret guard when it was queued.
-      secretGuardPassedRef.current = queuedDraft.content;
-      setAttachedImages(queuedDraft.images);
-      // Set the ref synchronously too: handleSubmit fires on the next tick,
-      // before setAttachedImages has propagated, and reads images from the ref.
-      attachedImagesRef.current = queuedDraft.images;
-      // Hand the already-uploaded descriptors to handleSubmit so it sends them
-      // without re-uploading (the File[] above is empty after a reload).
-      preUploadedImagesRef.current = Array.isArray(queuedDraft.uploadedImages) && queuedDraft.uploadedImages.length > 0
-        ? queuedDraft.uploadedImages
-        : null;
-      setTimeout(() => {
-        handleSubmitRef.current?.(createFakeSubmitEvent());
-      }, 0);
-    }, delay);
-    return () => clearTimeout(timer);
-  }, [isLoading, queuedDraft, sessionKey, setInput]);
-
   const editQueuedDraft = useCallback(() => {
     if (!queuedDraft) {
       return;
     }
-    setQueuedDraft(null);
     setInput(queuedDraft.content);
     inputValueRef.current = queuedDraft.content;
-    setAttachedImages(queuedDraft.images);
     textareaRef.current?.focus();
-  }, [queuedDraft]);
+    // Back in the field: the server must not send the old copy meanwhile.
+    void serverQueue.clear().catch((error) => console.error('Queue clear failed:', error));
+  }, [queuedDraft, serverQueue, setInput]);
 
   const deleteQueuedDraft = useCallback(() => {
-    setQueuedDraft(null);
-  }, []);
+    void serverQueue.clear().catch((error) => console.error('Queue clear failed:', error));
+  }, [serverQueue]);
 
   // A voice transcript either fills the input (to edit before sending) or, when the
   // user tapped "stop and send", is submitted straight away. Mirror the value into
@@ -1537,33 +1470,6 @@ export function useChatComposerState({
     window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
     return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
   }, [handleImageFiles, setInput, isEmbedded]);
-
-  // Persist the queued draft under its session's key. Must be defined BEFORE
-  // the swap effect below: on a session switch there is one commit where
-  // `sessionKey` already points at the new session while `queuedDraft` (and
-  // the owner ref) still describe the old one — the ref mismatch makes this
-  // effect skip that commit instead of writing/clearing across sessions.
-  useEffect(() => {
-    if (!sessionKey || queuedDraftSessionRef.current !== sessionKey) {
-      return;
-    }
-    if (queuedDraft?.content) {
-      writeQueuedMessage(sessionKey, { content: queuedDraft.content, options: queuedDraft.options, images: queuedDraft.uploadedImages });
-    } else {
-      clearQueuedMessage(sessionKey);
-    }
-  }, [queuedDraft, sessionKey]);
-
-  // Switching sessions swaps in that session's queued draft (image
-  // attachments can't survive a reload, so only text and options restore).
-  useEffect(() => {
-    queuedDraftSessionRef.current = sessionKey;
-    if (!sessionKey) {
-      setQueuedDraft(null);
-      return;
-    }
-    setQueuedDraft(restoreQueuedDraft(sessionKey));
-  }, [sessionKey]);
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -1783,27 +1689,38 @@ export function useChatComposerState({
   } | null>(null);
 
   const handleAppendNow = useCallback(async (opts?: { preferInput?: boolean }) => {
+    // The queue card's «send now»: the SERVER stops the turn and sends its copy
+    // (works even if this tab dies right after the click, and for a held message
+    // with no run at all).
+    if (!opts?.preferInput && queuedDraft) {
+      if (isQueueSendPending) return;
+      setIsQueueSendPending(true);
+      try {
+        await serverQueue.sendNow();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        addMessage({ type: 'error', content: `Не удалось отправить: ${message}`, timestamp: new Date() });
+      } finally {
+        setIsQueueSendPending(false);
+      }
+      return;
+    }
     if (!canAbortSession || isAppendPending) {
       return;
     }
 
     // Queue card "Send now" keeps the snapshotted draft. Submit-while-loading
     // passes preferInput so the just-typed text wins over a stale queue card.
-    const fromQueue = Boolean(!opts?.preferInput && queuedDraft);
-    const source = fromQueue && queuedDraft
-      ? { content: queuedDraft.content, images: queuedDraft.images }
-      : { content: inputValueRef.current, images: attachedImages };
+    const source = { content: inputValueRef.current, images: attachedImages };
     if (!source.content.trim()) {
       return;
     }
-    // A queued draft was checked when it was queued; fresh input is checked now.
-    if (!fromQueue) {
-      const guarded = await guardSecrets(source.content);
-      if (guarded === null) {
-        return;
-      }
-      source.content = guarded;
+    // Fresh input is checked now (a queued message was checked when queued).
+    const guarded = await guardSecrets(source.content);
+    if (guarded === null) {
+      return;
     }
+    source.content = guarded;
 
     const targetSessionId = selectedSession?.id || currentSessionId || null;
     if (!targetSessionId) {
@@ -1847,9 +1764,9 @@ export function useChatComposerState({
     onComposerModesConsumed?.(targetSessionId);
     setIsAppendPending(true);
 
-    setQueuedDraft(null);
-    if (sessionKey) {
-      clearQueuedMessage(sessionKey);
+    // The typed text replaces whatever card was queued.
+    if (queuedDraft) {
+      void serverQueue.clear().catch((error) => console.error('Queue clear failed:', error));
     }
     setInput('');
     inputValueRef.current = '';
@@ -2017,7 +1934,7 @@ export function useChatComposerState({
     handleClearInput,
     handleAbortSession,
     handleAppendNow,
-    isAppendPending,
+    isAppendPending: isAppendPending || isQueueSendPending,
     handlePermissionDecision,
     handleGrantToolPermission,
     handleInputFocusChange,

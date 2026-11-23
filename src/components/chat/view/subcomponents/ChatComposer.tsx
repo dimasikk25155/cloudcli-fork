@@ -42,6 +42,7 @@ import TokenUsageSummary from './TokenUsageSummary';
 import PromptCacheChip from './PromptCacheChip';
 import EffortControl from './EffortControl';
 import UsageLimitsBadge from './UsageLimitsBadge';
+import { queuedHoldLabel } from '../../queued/queuedHoldLabel';
 import QueuedMessageCard from './QueuedMessageCard';
 import MemorySuggestionBanner from '../../../attention/memory/MemorySuggestionBanner';
 
@@ -569,11 +570,16 @@ export default function ChatComposer({
       {queuedDraft && (
         <QueuedMessageCard
           content={queuedDraft.content}
-          imageCount={queuedDraft.images.length}
+          imageCount={queuedDraft.images.length || queuedDraft.uploadedImages?.length || 0}
+          holdLabel={queuedHoldLabel(
+            queuedDraft.holdReason ?? null,
+            queuedDraft.lastError,
+            (key, defaultValue) => t(key, { defaultValue }),
+          )}
           onEdit={onEditQueuedDraft}
           onDelete={onDeleteQueuedDraft}
           onSendNow={onAppendNow}
-          canSendNow={isLoading}
+          canSendNow
           isSendingNow={isAppendPending}
         />
       )}

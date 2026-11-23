@@ -20,6 +20,7 @@ import {
   isStopHookUserMessage,
   pruneRealtimeSupersededByServer,
 } from './sessionMessageMerge';
+import { buildStreamingMessage } from './streamingMessage';
 
 // ─── NormalizedMessage (mirrors server/adapters/types.js) ────────────────────
 
@@ -463,17 +464,16 @@ export function useSessionStore() {
    * Update or create a streaming message (accumulated text so far).
    * Uses a well-known ID so subsequent calls replace the same message.
    */
-  const updateStreaming = useCallback((sessionId: string, accumulatedText: string, msgProvider: LLMProvider) => {
+  const updateStreaming = useCallback((sessionId: string, accumulatedText: string, msgProvider: LLMProvider, serverTimestamp?: string) => {
     const slot = getSlot(sessionId);
     const streamId = `__streaming_${sessionId}`;
-    const msg: NormalizedMessage = {
-      id: streamId,
+    const msg = buildStreamingMessage({
       sessionId,
-      timestamp: new Date().toISOString(),
+      text: accumulatedText,
       provider: msgProvider,
-      kind: 'stream_delta',
-      content: accumulatedText,
-    };
+      existing: slot.realtimeMessages.find((m) => m.id === streamId),
+      serverTimestamp,
+    });
     const idx = slot.realtimeMessages.findIndex(m => m.id === streamId);
     if (idx >= 0) {
       const laterUser = slot.realtimeMessages.slice(idx + 1).some(

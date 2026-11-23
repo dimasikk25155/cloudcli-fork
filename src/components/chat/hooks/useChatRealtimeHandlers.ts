@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { applyContextBudgetEvent } from '../utils/contextBudget';
 import type { ServerEvent } from '../../../contexts/WebSocketContext';
@@ -11,6 +12,7 @@ import type { ProjectSession, LLMProvider } from '../../../types/app';
 import { CHAT_ROW_KINDS } from '../../../stores/useSessionStore';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
 import { classifyIdleAck, CONNECTION_LOST_MESSAGE } from '../utils/idleAck';
+import { activityPatchForPhase, killedBackgroundLine, parseRunPhaseFrame, phaseTranslate } from '../utils/runPhase';
 import { resetSessionSteps, stepsFor } from '../utils/stepTimer';
 import { backgroundTasksStore } from '../view/subcomponents/BackgroundTasksStore';
 import { shouldHandleSubscribedAck, type StreamBuffers } from '../utils/streamBuffers';
@@ -86,6 +88,8 @@ export function useChatRealtimeHandlers({
   onWebSocketReconnect,
   sessionStore,
 }: UseChatRealtimeHandlersArgs) {
+  const { t } = useTranslation('chat');
+
   // Session switches can send `chat.subscribe` before this effect has a chance
   // to rebind the websocket listener. Read the visible session id from a ref
   // so a fast `chat_subscribed` ack is matched against the current view, not
@@ -233,6 +237,21 @@ export function useChatRealtimeHandlers({
         case 'safari_live_changed':
           return;
 
+        // Phase of the live run (in a turn / waiting for helpers / parked on
+        // background commands): a status frame, never a chat row. Without these
+        // frames (an older server) nothing changes: the indicator stays «идёт ход».
+        case 'run_phase': {
+          const phaseFrame = parseRunPhaseFrame(msg);
+          if (phaseFrame && sid) {
+            const { resetSteps, patch } = activityPatchForPhase(phaseFrame);
+            // Between turns a step still open is a lost tool_result, not work
+            // (the «Bash… 1ч07м» that never went away).
+            if (resetSteps) resetSessionSteps(sid);
+            onSessionProcessing?.(sid, patch);
+          }
+          return;
+        }
+
         // «Фон: N» — status frames, never chat rows.
         case 'background_tasks':
           if (sid) backgroundTasksStore.setTasks(sid, msg.tasks, { stoppable: msg.stoppable, provider: msg.provider });
@@ -256,9 +275,11 @@ export function useChatRealtimeHandlers({
         const text = (msg.content as string) || '';
         if (!text) return;
         if (sid) {
-          streamBuffers.append(sid, text, (sessionId, textSoFar) => {
-            sessionStore.updateStreaming(sessionId, textSoFar, provider);
-          });
+          // The frame's own (server) time: a tab opened mid-answer replays these
+          // frames, and the bubble must not be stamped with the moment it opened.
+          streamBuffers.append(sid, text, (sessionId, textSoFar, startedAt) => {
+            sessionStore.updateStreaming(sessionId, textSoFar, provider, startedAt);
+          }, typeof msg.timestamp === 'string' ? msg.timestamp : undefined);
         }
         // Also route to store for non-active sessions
         if (sid && sid !== activeViewSessionId) {
@@ -269,9 +290,10 @@ export function useChatRealtimeHandlers({
 
       if (msg.kind === 'stream_end') {
         if (sid) {
+          const startedAt = streamBuffers.startedAt(sid);
           const streamed = streamBuffers.take(sid);
           if (streamed) {
-            sessionStore.updateStreaming(sid, streamed, provider);
+            sessionStore.updateStreaming(sid, streamed, provider, startedAt);
           }
           sessionStore.finalizeStreaming(sid);
         }
@@ -287,9 +309,10 @@ export function useChatRealtimeHandlers({
       switch (msg.kind) {
         case 'complete': {
           // Flush this session's remaining stream; other chats keep theirs.
+          const streamStartedAt = sid ? streamBuffers.startedAt(sid) : undefined;
           const streamed = sid ? streamBuffers.take(sid) : '';
           if (sid && streamed) {
-            sessionStore.updateStreaming(sid, streamed, provider);
+            sessionStore.updateStreaming(sid, streamed, provider, streamStartedAt);
             sessionStore.finalizeStreaming(sid);
           }
           // «Думал N с · ответ за N с» right as the turn ends, not after a re-read.
@@ -302,6 +325,22 @@ export function useChatRealtimeHandlers({
           if (sid) {
             resetSessionSteps(sid);
             backgroundTasksStore.clear(sid);
+          }
+          // «Стоп» killed background work that will not wake the agent: say so
+          // at the place it stopped (a row of this tab only, like run_orphaned).
+          const killedLine = killedBackgroundLine(
+            msg.killedBackground as { agents: number; shells: number } | undefined,
+            phaseTranslate(t),
+          );
+          if (sid && killedLine) {
+            sessionStore.appendRealtime(sid, {
+              id: `run_killed_background_${Date.now()}`,
+              sessionId: sid,
+              timestamp: new Date().toISOString(),
+              provider,
+              kind: 'error',
+              content: killedLine,
+            } as NormalizedMessage);
           }
 
           // `complete` is the unified terminal event — every provider run ends
@@ -482,5 +521,6 @@ export function useChatRealtimeHandlers({
     markIdle,
     onWebSocketReconnect,
     sessionStore,
+    t,
   ]);
 }
