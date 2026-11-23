@@ -6,7 +6,9 @@ import { codexWindowLabel, getCodexLimits, refreshCodexLimits, subscribeCodexLim
 import type { CodexLimits } from '../../../../utils/codexUsageLimits';
 import { formatResetMoscow } from '../../../../utils/usageLimits';
 
-const CHIP_CLASS = 'composer-chip inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 text-xs text-muted-foreground shadow-sm transition-colors hover:border-primary/25 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:gap-2 sm:px-2.5';
+import { CHIP_METER, CHIP_METER_ICON } from './composerChips';
+
+const CHIP_CLASS = CHIP_METER;
 
 export function CodexLimitsContent({ usage }: { usage: CodexLimits | null }) {
   return <>
@@ -71,11 +73,11 @@ export default function CodexUsageLimitsBadge() {
         aria-label={`Лимиты Codex: использовано ${label}. Показать подробности`}
         title={`Лимиты Codex: использовано ${label}`}
         onClick={() => { positionPanel(); setOpen((value) => !value); }}>
-        <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary"><GaugeIcon className="h-3.5 w-3.5" /></span>
+        <GaugeIcon className={CHIP_METER_ICON} aria-hidden />
         <span className="font-medium tabular-nums">Codex · {label}</span>
       </button>
       <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noopener noreferrer"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="relative inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground before:absolute before:-inset-2 hover:bg-muted hover:text-foreground"
         title="Расход Codex в ChatGPT" aria-label="Открыть расход Codex в ChatGPT">
         <ExternalLinkIcon className="h-3.5 w-3.5" />
       </a>

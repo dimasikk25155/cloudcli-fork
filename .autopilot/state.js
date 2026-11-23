@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "/Users/dimasik/.claude/skills/autopilot",
   "baseCommit": "08e23a90",
   "startedAt": "2026-11-23T17:33:24+03:00",
-  "updatedAt": "2026-11-23T20:01:23+03:00",
+  "updatedAt": "2026-11-23T23:16:59+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -62,8 +62,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 25,
-    "done": 11,
-    "inTicket": 14,
+    "done": 20,
+    "inTicket": 5,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -206,10 +206,16 @@ window.STATE =
       ],
       "review": "нет",
       "model": "сильная",
-      "status": "in-progress",
+      "status": "done",
+      "startedAt": "2026-11-23T19:58:08+03:00",
+      "finishedAt": "2026-11-23T23:16:59+03:00",
       "retries": 0,
       "repairs": 0,
-      "startedAt": "2026-11-23T19:58:08+03:00"
+      "tests": {
+        "passed": 2473,
+        "failed": 0
+      },
+      "commit": "da9a3593"
     },
     {
       "id": "05",
@@ -237,18 +243,20 @@ window.STATE =
         "src/components/improvement-ideas/",
         "src/components/threads/",
         "src/components/settings/view/SettingsHeader.tsx",
+        "src/components/app-icon/",
         "src/index.css",
         "DESIGN.md"
       ],
       "review": "нет",
       "model": "сильная",
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "startedAt": "2026-11-23T23:16:59+03:00"
     }
   ],
   "tests": {
-    "passed": 2432,
+    "passed": 2473,
     "failed": 0
   },
   "debt": {
@@ -282,7 +290,11 @@ window.STATE =
     "ThemePicker.render.test.ts и SettingsRow.render.test.ts — красное доказательство было по отсутствию модуля / React, а не по поведению",
     "язычок быстрых настроек: зона нажатия 44 px через ::before на экране не проверялась",
     "src/contexts/theme-registry.test.ts:584–632 — тесты стекла не проверяют порядок правил CSS",
-    "src/index.css:1344 — сводка классов в шапке раздела называет .glass-scrim только затемнением"
+    "src/index.css:1344 — сводка классов в шапке раздела называет .glass-scrim только затемнением",
+    "шторка: плотность 0,9–0,92 из правил [data-theme] .app-sidebar сильнее .glass-sheet — силуэты значков видны (чинит T05)",
+    "нижняя панель остаётся в разметке под настройками и панелями — закрыта слоями z-9999/10000",
+    "T04 сверх таска: «Сервер» по ссылке не открывается не-владельцу; в шапке шторки на телефоне убраны поиск и «Домой»",
+    "нижняя панель: клавиатура, режим с домашнего экрана и кнопка смены обоев проверены только тестом модели и чтением CSS"
   ],
   "blind": null,
   "beats": [
@@ -309,9 +321,10 @@ window.STATE =
     "2026-11-23T19:58:07+03:00",
     "2026-11-23T19:58:08+03:00",
     "2026-11-23T20:00:15+03:00",
-    "2026-11-23T20:01:23+03:00"
+    "2026-11-23T20:01:23+03:00",
+    "2026-11-23T23:16:59+03:00"
   ],
-  "rev": 38,
+  "rev": 42,
   "waiting": null,
   "waits": [],
   "log": [
@@ -570,43 +583,74 @@ window.STATE =
       "k": "add",
       "key": "concerns",
       "n": 2
+    },
+    {
+      "t": "2026-11-23T23:16:59+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 2473,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-23T23:16:59+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 4
+    },
+    {
+      "t": "2026-11-23T23:16:59+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-23T23:16:59+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "start"
     }
   ],
   "reqList": [
     {
       "id": "R01",
       "text": "«использовалась у него строка меню внизу… в принципе, возможно, это имеет смысл сделать»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R02",
       "text": "«это будет неудобно, если мы это сделаем под чатом, в который вводится текст»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R03",
       "text": "«дизайн достаточно такой приятный был по кнопочкам»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R04",
       "text": "«что у меня есть главное и проекты. То есть они либо ярлычками, либо вот в боковом меню»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R05",
       "text": "«Максимум, что я нажимаю еще настройки»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R06",
       "text": "«Я кроме настроек ничего туда не нажимал. То есть оно по сути бесполезное»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R07",
       "text": "«Надо рассмотреть нужды ли эти реально нам вообще пункты. Как их вообще реализовывать. Для чего»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R08",
@@ -676,7 +720,7 @@ window.STATE =
     {
       "id": "R20i",
       "text": "(подразумевается) экраны из «Меню» по-прежнему открываются из уведомлений и ссылок",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R21i",
@@ -691,7 +735,7 @@ window.STATE =
     {
       "id": "G03",
       "text": "«На втором скриншоте. Что это за прозрачность? Она некрасиво выглядит… на темной теме это выглядит нормально… фон… затемнен»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G04",

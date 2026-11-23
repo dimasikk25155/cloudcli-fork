@@ -38,6 +38,7 @@ import {
   useWorkbench,
   useWorkbenchAccountSync,
 } from '../../workbench';
+import MobileCanvasButton from './subcomponents/MobileCanvasButton';
 
 import { useViewportBottomGap } from '../hooks/useViewportBottomGap';
 import MainContentHeader from './subcomponents/MainContentHeader';
@@ -333,13 +334,13 @@ function MainContent({
   }
 
   const showDesktopCanvas = workbenchOn && workbench.enabled && !isMobile && activeTab === 'chat' && !editorExpanded;
-  const workbenchToggle = workbenchOn ? (
-    <WorkbenchToggle
-      isMobile={isMobile}
-      active={isMobile ? mobileCanvasOpen : workbench.enabled}
-      onClick={() => (isMobile ? setMobileCanvasOpen(true) : workbench.setEnabled(!workbench.enabled))}
-    />
-  ) : null;
+  // Телефон: круглая стеклянная «Холст», как остальные кнопки шапки.
+  // Компьютер: прежний переключатель с подписью.
+  const workbenchToggle = !workbenchOn ? null : isMobile ? (
+    <MobileCanvasButton onClick={() => setMobileCanvasOpen(true)} />
+  ) : (
+    <WorkbenchToggle isMobile={false} active={workbench.enabled} onClick={() => workbench.setEnabled(!workbench.enabled)} />
+  );
 
   return (
     <div className="flex h-full flex-col">

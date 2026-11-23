@@ -9,6 +9,7 @@ import {
 } from '../../../../utils/usageLimits';
 
 import CodexUsageLimitsBadge from './CodexUsageLimitsBadge';
+import { CHIP_METER, CHIP_METER_ICON } from './composerChips';
 
 const POLL_INTERVAL_MS = 60_000;
 
@@ -18,18 +19,17 @@ const CLAUDE_USAGE_URL = 'https://claude.ai/new#settings/usage';
 /** SuperGrok weekly pool — xAI does not expose this number to the CLI token. */
 const GROK_USAGE_URL = 'https://grok.com/?_s=usage';
 
-const CHIP_CLASS =
-  'composer-chip inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 text-xs text-muted-foreground shadow-sm transition-colors hover:border-primary/25 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:gap-2 sm:px-2.5';
+const CHIP_CLASS = CHIP_METER;
 
 function pctTone(pct: number | null): string {
   if (pct === null) {
     return 'text-muted-foreground';
   }
   if (pct >= 90) {
-    return 'text-red-500';
+    return 'text-destructive';
   }
   if (pct >= 70) {
-    return 'text-amber-500';
+    return 'text-warning';
   }
   return 'text-foreground';
 }
@@ -124,9 +124,7 @@ function OtherUsageLimitsBadge({ model, provider }: Props) {
         title="Расход SuperGrok — открыть на grok.com"
         aria-label="Расход SuperGrok — открыть на grok.com"
       >
-        <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary">
-          <GaugeIcon className="h-3.5 w-3.5" />
-        </span>
+        <GaugeIcon className={CHIP_METER_ICON} aria-hidden />
         <span className="font-medium">SuperGrok</span>
       </a>
     );
@@ -139,9 +137,7 @@ function OtherUsageLimitsBadge({ model, provider }: Props) {
         title="Локальная модель на своей видеокарте — подписка не расходуется"
         aria-label="Локальная модель — лимиты подписки не расходуются"
       >
-        <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary">
-          <GaugeIcon className="h-3.5 w-3.5" />
-        </span>
+        <GaugeIcon className={CHIP_METER_ICON} aria-hidden />
         <span className="font-medium">Локально · без лимита</span>
       </span>
     );
@@ -152,9 +148,7 @@ function OtherUsageLimitsBadge({ model, provider }: Props) {
     const ownPlanTitle = `${ownPlan} — своя подписка, лимит Claude не расходуется`;
     return (
       <span className={CHIP_CLASS} title={ownPlanTitle} aria-label={ownPlanTitle}>
-        <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary">
-          <GaugeIcon className="h-3.5 w-3.5" />
-        </span>
+        <GaugeIcon className={CHIP_METER_ICON} aria-hidden />
         <span className="font-medium">{ownPlan} · без лимита Claude</span>
       </span>
     );
@@ -169,11 +163,11 @@ function OtherUsageLimitsBadge({ model, provider }: Props) {
 
   const chipBody = (
     <>
-      <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary">
-        <GaugeIcon className="h-3.5 w-3.5" />
-      </span>
+      <GaugeIcon className={CHIP_METER_ICON} aria-hidden />
       <span className={`font-medium ${pctTone(fiveHourPct)}`}>{kimi ? '4ч' : '5ч'} {pctLabel(fiveHourPct)}</span>
-      <span className={`hidden font-medium sm:inline ${pctTone(sevenDayPct)}`}>· 7д {pctLabel(sevenDayPct)}</span>
+      {/* Оба окна видны и на телефоне: показания стоят своей строкой. */}
+      <span aria-hidden className="text-muted-foreground/60">·</span>
+      <span className={`font-medium ${pctTone(sevenDayPct)}`}>7д {pctLabel(sevenDayPct)}</span>
     </>
   );
 

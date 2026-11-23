@@ -1,21 +1,29 @@
+import React from 'react';
+import { useTranslation } from 'react-i18next';
+
 import type { MobileMenuButtonProps } from '../../types/types';
 import { useMobileMenuHandlers } from '../../hooks/useMobileMenuHandlers';
 
-export default function MobileMenuButton({ onMenuClick, compact = false }: MobileMenuButtonProps) {
+/**
+ * ☰ в шапке чата на телефоне — круглая стеклянная кнопка: видимый размер
+ * 36 px, зона нажатия 44 px (невидимый ::before на 4 px шире).
+ * `compact` оставлен для вызывающих: вид у обоих вариантов один.
+ */
+export default function MobileMenuButton({ onMenuClick }: MobileMenuButtonProps) {
+  const { t } = useTranslation('common');
   const { handleMobileMenuClick, handleMobileMenuTouchEnd } = useMobileMenuHandlers(onMenuClick);
-
-  const buttonClasses = compact
-    ? 'p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent/60 pwa-menu-button'
-    : 'p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent/60 touch-manipulation active:scale-95 pwa-menu-button flex-shrink-0';
+  const label = t('mainContent.homeMenu', 'Открыть меню');
 
   return (
     <button
+      type="button"
       onClick={handleMobileMenuClick}
       onTouchEnd={handleMobileMenuTouchEnd}
-      className={buttonClasses}
-      aria-label="Open menu"
+      className="glass-button pwa-menu-button h-9 w-9 flex-shrink-0 touch-manipulation text-foreground before:absolute before:-inset-1"
+      aria-label={label}
+      title={label}
     >
-      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
       </svg>
     </button>

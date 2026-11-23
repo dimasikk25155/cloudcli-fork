@@ -3,9 +3,14 @@
  * тёмный фон с радиальным свечением цвета проекта (центр чуть выше середины),
  * тонкое кольцо этого цвета по контуру скруглённого квадрата, крупный
  * двухцветный символ с мягким свечением и маленькая «3» в правом нижнем углу.
- * Всё — один `<svg>` 100×100; от темы не зависит.
+ * Всё — один `<svg>` 100×100. Разметка от темы не зависит: в тёмных темах
+ * плитка рисуется как есть. Части помечены `data-neon-part`, цвет проекта
+ * отдан в `--neon-accent` — светлая тема перекрашивает плитку своими
+ * значениями (`--icon-tile-*`, правила `html:not(.dark) .neo3-neon` в
+ * index.css): светлая основа, тёмный символ, акцент проекта на месте.
  */
 import React, { useId } from 'react';
+import type { CSSProperties } from 'react';
 
 import type { AppIconSize } from '../AppIcon';
 
@@ -65,11 +70,12 @@ export default function NeonTile({ glyph, accent, size = 'lg', showMark, shape =
       focusable="false"
       data-neon-glyph={glyph}
       data-neon-shape={shape}
+      style={{ '--neon-accent': accent } as CSSProperties}
     >
       <defs>
         <radialGradient id={bgId} cx="50" cy="41" r="44" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor={neonGlowTint(accent)} />
-          <stop offset="1" stopColor={NEON_BASE} />
+          <stop offset="0" stopColor={neonGlowTint(accent)} data-neon-part="glow-core" />
+          <stop offset="1" stopColor={NEON_BASE} data-neon-part="glow-edge" />
         </radialGradient>
         <filter
           id={glowId}
@@ -100,7 +106,7 @@ export default function NeonTile({ glyph, accent, size = 'lg', showMark, shape =
         ) : null}
       </defs>
 
-      <rect width="100" height="100" rx={radius} fill={NEON_BASE} />
+      <rect width="100" height="100" rx={radius} fill={NEON_BASE} data-neon-part="base" />
       <rect width="100" height="100" rx={radius} fill={`url(#${bgId})`} />
       <rect
         x={ringInset}
@@ -117,9 +123,9 @@ export default function NeonTile({ glyph, accent, size = 'lg', showMark, shape =
       <g filter={`url(#${glowId})`}>
         <g transform={`translate(50 50) scale(${symbolScale}) translate(-50 -50)`}>
           <g mask={art.cut ? `url(#${cutId})` : undefined}>
-            <g color={NEON_WHITE}>{art.white}</g>
-            <g color={accent}>{art.accent}</g>
-            {art.top ? <g color={NEON_WHITE}>{art.top}</g> : null}
+            <g color={NEON_WHITE} data-neon-part="ink">{art.white}</g>
+            <g color={accent} data-neon-part="accent">{art.accent}</g>
+            {art.top ? <g color={NEON_WHITE} data-neon-part="ink">{art.top}</g> : null}
           </g>
         </g>
       </g>
@@ -133,6 +139,7 @@ export default function NeonTile({ glyph, accent, size = 'lg', showMark, shape =
           fontWeight="700"
           textAnchor="middle"
           fontFamily="-apple-system, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+          data-neon-part="mark"
         >
           3
         </text>

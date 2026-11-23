@@ -11,6 +11,8 @@ import {
   type PromptCacheState,
 } from '../../../../utils/promptCache';
 
+import { CHIP_METER, CHIP_METER_ICON_SHAPE } from './composerChips';
+
 /** Re-render often enough that the minute counter never lags by a whole minute. */
 const TICK_MS = 15_000;
 
@@ -18,16 +20,16 @@ const TONE: Record<PromptCacheState, string> = {
   unknown: 'text-muted-foreground',
   running: 'text-muted-foreground',
   warm: 'text-foreground',
-  cooling: 'text-amber-500',
-  cold: 'text-red-500',
+  cooling: 'text-warning',
+  cold: 'text-destructive',
 };
 
 const ICON_TONE: Record<PromptCacheState, string> = {
-  unknown: 'bg-primary/10 text-primary',
-  running: 'bg-primary/10 text-primary',
-  warm: 'bg-primary/10 text-primary',
-  cooling: 'bg-amber-500/15 text-amber-500',
-  cold: 'bg-red-500/15 text-red-500',
+  unknown: 'text-primary',
+  running: 'text-primary',
+  warm: 'text-primary',
+  cooling: 'text-warning',
+  cold: 'text-destructive',
 };
 
 type Props = {
@@ -131,21 +133,15 @@ export default function PromptCacheChip({ lastModelAt, isRunning, ttlMin, varian
       <button
         type="button"
         onClick={toggle}
-        className={isCompact
-          ? 'composer-chip inline-flex h-8 items-center gap-1 rounded-lg border border-border/70 bg-background/70 px-1.5 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-          : 'composer-chip inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 text-xs shadow-sm transition-colors hover:border-primary/25 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:gap-2 sm:px-2.5'}
+        className={CHIP_METER}
         title={title}
         aria-label={`${label}. Что это значит`}
         aria-expanded={open}
       >
         {isCompact && status.state === 'cold' ? (
-          <span aria-hidden className="ml-0.5 h-2 w-2 rounded-full bg-red-500" />
-        ) : isCompact ? (
-          <TimerIcon aria-hidden className={`h-3.5 w-3.5 ${TONE[status.state] === 'text-foreground' ? 'text-primary' : TONE[status.state]}`} />
+          <span aria-hidden className="h-2 w-2 rounded-full bg-destructive" />
         ) : (
-          <span className={`composer-chip-icon grid h-5 w-5 place-items-center rounded-md ${ICON_TONE[status.state]}`}>
-            <TimerIcon className="h-3.5 w-3.5" />
-          </span>
+          <TimerIcon aria-hidden className={`${CHIP_METER_ICON_SHAPE} ${ICON_TONE[status.state]}`} />
         )}
         <span className={`whitespace-nowrap font-medium tabular-nums ${TONE[status.state]}`}>{isCompact ? compactLabel : label}</span>
       </button>

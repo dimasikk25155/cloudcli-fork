@@ -1,11 +1,18 @@
 "use client";
 
 import * as React from 'react';
-import { SendHorizonalIcon, SquareIcon } from 'lucide-react';
+import { ArrowUpIcon, SquareIcon } from 'lucide-react';
 
 import { cn } from '../../../lib/utils';
-import { Button } from './Button';
 import Tooltip from './Tooltip';
+
+/*
+ * Поле ввода чата. Материал — только классы стекла (index.css, раздел
+ * «Стекло»): карточка `.glass-surface`, кнопки внутри — круги `.glass-button`,
+ * «отправить» — залитый круг `.glass-button-primary`. Раскладка ряда кнопок и
+ * видимые размеры (36px при зоне нажатия 44px) — раздел «Поле ввода чата» там
+ * же: `.composer-footer`, `.composer-tools`, `.composer-chip`.
+ */
 
 /* ─── Context ────────────────────────────────────────────────────── */
 
@@ -41,7 +48,9 @@ export const PromptInput = React.forwardRef<HTMLFormElement, PromptInputProps>(
           ref={ref}
           data-slot="prompt-input"
           className={cn(
-            'relative overflow-hidden rounded-xl border border-border/50 bg-card/80 shadow-sm backdrop-blur-sm transition-all duration-200 focus-within:border-primary/30 focus-within:shadow-md focus-within:ring-1 focus-within:ring-primary/15',
+            // Без overflow-hidden: всплывающие подсказки кнопок (ошибка
+            // голоса, лимиты Kimi) выходят за карточку вверх.
+            'glass-surface relative',
             className
           )}
           {...props}
@@ -94,7 +103,8 @@ export const PromptInputTextarea = React.forwardRef<
     ref={ref}
     data-slot="prompt-input-textarea"
     className={cn(
-      'chat-input-placeholder block max-h-[40vh] w-full resize-none overflow-y-auto bg-transparent px-4 py-2 text-sm leading-6 text-foreground placeholder-muted-foreground/50 focus:outline-none sm:max-h-[300px]',
+      // Отступы повторяет слой подсветки упоминаний в ChatComposer — менять вместе.
+      'chat-input-placeholder block max-h-[40vh] w-full resize-none overflow-y-auto bg-transparent px-5 pb-2 pt-3.5 text-sm leading-6 text-foreground focus:outline-none sm:max-h-[300px]',
       className
     )}
     {...props}
@@ -111,7 +121,7 @@ export const PromptInputFooter = React.forwardRef<
   <div
     ref={ref}
     data-slot="prompt-input-footer"
-    className={cn('flex items-center justify-between border-t border-border/30 px-3 py-2', className)}
+    className={cn('composer-footer', className)}
     {...props}
   />
 ));
@@ -126,7 +136,7 @@ export const PromptInputTools = React.forwardRef<
   <div
     ref={ref}
     data-slot="prompt-input-tools"
-    className={cn('flex items-center gap-1', className)}
+    className={cn('composer-tools', className)}
     {...props}
   />
 ));
@@ -147,16 +157,14 @@ export interface PromptInputButtonProps extends React.ButtonHTMLAttributes<HTMLB
 export const PromptInputButton = React.forwardRef<HTMLButtonElement, PromptInputButtonProps>(
   ({ className, tooltip, children, ...props }, ref) => {
     const button = (
-      <Button
+      <button
         ref={ref}
         type="button"
-        variant="ghost"
-        size="icon"
-        className={cn('h-8 w-8 [&_svg]:size-4', className)}
+        className={cn('composer-chip glass-button touch-manipulation text-foreground [&_svg]:size-4', className)}
         {...props}
       >
         {children}
-      </Button>
+      </button>
     );
 
     if (tooltip) {
@@ -166,7 +174,7 @@ export const PromptInputButton = React.forwardRef<HTMLButtonElement, PromptInput
             tooltip.shortcut ? (
               <span className="flex items-center gap-1.5">
                 {tooltip.content}
-                <kbd className="rounded bg-white/20 px-1 text-[10px]">{tooltip.shortcut}</kbd>
+                <kbd className="rounded bg-background/20 px-1 text-[10px]">{tooltip.shortcut}</kbd>
               </span>
             ) : (
               tooltip.content
@@ -197,20 +205,18 @@ export const PromptInputSubmit = React.forwardRef<HTMLButtonElement, PromptInput
     const isActive = status === 'submitted' || status === 'streaming';
 
     return (
-      <Button
+      <button
         ref={ref}
         type={isActive ? 'button' : 'submit'}
-        variant="default"
-        size="icon"
-        className={cn('h-8 w-8 shrink-0 rounded-lg', className)}
+        className={cn('glass-button-primary touch-manipulation', className)}
         {...props}
       >
         {children ?? (isActive ? (
           <SquareIcon className="h-3.5 w-3.5 fill-current" />
         ) : (
-          <SendHorizonalIcon className="h-4 w-4" />
+          <ArrowUpIcon className="h-5 w-5" strokeWidth={2.4} />
         ))}
-      </Button>
+      </button>
     );
   }
 );

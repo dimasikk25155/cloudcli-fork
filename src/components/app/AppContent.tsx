@@ -342,8 +342,10 @@ function AppContentInner() {
             }}
             aria-label={t('versionUpdate.ariaLabels.closeSidebar')}
           />
+          {/* Шторка лежит поверх «Домой»: плотный лист (.glass-dense), чтобы
+              значки под ней не читались и там, где размытия нет. */}
           <div
-            className={`app-sidebar glass-sheet relative h-full w-[85vw] max-w-sm transform border-y-0 border-l-0 transition-transform duration-150 ease-out motion-reduce:transition-none sm:w-80 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+            className={`app-sidebar glass-sheet glass-dense relative h-full w-[85vw] max-w-sm transform border-y-0 border-l-0 transition-transform duration-150 ease-out motion-reduce:transition-none sm:w-80 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
               }`}
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}

@@ -97,3 +97,22 @@ test('«Назад» is a 44 px touch target on a phone, the visible box stays 3
   assert.match(classes, /(^|\s)before:absolute(\s|$)/);
   assert.match(classes, /(^|\s)before:-inset-1(\s|$)/);
 });
+
+test('шапка панели — лист стекла, «Назад» — круглая стеклянная кнопка, под шапкой материал темы', () => {
+  const tree = panel(() => {});
+  const html = renderToStaticMarkup(React.createElement(React.Fragment, null, tree));
+  const header = html.match(/<div class="([^"]*)"[^>]*data-panel-header/);
+  assert.ok(header, 'header is marked');
+  assert.match(header[1], /(^|\s)glass-sheet(\s|$)/);
+  assert.match(header[1], /(^|\s)pwa-panel-header(\s|$)/);
+  const [back] = findAll(tree, (el) => el.type === 'button' && el.props['aria-label'] === 'Назад');
+  assert.match(String(back.props.className), /(^|\s)glass-button(\s|$)/);
+  // Панель на весь экран показывает материал темы, а не ровную заливку фоном:
+  // иначе во всех темах она отличается только оттенком серого (разбор, P1).
+  const dialog = html.match(/<div role="dialog" class="([^"]*)"/);
+  assert.ok(dialog);
+  assert.match(dialog[1], /(^|\s)theme-surface(\s|$)/);
+  assert.doesNotMatch(dialog[1], /(^|\s)bg-background(\s|$)/);
+  const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+  assert.match(css, /\.theme-surface\s*\{[^}]*background-color:\s*var\(--shell-bg\);[^}]*background-image:\s*var\(--shell-material\)/);
+});

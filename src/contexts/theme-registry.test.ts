@@ -643,11 +643,108 @@ describe('стекло: классы и запасные ветки', () => {
     }
   });
 
+  const DERIVED = ['--glass-ring', '--glass-accent-bg', '--glass-accent-fg', '--glass-active-bg', '--glass-active-fg', '--glass-radius'];
+
   it('производные значения стекла заданы один раз в :root', () => {
     const rootStart = cssSource.indexOf(':root {');
     const rootBlock = cssSource.slice(rootStart, cssSource.indexOf('\n  }', rootStart));
-    for (const name of ['--glass-ring', '--glass-accent-bg', '--glass-accent-fg', '--glass-active-bg', '--glass-active-fg', '--glass-radius']) {
+    for (const name of DERIVED) {
       assert.match(rootBlock, new RegExp(`^\\s*${name}:`, 'm'), `в :root нет ${name}`);
+    }
+  });
+
+  it('производные пересчитываются в любом элементе с data-theme, а не остаются от темы страницы', () => {
+    // var() подставляется там, где значение объявлено: объявленное только в
+    // :root считается из акцента темы страницы и наследуется готовым цветом.
+    // Вложенный data-theme (карточка-превью темы) получал чужое кольцо фокуса
+    // и чужую заливку главной кнопки.
+    const nested = cssSource.match(/\n\s*\[data-theme\]\s*\{([^}]*)\}/);
+    assert.ok(nested, 'нет правила [data-theme] { … } с производными стекла');
+    const rootStart = cssSource.indexOf(':root {');
+    const rootBlock = cssSource.slice(rootStart, cssSource.indexOf('\n  }', rootStart));
+    for (const name of DERIVED) {
+      const declaration = new RegExp(`^\\s*${name}:\\s*([^;]+);`, 'm');
+      const inRoot: string | undefined = rootBlock.match(declaration)?.[1];
+      const inNested: string | undefined = nested[1].match(declaration)?.[1];
+      assert.ok(inNested, `[data-theme] не пересчитывает ${name}`);
+      assert.equal(inNested, inRoot, `${name}: в :root и в [data-theme] разные формулы`);
+    }
+    // Тема, у которой производное своё, обязана перебить общее правило:
+    // блоки тем без слоя, общее правило — в слое.
+    const before = cssSource.slice(0, cssSource.indexOf(nested[0]));
+    const layerAt = before.search(/@layer [a-z]+ \{(?![\s\S]*@layer [a-z]+ \{)/);
+    assert.ok(
+      layerAt >= 0 && !/\n\}/.test(before.slice(layerAt)),
+      'правило [data-theme] должно лежать внутри @layer, иначе перебьёт значения тем'
+    );
+  });
+
+  it('значок на залитой кнопке держит ≥ 4,5:1 в каждой теме и в каждом варианте «Неона»', () => {
+    const rootStart = cssSource.indexOf(':root {');
+    const rootBlock = cssSource.slice(rootStart, cssSource.indexOf('\n  }', rootStart));
+    const rootValue = (name: string) => rootBlock.match(new RegExp(`^\\s*${name}:\\s*([^;]+);`, 'm'))?.[1] ?? '';
+    /** `hsl(var(--x))` → тройка темы; `hsl(H S% L%)` → она сама. */
+    const resolve = (value: string, tokens: Record<string, string>): string => {
+      const viaVar = value.match(/^hsl\(var\((--[a-z-]+)\)\)$/);
+      if (viaVar) {
+        assert.ok(tokens[viaVar[1]], `нет значения ${viaVar[1]}`);
+        return tokens[viaVar[1]];
+      }
+      return hslFunctionTriplet(value);
+    };
+    for (const theme of themes) {
+      const tokens = readThemeTokens(theme);
+      const fill = resolve(tokens['--glass-accent-bg'] ?? rootValue('--glass-accent-bg'), tokens);
+      const icon = resolve(tokens['--glass-accent-fg'] ?? rootValue('--glass-accent-fg'), tokens);
+      const ratio = contrast(icon, fill);
+      assert.ok(ratio >= 4.5, `${theme}: значок на залитой кнопке ${ratio.toFixed(2)}:1 < 4.5:1`);
+    }
+  });
+
+  it('плотный лист: шторка телефона не прозрачнее 0,97 и не зависит от размытия', () => {
+    const dense = rule('.glass-dense');
+    assert.ok(dense, 'нет модификатора .glass-dense');
+    // Плотность кладётся отдельным слоем поверх фона листа — её не стирают ни
+    // живые обои, ни запасные ветки.
+    const mix = dense.match(/background-image:\s*linear-gradient\(\s*color-mix\(in srgb, var\(--glass-fallback-bg\) (\d+)%, transparent\)/);
+    assert.ok(mix, '.glass-dense не кладёт плотный слой из --glass-fallback-bg');
+    assert.ok(Number(mix[1]) >= 97, `плотность листа ${mix[1]}% < 97%`);
+    // Браузер без color-mix получает сплошной фон, а не прозрачный лист.
+    assert.match(dense, /background-image:\s*linear-gradient\(var\(--glass-fallback-bg\), var\(--glass-fallback-bg\)\);[\s\S]*color-mix/);
+    assert.match(appContentSource, /app-sidebar glass-sheet glass-dense /, 'шторка телефона не помечена .glass-dense');
+  });
+
+  it('темы не перекрашивают лист шторки: их правила .app-sidebar — только для боковой панели компьютера', () => {
+    const rules = [...cssSource.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((entry) => ({ selector: entry[1].replace(/\/\*[\s\S]*?\*\//g, '').trim(), body: entry[2] }));
+    for (const { selector, body } of rules) {
+      if (!/background|backdrop-filter|box-shadow|border/.test(body)) continue;
+      for (const part of selector.split(',').map((item) => item.trim())) {
+        // Правило самой панели (не её потомков) под темой.
+        if (/^\[data-theme[^\]]*\](?:\.[a-z-]+)* \.app-sidebar$/.test(part)) {
+          assert.fail(`«${part}» сильнее .glass-sheet — шторка телефона снова просвечивает; пиши .app-sidebar:not(.glass-sheet)`);
+        }
+      }
+    }
+  });
+
+  it('темы не перекрашивают поле ввода мимо стекла', () => {
+    // Хвосты `[data-theme=…] [data-slot='prompt-input']` сильнее .glass-surface:
+    // с ними поле ввода в каждой теме было своей заливкой, а не стеклом.
+    const rules = [...cssSource.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((entry) => ({ selector: entry[1].replace(/\/\*[\s\S]*?\*\//g, '').trim(), body: entry[2] }));
+    const material = /(?:^|[\s;])(background(?:-color)?|backdrop-filter|-webkit-backdrop-filter|box-shadow|border(?:-color|-radius)?)\s*:\s*([^;]+);/g;
+    for (const { selector, body } of rules) {
+      if (!/\[data-slot='prompt-input'\]/.test(selector)) continue;
+      for (const declaration of body.matchAll(material)) {
+        const value = declaration[2].trim();
+        const usesOnlyGlass = [...value.matchAll(/var\((--[a-z0-9-]+)/g)].every((entry) => entry[1].startsWith('--glass-'));
+        const hasGlass = /var\(--glass-/.test(value);
+        assert.ok(
+          hasGlass && usesOnlyGlass && !/#[0-9a-f]{3,8}\b|\bhsl\(\s*\d/i.test(value),
+          `«${selector}»: ${declaration[1]}: ${value} — поле ввода красится мимо значений стекла`
+        );
+      }
     }
   });
 });

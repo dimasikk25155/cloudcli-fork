@@ -182,9 +182,10 @@
     --glass-fallback-bg: hsl(0 0% 100%);
     --glass-scrim: hsl(0 0% 0% / 0.4);
 
-    /* Производные: считаются из значений темы, поэтому заданы один раз.
-       Тема переопределяет их, только если её акцент устроен иначе
-       (у «Светлой Claude» заливка акцента и цвет акцентного текста — разные). */
+    /* Производные: считаются из значений темы. Тема переопределяет их, только
+       если её акцент на стекле устроен иначе (у «Оранжевой» активный пункт
+       светлее акцента). Те же формулы повторены в правиле [data-theme] ниже —
+       чтобы вложенный data-theme считал их из своих значений. */
     --glass-ring: hsl(var(--ring));
     --glass-accent-bg: hsl(var(--primary));
     --glass-accent-fg: hsl(var(--primary-foreground));
@@ -197,6 +198,23 @@
     --header-safe-area-top: env(safe-area-inset-top, 0px);
     --header-base-padding: 8px;
     --header-total-padding: calc(var(--header-safe-area-top) + var(--header-base-padding));
+  }
+
+  /* Производные стекла — ещё раз, на каждом элементе с data-theme. var()
+     подставляется там, где значение объявлено: объявленные только в :root они
+     считались из акцента темы страницы и наследовались готовым цветом, и
+     вложенный data-theme (карточка-превью темы в настройках) получал чужое
+     кольцо фокуса и чужую заливку главной кнопки. Формулы те же, что в :root
+     (сверяет theme-registry.test.ts). Правило лежит в слое, блоки тем — без
+     слоя, поэтому тема со своим производным (--glass-active-* у «Оранжевой»)
+     его перебивает. */
+  [data-theme] {
+    --glass-ring: hsl(var(--ring));
+    --glass-accent-bg: hsl(var(--primary));
+    --glass-accent-fg: hsl(var(--primary-foreground));
+    --glass-active-bg: hsl(var(--primary) / 0.18);
+    --glass-active-fg: hsl(var(--primary));
+    --glass-radius: calc(var(--radius) + 16px);
   }
   
   /* Fallback for older iOS versions */
@@ -684,78 +702,79 @@
     -webkit-text-fill-color: rgb(243 244 246) !important;
   }
   
-  /* Fix placeholder text color to be properly gray */
+  /* Подсказка в поле ввода — приглушённый текст темы. Было gray-400 в светлой
+     и gray-600 в тёмной: в тёмных темах тёмно-серое на тёмном не читалось. */
   textarea::placeholder {
-    color: rgb(156 163 175) !important; /* gray-400 */
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
   
   .dark textarea::placeholder {
-    color: rgb(75 85 99) !important; /* gray-600 - darker gray */
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
   
   /* More specific selector for chat input textarea */
   .dark .bg-gray-800 textarea::placeholder,
   .dark textarea.bg-transparent::placeholder {
-    color: rgb(75 85 99) !important; /* gray-600 - darker gray */
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
-    -webkit-text-fill-color: rgb(75 85 99) !important;
+    -webkit-text-fill-color: hsl(var(--muted-foreground) / 0.8) !important;
   }
   
   /* Custom class for chat input placeholder */
   .chat-input-placeholder::placeholder {
-    color: rgb(156 163 175) !important;
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
 
   .dark .chat-input-placeholder::placeholder {
-    color: rgb(75 85 99) !important;
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
-    -webkit-text-fill-color: rgb(75 85 99) !important;
+    -webkit-text-fill-color: hsl(var(--muted-foreground) / 0.8) !important;
   }
 
   .chat-input-placeholder::-webkit-input-placeholder {
-    color: rgb(156 163 175) !important;
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
 
   .dark .chat-input-placeholder::-webkit-input-placeholder {
-    color: rgb(75 85 99) !important;
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
-    -webkit-text-fill-color: rgb(75 85 99) !important;
+    -webkit-text-fill-color: hsl(var(--muted-foreground) / 0.8) !important;
   }
   
   /* WebKit specific placeholder styles */
   textarea::-webkit-input-placeholder {
-    color: rgb(156 163 175) !important;
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
   
   .dark textarea::-webkit-input-placeholder {
-    color: rgb(75 85 99) !important; /* gray-600 - darker gray */
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
   
   /* Mozilla specific placeholder styles */
   textarea::-moz-placeholder {
-    color: rgb(156 163 175) !important;
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
   
   .dark textarea::-moz-placeholder {
-    color: rgb(75 85 99) !important; /* gray-600 - darker gray */
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
   
   /* IE/Edge specific placeholder styles */
   textarea:-ms-input-placeholder {
-    color: rgb(156 163 175) !important;
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
   
   .dark textarea:-ms-input-placeholder {
-    color: rgb(75 85 99) !important; /* gray-600 - darker gray */
+    color: hsl(var(--muted-foreground) / 0.8) !important;
     opacity: 1 !important;
   }
 }
@@ -1020,6 +1039,14 @@
     overflow-wrap: break-word;
   }
 
+  /* Короткая вставка кода (Markdown.tsx, до 28 знаков) не рвётся: общее
+     правило выше режет по любой букве, и `right` в конце строки становилось
+     «r» и «ight» на двух строках (разбор, C11). */
+  .chat-message code.chat-code-short {
+    white-space: nowrap !important;
+    word-break: normal;
+  }
+
   /* Prevent horizontal scroll in chat area */
   .chat-message * {
     max-width: 100%;
@@ -1112,14 +1139,6 @@
     background-color: rgba(107, 114, 128, 0.5);
   }
   
-  /* Enhanced box shadow when textarea expands */
-  .chat-input-expanded {
-    box-shadow: 0 -5px 15px -3px rgba(0, 0, 0, 0.1), 0 -4px 6px -2px rgba(0, 0, 0, 0.05);
-  }
-  
-  .dark .chat-input-expanded {
-    box-shadow: 0 -5px 15px -3px rgba(0, 0, 0, 0.3), 0 -4px 6px -2px rgba(0, 0, 0, 0.2);
-  }
   
   /* Fix focus ring offset color in dark mode */
   .dark [class*="ring-offset"] {
@@ -1341,7 +1360,12 @@
    .glass-button         круглая кнопка 44×44
    .glass-button-primary залитая акцентом круглая кнопка (отправить, новый чат)
    .glass-active         модификатор активного пункта
-   .glass-scrim          затемнение за листом (шторка, модальный экран)
+   .glass-dense          модификатор листа, лежащего ПОВЕРХ другого экрана
+                         (шторка телефона): плотность 97%, читается без размытия
+   .glass-scrim          затемнение ЗА листом (шторка, модальный экран): тёмная
+                         вуаль темы и размытие того, что под ней (треть от
+                         размытия стекла; под живыми обоями и при «уменьшить
+                         прозрачность» — только вуаль)
 
    Правила для тех, кто ставит классы:
    - стекло делается только этими классами: backdrop-blur-* и backdrop-filter
@@ -1436,6 +1460,24 @@
   .glass-active {
     background-image: linear-gradient(var(--glass-active-bg), var(--glass-active-bg));
     color: var(--glass-active-fg);
+  }
+
+  /* Плотный лист: шторка телефона лежит поверх «Домой», и на плотности
+     обычного листа (0,76–0,94) сквозь неё читались значки проектов — где
+     размытия нет, в полную резкость. Плотность кладётся отдельным слоем
+     поверх фона листа, как подцветка активного пункта: её не стирают ни живые
+     обои, ни запасные ветки. 97% — материал темы остаётся намёком по краям.
+     Первая строка — для браузера без color-mix: сплошной фон. Ставится и на
+     карточку (.glass-surface) — меню и всплывающие окна поверх переписки. */
+  .glass-dense {
+    background-image: linear-gradient(var(--glass-fallback-bg), var(--glass-fallback-bg));
+    background-image: linear-gradient(
+      color-mix(in srgb, var(--glass-fallback-bg) 97%, transparent),
+      color-mix(in srgb, var(--glass-fallback-bg) 97%, transparent)
+    );
+    /* Под слоем в 97% размытия не видно — незачем за него платить. */
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   /* Затемнение за листом (шторка, модальный экран): тёмная вуаль темы и
@@ -1547,6 +1589,318 @@
 }
 
 /* =========================================================================
+   Поле ввода чата
+
+   Карточка — .glass-surface (PromptInput.tsx), внутри три группы:
+     .composer-tools    круги и пилюли: вложение, разрешения, режим работы,
+                        модель, уровень размышления
+     .composer-meters   показания: лимиты подписки, контекст, кэш — значок и
+                        число целиком
+     .composer-actions  голос и залитый круг «отправить»
+   Широкое поле ввода — один ряд, в порядке разметки: кнопки · показания ·
+   действия. Узкое
+   (телефон или второй чат в узкой колонке) — два: показания своей строкой над
+   кнопками, у режима работы и уровня размышления остаётся только значок
+   (подпись — в aria-label и в меню). Ветка composer:compact записана дважды —
+   по ширине окна и по ширине самой карточки; тест сверяет, что они равны.
+
+   Видимый размер кнопки — 36px (как в эталоне), зона нажатия — 44px.
+   Материал здесь не задаётся: только раскладка и размеры. Цвет, кромка,
+   размытие — из классов стекла.
+   ========================================================================= */
+@layer components {
+  [data-slot='prompt-input'] {
+    container: composer / inline-size;
+    transition: border-color var(--duration-base) var(--ease-ui), box-shadow var(--duration-base) var(--ease-ui);
+  }
+
+  /* Фокус — кромка теплеет к цвету кольца фокуса темы, без рамки-обводки. */
+  [data-slot='prompt-input']:focus-within {
+    border-color: color-mix(in srgb, var(--glass-ring) 55%, var(--glass-border));
+  }
+
+  .composer-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 4px;
+    padding: 2px 8px 8px;
+  }
+
+  /* Запас по 4px вокруг ряда: прокрутка обрезает всё, что выходит за её
+     коробку, а зона нажатия (44) и кольцо фокуса шире видимой кнопки (36). */
+  .composer-tools {
+    display: flex;
+    flex: 1 1 0;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    margin: -4px;
+    padding: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .composer-tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .composer-meters {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .composer-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    padding-left: 4px;
+  }
+
+  .composer-chip svg {
+    flex-shrink: 0;
+  }
+
+  .composer-chip.glass-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .composer-chip.glass-button::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+  }
+
+  .composer-chip.glass-pill {
+    flex-shrink: 0;
+    min-height: 36px;
+    padding: 0 12px;
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* Название модели — единственное, что в ряду сжимается: обрезается
+     многоточием, а не переносится на вторую строку. */
+  .composer-chip.glass-pill.composer-chip-model {
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Показания тише кнопок: ниже, мельче, приглушённым текстом. */
+  .composer-meter.glass-pill {
+    height: 28px;
+    min-height: 28px;
+    padding: 0 9px;
+    gap: 5px;
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .composer-submit.glass-button-primary {
+    width: 40px;
+    height: 40px;
+  }
+
+  .composer-submit.glass-button-primary::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+  }
+
+  @media (max-width: 767px) {
+    /* composer:compact */
+    .composer-chip-label,
+    .composer-chip-chevron {
+      display: none;
+    }
+
+    .composer-chip.glass-pill.composer-chip-iconic {
+      width: 36px;
+      padding: 0;
+    }
+
+    .composer-meters {
+      order: -1;
+      flex-basis: 100%;
+      flex-wrap: wrap;
+    }
+  }
+
+  @container composer (max-width: 599px) {
+    /* composer:compact */
+    .composer-chip-label,
+    .composer-chip-chevron {
+      display: none;
+    }
+
+    .composer-chip.glass-pill.composer-chip-iconic {
+      width: 36px;
+      padding: 0;
+    }
+
+    .composer-meters {
+      order: -1;
+      flex-basis: 100%;
+      flex-wrap: wrap;
+    }
+  }
+
+  /* Окно уровня размышления: карточка стекла, цвета — значения темы (было
+     жёстко тёмным в любой теме, в светлых тоже). */
+  .effort-popup {
+    position: fixed;
+    z-index: 100;
+    box-sizing: border-box;
+    width: 256px;
+    max-width: calc(100vw - 16px);
+    padding: 10px 12px 12px;
+    border-radius: 18px;
+    color: hsl(var(--popover-foreground));
+    font-family: inherit;
+  }
+
+  .effort-popup-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    min-height: 43px;
+  }
+
+  .effort-popup-icon {
+    flex: none;
+    margin: 4px 2px 0;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .effort-popup-titles {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 18px;
+    text-align: center;
+  }
+
+  .effort-popup-level {
+    color: hsl(var(--primary));
+    font-weight: 500;
+  }
+
+  .effort-popup-model {
+    overflow: hidden;
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .effort-popup-reset {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+  }
+
+  .effort-popup-reset:hover {
+    background: hsl(var(--accent));
+    color: hsl(var(--foreground));
+  }
+
+  .effort-popup-reset:focus-visible,
+  .effort-slider-wrap input:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  .effort-slider-wrap {
+    position: relative;
+    height: 28px;
+    margin-top: 8px;
+    border-radius: 20px;
+    background: hsl(var(--muted));
+  }
+
+  .effort-slider-dots {
+    position: absolute;
+    inset: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+
+  .effort-slider-dots i {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: hsl(var(--muted-foreground) / 0.6);
+  }
+
+  .effort-slider-wrap input {
+    position: relative;
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 20px;
+    background: transparent;
+    cursor: pointer;
+    touch-action: pan-y;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .effort-slider-wrap input::-webkit-slider-runnable-track {
+    height: 28px;
+    background: transparent;
+  }
+
+  .effort-slider-wrap input::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 50%;
+    background: hsl(var(--primary));
+    box-shadow: 0 1px 3px hsl(var(--foreground) / 0.2);
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .effort-slider-wrap input::-moz-range-track {
+    height: 28px;
+    background: transparent;
+  }
+
+  .effort-slider-wrap input::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 50%;
+    background: hsl(var(--primary));
+    box-shadow: 0 1px 3px hsl(var(--foreground) / 0.2);
+  }
+}
+
+/* =========================================================================
    ТЕМЫ
 
    Шесть тем, у каждой свой характер. Палитра — последнее, чем они
@@ -1572,6 +1926,16 @@
    построчно. Убранные темы (gt, editorial, claude и восемь фото-тем) подменяет
    src/contexts/themeMigration.js.
    ========================================================================= */
+
+/* Материал темы на отдельной поверхности во весь экран — панель из
+   «Инструментов» (PanelModal). Она в портале, вне .app-shell, и на ровной
+   заливке фоном темы все шесть тем отличались только оттенком серого. Без
+   слоя намеренно: правило должно быть сильнее утилиты bg-popover у Dialog. */
+.theme-surface {
+  background-color: var(--shell-bg);
+  background-image: var(--shell-material);
+  background-size: cover;
+}
 
 /* =========================================================================
    Общий слой фона-картинки и живых обоев (ThemeBackground.tsx): фото варианта
@@ -1831,15 +2195,6 @@
 [data-theme='ember'] .chat-message a {
   color: hsl(34 96% 70%);
 }
-/* Шторка телефона лежит ПОВЕРХ «Домой», а не рядом с ним: при остановленном
-   ролике (74% + размытие) сквозь неё проступали значки проектов. На телефоне
-   она плотная всегда — так же, как под играющим роликом. */
-@media (max-width: 767px) {
-  [data-theme='ember'] .app-sidebar {
-    background-color: hsl(var(--panel-tint) / 0.93);
-  }
-}
-
 /* Пока живые обои реально играют, стеклянные панели теряют размытие.
    Причина не в красоте, а в арифметике: `backdrop-filter` пересчитывает блюр
    по площади элемента НА КАЖДЫЙ кадр видео и на каждый кадр прокрутки.
@@ -1955,9 +2310,10 @@
   --nav-input-focus-ring: 0 0% 65% / 0.3;
   font-weight: 400;
 }
-[data-theme='codex'] .app-sidebar,
+/* Боковая панель компьютера. Шторка телефона — лист стекла (.glass-sheet
+   .glass-dense), темы её не перекрашивают: селектор обходит её намеренно. */
+[data-theme='codex'] .app-sidebar:not(.glass-sheet),
 [data-theme='codex'] .sidebar-root { background: #242424; backdrop-filter: none; }
-[data-theme='codex'] .pwa-header-safe { border-bottom-color: transparent; }
 [data-theme='codex'] .chat-messages-pane > div,
 [data-theme='codex'] .chat-composer-shell > div { max-width: 48rem; }
 [data-theme='codex'] .chat-message { font-size: 14px; line-height: 1.65; }
@@ -1967,28 +2323,17 @@
   box-shadow: none;
   padding: 12px 16px;
 }
-[data-theme='codex'] [data-slot='prompt-input'] {
-  background: #2c2c2c;
-  border: 1px solid #353535;
-  border-radius: 18px;
-  box-shadow: none;
-}
-[data-theme='codex'] [data-slot='prompt-input']:focus-within { border-color: #626262; }
-[data-theme='codex'] [data-slot='prompt-input-textarea'] { min-height: 64px; font-size: 14px; }
-[data-theme='codex'] .composer-chip { border-color: transparent; background: transparent; box-shadow: none; font-weight: 400; }
-[data-theme='codex'] .composer-chip:hover { background: #393939; }
-[data-theme='codex'] .composer-submit { width: 30px; height: 30px; border-radius: 50%; }
+/* Поле ввода — стекло темы (матовый графит), без своих заливок. От прежнего
+   вида осталось только то, что не материал: высота поля на компьютере и вес. */
+[data-theme='codex'] .composer-chip { font-weight: 400; }
 [data-theme='codex'] .chat-message a { color: #75a7f8; }
 @media (min-width: 768px) {
   [data-theme='codex'] .sidebar-root { width: 260px; }
   [data-theme='codex'] .chat-composer-shell { padding-bottom: 16px; }
-}
-@media (max-width: 767px) {
-  [data-theme='codex'] [data-slot='prompt-input-textarea'] { font-size: 16px; }
+  [data-theme='codex'] [data-slot='prompt-input-textarea'] { min-height: 64px; font-size: 14px; }
 }
 
 [data-theme='codex'] .main-content-title { left: 44px; transform: translateY(-50%); }
-[data-theme='codex'] textarea::placeholder { color: #a0a0a0 !important; }
 .codex-environment { display: none; }
 @media (min-width: 1280px) {
   .codex-environment { display: block; align-self: flex-start; width: 240px; flex-shrink: 0; margin: 12px 16px 0 8px; padding: 14px 12px; background: #2c2c2c; border: 1px solid #353535; border-radius: 18px; }
@@ -2182,21 +2527,11 @@
   background-image: none;
   box-shadow: none;
 }
-/* Пузырь пользователя и композер — карточка с тонкой рамкой. */
+/* Пузырь пользователя — карточка с тонкой рамкой. Поле ввода — стекло темы
+   (чёрное с волосяной кромкой), своих заливок у него нет. */
 [data-theme='bio'] .chat-message.user .bg-muted {
   background-color: hsl(var(--card));
   box-shadow: inset 0 0 0 1px hsl(var(--border));
-}
-[data-theme='bio'] [data-slot='prompt-input'] {
-  background-color: hsl(var(--card));
-  border-color: hsl(var(--border));
-  box-shadow: none;
-}
-[data-theme='bio'] [data-slot='prompt-input']:focus-within {
-  border-color: hsl(var(--primary) / 0.45);
-}
-[data-theme='bio'] .composer-chip {
-  box-shadow: none;
 }
 [data-theme='bio'] .chat-message a,
 [data-theme='bio'] a.text-blue-600 {
@@ -2432,16 +2767,11 @@
 [data-theme='neon'] .bg-primary {
   box-shadow: 0 0 18px -4px hsl(var(--primary) / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.28);
 }
-/* Поле ввода — та же панель; на фокусе кромка разгорается. */
-[data-theme='neon'] [data-slot='prompt-input'] {
-  background-color: var(--panel-bg);
-  border-radius: var(--radius-xl);
-  border-color: hsl(var(--primary) / 0.3);
-  box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.14), var(--panel-shadow);
-}
+/* Поле ввода — стекло темы; на фокусе кромка разгорается ореолом кольца
+   фокуса. Только значения стекла: у варианта свой цвет, ореол меняется с ним. */
 [data-theme='neon'] [data-slot='prompt-input']:focus-within {
-  border-color: hsl(var(--primary) / 0.65);
-  box-shadow: inset 0 1px 0 hsl(var(--primary) / 0.2), 0 0 28px -8px hsl(var(--primary) / 0.55);
+  border-color: var(--glass-ring);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 0 28px -8px var(--glass-ring), var(--glass-shadow);
 }
 /* Сообщение человека — плашка с кромкой акцента, углы острые, как у всей темы. */
 [data-theme='neon'] .chat-message.user .bg-muted {
@@ -2458,15 +2788,6 @@
 [data-theme='neon'] .app-sidebar [class*='bg-accent']:not([class*='hover:bg-accent']) svg {
   color: hsl(var(--primary));
 }
-/* Шторка телефона лежит ПОВЕРХ «Домой», а не рядом с ним: на 68% сквозь неё
-   читались значки проектов. На телефоне она плотная — фото остаётся намёком,
-   список читается и там, где размытия нет вовсе. */
-@media (max-width: 767px) {
-  [data-theme='neon'] .app-sidebar {
-    background-color: hsl(var(--panel-tint) / 0.93);
-  }
-}
-
 /* =========================================================================
    THEME: Бирюзовая (glass — стеклянная, LIGHT)
 
@@ -2565,20 +2886,29 @@
   --panel-shadow: 0 18px 48px -22px hsl(210 40% 28% / 0.4);
 
   /* Стекло: белый иней. Самое сильное размытие и насыщенность набора —
-     пастельные пятна материала под ним растекаются в цветной туман; кромка
-     и блик почти белые, тень широкая и холодная. Плотный вариант — 82%
+     пастельные пятна материала под ним растекаются в цветной туман; блик
+     почти белый, тень широкая и холодная. Плотный вариант — 82%
      белого: под текстом (поле ввода, шторка) материал остаётся намёком. */
   --glass-bg: hsl(0 0% 100% / 0.52);
   --glass-bg-strong: hsl(0 0% 100% / 0.82);
   --glass-blur: 30px;
   --glass-saturate: 1.9;
-  --glass-border: hsl(0 0% 100% / 0.72);
+  /* Кромка — холодный волосок, а не белая: белая кромка на белом листе (шапка
+     чата, шапка панели, карточка ввода) пропадала, и круглые кнопки на нём
+     превращались в голые значки. Белым остаётся блик по верхней кромке. */
+  --glass-border: hsl(212 32% 58% / 0.26);
   --glass-highlight: hsl(0 0% 100% / 0.9);
   --glass-shadow: 0 14px 36px -18px hsl(210 40% 28% / 0.42);
   --glass-fallback-bg: hsl(210 36% 97%);
   /* Затемнение тёмное и в светлой теме: вуаль цвета фона осветляла экран под
      шторкой вместо того, чтобы его приглушить (разбор экранов, D2). */
   --glass-scrim: hsl(212 40% 14% / 0.4);
+
+  /* Значки проектов: светлая плитка-иней с тёмным символом (правила
+     html:not(.dark) .neo3-neon). Кромка белая, тень холодная и мягкая. */
+  --icon-tile-base: hsl(205 60% 98%);
+  --icon-tile-ink: hsl(215 32% 20%);
+  --icon-tile-shadow: 0 8px 18px -8px hsl(210 40% 28% / 0.38), 0 0 0 1px hsl(0 0% 100% / 0.85);
 
   --nav-divider-color: 210 24% 80% / 0.5;
   --nav-input-bg: 0 0% 100% / 0.42;
@@ -2597,9 +2927,7 @@
    корпуса стеклом не читается.
    Верхний внутренний блик — кромка стекла, а не декоративная полоска: он
    ловит свет там, где панель обрывается. */
-[data-theme='glass'] .bg-card,
-[data-theme='glass'] [data-slot='prompt-input'],
-[data-theme='glass'] .composer-chip {
+[data-theme='glass'] .bg-card {
   background-color: var(--panel-bg);
   -webkit-backdrop-filter: var(--panel-blur);
   backdrop-filter: var(--panel-blur);
@@ -2611,7 +2939,7 @@
    безопасного коридора: foreground здесь 16% светлоты и держит 12:1 даже
    над самым светлым пятном материала. Дальше плотность не нужна — край
    панели показывают кромка и верхний блик, а не белила. */
-[data-theme='glass'] .app-sidebar {
+[data-theme='glass'] .app-sidebar:not(.glass-sheet) {
   background-color: hsl(0 0% 100% / 0.46);
   border-right: 1px solid hsl(0 0% 100% / 0.55);
   box-shadow:
@@ -2723,16 +3051,6 @@
   }
 }
 
-/* Шторка телефона лежит поверх «Домой», а не рядом с ним: на 46% белого
-   сквозь неё читались значки проектов (разбор экранов, D2). На телефоне она
-   плотная — материал остаётся намёком по краям, список читается и там, где
-   размытия нет вовсе. */
-@media (max-width: 767px) {
-  [data-theme='glass'] .app-sidebar {
-    background-color: hsl(210 40% 98% / 0.9);
-  }
-}
-
 /* =========================================================================
    THEME: Светлая Claude (claudeLight — LIGHT)
 
@@ -2740,14 +3058,14 @@
    листа, сайдбар на ступень темнее, белые карточки, тонкие тёплые границы,
    почти чёрный тёплый текст и терракотовый акцент. Плоская: без картинки,
    шейдера и материала (FLAT_THEMES + условие фона в AppContent.tsx).
-   Устройство хвостов: композер-«пилюля», плоский сайдбар без плашек, панель
-   композера текстом.
+   Устройство хвостов: плоский сайдбар без плашек. Поле ввода — общее
+   стекло (.glass-surface), своих хвостов у темы нет.
 
    Акцент разведён на два токена. `--accent-fill` = фирменная терракота
-   #D97757 — только заливки без текста (кнопка отправки, фокус, кольцо).
+   #D97757 — только кольцо фокуса и заливки без значков и текста.
    `--primary` затемнён до 41% светлоты: им набираются ссылки, активные
-   пункты и подписи кнопок, и он держит ≥4.5:1 и на фоне, и на сайдбаре,
-   и под белой подписью (#D97757 давал 3.1:1). Контраст считает
+   пункты и подписи кнопок, им же залита кнопка «отправить» — он держит
+   ≥4.5:1 и на фоне, и на сайдбаре, и под белой подписью (#D97757 давал 3.1:1). Контраст считает
    theme-registry.test.ts. Фирменные шрифты Anthropic не используются:
    заголовки — свободный Source Serif 4, интерфейс — системный гротеск.
    ========================================================================= */
@@ -2829,11 +3147,15 @@
   --glass-shadow: 0 2px 12px hsl(40 20% 20% / 0.08);
   --glass-fallback-bg: hsl(0 0% 100%);
   --glass-scrim: hsl(40 14% 12% / 0.36);
-  /* Заливка акцента — фирменная терракота из --accent-fill; затемнённый
-     акцент (--primary) оставлен тексту. Значок на заливке белый: 3.1:1 —
-     норма для значков, не для текста. */
-  --glass-accent-bg: hsl(var(--accent-fill));
-  --glass-accent-fg: hsl(0 0% 100%);
+
+  /* Значки проектов: белая карточка с тёплым волоском вместо тени — как
+     остальные карточки темы; символ — цвет текста. */
+  --icon-tile-base: hsl(0 0% 100%);
+  --icon-tile-ink: hsl(60 3% 12%);
+  --icon-tile-shadow: 0 2px 8px hsl(40 20% 20% / 0.1), 0 0 0 1px hsl(48 14% 60% / 0.34);
+  /* Залитая кнопка — затемнённая терракота --primary с белым значком (общая
+     формула): 5,7:1. Фирменная светлая #D97757 из --accent-fill под белым
+     значком давала 3,1:1 — кнопку «отправить» на ней было плохо видно. */
 
   --nav-divider-color: 50 21% 87% / 0.9;
   --nav-input-bg: 0 0% 100% / 0.9;
@@ -2841,7 +3163,7 @@
 }
 
 /* Сайдбар — своя ступень тона, граница тёплым волоском. */
-[data-theme='claudeLight'] .app-sidebar {
+[data-theme='claudeLight'] .app-sidebar:not(.glass-sheet) {
   background-color: hsl(var(--sidebar));
   border-right-color: hsl(var(--border));
 }
@@ -2891,57 +3213,9 @@
   background-color: hsl(var(--sidebar-active));
 }
 
-/* Композер — белая «пилюля» с мягкой тенью, без разделителя над панелью. */
-[data-theme='claudeLight'] [data-slot='prompt-input'] {
-  border-radius: 1.5rem;
-  border-color: hsl(var(--input));
-  background-color: hsl(var(--card));
-  box-shadow: 0 2px 12px hsl(40 20% 20% / 0.06);
-}
-[data-theme='claudeLight'] [data-slot='prompt-input'].rounded-t-none {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-[data-theme='claudeLight'] [data-slot='prompt-input-footer'] {
-  border-top-color: transparent;
-  padding: 0.5rem 0.75rem 0.75rem;
-}
-[data-theme='claudeLight'] [data-slot='prompt-input']:focus-within {
-  border-color: hsl(48 10% 72%);
-  box-shadow: 0 2px 16px hsl(40 20% 20% / 0.09);
-}
-[data-theme='claudeLight'] [data-slot='prompt-input-textarea'] {
-  padding: 1rem 1.25rem 0.5rem;
-}
-/* Панель композера — текст, а не ряд обведённых плашек. */
-[data-theme='claudeLight'] .composer-chip {
-  border-color: transparent;
-  background-color: transparent;
-  box-shadow: none;
-}
-[data-theme='claudeLight'] .composer-chip:hover {
-  background-color: hsl(var(--accent));
-}
-[data-theme='claudeLight'] .composer-chip-effort {
-  color: hsl(var(--muted-foreground));
-}
-[data-theme='claudeLight'] .composer-chip-model .composer-chip-chevron {
-  display: none;
-}
-[data-theme='claudeLight'] .composer-chip-icon {
-  background-color: transparent;
-  color: hsl(var(--muted-foreground));
-}
-/* Отправка — терракотовый круг: единственная крупная заливка акцентом. */
-[data-theme='claudeLight'] .composer-submit {
-  border-radius: 9999px;
-  width: 2.5rem;
-  background-color: hsl(var(--accent-fill));
-  color: hsl(0 0% 100%);
-}
-[data-theme='claudeLight'] .composer-submit:hover:not(:disabled) {
-  background-color: hsl(15 58% 54%);
-}
+/* Поле ввода — стекло темы (плотная калька): своих заливок, рамок и круга
+   отправки у темы больше нет, их дают .glass-surface, .glass-pill и
+   .glass-button-primary. */
 
 /* Лента: пузырь пользователя — ступень тона без тени, ответ — на фоне. */
 [data-theme='claudeLight'] .chat-message.user .bg-muted {
@@ -3067,8 +3341,8 @@
 }
 
 /* Neon project/dock tiles in the Neo³ bot-avatar style (AppIcon, NeonTile on
-   Home). Always dark, whatever the theme: on light themes the tile reads by its
-   accent ring and this shadow. No glossy overlay — it would wash out the glow. */
+   Home). Dark in the dark themes; the light themes repaint them just below.
+   No glossy overlay — it would wash out the glow. */
 .neo3-neon {
   border-radius: 22.5%;
   background: #090c18;
@@ -3082,6 +3356,40 @@
 /* Round neon button (Home: settings next to the clock). */
 .neo3-neon.neo3-neon-round {
   border-radius: 9999px;
+}
+
+/* Значки проектов в светлых темах. Тёмная плитка #090c18 с тяжёлой чёрной
+   тенью на светлом материале выглядела чужим чёрным квадратом (разбор, H4).
+   Разметка значка та же; светлая тема перекрашивает её части своими
+   значениями: основа — --icon-tile-base, символ — --icon-tile-ink, тень —
+   --icon-tile-shadow. Узнаваемость держат форма символа, цвет проекта в
+   кольце, свечении и деталях (--neon-accent ставит сама плитка) и «3» в углу.
+   Детали акцентом подтемнены к цвету символа: жёлтый и мятный на белом иначе
+   пропадают. Светлая тема = на <html> нет класса .dark. */
+html:not(.dark) .neo3-neon {
+  background: var(--icon-tile-base);
+  box-shadow: var(--icon-tile-shadow);
+}
+html:not(.dark) .neo3-neon [data-neon-part='base'] {
+  fill: var(--icon-tile-base);
+}
+html:not(.dark) .neo3-neon [data-neon-part='glow-core'] {
+  stop-color: color-mix(in srgb, var(--neon-accent) 30%, var(--icon-tile-base));
+}
+html:not(.dark) .neo3-neon [data-neon-part='glow-edge'] {
+  stop-color: var(--icon-tile-base);
+}
+html:not(.dark) .neo3-neon [data-neon-part='ink'] {
+  color: var(--icon-tile-ink);
+}
+html:not(.dark) .neo3-neon [data-neon-part='accent'] {
+  color: color-mix(in srgb, var(--neon-accent) 68%, var(--icon-tile-ink));
+}
+html:not(.dark) .neo3-neon [data-neon-part='mark'] {
+  fill: var(--icon-tile-ink);
+}
+html:not(.dark) .neo3-squircle {
+  box-shadow: var(--icon-tile-shadow), inset 0 1px 0 rgb(255 255 255 / 0.28);
 }
 
 /* =========================================================================

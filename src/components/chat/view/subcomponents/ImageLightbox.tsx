@@ -20,7 +20,7 @@ export default function ImageLightbox({ src, alt, onClose }: { src: string; alt:
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80"
       onClick={onClose}
       role="dialog"
       aria-modal="true"

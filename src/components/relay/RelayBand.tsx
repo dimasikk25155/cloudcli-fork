@@ -55,7 +55,7 @@ function AutoRelaySwitch({ checked, onChange, showLabel = true }: {
 function Shell({ busy, children, actions }: { busy: boolean; children: ReactNode; actions?: ReactNode }) {
   return (
     <div
-      className="settings-content-enter mx-auto mb-2 max-w-[54.25rem] rounded-xl border border-primary/25 bg-card/95 px-3 py-2.5 shadow-sm backdrop-blur-md"
+      className="glass-surface settings-content-enter mx-auto mb-2 max-w-[54.25rem] rounded-2xl border-primary/30 px-3 py-2.5"
       data-testid="relay-band"
       role="status"
       aria-live="polite"
@@ -149,7 +149,7 @@ export default function RelayBand({ relay, autoRelay, onOpenChat }: RelayBandPro
     // Armed, chat not grown yet: one quiet line with the switch to turn it off.
     return (
       <div
-        className="settings-content-enter mx-auto mb-2 flex max-w-[54.25rem] items-center gap-2.5 rounded-xl border border-primary/20 bg-card/95 py-1 pl-3 pr-1.5 shadow-sm backdrop-blur-md"
+        className="glass-surface settings-content-enter mx-auto mb-2 flex max-w-[54.25rem] items-center gap-2.5 rounded-2xl border-primary/25 py-1 pl-3 pr-1.5"
         data-testid="relay-band"
         role="status"
       >

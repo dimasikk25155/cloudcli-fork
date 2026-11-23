@@ -88,7 +88,10 @@ function PinnedUserMessage({ scrollContainerRef, revision }: PinnedUserMessagePr
           type="button"
           onClick={jumpToPinnedMessage}
           title={pinnedText}
-          className="pointer-events-auto block w-full rounded-b-xl border-b border-border/60 bg-card/95 px-3 py-2 text-left shadow-sm backdrop-blur transition-colors hover:bg-accent sm:px-4"
+          // Плотная карточка стекла, пристыкованная к шапке: закреп лежит
+          // поверх ленты, и из-под прежней полупрозрачной плашки торчали
+          // строки предыдущего ответа.
+          className="glass-surface glass-dense pointer-events-auto block w-full rounded-b-2xl rounded-t-none border-t-0 px-3 py-2 text-left sm:px-4"
         >
           <span dir="auto" className="line-clamp-2 whitespace-pre-wrap break-words font-serif text-sm text-foreground/90">
             {pinnedText}

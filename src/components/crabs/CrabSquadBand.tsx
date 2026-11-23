@@ -68,7 +68,7 @@ function CrabSquad({ chatMessages, sessionId, isRunActive }: CrabSquadBandProps)
   if (squad.length === 0) return null;
 
   return (
-    <div className="mx-auto mb-2 w-full min-w-0 max-w-[54.25rem] rounded-xl border border-border/50 bg-card/90 px-3 py-1.5 text-xs backdrop-blur-sm" data-crab-squad>
+    <div className="glass-surface mx-auto mb-2 w-full min-w-0 max-w-[54.25rem] rounded-2xl px-3 py-1.5 text-xs" data-crab-squad>
       <button
         type="button"
         onClick={() => setFolded((value) => !value)}

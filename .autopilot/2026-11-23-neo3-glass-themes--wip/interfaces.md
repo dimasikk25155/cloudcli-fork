@@ -216,3 +216,14 @@ node_modules/.bin/vite build --outDir "$(mktemp -d /tmp/neo3-client-check.XXXXXX
 - Разбор экранов бывшего «Меню» для Димы — `menu-review.md` рядом с этим файлом.
 - Осталось таску 05 (его зона `src/index.css`): плотность шторки на телефоне задают правила `[data-theme=…] .app-sidebar`
   (0,9 в `glass`, 0,92 в `ember`) — они сильнее `.glass-sheet`, сквозь шторку видны силуэты значков «Домой».
+
+### Таск 05 — чат и панели в стекле, общий проход, DESIGN.md (сдан)
+
+- CSS: `.glass-dense` (плотный лист — шторка телефона), `.theme-surface`, `.composer-footer/-tools/-meters/-actions`,
+  `.composer-chip` (`-label`, `-iconic`, `-model`, `-chevron`), `.composer-meter`, `.composer-submit`, `.chat-code-short`;
+  в светлых темах `--icon-tile-base/-ink/-shadow`; `@container composer (max-width: 599px)` — узкая колонка поля ввода.
+  Производные стекла пересчитываются в любом элементе с `data-theme`.
+- `chat/view/subcomponents/composerChips.tsx`: `CHIP_ROUND`, `CHIP_PILL`, `CHIP_ICONIC`, `CHIP_METER`, `CHIP_METER_ICON`,
+  `CHIP_MENU`, `chipMenuItem(selected)`, `WORK_MODE_ICON`, `PERMISSION_MODE_TONE`, `permissionModeTone(mode)`, `<ChipLabel>`, `<WorkModeFace mode label>`.
+- `<MobileCanvasButton onClick>` (`main-content`); `NeonTile`: `data-neon-part`, стиль `--neon-accent`.
+- `DESIGN.md` в корне; итоги общего прохода, снимки, остаток палитры, список для айфона — `final-pass.md` рядом с этим файлом.

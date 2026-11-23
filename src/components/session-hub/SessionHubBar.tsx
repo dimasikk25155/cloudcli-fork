@@ -54,7 +54,7 @@ export default function SessionHubBar({ onOpenSession, opens = 'dialogs' }: Sess
           type="button"
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
-          className="flex min-h-[30px] items-center gap-2 rounded-full border border-border/60 bg-card/90 px-3 text-xs text-muted-foreground backdrop-blur-sm hover:text-foreground"
+          className="glass-pill touch-manipulation gap-2 px-3 text-xs text-muted-foreground hover:text-foreground"
           title={toAttention ? 'Ждут тебя' : 'Все диалоги и мастер-сессия'}
         >
           <MessagesSquare className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />

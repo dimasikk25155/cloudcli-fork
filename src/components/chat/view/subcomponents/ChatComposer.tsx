@@ -11,7 +11,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { Plus, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon, Rocket, ListChecks, HelpCircle, Gauge } from 'lucide-react';
+import { Plus, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
 
 import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { clampMenuLeft } from '../../utils/menuPosition';
@@ -32,6 +32,17 @@ import {
   PromptInputButton,
   PromptInputSubmit,
 } from '../../../../shared/view/ui';
+
+import {
+  CHIP_ICONIC,
+  CHIP_MENU,
+  CHIP_PILL,
+  CHIP_ROUND,
+  WORK_MODE_ICON,
+  WorkModeFace,
+  chipMenuItem,
+  permissionModeTone,
+} from './composerChips';
 
 import CommandMenu from './CommandMenu';
 import ActivityIndicator from './ActivityIndicator';
@@ -142,38 +153,6 @@ interface ChatComposerProps {
   /** «Перенести в новый чат» band (src/components/relay); it decides its own visibility. */
   relayBand?: ReactNode;
 }
-
-// Dot + button tints per permission mode, shared by the trigger button and
-// the dropdown items so the color legend stays consistent.
-// The legend reads as a scale: grey = asks about everything, blue = touches
-// nothing (plan), orange = asks about nothing (bypass). Plan used to fall
-// through to the accent colour, which made it look identical to bypass — the
-// two least similar modes wearing the same dot.
-const MODE_DOT_CLASS: Record<string, string> = {
-  default: 'bg-muted-foreground',
-  plan: 'bg-blue-500',
-  bypassPermissions: 'bg-orange-500',
-  // Plan + auto-run sits between the two, so it gets the colour between them.
-  planBypass: 'bg-violet-500',
-};
-const MODE_BUTTON_CLASS: Record<string, string> = {
-  default: 'border-border/60 bg-muted/50 hover:bg-muted',
-  plan: 'border-blue-300/60 bg-blue-50 hover:bg-blue-100 dark:border-blue-600/40 dark:bg-blue-900/15 dark:hover:bg-blue-900/25',
-  bypassPermissions: 'border-orange-300/60 bg-orange-50 hover:bg-orange-100 dark:border-orange-600/40 dark:bg-orange-900/15 dark:hover:bg-orange-900/25',
-  planBypass: 'border-violet-300/60 bg-violet-50 hover:bg-violet-100 dark:border-violet-600/40 dark:bg-violet-900/15 dark:hover:bg-violet-900/25',
-};
-const modeDotClass = (mode: string) => MODE_DOT_CLASS[mode] ?? 'bg-primary';
-const modeButtonClass = (mode: string) => MODE_BUTTON_CLASS[mode] ?? 'border-primary/20 bg-primary/5 hover:bg-primary/10';
-
-// Work mode is a behaviour switch, not a risk level, so it gets an icon
-// instead of the permission chip's colour-coded dot.
-const WORK_MODE_ICON: Record<WorkMode, typeof Rocket> = {
-  autopilot: Rocket,
-  checkpoints: ListChecks,
-  interrogate: HelpCircle,
-  // Та же шкала, что на вкладке дашборда — режим и его экран узнаются вместе.
-  build: Gauge,
-};
 
 export default function ChatComposer({
   pendingPermissionRequests,
@@ -547,6 +526,8 @@ export default function ChatComposer({
     : isLoading
       ? t('input.stop')
       : t('input.send');
+  const permissionModeLabel = `${t('codex.permissionMode', { defaultValue: 'Permission mode' })}: ${t(`codex.modes.${permissionMode}`, { defaultValue: permissionMode })}`;
+  const workModeLabel = t(`workMode.modes.${workMode}`, { defaultValue: workMode });
 
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-[var(--composer-bottom-gap)] pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
@@ -584,7 +565,7 @@ export default function ChatComposer({
 
       {!hasQuestionPanel && <div className="relative mx-auto max-w-[54.25rem]">
         {showFileDropdown && filteredFiles.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-48 overflow-y-auto rounded-xl border border-border/50 bg-card/95 shadow-lg backdrop-blur-md">
+          <div className="glass-surface glass-dense absolute bottom-full left-0 right-0 z-50 mb-2 max-h-48 overflow-y-auto rounded-2xl">
             {filteredFiles.map((file, index) => (
               <div
                 key={file.path}
@@ -624,13 +605,12 @@ export default function ChatComposer({
           onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void}
           status={isLoading ? 'streaming' : 'ready'}
           className={[
-            isTextareaExpanded ? 'chat-input-expanded' : '',
             hasActivityIndicator ? 'rounded-t-none' : '',
           ].filter(Boolean).join(' ')}
           {...getRootProps()}
         >
           {isDragActive && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/50 bg-primary/15">
+            <div className="absolute inset-0 z-50 flex items-center justify-center rounded-[inherit] border-2 border-dashed border-primary/50 bg-primary/15">
               <div className="rounded-xl border border-border/30 bg-card p-4 shadow-lg">
                 <svg className="mx-auto mb-2 h-8 w-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -640,7 +620,7 @@ export default function ChatComposer({
                     d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                   />
                 </svg>
-                <p className="text-sm font-medium">Drop files here</p>
+                <p className="text-sm font-medium">{t('input.dropFiles', { defaultValue: 'Отпустите файлы здесь' })}</p>
               </div>
             </div>
           )}
@@ -685,8 +665,10 @@ export default function ChatComposer({
           <input {...getInputProps()} />
 
           <PromptInputBody>
-            <div ref={inputHighlightRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
-              <div className="chat-input-placeholder block w-full whitespace-pre-wrap break-words px-4 py-2 text-sm leading-6 text-transparent">
+            {/* Слой подсветки упоминаний лежит под текстом и повторяет отступы
+                PromptInputTextarea — менять вместе. */}
+            <div ref={inputHighlightRef} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+              <div className="chat-input-placeholder block w-full whitespace-pre-wrap break-words px-5 pb-2 pt-3.5 text-sm leading-6 text-transparent">
                 {renderInputWithMentions(input)}
               </div>
             </div>
@@ -708,25 +690,16 @@ export default function ChatComposer({
         </PromptInputBody>
 
         <PromptInputFooter>
-          {/* Phones: the cache timer is pinned outside the scrolling row so it is
-              in view the moment the chat opens; from 640px it sits in the row. */}
-          {promptCache && (
-            <PromptCacheChip
-              variant="compact"
-              className="mr-1 shrink-0 sm:hidden"
-              lastModelAt={promptCache.lastModelAt}
-              isRunning={promptCache.isRunning}
-            />
-          )}
-          <PromptInputTools className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
+          <PromptInputTools>
             <PromptInputButton
               tooltip={{ content: t('input.attachFiles', { defaultValue: 'Attach files' }) }}
+              aria-label={t('input.attachFiles', { defaultValue: 'Attach files' })}
               onClick={openImagePicker}
             >
               <Plus />
             </PromptInputButton>
 
-            <div ref={modeDropdownRef} className="relative">
+            <div ref={modeDropdownRef} className="relative shrink-0">
               <button
                 ref={modeDropdownButtonRef}
                 type="button"
@@ -734,19 +707,19 @@ export default function ChatComposer({
                   updateModeDropdownPosition();
                   setIsModeDropdownOpen((current) => !current);
                 }}
-                className={`composer-chip inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ${modeButtonClass(permissionMode)}`}
+                className={`${CHIP_ROUND} ${permissionModeTone(permissionMode).button}`}
                 aria-haspopup="menu"
                 aria-expanded={isModeDropdownOpen}
-                title={t('codex.permissionMode', { defaultValue: 'Permission mode' })}
-                aria-label={t('codex.permissionMode', { defaultValue: 'Permission mode' })}
+                title={permissionModeLabel}
+                aria-label={permissionModeLabel}
               >
-                <span className={`h-2.5 w-2.5 rounded-full ${modeDotClass(permissionMode)}`} />
+                <span className={`h-2.5 w-2.5 rounded-full ${permissionModeTone(permissionMode).dot}`} />
               </button>
 
               {isModeDropdownOpen && modeDropdownPosition && createPortal(
                 <div
                   ref={modeDropdownMenuRef}
-                  className="fixed z-[100] min-w-44 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+                  className={`${CHIP_MENU} min-w-52`}
                   style={{
                     left: modeDropdownPosition.left,
                     top: modeDropdownPosition.top,
@@ -768,13 +741,9 @@ export default function ChatComposer({
                           onSelectPermissionMode(mode);
                           setIsModeDropdownOpen(false);
                         })}
-                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
-                          isSelected
-                            ? 'bg-accent text-foreground'
-                            : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
-                        }`}
+                        className={`${chipMenuItem(isSelected)} items-center`}
                       >
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${modeDotClass(mode)}`} />
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${permissionModeTone(mode).dot}`} />
                         <span>{t(`codex.modes.${mode}`, { defaultValue: mode })}</span>
                         <span className="ml-auto flex h-3 w-3 items-center justify-center">
                           {isSelected && <Check className="h-3 w-3 text-primary" />}
@@ -788,7 +757,9 @@ export default function ChatComposer({
             </div>
 
             {isWorkModeSupported && (
-              <div ref={workModeDropdownRef} className="relative">
+              <div ref={workModeDropdownRef} className="relative shrink-0">
+                {/* На телефоне от кнопки остаётся значок: подпись режима — в
+                    aria-label и в меню по нажатию. */}
                 <button
                   ref={workModeDropdownButtonRef}
                   type="button"
@@ -796,23 +767,19 @@ export default function ChatComposer({
                     updateWorkModeDropdownPosition();
                     setIsWorkModeDropdownOpen((current) => !current);
                   }}
-                  className="composer-chip flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
+                  className={CHIP_ICONIC}
                   aria-haspopup="menu"
                   aria-expanded={isWorkModeDropdownOpen}
-                  title={t('workMode.title', { defaultValue: 'Work mode' })}
-                  aria-label={t('workMode.title', { defaultValue: 'Work mode' })}
+                  title={`${t('workMode.title', { defaultValue: 'Work mode' })}: ${workModeLabel}`}
+                  aria-label={`${t('workMode.title', { defaultValue: 'Work mode' })}: ${workModeLabel}`}
                 >
-                  {(() => {
-                    const WorkModeIcon = WORK_MODE_ICON[workMode];
-                    return <WorkModeIcon className="h-3.5 w-3.5 text-muted-foreground" />;
-                  })()}
-                  <span>{t(`workMode.modes.${workMode}`, { defaultValue: workMode })}</span>
+                  <WorkModeFace mode={workMode} label={workModeLabel} />
                 </button>
 
                 {isWorkModeDropdownOpen && workModeDropdownPosition && createPortal(
                   <div
                     ref={workModeDropdownMenuRef}
-                    className="fixed z-[100] w-64 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+                    className={`${CHIP_MENU} w-72 max-w-[calc(100vw-1rem)]`}
                     style={{
                       left: workModeDropdownPosition.left,
                       top: workModeDropdownPosition.top,
@@ -834,18 +801,14 @@ export default function ChatComposer({
                             onSelectWorkMode(mode);
                             setIsWorkModeDropdownOpen(false);
                           })}
-                          className={`flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
-                            isSelected
-                              ? 'bg-accent text-foreground'
-                              : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
-                          }`}
+                          className={`${chipMenuItem(isSelected)} items-start`}
                         >
-                          <WorkModeIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <WorkModeIcon className="mt-0.5 h-4 w-4 shrink-0" />
                           <span className="min-w-0 flex-1">
-                            <span className="block font-medium">
+                            <span className="block font-medium text-foreground">
                               {t(`workMode.modes.${mode}`, { defaultValue: mode })}
                             </span>
-                            <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                            <span className="mt-0.5 block text-xs leading-snug text-muted-foreground md:text-[11px]">
                               {t(`workMode.descriptions.${mode}`, { defaultValue: '' })}
                             </span>
                           </span>
@@ -862,7 +825,7 @@ export default function ChatComposer({
             )}
 
             {availableModelOptions.length > 0 && (
-              <div ref={modelDropdownRef} className="relative">
+              <div ref={modelDropdownRef} className="relative flex min-w-0 shrink">
                 <button
                   ref={modelDropdownButtonRef}
                   type="button"
@@ -870,20 +833,20 @@ export default function ChatComposer({
                     updateModelDropdownPosition();
                     setIsModelDropdownOpen((current) => !current);
                   }}
-                  className="composer-chip composer-chip-model flex h-8 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 text-xs font-medium text-foreground transition-all duration-200 hover:bg-muted"
+                  className={`${CHIP_PILL} composer-chip-model`}
                   aria-haspopup="menu"
                   aria-expanded={isModelDropdownOpen}
-                  aria-label={t('input.selectModel')}
+                  aria-label={`${t('input.selectModel')}: ${selectedModelLabel ?? t('input.modelLabel')}`}
                   title={t('input.selectModel')}
                 >
-                  <span>{selectedModelLabel ?? t('input.modelLabel')}</span>
+                  <span className="truncate">{selectedModelLabel ?? t('input.modelLabel')}</span>
                   <ChevronDown className={`composer-chip-chevron h-3 w-3 text-muted-foreground transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {isModelDropdownOpen && modelDropdownPosition && createPortal(
                   <div
                     ref={modelDropdownMenuRef}
-                    className="fixed z-[100] min-w-52 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+                    className={`${CHIP_MENU} min-w-56`}
                     style={{
                       left: modelDropdownPosition.left,
                       top: modelDropdownPosition.top,
@@ -904,7 +867,7 @@ export default function ChatComposer({
                         {showGroupHeader && (
                           <div
                             role="presentation"
-                            className={`px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 ${index > 0 ? 'mt-1 border-t border-border/60 pt-1.5' : 'pt-1'}`}
+                            className={`px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 ${index > 0 ? 'mt-1 border-t border-border/60 pt-1.5' : 'pt-1'}`}
                           >
                             {option.group}
                           </div>
@@ -917,11 +880,7 @@ export default function ChatComposer({
                             onSelectModel(option.value);
                             setIsModelDropdownOpen(false);
                           })}
-                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
-                            isSelected
-                              ? 'bg-accent text-foreground'
-                              : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'
-                          }`}
+                          className={`${chipMenuItem(isSelected)} items-center`}
                         >
                           <span className="flex h-3 w-3 shrink-0 items-center justify-center">
                             {isSelected && <Check className="h-3 w-3 text-primary" />}
@@ -948,27 +907,32 @@ export default function ChatComposer({
               onSelect={onSelectEffort}
             />
 
-            <TokenUsageSummary usage={tokenBudget} contextWindow={selectedModelOption?.contextWindow} onClick={onShowTokenUsage} />
-
-            {promptCache && (
-              <PromptCacheChip className="hidden sm:block" lastModelAt={promptCache.lastModelAt} isRunning={promptCache.isRunning} />
-            )}
-
-            <UsageLimitsBadge model={model} provider={provider} />
-
             {hasInput && (
               <PromptInputButton
                 tooltip={{ content: t('input.clearInput', { defaultValue: 'Clear input' }) }}
+                aria-label={t('input.clearInput', { defaultValue: 'Clear input' })}
                 onClick={onClearInput}
                 className="hidden sm:flex"
               >
                 <XIcon />
               </PromptInputButton>
             )}
-
           </PromptInputTools>
 
-          <div className="flex shrink-0 items-center gap-2 pl-2">
+          {/* Показания: значок и число целиком. В широком поле ввода стоят в
+              ряду после кнопок, в узком (телефон) — своей строкой над ними,
+              вне прокрутки ряда. */}
+          <div className="composer-meters">
+            <UsageLimitsBadge model={model} provider={provider} />
+
+            <TokenUsageSummary usage={tokenBudget} contextWindow={selectedModelOption?.contextWindow} onClick={onShowTokenUsage} />
+
+            {promptCache && (
+              <PromptCacheChip lastModelAt={promptCache.lastModelAt} isRunning={promptCache.isRunning} />
+            )}
+          </div>
+
+          <div className="composer-actions">
             {onVoiceTranscript && voiceAvailable && (
               <VoiceInputButton
                 state={voiceState}
@@ -1000,12 +964,12 @@ export default function ChatComposer({
               disabled={isLoading ? false : isRecording ? false : isTranscribing ? true : !input.trim()}
               aria-label={submitAriaLabel}
               title={submitAriaLabel}
-              className="composer-submit h-10 w-14 sm:w-16"
+              className="composer-submit"
             >
               {isTranscribing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : showsQueueAction ? (
-                <ArrowUpIcon className="h-4 w-4" />
+                <ArrowUpIcon className="h-5 w-5" strokeWidth={2.4} />
               ) : undefined}
             </PromptInputSubmit>
           </div>

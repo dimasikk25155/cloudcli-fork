@@ -20,8 +20,8 @@ export default function SettingsHeader({
   savedText?: string;
 }) {
   return (
-    <div className="pwa-settings-header flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-3 md:px-5">
-      <div className="flex min-w-0 items-center gap-1">
+    <div className="pwa-settings-header glass-sheet relative z-10 flex flex-shrink-0 items-center justify-between border-x-0 border-t-0 px-4 py-3 md:px-5">
+      <div className="flex min-w-0 items-center gap-2">
         <PanelBackButton onClick={onClose} />
         <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
       </div>
