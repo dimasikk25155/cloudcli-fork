@@ -44,15 +44,15 @@ const manyProjects = () => Array.from({ length: 12 }, (_, index) => project(`p${
 
 const tileIds = (html: string) => [...html.matchAll(/data-home-project="([^"]+)"/g)].map((match) => match[1]);
 
-test('Home on a 390 px phone: 4 × 4 cells, 15 projects and «All projects» last', () => {
+test('Home on a 390 px phone: 4 × 5 cells, 19 projects and «All projects» last', () => {
   const projects = [
-    ...Array.from({ length: 20 }, (_, index) => project(`p${String(index).padStart(2, '0')}`, index + 1)),
+    ...Array.from({ length: 24 }, (_, index) => project(`p${String(index).padStart(2, '0')}`, index + 1)),
     project('закреп', 90, { isStarred: true }),
   ];
   const html = render(projects);
-  assert.match(html, /data-home-grid="4x4"/);
+  assert.match(html, /data-home-grid="4x5"/);
   const ids = tileIds(html);
-  assert.equal(ids.length, 15);
+  assert.equal(ids.length, 19);
   assert.equal(ids[0], 'закреп');
   // «All projects» is the very last cell of the grid, with the hidden count.
   assert.match(html, /data-home-more="all" data-hidden-count="6"/);
