@@ -65,6 +65,19 @@ async function settle(): Promise<void> {
   }
 }
 
+/**
+ * Waits for something that arrives «soon» rather than «within N ticks»: the
+ * queue's frame leaves after a lazy module load, and how many ticks that takes
+ * depends on the Node version and its loader (Node 22 on Linux needed more
+ * than `settle()` gives — the test was red there and green on Node 24).
+ */
+async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 async function withWorld(runTest: (fixture: Fixture) => Promise<void>): Promise<void> {
   const previous = process.env.DATABASE_PATH;
   const directory = await mkdtemp(path.join(tmpdir(), 'chat-queue-run-'));
@@ -312,6 +325,7 @@ test('the tab that watched the turn keeps watching the queued one and gets the u
 
     await queuedMessagesService.put(CHAT, slavik, { content: 'А потом это', images: [{ path: 'a.png', mimeType: 'image/png' }] });
     await settle();
+    await waitFor(() => tab.frames.some((frame) => frame.kind === 'queued_message_changed'));
     // Content-free frame, only for sockets that may see the project.
     assert.deepEqual(tab.frames.filter((frame) => frame.kind === 'queued_message_changed'), [{ kind: 'queued_message_changed', sessionId: CHAT }]);
     assert.equal(strangerTab.frames.some((frame) => frame.kind === 'queued_message_changed'), false);
@@ -334,6 +348,8 @@ test('the tab that watched the turn keeps watching the queued one and gets the u
     assert.deepEqual(bubble.images, [{ path: 'a.png', mimeType: 'image/png' }]);
     assert.equal(answer.content, 'Делаю это');
     assert.equal(answer.seq, 2);
+    await waitFor(() => tab.frames.some((frame) => frame.kind === 'queued_message_changed'));
+    await settle();
     assert.equal(tab.frames.filter((frame) => frame.kind === 'queued_message_changed').length, 1, 'the queue emptied: one more frame');
 
     // A tab that subscribes later replays the same bubble.

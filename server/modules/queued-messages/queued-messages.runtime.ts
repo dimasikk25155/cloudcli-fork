@@ -37,6 +37,16 @@ function readAttention(sessionId: string): QueueAttention | null {
   };
 }
 
+/**
+ * The websocket module, loaded once and lazily: it is big and imports half the
+ * server. A fresh `import()` for every frame went through the module loader
+ * each time — with loader hooks on Node 22 that is a round trip to another
+ * thread, so «очередь опустела» reached the tab ticks after the run events
+ * sent later than it (24.11, сервер Мити: `chat-queue-run.test.ts` red there,
+ * green on Node 24). After the first load every frame leaves in a microtask.
+ */
+let websocketModule: Promise<typeof import('@/modules/websocket/index.js')> | null = null;
+
 export const queuedMessagesService: QueuedMessagesService = createQueuedMessagesService({
   sendAsUser: (input) => (control
     ? control.send(input)
@@ -46,11 +56,14 @@ export const queuedMessagesService: QueuedMessagesService = createQueuedMessages
   runPhase: (sessionId) => control?.runPhase(sessionId) ?? null,
   checkSendLimit: async (input) => (await control?.sendLimit?.(input)) ?? null,
   abortRun: (sessionId, userId) => control?.abortRun(sessionId, userId) ?? false,
-  // Lazy: the websocket module is big and imports half the server.
   notifyChanged: (sessionId) => {
-    void import('@/modules/websocket/index.js')
+    const loading = websocketModule ?? import('@/modules/websocket/index.js');
+    websocketModule = loading;
+    void loading
       .then(({ notifyQueuedMessageChanged }) => notifyQueuedMessageChanged(sessionId))
       .catch((error: unknown) => {
+        // A failed load is not kept: the next frame tries again.
+        if (websocketModule === loading) websocketModule = null;
         console.error('[QueuedMessages] frame failed', { sessionId, error: error instanceof Error ? error.message : String(error) });
       });
   },
