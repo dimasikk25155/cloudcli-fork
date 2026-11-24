@@ -31,6 +31,8 @@ export type SidebarProjectListProps = {
   getProjectSessions: (project: Project) => SessionWithProvider[];
   onLoadMoreSessions: (projectId: string) => void;
   loadingMoreProjects: Set<string>;
+  /** Чаты, видные всегда; null — показывать все (поиск, журналы). */
+  sessionPreviewKeepIds: ReadonlySet<string> | null;
   activeSessions: SessionActivityMap;
   isJournalView?: boolean;
   expandedJournalProjects: Set<string>;
@@ -72,6 +74,7 @@ export default function SidebarProjectList({
   getProjectSessions,
   onLoadMoreSessions,
   loadingMoreProjects,
+  sessionPreviewKeepIds,
   activeSessions,
   isJournalView = false,
   expandedJournalProjects,
@@ -142,6 +145,7 @@ export default function SidebarProjectList({
       sessions={getProjectSessions(project)}
       initialSessionsLoaded={initialSessionsLoaded.has(project.projectId)}
       isLoadingMoreSessions={loadingMoreProjects.has(project.projectId)}
+      sessionPreviewKeepIds={sessionPreviewKeepIds}
       currentTime={currentTime}
       editingSession={editingSession}
       editingSessionName={editingSessionName}

@@ -18,7 +18,6 @@ import type {
 import {
   applyManualSessionOrder,
   buildRecentProjects,
-  hideStaleSessions,
   clearLegacyStarredProjectIds,
   filterProjects,
   getAllSessions,
@@ -737,15 +736,15 @@ export function useSidebarController({
   // The Recent journal: the most-recently-active sessions across every project,
   // minus the ones the user hid, re-grouped back under their projects so the
   // view reads like the Running tab but persists after a run finishes.
-  // «Проекты» и «Недавние» не показывают чаты старше 5 дней (кроме работающих,
-  // открытого и закреплённых). Поиск ищет по всем — так до старого чата
-  // по-прежнему можно добраться.
+  // В «Проектах» у каждого проекта видно первые 5 чатов и «Показать ещё»
+  // (SidebarProjectSessions + utils/sessionPreview.ts). Работающие, открытый
+  // и закреплённые видны всегда. Поиск показывает все найденные — null.
   const { enabled: groupsOn, tree: groupsTree } = useSidebarGroups();
   const selectedSessionId = selectedSession?.id ? String(selectedSession.id) : null;
   const isSearching = debouncedSearchQuery.trim().length > 0;
-  const freshProjects = useMemo(() => {
+  const sessionPreviewKeepIds = useMemo<ReadonlySet<string> | null>(() => {
     if (isSearching) {
-      return sortedProjects;
+      return null;
     }
     const keepIds = new Set<string>(activeSessionIds);
     if (selectedSessionId) {
@@ -754,12 +753,12 @@ export function useSidebarController({
     if (groupsOn) {
       groupsTree.pins.forEach((id) => keepIds.add(String(id)));
     }
-    return hideStaleSessions(sortedProjects, currentTime, keepIds);
-  }, [activeSessionIds, currentTime, groupsOn, groupsTree.pins, isSearching, selectedSessionId, sortedProjects]);
+    return keepIds;
+  }, [activeSessionIds, groupsOn, groupsTree.pins, isSearching, selectedSessionId]);
 
   const recentProjects = useMemo(
-    () => buildRecentProjects(freshProjects, hiddenRecentSessions, sessionOrderByProject),
-    [freshProjects, hiddenRecentSessions, sessionOrderByProject],
+    () => buildRecentProjects(sortedProjects, hiddenRecentSessions, sessionOrderByProject),
+    [sortedProjects, hiddenRecentSessions, sessionOrderByProject],
   );
 
   const recentSessionsCount = useMemo(
@@ -773,9 +772,9 @@ export function useSidebarController({
         ? runningProjects
         : searchMode === 'recent'
           ? recentProjects
-          : freshProjects;
+          : sortedProjects;
     return filterProjects(baseProjects, debouncedSearchQuery);
-  }, [debouncedSearchQuery, freshProjects, recentProjects, runningProjects, searchMode]);
+  }, [debouncedSearchQuery, sortedProjects, recentProjects, runningProjects, searchMode]);
 
   const filteredArchivedSessions = useMemo(() => {
     const normalizedSearch = debouncedSearchQuery.trim().toLowerCase();
@@ -1121,6 +1120,7 @@ export function useSidebarController({
     isProjectStarred,
     getProjectSessions,
     loadMoreSessionsForProject,
+    sessionPreviewKeepIds,
     startEditing,
     cancelEditing,
     saveProjectName,
