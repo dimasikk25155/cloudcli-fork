@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Pin, Plus } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -9,6 +9,7 @@ import type { SessionWithProvider } from '../../types/types';
 import { useSessionReorderDrag } from '../../hooks/useSessionReorderDrag';
 import { useFoldedChats } from '../../hooks/useFoldedChats';
 import { buildSessionTree, type SessionTreeRow } from '../../utils/sessionTree';
+import { previewSessionRows, SESSION_PREVIEW_SIZE, SESSION_PREVIEW_STEP } from '../../utils/sessionPreview';
 import { pinnedFirst } from '../../groups/groupsModel';
 import { sidebarGroupsStore, useSidebarGroups } from '../../groups/useSidebarGroups';
 import { useModEnabled } from '../../../../hooks/useModEnabled';
@@ -58,6 +59,8 @@ type SidebarProjectSessionsProps = {
   initialSessionsLoaded: boolean;
   hasMoreSessions: boolean;
   isLoadingMoreSessions: boolean;
+  /** Чаты, видные всегда (работают, открыт, закреплены); null — без «первых 5». */
+  sessionPreviewKeepIds: ReadonlySet<string> | null;
   activeSessions: SessionActivityMap;
   isRecentView?: boolean;
   currentTime: Date;
@@ -109,6 +112,7 @@ export default function SidebarProjectSessions({
   initialSessionsLoaded,
   hasMoreSessions,
   isLoadingMoreSessions,
+  sessionPreviewKeepIds,
   activeSessions,
   isRecentView = false,
   currentTime,
@@ -133,11 +137,22 @@ export default function SidebarProjectSessions({
   const { enabled: groupsOn, tree: groupsTree } = useSidebarGroups();
   const pins = groupsOn ? groupsTree.pins : NO_PINS;
   const ordered = useMemo(() => pinnedFirst(sessions, pins), [sessions, pins]);
-  const rows: SessionTreeRow<SessionWithProvider>[] = useMemo(
+  const allRows: SessionTreeRow<SessionWithProvider>[] = useMemo(
     () => (treeOn
       ? buildSessionTree(ordered, folded)
       : ordered.map((session) => ({ session, depth: 0, childCount: 0, collapsed: false }))),
     [treeOn, ordered, folded],
+  );
+  // «Первые 5 + Показать ещё»: свернул проект — снова 5.
+  const [previewLimit, setPreviewLimit] = useState(SESSION_PREVIEW_SIZE);
+  useEffect(() => {
+    if (!isExpanded) setPreviewLimit(SESSION_PREVIEW_SIZE);
+  }, [isExpanded]);
+  const { rows, hiddenCount } = useMemo(
+    () => (sessionPreviewKeepIds
+      ? previewSessionRows(allRows, previewLimit, sessionPreviewKeepIds)
+      : { rows: allRows, hiddenCount: 0 }),
+    [allRows, previewLimit, sessionPreviewKeepIds],
   );
   const { drag, handlePointerDown, shouldSuppressClick } = useSessionReorderDrag({
     sessionIds: rows.map((row) => String(row.session.id)),
@@ -242,15 +257,19 @@ export default function SidebarProjectSessions({
           {dropIndex === rows.length && <SessionDropLine />}
           </div>
 
-          {hasMoreSessions && (
+          {(hiddenCount > 0 || hasMoreSessions) && (
             <Button
               variant="ghost"
               size="sm"
               className="h-8 w-full justify-center text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => onLoadMoreSessions(project.projectId)}
+              onClick={() => {
+                if (sessionPreviewKeepIds) setPreviewLimit((limit) => limit + SESSION_PREVIEW_STEP);
+                // Загруженных скрытых не хватит на следующую пачку — дотянуть с сервера.
+                if (hasMoreSessions && hiddenCount < SESSION_PREVIEW_STEP) onLoadMoreSessions(project.projectId);
+              }}
               disabled={isLoadingMoreSessions}
             >
-              {isLoadingMoreSessions ? t('sessions.loadingSessions') : 'Load more sessions'}
+              {isLoadingMoreSessions ? t('sessions.loadingSessions') : 'Показать ещё'}
             </Button>
           )}
         </>
