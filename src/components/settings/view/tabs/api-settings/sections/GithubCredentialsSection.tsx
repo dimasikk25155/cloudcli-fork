@@ -110,7 +110,7 @@ export default function GithubCredentialsSection({
           <p className="text-sm italic text-muted-foreground">{t('apiKeys.github.empty')}</p>
         ) : (
           githubCredentials.map((credential) => (
-            <div key={credential.id} className="flex items-center justify-between rounded-lg border p-3">
+            <div key={credential.id} className="flex flex-col gap-2.5 rounded-lg border p-3 md:flex-row md:items-center md:justify-between md:gap-3">
               <div className="flex-1">
                 <div className="font-medium">{credential.credential_name}</div>
                 {credential.description && (

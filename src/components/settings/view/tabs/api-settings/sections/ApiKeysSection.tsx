@@ -76,7 +76,7 @@ export default function ApiKeysSection({
           <p className="text-sm italic text-muted-foreground">{t('apiKeys.empty')}</p>
         ) : (
           apiKeys.map((key) => (
-            <div key={key.id} className="flex items-center justify-between rounded-lg border p-3">
+            <div key={key.id} className="flex flex-col gap-2.5 rounded-lg border p-3 md:flex-row md:items-center md:justify-between md:gap-3">
               <div className="flex-1">
                 <div className="font-medium">{key.key_name}</div>
                 <code className="text-xs text-muted-foreground">{key.api_key}</code>
