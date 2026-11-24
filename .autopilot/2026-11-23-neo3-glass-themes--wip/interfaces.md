@@ -227,3 +227,12 @@ node_modules/.bin/vite build --outDir "$(mktemp -d /tmp/neo3-client-check.XXXXXX
   `CHIP_MENU`, `chipMenuItem(selected)`, `WORK_MODE_ICON`, `PERMISSION_MODE_TONE`, `permissionModeTone(mode)`, `<ChipLabel>`, `<WorkModeFace mode label>`.
 - `<MobileCanvasButton onClick>` (`main-content`); `NeonTile`: `data-neon-part`, стиль `--neon-accent`.
 - `DESIGN.md` в корне; итоги общего прохода, снимки, остаток палитры, список для айфона — `final-pass.md` рядом с этим файлом.
+
+### Таск F1 — ремонт по ревью ветки (сдан)
+
+- `deviceTheme.js`: `DEVICE_THEME_ORIGIN_KEY = 'appThemeOrigin'`, `writeDeviceTheme(storage, theme)`, `claimDeviceTheme(storage)`,
+  `takeAccountTheme(storage, accountTheme)`; `readDeviceTheme` отдаёт `null`, пока тему записал сам код, а не человек.
+  Настройки аккаунта перечитываются при смене токена; `<AuthProvider>` теперь выше `<ThemeProvider>` (`src/App.tsx`).
+- CSS: зона нажатия 44 px задана в px в `.glass-button::before`, `.glass-button-primary::before`; новый `.glass-handle` (язычок).
+- Окно «Где мой код» рисуется порталом в `body`.
+- Стенд: файл сессии несёт случайный секрет, новый на каждый `up` (`sessionFileName(key)`, параметр ссылки `key`).

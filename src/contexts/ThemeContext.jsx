@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 
+import { useAuth } from '../components/auth/context/AuthContext';
 import { authenticatedFetch } from '../utils/api';
 import { applyTweaks, hslTripletToHex, parseTweakMap } from '../utils/themeTweaks';
 
-import { readDeviceTheme, resolveAccountTheme } from './deviceTheme';
+import { claimDeviceTheme, readDeviceTheme, takeAccountTheme, writeDeviceTheme } from './deviceTheme';
 import {
   DEFAULT_NEON_VARIANT,
   NEON_VARIANTS,
@@ -246,12 +247,11 @@ export const ThemeProvider = ({ children }) => {
   // с собой и тему (`neon`), и вариант. Обычно подмену уже сделал inline-скрипт
   // index.html; здесь — та же таблица на случай, если он не отработал.
   const [initialTheme] = useState(() => {
+    // Тема по умолчанию, которую в прошлый запуск записал сам код, своей не
+    // считается (deviceTheme.js): с ней устройство стартует так же, как пустое.
     const saved = readDeviceTheme(localStorage);
     const migrated = migrateThemeId(saved || DEFAULT_THEME);
     return {
-      // Была ли тема на устройстве ДО этого запуска: эффект ниже запишет
-      // `appTheme` сразу при первом рендере, раньше ответа сервера.
-      deviceTheme: saved,
       theme: migrated.theme,
       neonVariant: migrated.neonVariant || resolveNeonVariant(localStorage.getItem('neonVariant')),
     };
@@ -268,14 +268,19 @@ export const ThemeProvider = ({ children }) => {
   );
   const [customBackgroundVersion, setCustomBackgroundVersion] = useState(0);
   const [customBackgroundUrl, setCustomBackgroundUrl] = useState(null);
+  // Токен входа: его смена (вход через форму) — повод перечитать настройки аккаунта.
+  const { token } = useAuth();
 
   // The active theme decides whether the app is dark or light.
   const isDarkMode = !LIGHT_THEMES.includes(theme);
 
-  // Account-wide defaults, loaded once on mount and applied on top of whatever
-  // localStorage had. Исключение — тема: она своя на каждом устройстве, аккаунт
-  // даёт её только новому устройству (resolveAccountTheme). Uses the raw
-  // setters so this doesn't itself trigger a sync-back PUT.
+  // Account-wide defaults, applied on top of whatever localStorage had.
+  // Исключение — тема: она своя на каждом устройстве, аккаунт даёт её только
+  // новому устройству (takeAccountTheme). Uses the raw setters so this doesn't
+  // itself trigger a sync-back PUT.
+  // Читаются при монтировании и ещё раз при смене токена: провайдер стоит выше
+  // экрана входа, на новом устройстве первый запрос уходит без токена и не
+  // проходит — настройки аккаунта (и его тема) приходят после входа через форму.
   useEffect(() => {
     let cancelled = false;
     authenticatedFetch('/api/settings/ui-preferences')
@@ -290,12 +295,10 @@ export const ThemeProvider = ({ children }) => {
           uiScale: savedUiScale,
           themeBackgrounds: savedBackgrounds,
         } = data.preferences;
-        // Тема своя на каждом устройстве: аккаунт даёт её только устройству,
-        // у которого своей ещё нет (после этого запуска `appTheme` уже записан).
-        const fromAccount = resolveAccountTheme({
-          deviceTheme: initialTheme.deviceTheme,
-          accountTheme: savedTheme,
-        });
+        // Тема своя на каждом устройстве: аккаунт даёт её один раз — устройству,
+        // где тему ещё не выбирал человек. Записанная кодом тема по умолчанию
+        // своей не считается.
+        const fromAccount = takeAccountTheme(localStorage, savedTheme);
         if (fromAccount.apply) {
           setThemeRaw(fromAccount.theme);
           // Вариант диктует только убранная фото-тема.
@@ -327,7 +330,7 @@ export const ThemeProvider = ({ children }) => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     localStorage.setItem('shaderBg', shaderEnabled ? 'on' : 'off');
@@ -381,7 +384,9 @@ export const ThemeProvider = ({ children }) => {
   useEffect(() => {
     const root = document.documentElement;
     root.setAttribute('data-theme', theme);
-    localStorage.setItem('appTheme', theme);
+    // Первая запись на пустое устройство помечается как сделанная кодом:
+    // тему по умолчанию человек не выбирал, аккаунт ещё может дать свою.
+    writeDeviceTheme(localStorage, theme);
     // Атрибут варианта есть только у «Неона»: его читают блоки
     // `[data-theme='neon'][data-theme-variant='…']` в index.css.
     // Вариант записывается на устройство, только пока «Неон» активен: иначе
@@ -440,6 +445,8 @@ export const ThemeProvider = ({ children }) => {
   };
 
   const setTheme = (next) => {
+    // Выбор человека: с этого момента тема устройства своя, аккаунт её не тронет.
+    claimDeviceTheme(localStorage);
     setThemeRaw(next);
     authenticatedFetch('/api/settings/ui-preferences', {
       method: 'PUT',

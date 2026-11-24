@@ -13,7 +13,7 @@ export default function MobileCanvasButton({ onClick }: { onClick: () => void })
       onClick={onClick}
       title="Открыть холст"
       aria-label="Открыть холст"
-      className="glass-button h-9 w-9 flex-shrink-0 touch-manipulation text-foreground before:absolute before:-inset-1"
+      className="glass-button h-9 w-9 flex-shrink-0 touch-manipulation text-foreground"
       data-workbench-toggle
     >
       <PanelRightOpen className="h-[1.125rem] w-[1.125rem]" aria-hidden />

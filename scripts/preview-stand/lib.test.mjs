@@ -11,6 +11,9 @@ import {
   pickPort,
   standStatus,
 } from './lib.mjs';
+import { readFileSync } from 'node:fs';
+
+import * as frameParams from './frame/frame-params.mjs';
 import { normalizeFrameParams } from './frame/frame-params.mjs';
 import * as seed from './seed.mjs';
 
@@ -319,4 +322,52 @@ test('demoChatPath: the app route of the seeded chat with history', () => {
   assert.equal(seed.demoChatPath?.(), '/session/384e6aaa-4860-4c31-8d19-43850e79d4e0');
   // A stand raised with --no-seed has no such chat.
   assert.equal(seed.demoChatPath?.([]), null);
+});
+
+// ---- вход рамки: секрет одного `up` (ревью ветки, безопасность) -------------
+//
+// Сервер стенда раздаёт dist/ с `Access-Control-Allow-Origin: *`. Файл с токеном
+// тестового пользователя по известному адресу читала бы страница любого сайта,
+// открытая на этом Маке. Имя файла несёт секрет, который есть только в ссылке рамки.
+
+// 32 случайных байта в base64url — так секрет выглядит у stand.mjs.
+const KEY = 'q8ZtJ3nV0x-L5aRmB2cYd7EoKfGhW1uSiP4_TeN9Qw6';
+
+test('sessionFileName: the sign-in file cannot be named without the key', () => {
+  assert.equal(frameParams.sessionFileName?.(KEY), `session-${KEY}.json`);
+  // Other secret — other file: knowing the scheme is not enough.
+  assert.notEqual(frameParams.sessionFileName?.(KEY.replace('q8', 'zz')), frameParams.sessionFileName?.(KEY));
+  // Nothing that could walk out of the frame folder or collapse into a guessable name.
+  for (const bad of ['', 'short', '../../state', `${KEY}/..`, `${KEY}.json`, `a b${KEY}`, undefined, null, 42]) {
+    assert.equal(frameParams.isSessionKey?.(bad), false, `key ${String(bad)} must be refused`);
+    assert.throws(() => frameParams.sessionFileName(bad), /key/, `file name for ${String(bad)}`);
+  }
+});
+
+test('readSessionKey: the frame takes the key only from its own link', () => {
+  assert.equal(frameParams.readSessionKey?.(`?w=390&key=${KEY}`), KEY);
+  assert.equal(frameParams.readSessionKey?.('?w=390'), null);
+  assert.equal(frameParams.readSessionKey?.('?key=..%2F..%2Fstate'), null);
+  assert.equal(frameParams.readSessionKey?.('?key='), null);
+});
+
+test('buildFrameUrl: the ready link carries the key, a broken key is refused', () => {
+  assert.equal(
+    buildFrameUrl({ port: 3917, width: 390, theme: 'glass', key: KEY }),
+    `http://127.0.0.1:3917/stand/frame.html?w=390&theme=glass&key=${KEY}`,
+  );
+  assert.throws(() => buildFrameUrl({ port: 3917, key: '../state' }), /key/);
+  assert.ok(USAGE.includes('key='), 'usage must explain key=');
+});
+
+test('the token file has no fixed address: stand and frame name it only through the key', () => {
+  const stand = readFileSync(new URL('./stand.mjs', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('./frame/frame-page.mjs', import.meta.url), 'utf8');
+  for (const [name, source] of [['stand.mjs', stand], ['frame-page.mjs', page]]) {
+    assert.doesNotMatch(source, /session\.json/, `${name} still uses the fixed name`);
+    assert.match(source, /sessionFileName\(/, `${name} must name the file through the key`);
+  }
+  // A new secret on every `up`: random bytes, generated where the file is written.
+  assert.match(stand, /randomBytes\(32\)\.toString\('base64url'\)/);
+  assert.match(page, /readSessionKey\(window\.location\.search\)/);
 });

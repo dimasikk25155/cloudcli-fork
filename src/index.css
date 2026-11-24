@@ -1357,8 +1357,10 @@
    .glass-surface        небольшая плавающая карточка: поле ввода, меню, полосы
    .glass-sheet          крупная поверхность: шапка, шторка, шапка панели
    .glass-pill           пилюля (высота ≥ 36, зона нажатия ≥ 44)
-   .glass-button         круглая кнопка 44×44
+   .glass-button         круглая кнопка 44×44; меньший видимый размер задаётся
+                         утилитой (h-9 w-9), зона нажатия остаётся 44×44
    .glass-button-primary залитая акцентом круглая кнопка (отправить, новый чат)
+   .glass-handle         модификатор язычка у края экрана: зона нажатия 44×44
    .glass-active         модификатор активного пункта
    .glass-dense          модификатор листа, лежащего ПОВЕРХ другого экрана
                          (шторка телефона): плотность 97%, читается без размытия
@@ -1434,6 +1436,32 @@
     transition: transform 120ms ease-out, filter 120ms ease-out, background-color 120ms ease-out;
   }
 
+  /* Зона нажатия круглой кнопки: палец попадает в 44×44 px, даже когда
+     видимый круг меньше (36 в шапках и в поле ввода, 40 у «отправить»).
+     Абсолютный ::before считается от поля ВНУТРИ кромки, а не от видимого
+     края, поэтому вынос — формулой от этого же поля и в px: у кнопки 36 px
+     поле 34 px, вынос (34 − 44) / 2 = −5 px с каждой стороны. Плотность темы
+     и утилиты отступов на зону не влияют. Кнопка 44 px и больше — вынос 0. */
+  .glass-button::before,
+  .glass-button-primary::before {
+    content: '';
+    position: absolute;
+    inset: min(0px, calc((100% - 44px) / 2));
+    border-radius: inherit;
+  }
+
+  /* Язычок у правого края экрана (быстрые настройки): узкий, а зона нажатия
+     те же 44×44 px. По высоте она растёт поровну вверх и вниз, по ширине —
+     только внутрь экрана: справа от язычка край окна. */
+  .glass-handle::before {
+    content: '';
+    position: absolute;
+    top: min(0px, calc((100% - 44px) / 2));
+    bottom: min(0px, calc((100% - 44px) / 2));
+    right: 0;
+    left: min(0px, calc(100% - 44px));
+  }
+
   /* Общий материал: кромка, блик по верхней кромке, тень, размытие. */
   .glass-surface,
   .glass-sheet,
@@ -1467,15 +1495,12 @@
      размытия нет, в полную резкость. Плотность кладётся отдельным слоем
      поверх фона листа, как подцветка активного пункта: её не стирают ни живые
      обои, ни запасные ветки. 97% — материал темы остаётся намёком по краям.
-     Первая строка — для браузера без color-mix: сплошной фон. Ставится и на
-     карточку (.glass-surface) — меню и всплывающие окна поверх переписки. */
+     Здесь слой сплошной: это вид для браузера без color-mix (Safari до 16.2,
+     Chrome до 111). 97% — в ветке @supports ниже. Ставится и на карточку
+     (.glass-surface) — меню и всплывающие окна поверх переписки. */
   .glass-dense {
     background-image: linear-gradient(var(--glass-fallback-bg), var(--glass-fallback-bg));
-    background-image: linear-gradient(
-      color-mix(in srgb, var(--glass-fallback-bg) 97%, transparent),
-      color-mix(in srgb, var(--glass-fallback-bg) 97%, transparent)
-    );
-    /* Под слоем в 97% размытия не видно — незачем за него платить. */
+    /* Под плотным слоем размытия не видно — незачем за него платить. */
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -1530,7 +1555,6 @@
      кнопки, пилюли, карточка ввода — размытие сохраняют: их площадь мала. */
   html.has-live-wallpaper .glass-sheet {
     background-color: var(--glass-fallback-bg);
-    background-color: color-mix(in srgb, var(--glass-fallback-bg) 92%, transparent);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -1540,6 +1564,26 @@
   html.has-live-wallpaper .glass-scrim {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+
+  /* Полупрозрачные слои из плотного фона темы — только там, где браузер умеет
+     color-mix. Запасной строкой выше в том же правиле это не сделать:
+     объявление с var() при разборе валидно всегда, побеждает вторая строка, и
+     без color-mix она сбрасывает свойство — плотный лист и лист под живыми
+     обоями оставались прозрачными. Вне этой ветки оба — сплошной
+     --glass-fallback-bg. Ветка стоит после сплошных правил: сила селекторов
+     равная, побеждает порядок. */
+  @supports (color: color-mix(in srgb, red, blue)) {
+    .glass-dense {
+      background-image: linear-gradient(
+        color-mix(in srgb, var(--glass-fallback-bg) 97%, transparent),
+        color-mix(in srgb, var(--glass-fallback-bg) 97%, transparent)
+      );
+    }
+
+    html.has-live-wallpaper .glass-sheet {
+      background-color: color-mix(in srgb, var(--glass-fallback-bg) 92%, transparent);
+    }
   }
 
   /* «Уменьшить прозрачность» в системе: стекло — плотный фон темы. */
@@ -1665,16 +1709,10 @@
     flex-shrink: 0;
   }
 
+  /* Зону нажатия 44 px добирает сам класс стекла (.glass-button::before). */
   .composer-chip.glass-button {
     width: 36px;
     height: 36px;
-  }
-
-  .composer-chip.glass-button::before {
-    content: '';
-    position: absolute;
-    inset: -4px;
-    border-radius: inherit;
   }
 
   .composer-chip.glass-pill {
@@ -1708,13 +1746,6 @@
   .composer-submit.glass-button-primary {
     width: 40px;
     height: 40px;
-  }
-
-  .composer-submit.glass-button-primary::before {
-    content: '';
-    position: absolute;
-    inset: -2px;
-    border-radius: inherit;
   }
 
   @media (max-width: 767px) {

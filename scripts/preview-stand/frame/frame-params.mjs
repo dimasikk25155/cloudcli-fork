@@ -38,6 +38,33 @@ export const isFramePath = (value) =>
   typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
 
 /**
+ * Secret of one `up`: 32 random bytes in base64url (stand.mjs). It names the
+ * file with the stand user's token, so it stays a plain token — no dots, no
+ * slashes, nothing that could walk out of the frame folder.
+ */
+const SESSION_KEY_PATTERN = /^[A-Za-z0-9_-]{32,64}$/;
+
+export const isSessionKey = (value) => typeof value === 'string' && SESSION_KEY_PATTERN.test(value);
+
+/**
+ * File with the stand user's token, next to the frame page. The stand server
+ * hands out every static file to any origin, so the file has no fixed address:
+ * only the holder of the key (the frame link) can name it.
+ */
+export function sessionFileName(key) {
+  if (!isSessionKey(key)) {
+    throw new Error('key: нужен секрет стенда из ссылки рамки (stand.mjs up или status).');
+  }
+  return `session-${key}.json`;
+}
+
+/** `key` of the frame link, or null when it is absent or unusable. */
+export function readSessionKey(search) {
+  const raw = new URLSearchParams(search).get('key');
+  return isSessionKey(raw) ? raw : null;
+}
+
+/**
  * One entry of `themes`: `ember` or `neon:city` (theme and its variant).
  * Returns `{ theme, variant }` or null when the entry is not usable.
  */

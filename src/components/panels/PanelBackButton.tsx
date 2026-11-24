@@ -26,10 +26,11 @@ export default function PanelBackButton({
       aria-label={label}
       title={label}
       className={cn(
-        // Круглая стеклянная кнопка. 36 px box, 44 px to the finger: an
-        // invisible ::before 4 px out on every side (Apple's minimum touch
-        // target) without a bigger look.
-        'glass-button relative h-9 w-9 flex-shrink-0 touch-manipulation text-foreground before:absolute before:-inset-1 md:hidden',
+        // Круглая стеклянная кнопка. 36 px box, 44 px to the finger (Apple's
+        // minimum touch target) without a bigger look: the invisible ::before
+        // of `.glass-button` grows the touch area, measured from the box
+        // inside the 1 px rim — no utility here may override it.
+        'glass-button relative h-9 w-9 flex-shrink-0 touch-manipulation text-foreground md:hidden',
         className,
       )}
     >

@@ -35,8 +35,9 @@ const THEME_LABEL_MAP = THEME_LABELS as Record<string, string>;
 /**
  * Карточка стоит на атрибуте `data-theme` показываемой темы: значения темы
  * (фон, акцент, стекло, шрифт, скругление) привязаны к нему и берутся из
- * index.css, а не нарисованы тут. Внутри только `style` с переменными — классы
- * вроде `bg-card` подхватили бы правила `[data-theme='…'] .bg-card` самой темы.
+ * index.css, а не нарисованы тут. Внутри только `style` с переменными и класс
+ * стекла — классы вроде `bg-card` подхватили бы правила
+ * `[data-theme='…'] .bg-card` самой темы.
  */
 function ThemeCard({
   id,
@@ -64,13 +65,13 @@ function ThemeCard({
     outline: selected ? '2px solid hsl(var(--primary))' : '1px solid hsl(var(--border))',
     outlineOffset: selected ? '2px' : '-1px',
   };
+  // Кромка, блик, тень и размытие — из класса `.glass-surface`: карточка стоит
+  // на своём `data-theme`, поэтому класс читает значения стекла показываемой
+  // темы. Здесь только то, чем полоска отличается от карточки: лёгкий фон
+  // плавающей кнопки и скругление поменьше.
   const glassStyle: CSSProperties = {
     borderRadius: 'calc(var(--radius) + 2px)',
     background: 'var(--glass-bg)',
-    border: '1px solid var(--glass-border)',
-    boxShadow: 'inset 0 1px 0 var(--glass-highlight), var(--glass-shadow)',
-    backdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-saturate))',
-    WebkitBackdropFilter: 'blur(var(--glass-blur)) saturate(var(--glass-saturate))',
   };
 
   return (
@@ -96,7 +97,7 @@ function ThemeCard({
           style={{ background: 'hsl(var(--foreground) / 0.45)' }}
         />
       </span>
-      <span className="flex items-center justify-between gap-1.5 px-2 py-1" style={glassStyle}>
+      <span className="glass-surface flex items-center justify-between gap-1.5 px-2 py-1" style={glassStyle}>
         <span className="min-w-0 truncate text-xs font-semibold leading-tight">
           {THEME_LABEL_MAP[id] || id}
         </span>

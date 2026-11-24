@@ -503,6 +503,41 @@ describe('стекло: классы и запасные ветки', () => {
     return match ? match[1] : '';
   };
 
+  // Ветка для браузеров с color-mix: всё полупрозрачное из --glass-fallback-bg
+  // живёт только в ней. Объявление с var() при разборе валидно всегда, поэтому
+  // «запасная строка выше» в одном правиле не работает: побеждает вторая
+  // строка, а без color-mix она сбрасывает свойство целиком.
+  const colorMixBranch = glassCss.match(/@supports \(color: color-mix\(in srgb, red, blue\)\)\s*\{([\s\S]*?)\n  \}/);
+  /** Раздел стекла без этой ветки: то, что получает браузер без color-mix. */
+  const glassBase = colorMixBranch ? glassCss.replace(colorMixBranch[0], '') : glassCss;
+  const rulesIn = (css: string) => [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .map((entry) => ({ selector: entry[1].replace(/\/\*[\s\S]*?\*\//g, '').trim(), body: entry[2] }));
+
+  it('без color-mix стекло остаётся сплошным: полупрозрачные слои — только в @supports', () => {
+    assert.ok(colorMixBranch, 'ветка с color-mix не обёрнута в @supports (color: color-mix(in srgb, red, blue))');
+    // Вне ветки — ни одного color-mix: старому браузеру нечего сбрасывать.
+    assert.doesNotMatch(glassBase.replace(/\/\*[\s\S]*?\*\//g, ''), /color-mix\(/, 'color-mix вне @supports');
+    // Плотный лист без color-mix — сплошной слой, а не прозрачный лист.
+    const dense = rule('.glass-dense');
+    assert.match(dense, /background-image:\s*linear-gradient\(var\(--glass-fallback-bg\), var\(--glass-fallback-bg\)\);/);
+    assert.equal([...dense.matchAll(/background-image:/g)].length, 1, 'у .glass-dense вне @supports две строки фона');
+    // Лист под живыми обоями без color-mix — сплошной фон.
+    const sheets = rulesIn(glassBase).filter((entry) => entry.selector === 'html.has-live-wallpaper .glass-sheet');
+    assert.equal(sheets.length, 1);
+    assert.equal([...sheets[0].body.matchAll(/background-color:/g)].length, 1, 'у листа под живыми обоями вне @supports две строки фона');
+    assert.match(sheets[0].body, /background-color:\s*var\(--glass-fallback-bg\);/);
+    // В ветке — ровно эти два правила, оба через color-mix и оба после своих
+    // сплошных (иначе при равной силе селектора победит сплошной).
+    const inBranch = rulesIn(colorMixBranch[1]);
+    assert.deepEqual(inBranch.map((entry) => entry.selector).sort(), ['.glass-dense', 'html.has-live-wallpaper .glass-sheet']);
+    for (const entry of inBranch) {
+      assert.match(entry.body, /color-mix\(in srgb, var\(--glass-fallback-bg\) \d+%, transparent\)/, entry.selector);
+    }
+    const branchAt = glassCss.indexOf(colorMixBranch[0]);
+    assert.ok(branchAt > glassCss.search(/\n\s*\.glass-dense\s*\{/), 'ветка стоит раньше сплошного .glass-dense');
+    assert.ok(branchAt > glassCss.search(/\n\s*html\.has-live-wallpaper \.glass-sheet\s*\{/), 'ветка стоит раньше сплошного листа под живыми обоями');
+  });
+
   it('раздел стекла есть, и в нём шесть классов', () => {
     assert.ok(glassCss.length > 0, 'в index.css нет раздела /* glass:start … glass:end */');
     for (const name of ['glass-surface', 'glass-sheet', 'glass-pill', 'glass-button', 'glass-button-primary', 'glass-active']) {
@@ -559,6 +594,103 @@ describe('стекло: классы и запасные ветки', () => {
     assert.match(glassCss, /\.glass-button,\s*\.glass-button-primary\s*\{/);
   });
 
+  // ---- зона нажатия (ревью ветки, история 8) --------------------------------
+  //
+  // Абсолютный `::before` считается от поля ВНУТРИ кромки (padding box), а не
+  // от видимого края: у кнопки 36 px с кромкой 1 px это 34 px. Прежняя запись
+  // «36 + 2 × 4 = 44» считала от края и давала на деле 42.
+
+  /** Кромка стекла в px — из общего правила материала. */
+  const glassBorder = () => Number(glassCss.match(/border:\s*(\d+)px solid var\(--glass-border\)/)?.[1]);
+  /** `min(0px, calc((100% - Npx) / k))` или `min(0px, calc(100% - Npx))` → [N, k]; иначе null. */
+  const hitFormula = (value: string | undefined): [number, number] | null => {
+    const text = value?.trim() ?? '';
+    const halved = text.match(/^min\(0px,\s*calc\(\(100% - (\d+)px\) \/ (\d+)\)\)$/);
+    if (halved) return [Number(halved[1]), Number(halved[2])];
+    const whole = text.match(/^min\(0px,\s*calc\(100% - (\d+)px\)\)$/);
+    return whole ? [Number(whole[1]), 1] : null;
+  };
+  const declaration = (body: string, name: string) => body.match(new RegExp(`(?:^|[;\\s])${name}:\\s*([^;]+);`))?.[1];
+
+  it('круглая кнопка: зона нажатия ≥ 44×44 px от поля внутри кромки, в px и в самом классе', () => {
+    assert.match(glassCss, /\.glass-button::before,\s*\.glass-button-primary::before\s*\{/, 'у круглых кнопок нет своей зоны нажатия в классах стекла');
+    const hit = rule('.glass-button::before');
+    assert.match(hit, /content:\s*''/);
+    assert.match(hit, /position:\s*absolute/);
+    const formula = hitFormula(declaration(hit, 'inset'));
+    assert.ok(formula, 'зона нажатия задана не формулой в px от поля внутри кромки');
+    const [target, divisor] = formula;
+    assert.equal(divisor, 2, 'зона должна расти поровну в обе стороны');
+    // Ни плотности темы, ни rem: зона одна во всех шести темах и при любом масштабе.
+    assert.doesNotMatch(hit, /var\(|\d(?:rem|em)\b/);
+    const border = glassBorder();
+    assert.equal(border, 1);
+    // Видимые размеры кнопок: 36 (шапки, «Назад», поле ввода), 40 («отправить»), 44 (сам класс), 28 — запас.
+    for (const visible of [28, 36, 40, 44, 56]) {
+      const paddingBox = visible - 2 * border;
+      const outset = Math.max(0, (target - paddingBox) / divisor);
+      const zone = paddingBox + 2 * outset;
+      assert.ok(zone >= 44, `кнопка ${visible} px: зона нажатия ${zone} px`);
+    }
+  });
+
+  it('зону нажатия круглой кнопки не перебивает ни правило рядом, ни утилита в разметке', () => {
+    // Правило вне раздела стекла (поле ввода) сильнее класса: с `inset: -4px`
+    // кнопка 36 px получала 34 + 8 = 42.
+    const outside = cssSource.replace(glassCss, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const overrides = [...outside.matchAll(/([^{}]*\.glass-button(?:-primary)?::before[^{}]*)\{/g)].map((entry) => entry[1].trim());
+    assert.deepEqual(overrides, [], 'зону нажатия круглой кнопки задаёт правило мимо классов стекла');
+
+    // Утилита `before:-inset-…` тоже сильнее класса. Там, где она есть, зона
+    // считается так же — от поля внутри кромки.
+    const componentsDir = path.join(here, '..', 'components');
+    const sources = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) return sources(file);
+      return /\.tsx$/.test(entry.name) ? [file] : [];
+    });
+    const border = glassBorder();
+    let checked = 0;
+    for (const file of sources(componentsDir)) {
+      const source = readFileSync(file, 'utf8');
+      for (const [literal] of source.matchAll(/(["'`])(?:(?!\1)[^\\\n]|\\.)*\bglass-button(?:-primary)?\b(?:(?!\1)[^\\\n]|\\.)*\1/g)) {
+        checked += 1;
+        const utility = literal.match(/(?:^|[\s"'`])before:-inset-(?:\[(\d+(?:\.\d+)?)px\]|(\d+(?:\.\d+)?))(?=[\s"'`])/);
+        if (!utility) continue; // зона — из класса стекла, проверена выше
+        const outset = utility[1] !== undefined ? Number(utility[1]) : Number(utility[2]) * 4;
+        const size = literal.match(/(?:^|[\s"'`])h-(\d+(?:\.\d+)?)(?=[\s"'`])/);
+        const visible = size ? Number(size[1]) * 4 : 44;
+        const zone = visible - 2 * border + 2 * outset;
+        assert.ok(zone >= 44, `${path.relative(componentsDir, file)}: кнопка ${visible} px, зона нажатия ${zone} px (${utility[0].trim()})`);
+      }
+    }
+    assert.ok(checked >= 8, `круглых кнопок найдено ${checked} — разбор исходников сломался`);
+  });
+
+  it('язычок быстрых настроек: зона нажатия ≥ 44×44 px в классе стекла, вширь растёт внутрь экрана', () => {
+    const hit = rule('.glass-handle::before');
+    assert.ok(hit, 'нет зоны нажатия язычка в классах стекла');
+    assert.match(hit, /content:\s*''/);
+    assert.match(hit, /position:\s*absolute/);
+    assert.doesNotMatch(hit, /var\(|\d(?:rem|em)\b/);
+    // По высоте — поровну вверх и вниз, по ширине — только влево: справа край экрана.
+    for (const side of ['top', 'bottom']) {
+      const formula = hitFormula(declaration(hit, side));
+      assert.ok(formula && formula[0] >= 44 && formula[1] === 2, `${side}: зона язычка по высоте меньше 44 px`);
+    }
+    const left = hitFormula(declaration(hit, 'left'));
+    assert.ok(left && left[0] >= 44 && left[1] === 1, 'left: зона язычка по ширине меньше 44 px');
+    assert.equal(declaration(hit, 'right')?.trim(), '0');
+    // Язычок берёт зону из класса, а не из утилит, которые едут от плотности темы.
+    const handle = readFileSync(
+      path.join(here, '..', 'components', 'quick-settings-panel', 'view', 'QuickSettingsHandle.tsx'),
+      'utf8',
+    );
+    const classes = handle.match(/className=\{`([^`]*)`\}/)?.[1] ?? '';
+    assert.match(classes, /(^|\s)glass-handle(\s|$)/);
+    assert.doesNotMatch(classes, /(^|\s)before:/, 'зона нажатия язычка задана утилитами');
+  });
+
   it('запасные ветки: «уменьшить прозрачность», нет backdrop-filter, «уменьшить движение»', () => {
     const opaque = /background-color:\s*var\(--glass-fallback-bg\)[^}]*backdrop-filter:\s*none/;
     const reducedTransparency = glassCss.match(/@media \(prefers-reduced-transparency: reduce\)\s*\{([\s\S]*?)\n  \}/);
@@ -582,7 +714,9 @@ describe('стекло: классы и запасные ветки', () => {
   });
 
   it('под живыми обоями лист и затемнение теряют размытие, плавающие элементы — нет', () => {
-    const live = [...glassCss.matchAll(/html\.has-live-wallpaper ([^{]*)\{([^}]*)\}/g)]
+    // Основные правила — вне ветки @supports (color-mix): в ней лист только
+    // меняет плотность фона, размытие снято здесь.
+    const live = [...glassBase.matchAll(/html\.has-live-wallpaper ([^{]*)\{([^}]*)\}/g)]
       .map((entry) => ({ selector: entry[1].trim(), body: entry[2] }));
     // Большие площади — лист и затемнение на весь экран. Кнопки, пилюли и
     // карточка ввода размытие сохраняют.
@@ -705,12 +839,14 @@ describe('стекло: классы и запасные ветки', () => {
     const dense = rule('.glass-dense');
     assert.ok(dense, 'нет модификатора .glass-dense');
     // Плотность кладётся отдельным слоем поверх фона листа — её не стирают ни
-    // живые обои, ни запасные ветки.
-    const mix = dense.match(/background-image:\s*linear-gradient\(\s*color-mix\(in srgb, var\(--glass-fallback-bg\) (\d+)%, transparent\)/);
+    // живые обои, ни запасные ветки. Слой в 97% — в ветке @supports (color-mix);
+    // без color-mix слой сплошной (тест выше), то есть плотнее, а не прозрачнее.
+    const denseMix = rulesIn(colorMixBranch?.[1] ?? '').find((entry) => entry.selector === '.glass-dense')?.body ?? '';
+    const mix = denseMix.match(/background-image:\s*linear-gradient\(\s*color-mix\(in srgb, var\(--glass-fallback-bg\) (\d+)%, transparent\)/);
     assert.ok(mix, '.glass-dense не кладёт плотный слой из --glass-fallback-bg');
     assert.ok(Number(mix[1]) >= 97, `плотность листа ${mix[1]}% < 97%`);
-    // Браузер без color-mix получает сплошной фон, а не прозрачный лист.
-    assert.match(dense, /background-image:\s*linear-gradient\(var\(--glass-fallback-bg\), var\(--glass-fallback-bg\)\);[\s\S]*color-mix/);
+    assert.match(dense, /background-image:\s*linear-gradient\(var\(--glass-fallback-bg\), var\(--glass-fallback-bg\)\);/);
+    assert.match(dense, /[^-]backdrop-filter:\s*none/, 'плотный лист платит за размытие, которого не видно');
     assert.match(appContentSource, /app-sidebar glass-sheet glass-dense /, 'шторка телефона не помечена .glass-dense');
   });
 

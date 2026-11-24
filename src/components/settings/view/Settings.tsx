@@ -192,7 +192,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
 
   return (
     <div
-      className="modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center bg-background/80 backdrop-blur-sm md:p-4"
+      className="modal-backdrop glass-scrim fixed inset-0 z-[9999] flex items-center justify-center md:p-4"
       onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
     >

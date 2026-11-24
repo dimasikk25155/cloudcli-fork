@@ -6,7 +6,7 @@ import { useMobileMenuHandlers } from '../../hooks/useMobileMenuHandlers';
 
 /**
  * ☰ в шапке чата на телефоне — круглая стеклянная кнопка: видимый размер
- * 36 px, зона нажатия 44 px (невидимый ::before на 4 px шире).
+ * 36 px, зона нажатия 44 px — её добирает сам класс `.glass-button`.
  * `compact` оставлен для вызывающих: вид у обоих вариантов один.
  */
 export default function MobileMenuButton({ onMenuClick }: MobileMenuButtonProps) {
@@ -19,7 +19,7 @@ export default function MobileMenuButton({ onMenuClick }: MobileMenuButtonProps)
       type="button"
       onClick={handleMobileMenuClick}
       onTouchEnd={handleMobileMenuTouchEnd}
-      className="glass-button pwa-menu-button h-9 w-9 flex-shrink-0 touch-manipulation text-foreground before:absolute before:-inset-1"
+      className="glass-button pwa-menu-button h-9 w-9 flex-shrink-0 touch-manipulation text-foreground"
       aria-label={label}
       title={label}
     >

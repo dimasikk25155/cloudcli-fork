@@ -17,6 +17,7 @@ import {
   isFramePath,
   isFrameWidth,
   isFrameZoom,
+  isSessionKey,
   parsePhoneToken,
 } from './frame/frame-params.mjs';
 
@@ -49,6 +50,8 @@ export const USAGE = [
   '  login=0        не входить (экран входа)',
   '  sync=0         тему записать только на «устройство», не в аккаунт',
   '  fresh=1        сначала очистить localStorage («новое устройство»)',
+  '  key=…          секрет этого запуска стенда: без него рамка не войдёт. Новый на каждый up —',
+  '                 готовые ссылки с ним печатают up и status',
   'Страница готова, когда у <body> есть атрибут data-stand-ready; в data-stand-problems — число',
   'непринятых параметров и ошибок. Для browser.eval на странице есть window.stand:',
   '  stand.info()            по телефону: innerWidth, isMobile, theme, variant, dark, path',
@@ -119,7 +122,7 @@ export async function pickPort({ preferred = PREFERRED_PORT, span = PORT_SPAN, r
  * Ready link of the phone frame. Takes the same parameters the frame page reads
  * (frame/frame-params.mjs) and refuses the ones the page would drop.
  */
-export function buildFrameUrl({ port, width = DEFAULT_WIDTH, height, theme, variant, themes, path: appPath, zoom, login, sync, fresh }) {
+export function buildFrameUrl({ port, width = DEFAULT_WIDTH, height, theme, variant, themes, path: appPath, zoom, login, sync, fresh, key }) {
   if (!isFrameWidth(width)) {
     throw new Error(`w=${width}: ширина рамки — целое от ${MIN_WIDTH} до ${MAX_WIDTH}.`);
   }
@@ -170,7 +173,13 @@ export function buildFrameUrl({ port, width = DEFAULT_WIDTH, height, theme, vari
   if (fresh === true) {
     query.set('fresh', '1');
   }
-  return `http://${STAND_HOST}:${port}${FRAME_PATH}?${query}`;
+  if (key !== undefined && key !== null) {
+    if (!isSessionKey(key)) {
+      throw new Error('key: нужен секрет стенда — его создаёт stand.mjs up.');
+    }
+    query.set('key', key);
+  }
+  return`http://${STAND_HOST}:${port}${FRAME_PATH}?${query}`;
 }
 
 /**

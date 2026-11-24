@@ -5,7 +5,7 @@
 // Several phones (`themes=ember,glass,neon:city`) are loaded one after another:
 // the app reads its theme once at start and then keeps it in memory, so every
 // phone stays in the theme that was stored when it loaded.
-import { normalizeFrameParams } from './frame-params.mjs';
+import { normalizeFrameParams, readSessionKey, sessionFileName } from './frame-params.mjs';
 
 const params = normalizeFrameParams(window.location.search);
 const stage = document.getElementById('stage');
@@ -111,9 +111,14 @@ async function signIn() {
     localStorage.removeItem('auth-token');
     return null;
   }
-  const response = await fetch('./session.json', { cache: 'no-store' });
+  // The token file is named by the secret of this `up`; the secret lives only in the frame link.
+  const key = readSessionKey(window.location.search);
+  if (!key) {
+    throw new Error('В ссылке нет ключа входа (key=…) — возьми ссылку рамки из stand.mjs up или status.');
+  }
+  const response = await fetch(`./${sessionFileName(key)}`, { cache: 'no-store' });
   if (!response.ok) {
-    throw new Error(`Нет файла входа стенда (код ${response.status}) — выполни stand.mjs up ещё раз.`);
+    throw new Error(`Ключ входа из ссылки не подошёл (код ${response.status}) — возьми свежую ссылку: stand.mjs status.`);
   }
   const session = await response.json();
   localStorage.setItem('auth-token', session.token);
@@ -128,6 +133,8 @@ async function storeTheme(phone, token) {
     return;
   }
   localStorage.setItem('appTheme', phone.theme);
+  // A theme set through the link is this device's own theme, not the default the app wrote itself.
+  localStorage.removeItem('appThemeOrigin');
   // Left over from the previous theme, they would paint the first frame in its colours.
   localStorage.removeItem('shaderVariant');
   localStorage.removeItem('appThemeColor');

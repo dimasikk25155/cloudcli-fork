@@ -284,8 +284,9 @@ export default function ThemeTweakPanel() {
         {open && (
           <>
             {/* Сцена липнет к верху списка: ручки материала оценивать не по
-                чему, если превью уехало за край при прокрутке. */}
-            <div className="sticky top-0 z-10 bg-card/95 px-4 py-3 backdrop-blur-sm">
+                чему, если превью уехало за край при прокрутке. Она лежит
+                поверх ползунков — плотный лист стекла, без своего размытия. */}
+            <div className="glass-sheet glass-dense sticky top-0 z-10 border-x-0 px-4 py-3">
               <ThemeTweakPreview
                 pulseToken={pulseToken}
                 labels={{

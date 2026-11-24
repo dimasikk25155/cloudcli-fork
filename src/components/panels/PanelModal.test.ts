@@ -92,10 +92,23 @@ test('«Назад» is a 44 px touch target on a phone, the visible box stays 3
   const [back] = findAll(tree, (el) => el.type === 'button' && el.props['aria-label'] === 'Назад');
   const classes = String(back.props.className);
   assert.match(classes, /(^|\s)h-9 w-9(\s|$)/, 'visible 36 px');
-  // An invisible ::before 4 px out on every side: 36 + 2 × 4 = 44.
   assert.match(classes, /(^|\s)relative(\s|$)/);
-  assert.match(classes, /(^|\s)before:absolute(\s|$)/);
-  assert.match(classes, /(^|\s)before:-inset-1(\s|$)/);
+  // The touch area is the invisible ::before of `.glass-button`. An absolute
+  // ::before is measured from the box INSIDE the rim, not from the visible
+  // edge: 36 px minus a 1 px rim on each side is 34 px. The old utility
+  // `before:-inset-1` (4 px out of that box) gave 34 + 8 = 42, not 44.
+  assert.match(classes, /(^|\s)glass-button(\s|$)/);
+  assert.doesNotMatch(classes, /(^|\s)before:/, 'a utility would override the touch area of the glass class');
+  const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+  const glass = css.slice(css.indexOf('/* glass:start'), css.indexOf('/* glass:end */'));
+  const rim = Number(glass.match(/border:\s*(\d+)px solid var\(--glass-border\)/)?.[1]);
+  const hit = glass.match(/\.glass-button::before,\s*\.glass-button-primary::before\s*\{([^}]*)\}/)?.[1] ?? '';
+  const target = Number(hit.match(/inset:\s*min\(0px,\s*calc\(\(100% - (\d+)px\) \/ 2\)\);/)?.[1]);
+  const visible = 36;
+  const insideRim = visible - 2 * rim;
+  assert.equal(insideRim, 34);
+  const outEachSide = Math.max(0, (target - insideRim) / 2);
+  assert.ok(insideRim + 2 * outEachSide >= 44, `touch area ${insideRim + 2 * outEachSide} px`);
 });
 
 test('шапка панели — лист стекла, «Назад» — круглая стеклянная кнопка, под шапкой материал темы', () => {

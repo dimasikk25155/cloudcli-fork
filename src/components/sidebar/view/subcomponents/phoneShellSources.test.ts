@@ -28,6 +28,26 @@ test('в «Домой», шторке и нижней панели нет руч
   }
 });
 
+test('в настройках и быстрых настройках нет ручного размытия — только классы стекла', () => {
+  // Ревью ветки (история 9, DESIGN.md §6): затемнение за окном настроек,
+  // липкая сцена тонкой настройки и «кусочек стекла» на карточке темы писали
+  // размытие сами — мимо запасных веток классов стекла.
+  const files = ['settings', 'quick-settings-panel'].flatMap((folder) => sourcesIn(path.join(COMPONENTS, folder)));
+  assert.ok(files.length > 30, 'исходники найдены');
+  for (const file of files) {
+    const source = readFileSync(file, 'utf8');
+    assert.doesNotMatch(source, /backdrop-blur|backdrop-filter|backdropFilter/, relative(file));
+  }
+  const read = (file: string) => readFileSync(path.join(COMPONENTS, file), 'utf8');
+  // Затемнение за окном настроек — то же, что за шторкой и за Dialog.
+  assert.match(read('settings/view/Settings.tsx'), /className="modal-backdrop glass-scrim fixed inset-0 /);
+  // Сцена тонкой настройки липнет поверх ползунков — плотный лист стекла.
+  assert.match(read('settings/view/tabs/ThemeTweakPanel.tsx'), /className="glass-sheet glass-dense sticky top-0 /);
+  // «Кусочек стекла» на карточке темы — настоящий класс стекла на значениях
+  // той темы, которую показывает карточка (вложенный data-theme).
+  assert.match(read('settings/view/tabs/ThemePicker.tsx'), /className="glass-surface /);
+});
+
 test('оверлей и корпус шторки телефона — затемнение темы и лист стекла', () => {
   const source = readFileSync(path.join(COMPONENTS, 'app/AppContent.tsx'), 'utf8');
   assert.doesNotMatch(source, /backdrop-blur|bg-background\/60/);

@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { FRAME_PATH } from './frame/frame-params.mjs';
+import { FRAME_PATH, sessionFileName } from './frame/frame-params.mjs';
 import { STAND_HOST, USAGE, buildFrameUrl, buildServerEnv, parseArgs, pickPort, standStatus } from './lib.mjs';
 import { demoChatPath, writeSeed } from './seed.mjs';
 
@@ -195,11 +195,20 @@ function assertClientBuilt() {
   }
 }
 
-/** Frame page next to the app, on the same origin: it shares localStorage with it. */
+/**
+ * Frame page next to the app, on the same origin: it shares localStorage with it.
+ *
+ * The server hands out dist/ to any origin (`Access-Control-Allow-Origin: *`),
+ * so a token file at a known address could be read by a page of any site open
+ * on this Mac. The file is named by a secret made anew on every `up`; the secret
+ * goes only into the frame links and the stand's state file. Returns the secret.
+ */
 function installFrame(token) {
+  const key = randomBytes(32).toString('base64url');
   fs.rmSync(FRAME_TARGET, { recursive: true, force: true });
   fs.cpSync(FRAME_SOURCE, FRAME_TARGET, { recursive: true });
-  fs.writeFileSync(path.join(FRAME_TARGET, 'session.json'), `${JSON.stringify({ username: STAND_USER, token })}\n`, { mode: 0o600 });
+  fs.writeFileSync(path.join(FRAME_TARGET, sessionFileName(key)), `${JSON.stringify({ username: STAND_USER, token })}\n`, { mode: 0o600 });
+  return key;
 }
 
 function prepareScratch({ seed }) {
@@ -293,17 +302,18 @@ async function pinSeededProjects(port, token, seeded) {
   return body.length;
 }
 
-function printAddresses(port, { chatPath } = {}) {
+function printAddresses(port, { chatPath, sessionKey: key } = {}) {
   say(`Адрес:           ${origin(port)}/`);
-  say(`Рамка 390:       ${buildFrameUrl({ port, width: 390 })}`);
-  say(`Рамка 430:       ${buildFrameUrl({ port, width: 430 })}`);
-  say(`С темой:         ${buildFrameUrl({ port, width: 390, theme: 'glass' })}`);
-  say(`Три темы рядом:  ${buildFrameUrl({ port, width: 390, themes: ['ember', 'glass', 'codex'] })}`);
+  say(`Рамка 390:       ${buildFrameUrl({ port, width: 390, key })}`);
+  say(`Рамка 430:       ${buildFrameUrl({ port, width: 430, key })}`);
+  say(`С темой:         ${buildFrameUrl({ port, width: 390, theme: 'glass', key })}`);
+  say(`Три темы рядом:  ${buildFrameUrl({ port, width: 390, themes: ['ember', 'glass', 'codex'], key })}`);
   if (chatPath) {
-    say(`Чат с перепиской: ${buildFrameUrl({ port, width: 390, path: chatPath })}`);
+    say(`Чат с перепиской: ${buildFrameUrl({ port, width: 390, path: chatPath, key })}`);
   }
   say('Параметры рамки: w, h, theme, variant, themes, path, zoom, login=0, sync=0, fresh=1 — node scripts/preview-stand/stand.mjs help');
-  say('Вход выполняет сама ссылка рамки. Вручную: открой её в любом браузере на этом Маке.');
+  say('Вход выполняет сама ссылка рамки: в ней ключ этого запуска (key=…), без него рамка не войдёт.');
+  say('Вручную: открой ссылку в любом браузере на этом Маке. Ссылку с ключом не публикуй.');
   say(`Журнал сервера:  ${rel(SERVER_LOG)}`);
   say('Погасить:        node scripts/preview-stand/stand.mjs down');
 }
@@ -325,8 +335,11 @@ async function up(options) {
       buildClient();
     }
     assertClientBuilt();
-    installFrame(await signIn(state.port, { password: state.password, firstRun: false }));
-    printAddresses(state.port, state);
+    // Every `up` makes a new key: links printed by the previous one stop signing in.
+    const sessionKey = installFrame(await signIn(state.port, { password: state.password, firstRun: false }));
+    const refreshed = { ...state, sessionKey };
+    writeState(refreshed);
+    printAddresses(state.port, refreshed);
     return;
   }
 
@@ -350,7 +363,8 @@ async function up(options) {
   const password = randomBytes(18).toString('base64url');
   const pid = startServer(port);
   const chatPath = seeded.length > 0 ? demoChatPath() : null;
-  writeState({ pid, port, password, chatPath, startedAt: new Date().toISOString() });
+  const started = { pid, port, password, chatPath, startedAt: new Date().toISOString() };
+  writeState(started);
   say(`Поднимаю сервер стенда на порту ${port} (pid ${pid})…`);
 
   try {
@@ -358,9 +372,10 @@ async function up(options) {
     const token = await signIn(port, { password, firstRun: true });
     await skipOnboarding(port, token);
     const projectCount = seeded.length > 0 ? await pinSeededProjects(port, token, seeded) : 0;
-    installFrame(token);
+    const sessionKey = installFrame(token);
+    writeState({ ...started, sessionKey });
     say(`Стенд готов: пользователь «${STAND_USER}», демо-проектов — ${projectCount}.`);
-    printAddresses(port, { chatPath });
+    printAddresses(port, { chatPath, sessionKey });
   } catch (error) {
     await down({ quiet: true });
     throw error;

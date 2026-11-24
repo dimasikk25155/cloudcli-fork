@@ -56,7 +56,7 @@ export default function MainContentHeader({
       onClick={onGoHome}
       title={t('tooltips.goHome', 'Home screen')}
       aria-label={t('tooltips.goHome', 'Home screen')}
-      className="glass-button pointer-events-auto h-9 w-9 flex-shrink-0 touch-manipulation text-foreground before:absolute before:-inset-1"
+      className="glass-button pointer-events-auto h-9 w-9 flex-shrink-0 touch-manipulation text-foreground"
     >
       <Home className="h-4 w-4" />
     </button>
