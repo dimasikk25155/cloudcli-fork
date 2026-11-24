@@ -165,6 +165,19 @@ node_modules/.bin/vite build --outDir "$(mktemp -d /tmp/neo3-client-check.XXXXXX
 
 <!-- дописывается после каждого таска: что появилось и как этим пользоваться -->
 
+### Таск 01 — стенд и разбор (сдан)
+
+- Стенд: `node scripts/preview-stand/stand.mjs up [--port N] [--no-build] [--no-seed] | status | down | help`.
+  `up` собирает клиент этой копии, поднимает сервер с временным `HOME`/базой на `127.0.0.1` (по умолчанию порт 3917),
+  заводит тестового пользователя, проекты и чат с перепиской; `up` и `status` печатают адрес и ссылки рамки телефона.
+  После правок кода — `down` и снова `up`. Запускать только из рабочей копии, не из папки боевого Neo3.
+- Рамка телефона: `/stand/frame.html?w=390|430&theme=&variant=&themes=ember,glass,neon:city&path=…&zoom=…&key=<секрет из up>`.
+  Страница готова при `body[data-stand-ready]`; для `browser.eval` — `window.stand.info() / click(sel) / clickText(text) / each(fn)`.
+- Тест чистых частей стенда: `node --test scripts/preview-stand/lib.test.mjs` (в `npm test` не входит).
+- Встроенный браузер не рисует `backdrop-filter` в снимок; рамка не воспроизводит режим «с домашнего экрана», вырезы и клавиатуру.
+- Под нагрузкой машины по таймауту могут падать `threads-mcp`, `pipelines.service`, `safari-live.browser` — по отдельности зелёные.
+- Разбор экранов до сборки — `audit.md` рядом с этим файлом.
+
 ### Таск 02 — стекло и шесть тем (сдан)
 
 - Реестр: `THEMES = ember, codex, bio, neon, glass, claudeLight`; `LIGHT_THEMES = glass, claudeLight`.

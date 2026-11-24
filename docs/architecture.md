@@ -58,3 +58,31 @@ UI `SendToAgentButton` запрашивает серверный handoff; сер
 - Новая операция правки добавляется в `EditorOp`, `applyOpToDocument`, `inverseOp`, `validateBridgeMessage` (если ходит через мост) и в самопроверку одновременно.
 - Тексты интерфейса — по-русски; каждая функция за своим модом; служебные WS-кадры не входят в `CHAT_ROW_KINDS`.
 - Проверка без живого Chrome: самопроверка и клиент в WKWebView (маленькое Swift-приложение вне репозитория), сервер — отдельным процессом с временными `HOME` и `DATABASE_PATH`. Боевой runtime, `dist/` и `dist-server/` не изменяются.
+
+## Оформление и оболочка телефона (23.11.2026, ветка `feat/neo3-glass-themes`)
+
+Правила вида (палитры, радиусы, что можно и нельзя) — в `DESIGN.md`; здесь только устройство и границы.
+
+### Темы
+- Реестр — `src/contexts/ThemeContext.jsx`: `THEMES` (`ember, codex, bio, neon, glass, claudeLight`), `THEME_LABELS`, `LIGHT_THEMES` (копия — в `index.html`). Контекст пишет `data-theme` (и `data-theme-variant`, только при `neon`) на `<html>`; значения темы — плоский блок `[data-theme='…']` в `src/index.css`, который читает `theme-registry.test.ts`.
+- Вариант «Неона» — акцент и производные в `[data-theme='neon'][data-theme-variant='<id>']`; список и фото фона — `NEON_VARIANTS` в `src/contexts/themeMigration.js`. Тема и вариант хранятся на устройстве (`localStorage.appTheme`, `neonVariant`).
+- Убранные id подменяет чистая `migrateThemeId` (`themeMigration.js`, без DOM и React) дважды: скриптом в `index.html` до первой отрисовки (своя копия таблицы, тест сверяет обе) и в контексте. Подмена никогда не ведёт на `claudeLight`. Сохранённая тонкая настройка чужих тем отбрасывается при чтении (`parseTweakMap`).
+- Устройство против аккаунта: `deviceTheme.js` решает, применять ли тему из `GET /api/settings/ui-preferences` (только когда человек на этом устройстве ещё не выбирал; тема, записанная самим кодом, выбором не считается). `setTheme` шлёт `PUT {theme}` — это стартовая тема аккаунта. `AuthProvider` стоит выше `ThemeProvider` (`src/App.tsx`), настройки перечитываются при смене токена.
+- Выбор темы — один `settings/view/tabs/ThemePicker.tsx`, его ставят `AppearanceSettingsTab` и быстрые настройки. Фон — `branding/ThemeBackground.tsx` (`FLAT_THEMES`, фото только у `neon`, видео у `ember`).
+
+### Слой стекла
+- Поток: значения `--glass-*` в блоке темы → закрытый набор классов в `src/index.css` (между `/* glass:start` и `/* glass:end */`: `.glass-surface|sheet|dense|pill|button|button-primary|handle|scrim|active`) → компоненты, которые лишь вешают класс. Размытие, кромку, запасной плотный фон (`@supports not`, `prefers-reduced-transparency`), отклик и зону нажатия 44 px знают только эти классы; компоненты `backdrop-filter` не пишут.
+- `.glass-surface` — небольшие плавающие вещи (поле ввода, панель); `.glass-sheet` — крупные (шапки, шторка), под `has-live-wallpaper` размытие снимают. Производные (`--glass-ring`, `--glass-accent-*`) пересчитываются в любом элементе с `data-theme`.
+- Размытие у предка делает его контейнером для `position: fixed` потомков: плавающее выносят из такого предка (панель — не в `<Sidebar>`, окна — порталом в `body`).
+
+### Нижняя панель
+- `src/components/bottom-bar/`: `bottomBarModel.ts` (чистые `isBottomBarVisible`, `activeBottomBarItem`, `pickNewChatProject`) и `BottomBar.tsx`. Монтируется в `AppContentInner` (`components/app/AppContent.tsx`) ребёнком `app-shell`, рядом с `ToolPanelsHost`, не внутри шторки; поэтому видна и на «Домой», и поверх шторки.
+- Единственное состояние строки поиска (`navQuery`, `navSearchOpen`) живёт в `AppContentInner`: на «Домой» его принимает `HomeLauncher`, в шторке — `Sidebar` как `searchFilter`. Панель ставит на `<html>` класс `has-bottom-bar`; место под неё задаёт `--bottom-bar-space`, кому нужно освободить низ — читает его.
+
+### «Инструменты»
+- Реестр — `src/components/tools/toolPanels.ts` (`TOOL_PANELS`: ключ, подпись, значок из `menu-icons/`, `access: 'all'|'owner'`, `mod`); `visibleToolPanels` и `canOpenToolPanel` применяют права (`useToolPanelAccess`). Сайдбар списка экранов не знает.
+- `ToolPanelsHost.tsx` смонтирован всегда и один держит открытый экран. Три входа принимают один набор ключей: `?panel=`, сообщение `notification:navigate` и событие `requestHubPanel(key)` (`hub/hubPanels.ts`; `HubPanelKey = ToolPanelKey | 'settings'`).
+- В настройках — вкладка `instruments` (не `tools`, он занят): `InstrumentsSettingsTab.tsx` рисует карточки из реестра и зовёт `onOpenPanel`; константы вкладок — `settings/constants/constants.ts`.
+
+### Стенд
+- `scripts/preview-stand/` (`stand.mjs up|status|down`, `seed.mjs`, `lib.mjs`, `frame/`): собирает клиент этой копии, поднимает сервер на `127.0.0.1` с временным `HOME`/базой и тестовыми данными, отдаёт `/stand/frame.html` — `<iframe>` 390/430 с темой и входом из параметров ссылки; секрет сессии свой для каждого `up`. Границы: только из рабочей копии, боевой `~/.cloudcli` не читает и не пишет. Не воспроизводит режим «с домашнего экрана», вырезы, клавиатуру; встроенный браузер не рисует размытие в снимок.
