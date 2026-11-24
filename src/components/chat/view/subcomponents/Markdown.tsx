@@ -17,6 +17,9 @@ import { getPreviewKind } from '../../../code-editor/utils/previewableFile';
 import { expandChatPath, rememberChatPath } from '../../utils/chatPathMemory';
 import ChatAudioPlayer from './ChatAudioPlayer';
 
+/** Вставка кода не длиннее этого не переносится: рваное «r / ight» хуже лишней строки. */
+const INLINE_CODE_NOWRAP_MAX = 28;
+
 type MarkdownProps = {
   children: React.ReactNode;
   className?: string;
@@ -60,6 +63,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
   const [copied, setCopied] = useState(false);
   const raw = Array.isArray(children) ? children.join('') : String(children ?? '');
   const looksMultiline = /[\r\n]/.test(raw);
+  const isShortInline = raw.length <= INLINE_CODE_NOWRAP_MAX;
   const inlineDetected = inline || (node && node.type === 'inlineCode');
   const shouldInline = inlineDetected || !looksMultiline;
 
@@ -73,7 +77,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
           target="_blank"
           rel="noopener noreferrer"
           title={webHref}
-          className="rounded-md border border-blue-300 bg-blue-50 px-1.5 py-0.5 font-mono text-[0.9em] text-blue-700 underline underline-offset-2 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20"
+          className="rounded-md border border-info/40 bg-info/10 px-1.5 py-0.5 font-mono text-[0.9em] text-info underline underline-offset-2 hover:bg-info/20"
         >
           {raw.trim()}
         </a>
@@ -101,7 +105,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
               open();
             }
           }}
-          className={`cursor-pointer whitespace-pre-wrap break-words rounded-md border border-blue-300 bg-blue-50 px-1.5 py-0.5 font-mono text-[0.9em] text-blue-700 underline decoration-dotted underline-offset-2 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20 ${className || ''
+          className={`cursor-pointer ${isShortInline ? 'chat-code-short' : 'whitespace-pre-wrap break-words'} rounded-md border border-info/40 bg-info/10 px-1.5 py-0.5 font-mono text-[0.9em] text-info underline decoration-dotted underline-offset-2 hover:bg-info/20 ${className || ''
             }`}
           {...props}
         >
@@ -115,7 +119,9 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
 
     return (
       <code
-        className={`whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-[0.9em] text-gray-900 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100 ${className || ''
+        // Короткая вставка не рвётся посреди слова («r» и «ight» на двух
+        // строках): `.chat-code-short` в index.css. Длинная переносится.
+        className={`${isShortInline ? 'chat-code-short' : 'whitespace-pre-wrap break-words'} rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.9em] text-foreground ${className || ''
           }`}
         {...props}
       >
@@ -130,7 +136,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
   return (
     <div className="group relative my-2">
       {language && language !== 'text' && (
-        <div className="absolute left-3 top-2 z-10 text-xs font-medium uppercase text-gray-400">{language}</div>
+        <div className="absolute left-3 top-2 z-10 text-xs font-medium uppercase text-muted-foreground">{language}</div>
       )}
 
       <button
@@ -209,22 +215,22 @@ const markdownComponents = {
   // dark-themed <pre> shell that would frame the block.
   pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   blockquote: ({ children }: { children?: React.ReactNode }) => (
-    <blockquote className="my-2 border-l-4 border-gray-300 pl-4 italic text-gray-600 dark:border-gray-600 dark:text-gray-400">
+    <blockquote className="my-2 border-l-4 border-border pl-4 italic text-muted-foreground">
       {children}
     </blockquote>
   ),
   p: ({ children }: { children?: React.ReactNode }) => <div className="mb-2 last:mb-0">{children}</div>,
   table: ({ children }: { children?: React.ReactNode }) => (
     <div className="my-2 overflow-x-auto">
-      <table className="min-w-full border-collapse border border-gray-200 dark:border-gray-700">{children}</table>
+      <table className="min-w-full border-collapse border border-border">{children}</table>
     </div>
   ),
-  thead: ({ children }: { children?: React.ReactNode }) => <thead className="bg-gray-50 dark:bg-gray-800">{children}</thead>,
+  thead: ({ children }: { children?: React.ReactNode }) => <thead className="bg-muted/60">{children}</thead>,
   th: ({ children }: { children?: React.ReactNode }) => (
-    <th className="border border-gray-200 px-3 py-2 text-left text-sm font-semibold dark:border-gray-700">{children}</th>
+    <th className="border border-border px-3 py-2 text-left text-sm font-semibold">{children}</th>
   ),
   td: ({ children }: { children?: React.ReactNode }) => (
-    <td className="border border-gray-200 px-3 py-2 align-top text-sm dark:border-gray-700">{children}</td>
+    <td className="border border-border px-3 py-2 align-top text-sm">{children}</td>
   ),
 };
 
@@ -260,7 +266,7 @@ export function Markdown({ children, className }: MarkdownProps) {
             <a
               href={href || fileRef}
               title={fileRef}
-              className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400"
+              className="cursor-pointer text-info hover:underline"
               onClick={(event) => {
                 event.preventDefault();
                 openFileInEditor(target);
@@ -283,7 +289,7 @@ export function Markdown({ children, className }: MarkdownProps) {
         return (
           <a
             href={externalHref}
-            className="text-blue-600 hover:underline dark:text-blue-400"
+            className="text-info hover:underline"
             target="_blank"
             rel="noopener noreferrer"
           >

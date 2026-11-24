@@ -87,7 +87,7 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error, onReplace }: I
       <button
         type="button"
         onClick={onRemove}
-        className="absolute -right-1.5 -top-1.5 rounded-full border border-border/40 bg-background/90 p-1 text-foreground shadow-sm backdrop-blur transition-opacity hover:bg-background focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+        className="absolute -right-1.5 -top-1.5 rounded-full border border-border/40 bg-background p-1 text-foreground shadow-sm transition-opacity hover:bg-background focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
         aria-label="Remove attachment"
       >
         <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -98,7 +98,7 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error, onReplace }: I
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="absolute -bottom-1.5 -left-1.5 flex h-7 w-7 items-center justify-center rounded-full border border-border/40 bg-background/95 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/60"
+          className="absolute -bottom-1.5 -left-1.5 flex h-7 w-7 items-center justify-center rounded-full border border-border/40 bg-background text-foreground shadow-sm transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/60"
           aria-label={`Пометки на ${file.name}`}
           title="Обвести, стрелка, текст"
         >

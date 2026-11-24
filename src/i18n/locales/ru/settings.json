@@ -129,6 +129,7 @@
   "mainTabs": {
     "label": "Настройки",
     "agents": "Агенты",
+    "instruments": "Инструменты",
     "appearance": "Внешний вид",
     "voice": "Голос",
     "git": "Git",
@@ -139,6 +140,10 @@
     "about": "О программе",
     "browser": "Браузер",
     "telegram": "Telegram-бот"
+  },
+  "instruments": {
+    "title": "Инструменты",
+    "description": "Экраны, которые раньше лежали в «Меню» шторки. Нажми строку — настройки закроются, экран откроется."
   },
   "notifications": {
     "title": "Уведомления",
@@ -318,6 +323,10 @@
         }
       },
       "wasValue": "было {{value}}"
+    },
+    "themePicker": {
+      "neonColor": "Цвет «Неона»",
+      "neonColorLabel": "Цвет"
     }
   },
   "mcpForm": {

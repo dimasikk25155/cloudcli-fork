@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ExternalLink, GitBranch, RotateCw } from 'lucide-react';
 
 import { describeCodeStatus, describeSite, type ChipTone, type CodeStatus } from './codeStatusView';
@@ -82,6 +83,9 @@ export default function CodeStatusChip({ projectId }: CodeStatusChipProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Панель фиксированная и прижата к экрану: на 390px чип стоит в середине шапки.
+  // Координаты — от окна браузера, поэтому сама панель рисуется в body (портал
+  // ниже): шапка чата — лист стекла, а размытие делает его опорой для
+  // `position: fixed`, и внутри шапки панель уезжала на её смещение.
   useLayoutEffect(() => {
     if (!open) return;
     const place = () => {
@@ -162,84 +166,86 @@ export default function CodeStatusChip({ projectId }: CodeStatusChipProps) {
         <span className="hidden whitespace-nowrap sm:inline">{view.label}</span>
       </button>
 
-      {open && (
-        <div
-          ref={panelRef}
-          style={panelStyle}
-          role="dialog"
-          aria-label="Где мой код"
-          className="z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-lg"
-        >
-          <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
-            <GitBranch className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium" title={git.branch}>
-              {git.branch}
-            </span>
-            <button
-              type="button"
-              onClick={refresh}
-              disabled={loading}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60"
-            >
-              <RotateCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Обновить
-            </button>
-          </div>
-
-          <Section title="Несохранённые файлы" total={git.uncommitted} items={lists.files} />
-          {git.mainBranch && (
-            <Section title={`Не в ${git.mainBranch}`} total={git.notInMain} items={lists.notInMain} />
-          )}
-          <Section title="Не отправлено" total={git.unpushed} items={lists.unpushed} />
-
-          {clean && (
-            <p className="px-3 py-2 text-sm text-foreground">
-              {git.mainBranch ? `Всё сохранено и в ${git.mainBranch}` : 'Всё сохранено'}
-              {git.hasRemote ? ', отправлено' : ''}
-            </p>
-          )}
-
-          {site && (
-            <div className="border-t border-border/60 px-3 py-2">
-              <div className="flex items-center gap-2 text-sm">
-                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${SITE_DOT[site.state]}`} />
-                <span className="text-foreground">Сайт: {describeSite(site)}</span>
-              </div>
-              {site.url && (
-                <a
-                  href={site.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-0.5 block truncate pl-4 text-xs text-primary hover:underline"
-                >
-                  {hostOf(site.url)}
-                </a>
-              )}
-              {deployedAt && (
-                <p className="pl-4 text-[11px] text-muted-foreground">
-                  Сборка {deployedAt}
-                  {site.sha ? ` · ${site.sha.slice(0, 7)}` : ''}
-                </p>
-              )}
-              {site.previewUrl && (
-                <a
-                  href={site.previewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Превью
-                </a>
-              )}
+      {open &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={panelStyle}
+            role="dialog"
+            aria-label="Где мой код"
+            className="z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-lg"
+          >
+            <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+              <GitBranch className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium" title={git.branch}>
+                {git.branch}
+              </span>
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={loading}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60"
+              >
+                <RotateCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Обновить
+              </button>
             </div>
-          )}
 
-          <p className="border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
-            {failed ? 'Не удалось обновить — показаны прежние данные' : checkedAt ? `Проверено ${checkedAt}` : ''}
-          </p>
-        </div>
-      )}
+            <Section title="Несохранённые файлы" total={git.uncommitted} items={lists.files} />
+            {git.mainBranch && (
+              <Section title={`Не в ${git.mainBranch}`} total={git.notInMain} items={lists.notInMain} />
+            )}
+            <Section title="Не отправлено" total={git.unpushed} items={lists.unpushed} />
+
+            {clean && (
+              <p className="px-3 py-2 text-sm text-foreground">
+                {git.mainBranch ? `Всё сохранено и в ${git.mainBranch}` : 'Всё сохранено'}
+                {git.hasRemote ? ', отправлено' : ''}
+              </p>
+            )}
+
+            {site && (
+              <div className="border-t border-border/60 px-3 py-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={`h-2 w-2 flex-shrink-0 rounded-full ${SITE_DOT[site.state]}`} />
+                  <span className="text-foreground">Сайт: {describeSite(site)}</span>
+                </div>
+                {site.url && (
+                  <a
+                    href={site.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-0.5 block truncate pl-4 text-xs text-primary hover:underline"
+                  >
+                    {hostOf(site.url)}
+                  </a>
+                )}
+                {deployedAt && (
+                  <p className="pl-4 text-[11px] text-muted-foreground">
+                    Сборка {deployedAt}
+                    {site.sha ? ` · ${site.sha.slice(0, 7)}` : ''}
+                  </p>
+                )}
+                {site.previewUrl && (
+                  <a
+                    href={site.previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Превью
+                  </a>
+                )}
+              </div>
+            )}
+
+            <p className="border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
+              {failed ? 'Не удалось обновить — показаны прежние данные' : checkedAt ? `Проверено ${checkedAt}` : ''}
+            </p>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

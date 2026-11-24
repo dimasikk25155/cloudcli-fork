@@ -1,8 +1,10 @@
+import React from 'react';
 import { LogIn } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button } from '../../../../../../../shared/view/ui';
 import SessionProviderLogo from '../../../../../../llm-logo-provider/SessionProviderLogo';
 import type { AgentProvider, AuthStatus } from '../../../../../types/types';
+import SettingsRow from '../../../../SettingsRow';
 
 type AccountContentProps = {
   agent: AgentProvider;
@@ -119,17 +121,14 @@ export default function AccountContent({ agent, authStatus, onLogin }: AccountCo
 
           {authStatus.method !== 'api_key' && (
             <div className="border-t border-border/50 pt-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className={`font-medium ${config.textClass}`}>
-                    {authStatus.authenticated ? t('agents.login.reAuthenticate') : t('agents.login.title')}
-                  </div>
-                  <div className={`text-sm ${config.subtextClass}`}>
-                    {authStatus.authenticated
-                      ? t('agents.login.reAuthDescription')
-                      : t('agents.login.description', { agent: config.name })}
-                  </div>
-                </div>
+              {/* Кнопка под текстом на телефоне: сбоку она сжимала описание в столбик. */}
+              <SettingsRow
+                className="px-0 py-0 md:py-0"
+                label={authStatus.authenticated ? t('agents.login.reAuthenticate') : t('agents.login.title')}
+                description={authStatus.authenticated
+                  ? t('agents.login.reAuthDescription')
+                  : t('agents.login.description', { agent: config.name })}
+              >
                 <Button
                   onClick={onLogin}
                   className={config.buttonClass}
@@ -138,7 +137,7 @@ export default function AccountContent({ agent, authStatus, onLogin }: AccountCo
                   <LogIn className="mr-2 h-4 w-4" />
                   {authStatus.authenticated ? t('agents.login.reLoginButton') : t('agents.login.button')}
                 </Button>
-              </div>
+              </SettingsRow>
             </div>
           )}
 

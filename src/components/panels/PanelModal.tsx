@@ -21,6 +21,9 @@ import PanelBackButton from './PanelBackButton';
 // indicator (once, here — panels inside must not pad for it again), and
 // «Назад» on the left is the way out — there is no Esc and
 // no visible backdrop on an iPhone.
+//
+// Материал: сама панель — `.theme-surface` (материал темы, а не ровная заливка
+// фоном), шапка — лист стекла `.glass-sheet`, «Назад» — круглая `.glass-button`.
 
 export default function PanelModal({
   title,
@@ -38,11 +41,11 @@ export default function PanelModal({
 }) {
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className={cn('flex h-[100dvh] w-screen max-w-none flex-col overflow-hidden rounded-none border-0 bg-background p-0 text-foreground shadow-2xl md:h-[min(90dvh,52rem)] md:w-[calc(100vw-2rem)] md:max-w-5xl md:rounded-2xl md:border md:border-border', contentClassName)}>
+      <DialogContent className={cn('flex h-[100dvh] w-screen max-w-none flex-col overflow-hidden rounded-none border-0 theme-surface p-0 text-foreground shadow-2xl md:h-[min(90dvh,52rem)] md:w-[calc(100vw-2rem)] md:max-w-5xl md:rounded-2xl md:border md:border-border', contentClassName)}>
         <DialogTitle>{title}</DialogTitle>
 
         <div
-          className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-3 pwa-panel-header"
+          className="glass-sheet relative z-10 flex flex-shrink-0 items-center justify-between gap-3 border-x-0 border-t-0 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:pt-3 pwa-panel-header"
           data-panel-header
         >
           <div className="flex min-w-0 items-center gap-2">
@@ -52,7 +55,7 @@ export default function PanelModal({
           </div>
           <button
             type="button"
-            className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg hover:bg-accent md:flex"
+            className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-full hover:bg-accent md:flex"
             onClick={onClose}
             aria-label="Закрыть"
           >

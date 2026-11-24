@@ -1,7 +1,9 @@
+import React from 'react';
 import { Settings, PanelLeftOpen, Bug, AlertTriangle, Home } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import AttentionHubButton from '../../../attention/view/AttentionHubButton';
+import AttentionCount from '../../../tools/AttentionCount';
 
 const DISCORD_INVITE_URL = 'https://discord.gg/buxwujPNRE';
 const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
@@ -20,6 +22,8 @@ type SidebarCollapsedProps = {
   onGoHome?: () => void;
   onOpenAttention?: () => void;
   restartRequired: boolean;
+  /** Счётчик «Канцелярии» — на кнопке «Настройки». */
+  attentionCount?: number;
   t: TFunction;
 };
 
@@ -29,10 +33,11 @@ export default function SidebarCollapsed({
   onGoHome,
   onOpenAttention,
   restartRequired,
+  attentionCount = 0,
   t,
 }: SidebarCollapsedProps) {
   return (
-    <div className="flex h-full w-12 flex-col items-center gap-1 bg-background/80 py-3 backdrop-blur-sm">
+    <div className="flex h-full w-12 flex-col items-center gap-1 bg-background/80 py-3">
       {/* Expand button with brand logo */}
       <button
         onClick={onExpand}
@@ -62,11 +67,12 @@ export default function SidebarCollapsed({
       {/* Settings */}
       <button
         onClick={onShowSettings}
-        className="group flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
+        className="group relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
         aria-label={t('actions.settings')}
         title={t('actions.settings')}
       >
         <Settings className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+        <AttentionCount count={attentionCount} className="absolute -right-1 -top-1" />
       </button>
 
       {/* Report Issue */}
@@ -100,8 +106,8 @@ export default function SidebarCollapsed({
           aria-label={t('version.restartRequired')}
           title={t('version.restartRequired')}
         >
-          <AlertTriangle className="h-4 w-4 text-amber-500" />
-          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+          <AlertTriangle className="h-4 w-4 text-warning" />
+          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
         </div>
       )}
     </div>

@@ -97,7 +97,7 @@ export default function QuickSettingsPanelView({ autoRelay = null, showAutoRelay
 
       {isOpen && (
         <div
-          className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm transition-opacity duration-150 ease-out"
+          className="fixed inset-0 z-30 glass-scrim transition-opacity duration-150 ease-out"
           onClick={() => setIsOpen(false)}
         />
       )}

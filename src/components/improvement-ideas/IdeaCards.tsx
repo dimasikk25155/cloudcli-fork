@@ -26,13 +26,13 @@ export function IdeaCardsView({ ideas, sessionId, storageKey, isProcessing, pend
   if (!currentIdeas.length && !error) return null;
   const buttonClass = 'min-h-9 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
   return <div className="mx-auto mb-2 w-full max-w-[54.25rem] text-sm">
-    <details className="group rounded-xl border border-border bg-card" open={expanded} onToggle={event => {
+    <details className="glass-surface group rounded-2xl" open={expanded} onToggle={event => {
       const open = event.currentTarget.open;
       setExpanded(open);
       try { if (storageKey) window.localStorage.setItem(storageKey, open ? 'open' : 'closed'); }
       catch { /* Disclosure still works when browser storage is unavailable. */ }
     }}>
-      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-2xl px-3 py-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <Lightbulb aria-hidden="true" className="h-4 w-4 shrink-0" />
         <span className="font-medium text-foreground">Идеи этого чата</span>
         <span className="tabular-nums">{currentIdeas.length}</span>

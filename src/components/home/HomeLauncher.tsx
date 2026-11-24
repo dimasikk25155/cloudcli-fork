@@ -19,7 +19,6 @@ import { useProjectTileMenu } from './useProjectTileMenu';
 type HomeLauncherProps = {
   projects: Project[];
   isMobile: boolean;
-  onMenuClick: () => void;
   onProjectSelect: (project: Project) => void;
   onShowSettings: () => void;
   onToggleStarProject?: (projectId: string) => void;
@@ -27,10 +26,17 @@ type HomeLauncherProps = {
   onOpenSession?: (sessionId: string) => void;
   /** Grid area size until the first measurement (server render, previews). */
   initialGridSize?: GridSize;
+  /**
+   * Phone: the query typed in the bottom bar's search. There Home has no
+   * field of its own — the bar is the search (and ☰, and settings).
+   */
+  navQuery?: string;
+  /** Phone: the bar's search field is open (the keyboard is about to squeeze Home). */
+  navSearchActive?: boolean;
 };
 
 const ALL_TILE_ACCENT = '#7DD3FC';
-/** Show the search field once there are more real projects than fit two rows. */
+/** Computer: show the search field once there are more real projects than fit two rows. */
 const SEARCH_MIN_PROJECTS = 8;
 
 function useClock() {
@@ -59,19 +65,24 @@ function useClock() {
 export default function HomeLauncher({
   projects,
   isMobile,
-  onMenuClick,
   onProjectSelect,
   onShowSettings,
   onToggleStarProject,
   onOpenSession,
   initialGridSize,
+  navQuery,
+  navSearchActive = false,
 }: HomeLauncherProps) {
   const { t } = useTranslation();
   const { time, date } = useClock();
   const gridAreaRef = useRef<HTMLDivElement>(null);
   const menu = useProjectTileMenu(onToggleStarProject);
-  const [query, setQuery] = useState('');
-  const [searchFocused, setSearchFocused] = useState(false);
+  // A computer keeps its own field above the grid; on a phone the query
+  // comes from the bottom bar.
+  const [ownQuery, setOwnQuery] = useState('');
+  const [ownSearchFocused, setOwnSearchFocused] = useState(false);
+  const query = isMobile ? navQuery ?? '' : ownQuery;
+  const searchFocused = isMobile ? navSearchActive : ownSearchFocused;
   const [folderOpen, setFolderOpen] = useState(false);
   const keyboardOpen = useKeyboardOpen();
 
@@ -104,17 +115,12 @@ export default function HomeLauncher({
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      {/* No ☰ strip on top: on a phone the ☰ sits on the clock line (left),
-          settings on the right, and the strip's height goes to the grid —
-          one more row on Dima's 430 × 932 iPhone (IMG_0103, 23.11 09:38).
-          Phone paddings are trimmed for the same reason (pt-4, mb-3). */}
+      {/* No ☰ strip on top, and on a phone nothing next to the clock either:
+          ☰, settings and search are in the bottom bar. The height goes to the
+          grid; phone paddings are trimmed for the same reason (pt-4, mb-3). */}
       <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-6 pt-4 sm:px-8 sm:pt-7 lg:px-10">
         <div className="mb-3 shrink-0 text-center sm:mb-6">
-          <HomeClockRow
-            time={time}
-            onMenuClick={isMobile ? onMenuClick : undefined}
-            onShowSettings={onShowSettings}
-          />
+          <HomeClockRow time={time} onShowSettings={isMobile ? undefined : onShowSettings} />
           <p className="mt-1.5 text-sm capitalize text-muted-foreground">{date}</p>
           {/* The same «работают · ждут · готово» bar as above the chat
               composer, but here it opens «Ждут тебя» (same counts as the bar). It hides itself when nothing runs,
@@ -127,15 +133,21 @@ export default function HomeLauncher({
           </div>
         </div>
 
-        {realProjectCount > SEARCH_MIN_PROJECTS && (
+        {!isMobile && realProjectCount > SEARCH_MIN_PROJECTS && (
           <div className="mb-3 shrink-0 sm:mb-4">
-            <HomeSearchField value={query} onChange={setQuery} onFocusChange={setSearchFocused} />
+            <HomeSearchField value={ownQuery} onChange={setOwnQuery} onFocusChange={setOwnSearchFocused} />
           </div>
         )}
 
         <div
           ref={gridAreaRef}
-          className={cn('min-h-0 flex-1 pb-3 pt-1 sm:pb-6', searching || holdGrid ? 'overflow-y-auto' : 'overflow-hidden')}
+          // The bottom padding is the room for the phone's bottom bar: the
+          // grid counts whole rows in what is left, so the last row stays
+          // above the bar, and search results scroll clear of it.
+          className={cn(
+            'min-h-0 flex-1 pb-[calc(var(--bottom-bar-space)+0.75rem)] pt-1 md:pb-6',
+            searching || holdGrid ? 'overflow-y-auto' : 'overflow-hidden',
+          )}
           data-home-grid-area
         >
           {shownProjects.length === 0 && searching ? (
@@ -176,7 +188,7 @@ export default function HomeLauncher({
                       className="h-full w-full"
                     />
                   </span>
-                  <span className="line-clamp-2 w-full text-center text-[11px] leading-tight text-foreground/90 sm:text-xs">
+                  <span className="line-clamp-2 w-full text-center text-[11px] leading-tight text-foreground/90 [text-shadow:0_1px_3px_hsl(var(--background)/0.8)] sm:text-xs">
                     {t('mainContent.homeAllProjectsTitle', 'All projects')}
                   </span>
                 </button>

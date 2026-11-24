@@ -30,7 +30,10 @@ export default function HomeProjectTile({ project, menu, onOpen }: HomeProjectTi
         <span className="relative flex transition-transform duration-150 ease-out group-hover:-translate-y-0.5 group-active:scale-95">
           <ProjectIcon project={project} size="lg" starred={Boolean(project.isStarred)} />
         </span>
-        <span className="line-clamp-2 w-full text-center text-[11px] leading-tight text-foreground/90 sm:text-xs">
+        {/* The label lies on the theme's wallpaper (video, photo): a soft halo
+            of the theme background keeps it readable there, and is invisible
+            on the flat themes. */}
+        <span className="line-clamp-2 w-full text-center text-[11px] leading-tight text-foreground/90 [text-shadow:0_1px_3px_hsl(var(--background)/0.8)] sm:text-xs">
           {project.displayName}
         </span>
       </button>
@@ -38,9 +41,9 @@ export default function HomeProjectTile({ project, menu, onOpen }: HomeProjectTi
         <button
           type="button"
           className={cn(
-            'absolute right-1 top-0 z-[3] hidden h-6 w-6 items-center justify-center rounded-full bg-background/90 text-muted-foreground shadow-sm ring-1 ring-white/15 md:flex',
+            'absolute right-1 top-0 z-[3] hidden h-6 w-6 items-center justify-center rounded-full bg-background/90 text-muted-foreground shadow-sm ring-1 ring-border md:flex',
             project.isStarred
-              ? 'text-amber-400 opacity-100'
+              ? 'text-warning opacity-100'
               : 'opacity-0 group-hover:opacity-100',
           )}
           onClick={() => toggleStar(project)}

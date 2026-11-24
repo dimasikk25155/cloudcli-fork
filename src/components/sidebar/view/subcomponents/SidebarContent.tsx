@@ -1,7 +1,9 @@
+import React from 'react';
 import { Activity, Archive, Folder, History, RotateCcw, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
+import { cn } from '../../../../lib/utils';
 import type { Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, ProjectSortOrder, SessionSortOrder, SidebarSearchMode } from '../../types/types';
@@ -118,7 +120,8 @@ type SidebarContentProps = {
   onProjectSortOrderChange?: (order: ProjectSortOrder) => void;
   sessionSortOrder?: SessionSortOrder;
   onSessionSortOrderChange?: (order: SessionSortOrder) => void;
-  drawerOpen?: boolean;
+  /** Счётчик «Канцелярии» — на кнопке «Настройки» внизу. */
+  attentionCount?: number;
   projectListProps: SidebarProjectListProps;
   t: TFunction;
 };
@@ -156,17 +159,17 @@ export default function SidebarContent({
   onProjectSortOrderChange,
   sessionSortOrder,
   onSessionSortOrderChange,
-  drawerOpen,
+  attentionCount = 0,
   projectListProps,
   t,
 }: SidebarContentProps) {
   const groupedArchivedSessions = groupArchivedSessionsByProject(archivedSessions);
 
   return (
-    <div
-      className="sidebar-root flex h-full flex-col bg-background/80 backdrop-blur-sm md:w-72 md:select-none"
-      style={{}}
-    >
+    // Размытие даёт обёртка (`.app-sidebar`, на телефоне ещё и лист стекла),
+    // здесь его нет. Заливка `bg-background/80` — фон шторки в темах со
+    // сплошной панелью («Био»); темы с материалом гасят её сами (index.css).
+    <div className="sidebar-root flex h-full flex-col bg-background/80 md:w-72 md:select-none">
       <SidebarHeader
         isPWA={isPWA}
         isMobile={isMobile}
@@ -195,6 +198,13 @@ export default function SidebarContent({
       />
 
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
+        {/* На телефоне список уходит под плавающую нижнюю панель и
+            доскролливается выше неё; с баннером перезапуска место под панель
+            держит подвал (SidebarFooter). */}
+        <div
+          className={cn(!restartRequired && 'max-md:pb-[calc(max(var(--safe-bottom),var(--bottom-bar-space))+0.5rem)]')}
+          data-sidebar-scroll
+        >
         {searchMode === 'running' ? (
           projectListProps.filteredProjects.length === 0 ? (
             <div className="px-4 py-12 text-center md:py-8">
@@ -291,7 +301,7 @@ export default function SidebarContent({
                         </p>
                       </div>
                       <button
-                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
+                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-success/10 text-success transition-colors hover:bg-success/20"
                         onClick={() => onRestoreArchivedProject(project.projectId)}
                         title={t('archived.restoreProject', 'Restore workspace')}
                       >
@@ -412,14 +422,14 @@ export default function SidebarContent({
                           </div>
                         </button>
                         <button
-                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-success/10 text-success transition-colors hover:bg-success/20"
                           onClick={() => onRestoreArchivedSession(session.sessionId)}
                           title={t('archived.restore', 'Restore session')}
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
                         </button>
                         <button
-                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-700 transition-colors hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive transition-colors hover:bg-destructive/20"
                           onClick={() => onDeleteArchivedSession(session)}
                           title={t('archived.deletePermanently', 'Delete permanently')}
                         >
@@ -435,13 +445,14 @@ export default function SidebarContent({
         ) : (
           <SidebarProjectList {...projectListProps} />
         )}
+        </div>
       </ScrollArea>
 
       <SidebarFooter
         restartRequired={restartRequired}
         currentVersion={currentVersion}
         onShowSettings={onShowSettings}
-        drawerOpen={drawerOpen}
+        attentionCount={attentionCount}
         t={t}
       />
     </div>

@@ -35,7 +35,7 @@ export default function ThreadsBar({ links, onOpenThread, unnamedLabel }: Thread
   }
 
   return (
-    <div className="flex-shrink-0 border-b border-border/50 bg-card/90 px-3 backdrop-blur-sm py-1.5 text-xs" data-threads-bar>
+    <div className="glass-sheet flex-shrink-0 border-x-0 border-t-0 px-3 py-1.5 text-xs" data-threads-bar>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}

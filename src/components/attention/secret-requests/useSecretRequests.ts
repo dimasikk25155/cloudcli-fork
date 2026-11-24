@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 
-import { useAuth } from '../../auth';
+import { useAuth } from '../../auth/context/AuthContext';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 import type { ServerEvent } from '../../../contexts/WebSocketContext';
 import { authenticatedFetch } from '../../../utils/api';

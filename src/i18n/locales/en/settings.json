@@ -129,6 +129,7 @@
   "mainTabs": {
     "label": "Settings",
     "agents": "Agents",
+    "instruments": "Tools",
     "appearance": "Appearance",
     "git": "Git",
     "apiTokens": "API & Tokens",
@@ -139,6 +140,10 @@
     "admin": "Admin",
     "about": "About",
     "telegram": "Telegram bot"
+  },
+  "instruments": {
+    "title": "Tools",
+    "description": "The screens that used to sit in the drawer's menu. Tap a row: Settings closes and the screen opens."
   },
   "notifications": {
     "title": "Notifications",
@@ -311,6 +316,10 @@
         }
       },
       "wasValue": "was {{value}}"
+    },
+    "themePicker": {
+      "neonColor": "Neon colour",
+      "neonColorLabel": "Colour"
     }
   },
   "mcpForm": {

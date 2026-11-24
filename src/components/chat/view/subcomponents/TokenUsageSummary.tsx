@@ -1,6 +1,8 @@
 import { ActivityIcon } from 'lucide-react';
 import React from 'react';
 
+import { CHIP_METER, CHIP_METER_ICON } from './composerChips';
+
 type TokenUsageSummaryProps = {
   usage: Record<string, unknown> | null;
   contextWindow?: number;
@@ -28,20 +30,18 @@ export default function TokenUsageSummary({ usage, contextWindow, onClick }: Tok
     input + output > 0 ? `Расход: ${format(input + output)} токенов (вход ${format(input)} · выход ${format(output)})` : null,
     'Нажми — полный расход и стоимость по API',
   ].filter(Boolean).join('\n');
-  const tone = percentage !== null && percentage >= 85 ? 'text-red-500'
-    : percentage !== null && percentage >= 60 ? 'text-amber-500' : 'text-muted-foreground';
+  const tone = percentage !== null && percentage >= 85 ? 'text-destructive'
+    : percentage !== null && percentage >= 60 ? 'text-warning' : 'text-foreground';
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className="composer-chip inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 text-xs shadow-sm transition-colors hover:border-primary/25 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:gap-2 sm:px-2.5"
+      className={CHIP_METER}
       title={title}
       aria-label={`Контекст ${label}. Показать расход токенов`}
     >
-      <span className="composer-chip-icon grid h-5 w-5 place-items-center rounded-md bg-primary/10 text-primary">
-        {React.createElement(ActivityIcon, { className: 'h-3.5 w-3.5' })}
-      </span>
+      {React.createElement(ActivityIcon, { className: CHIP_METER_ICON, 'aria-hidden': true })}
       <span className={`font-medium tabular-nums ${tone}`}>{label}</span>
     </button>
   );

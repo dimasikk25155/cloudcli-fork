@@ -56,14 +56,19 @@ export type SidebarProps = {
   isLoading: boolean;
   loadingProgress: LoadingProgress | null;
   onRefresh: () => Promise<void> | void;
-  onShowSettings: () => void;
+  /** Opens Settings; with a tab id — on that tab (`instruments`, `appearance`…). */
+  onShowSettings: (tab?: string) => void;
   showSettings: boolean;
   settingsInitialTab: string;
   onCloseSettings: () => void;
   isMobile: boolean;
   onGoHome?: () => void;
-  /** Phone drawer shown? It stays mounted while hidden; absent on a computer. */
-  drawerOpen?: boolean;
+  /**
+   * Phone: the list filter is the bottom bar's search (one query for Home and
+   * the drawer). Absent on a computer — the sidebar keeps its own field.
+   */
+  searchFilter?: string;
+  onSearchFilterChange?: (value: string) => void;
 };
 
 export type SessionViewModel = {

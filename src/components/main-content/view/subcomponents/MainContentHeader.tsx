@@ -46,25 +46,31 @@ export default function MainContentHeader({
     return () => observer.disconnect();
   }, [updateScrollState]);
 
+  const tabsFade = canScrollLeft || canScrollRight
+    ? `linear-gradient(to right, ${canScrollLeft ? 'transparent' : '#000'} 0, #000 24px, #000 calc(100% - 24px), ${canScrollRight ? 'transparent' : '#000'} 100%)`
+    : null;
+
   const homeButton = onGoHome ? (
     <button
       type="button"
       onClick={onGoHome}
       title={t('tooltips.goHome', 'Home screen')}
       aria-label={t('tooltips.goHome', 'Home screen')}
-      className="pointer-events-auto flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+      className="glass-button pointer-events-auto h-9 w-9 flex-shrink-0 touch-manipulation text-foreground"
     >
       <Home className="h-4 w-4" />
     </button>
   ) : null;
 
   return (
-    <div className="pwa-header-safe pwa-header-air flex-shrink-0 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
+    // Лист стекла вместо сплошной полосы: материал темы виден сквозь шапку,
+    // кромка только снизу. z-10 — чтобы тень листа легла на ленту под ним.
+    <div className="pwa-header-safe pwa-header-air glass-sheet relative z-10 flex-shrink-0 border-x-0 border-t-0 px-3 py-1.5 sm:px-4 sm:py-2">
       <div className="relative flex items-center gap-3">
         {/* LEFT: mobile menu + compact title (mobile only) */}
         {/* On a phone the menu and home buttons keep their room; the tabs
             scroller on the right absorbs the squeeze (it scrolls with fades). */}
-        <div className={`flex flex-1 items-center gap-2 ${isMobile ? (onGoHome ? 'min-w-[4.5rem]' : 'min-w-8') : 'min-w-0'}`}>
+        <div className={`flex flex-1 items-center gap-2 ${isMobile ? (onGoHome ? 'min-w-[5rem]' : 'min-w-9') : 'min-w-0'}`}>
           {isMobile && <MobileMenuButton onMenuClick={onMenuClick} />}
           {isMobile && homeButton}
           <div className="min-w-0 flex-1 md:hidden">
@@ -98,13 +104,13 @@ export default function MainContentHeader({
           <PlannerAttentionButton />
           {!workbenchOn && (
           <div className="relative min-w-0 overflow-hidden">
-            {canScrollLeft && (
-              <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background to-transparent" />
-            )}
+            {/* Края ряда вкладок гаснут маской, а не градиентом цвета фона:
+                под шапкой теперь стекло, и цветной градиент лёг бы пятном. */}
             <div
               ref={scrollRef}
               onScroll={updateScrollState}
               className="scrollbar-hide overflow-x-auto"
+              style={tabsFade ? { maskImage: tabsFade, WebkitMaskImage: tabsFade } : undefined}
             >
               <MainContentTabSwitcher
                 activeTab={activeTab}
@@ -113,9 +119,6 @@ export default function MainContentHeader({
                 shouldShowAutopilotTab={shouldShowAutopilotTab}
               />
             </div>
-            {canScrollRight && (
-              <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background to-transparent" />
-            )}
           </div>
           )}
         </div>

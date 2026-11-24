@@ -38,7 +38,7 @@ export default function VoiceInputButton({
   const icon =
     state === 'recording' ? (
       // Filled, not outlined: a hollow square reads as an empty checkbox.
-      <Square className="fill-red-500 text-red-500" />
+      <Square className="fill-destructive text-destructive" />
     ) : state === 'transcribing' || state === 'restoring' ? (
       <Loader2 className="animate-spin" />
     ) : state === 'error' ? (
@@ -48,9 +48,14 @@ export default function VoiceInputButton({
     );
 
   const failed = state === 'error';
+  const micLabel = failed
+    ? t('voice.retry')
+    : state === 'recording'
+      ? t('voice.stopRecording')
+      : t('voice.input');
 
   return (
-    <span className="relative inline-flex items-center gap-1">
+    <span className="relative inline-flex items-center gap-1.5">
       {(errorMsg || recoveryMessage) && (
         <span role="status" className="absolute bottom-full right-0 mb-1 w-72 max-w-[70vw] whitespace-normal rounded bg-muted px-3 py-2 text-xs text-foreground shadow-lg">
           {errorMsg && <span className="block text-destructive">{errorMsg}</span>}
@@ -61,15 +66,10 @@ export default function VoiceInputButton({
         <VoiceWaveform getLevel={getLevel} getElapsedMs={getElapsedMs} />
       )}
       <PromptInputButton
-        tooltip={{
-          content: failed
-            ? t('voice.retry')
-            : state === 'recording'
-              ? t('voice.stopRecording')
-              : t('voice.input'),
-        }}
+        tooltip={{ content: micLabel }}
+        aria-label={micLabel}
         disabled={state === 'restoring' || state === 'transcribing'}
-        className={failed ? 'text-amber-500' : undefined}
+        className={failed ? 'text-warning' : undefined}
         onClick={(e: { preventDefault: () => void }) => {
           e.preventDefault();
           onToggle();
@@ -90,6 +90,7 @@ export default function VoiceInputButton({
       {failed && onDiscard && (
         <PromptInputButton
           tooltip={{ content: t('voice.discard') }}
+          aria-label={t('voice.discard')}
           onClick={(e: { preventDefault: () => void }) => {
             e.preventDefault();
             onDiscard();

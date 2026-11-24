@@ -42,6 +42,7 @@ const render = () => renderToStaticMarkup(React.createElement(SidebarProjectItem
   sessions: [session] as never,
   initialSessionsLoaded: true,
   isLoadingMoreSessions: false,
+  sessionPreviewKeepIds: new Set<string>(),
   currentTime: new Date(),
   editingSession: null,
   editingSessionName: '',

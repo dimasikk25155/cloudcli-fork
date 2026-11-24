@@ -21,7 +21,7 @@ import SettingsToggle from '../SettingsToggle';
 import ThemeTweakPreview from './ThemeTweakPreview';
 
 const selectClass =
-  'w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44';
+  'w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary md:w-44';
 
 type SliderKey = (typeof SLIDERS)[number]['key'];
 
@@ -284,8 +284,9 @@ export default function ThemeTweakPanel() {
         {open && (
           <>
             {/* Сцена липнет к верху списка: ручки материала оценивать не по
-                чему, если превью уехало за край при прокрутке. */}
-            <div className="sticky top-0 z-10 bg-card/95 px-4 py-3 backdrop-blur-sm">
+                чему, если превью уехало за край при прокрутке. Она лежит
+                поверх ползунков — плотный лист стекла, без своего размытия. */}
+            <div className="glass-sheet glass-dense sticky top-0 z-10 border-x-0 px-4 py-3">
               <ThemeTweakPreview
                 pulseToken={pulseToken}
                 labels={{

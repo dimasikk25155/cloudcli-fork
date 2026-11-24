@@ -116,6 +116,17 @@
       "terminal": "Терминал"
     }
   },
+  "bottomBar": {
+    "label": "Навигация",
+    "home": "Домой",
+    "projects": "Проекты",
+    "search": "Поиск",
+    "searchChats": "Проекты и чаты",
+    "closeSearch": "Закрыть поиск",
+    "newChat": "Новый чат",
+    "settings": "Настройки",
+    "planner": "Канцелярия"
+  },
   "mainContent": {
     "loading": "Загрузка Neo3 Agent System",
     "settingUpWorkspace": "Настройка рабочего пространства...",

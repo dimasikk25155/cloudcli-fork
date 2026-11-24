@@ -45,6 +45,7 @@ type SidebarProjectItemProps = {
   onSaveProjectName: (projectName: string) => void;
   onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
   onLoadMoreSessions: (projectId: string) => void;
+  sessionPreviewKeepIds: ReadonlySet<string> | null;
   activeSessions: SessionActivityMap;
   isRecentView?: boolean;
   isFoldOnlyHeader?: boolean;
@@ -82,6 +83,7 @@ export default function SidebarProjectItem({
   onSaveProjectName,
   onSessionSelect,
   onLoadMoreSessions,
+  sessionPreviewKeepIds,
   activeSessions,
   isRecentView = false,
   isFoldOnlyHeader = false,
@@ -292,7 +294,7 @@ export default function SidebarProjectItem({
             >
               <div
                 role="menu"
-                className="absolute min-w-[220px] overflow-hidden rounded-2xl bg-background/95 py-1 shadow-[0_18px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/15 backdrop-blur-xl"
+                className="glass-surface absolute min-w-[220px] overflow-hidden py-1"
                 style={{ left: cardMenu.left, top: cardMenu.top }}
                 onClick={(event) => event.stopPropagation()}
               >
@@ -442,6 +444,7 @@ export default function SidebarProjectItem({
         initialSessionsLoaded={initialSessionsLoaded}
         hasMoreSessions={Boolean(project.sessionMeta?.hasMore)}
         isLoadingMoreSessions={isLoadingMoreSessions}
+        sessionPreviewKeepIds={sessionPreviewKeepIds}
         activeSessions={activeSessions}
         isRecentView={isRecentView}
         currentTime={currentTime}

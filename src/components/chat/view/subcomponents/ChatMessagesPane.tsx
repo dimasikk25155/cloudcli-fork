@@ -189,9 +189,9 @@ function ChatMessagesPane({
       <AskAsideSelection containerRef={scrollContainerRef} parentSessionId={currentSessionId} canvasSessionId={canvasSessionId} />
       <div className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4">
       {(isLoadingSessionMessages || isProcessing) && chatMessages.length === 0 ? (
-        <div className="mt-8 text-center text-gray-500 dark:text-gray-400">
+        <div className="mt-8 text-center text-muted-foreground">
           <div className="flex items-center justify-center space-x-2">
-            <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-gray-400" />
+            <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-muted-foreground" />
             <p>{t('session.loading.sessionMessages')}</p>
           </div>
         </div>
@@ -227,9 +227,9 @@ function ChatMessagesPane({
         <>
           {/* Loading indicator for older messages (hide when load-all is active) */}
           {isLoadingMoreMessages && !isLoadingAllMessages && !allMessagesLoaded && (
-            <div className="py-3 text-center text-gray-500 dark:text-gray-400">
+            <div className="py-3 text-center text-muted-foreground">
               <div className="flex items-center justify-center space-x-2">
-                <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-gray-400" />
+                <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-muted-foreground" />
                 <p className="text-sm">{t('session.loading.olderMessages')}</p>
               </div>
             </div>
@@ -237,7 +237,7 @@ function ChatMessagesPane({
 
           {/* Indicator showing there are more messages to load (hide when all loaded) */}
           {hasMoreMessages && !isLoadingMoreMessages && !allMessagesLoaded && (
-            <div className="border-b border-gray-200 py-2 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            <div className="border-b border-border py-2 text-center text-sm text-muted-foreground">
               {totalMessages > 0 && (
                 <span>
                   {t('session.messages.showingOf', { shown: sessionMessagesCount, total: totalMessages })}{' '}
@@ -257,14 +257,14 @@ function ChatMessagesPane({
 
           {/* Legacy message count indicator (for non-paginated view) */}
           {!hasMoreMessages && chatMessages.length > visibleMessageCount && (
-            <div className="border-b border-gray-200 py-2 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            <div className="border-b border-border py-2 text-center text-sm text-muted-foreground">
               {t('session.messages.showingLast', { count: visibleMessageCount, total: chatMessages.length })} |
-              <button className="ml-1 text-blue-600 underline hover:text-blue-700" onClick={loadEarlierMessages}>
+              <button className="ml-1 text-primary underline hover:text-primary/80" onClick={loadEarlierMessages}>
                 {t('session.messages.loadEarlier')}
               </button>
               {' | '}
               <button
-                className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                className="text-primary underline hover:text-primary/80"
                 onClick={loadAllMessages}
               >
                 {t('session.messages.loadAll')}

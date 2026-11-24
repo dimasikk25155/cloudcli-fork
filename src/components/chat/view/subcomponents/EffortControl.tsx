@@ -1,10 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RotateCcw, Zap } from 'lucide-react';
+import { Brain, RotateCcw } from 'lucide-react';
 
 import type { ProviderModelOption } from '../../../../types/app';
 
-import './EffortControl.css';
+import { CHIP_ICONIC, ChipLabel } from './composerChips';
+
 
 type Props = {
   modelLabel: string;
@@ -87,17 +88,19 @@ export default function EffortControl({ modelLabel, effort, defaultEffort, optio
   if (options.length < 2 || index < 0) return null;
 
   return <>
-    <button ref={anchor} type="button" className="composer-chip composer-chip-effort effort-trigger"
+    {/* На телефоне от кнопки остаётся значок: уровень назван в aria-label и
+        в окне по нажатию. Значок — не молния: она у режима работы. */}
+    <button ref={anchor} type="button" className={`${CHIP_ICONIC} composer-chip-effort`}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popupId : undefined}
       aria-label={`Уровень размышления: ${label}`} title="Уровень размышления"
       onClick={() => setOpen(value => !value)}>
-      <Zap size={13} aria-hidden="true" /><span>{label}</span>
+      <Brain size={16} aria-hidden="true" /><ChipLabel>{label}</ChipLabel>
     </button>
     {open && createPortal(
       <div ref={popup} id={popupId} role="dialog" aria-label={`Размышление — ${modelLabel}`}
-        className="effort-popup" style={position}>
+        className="glass-surface glass-dense effort-popup" style={position}>
         <div className="effort-popup-heading">
-          <Zap size={15} aria-hidden="true" className="effort-popup-icon" />
+          <Brain size={15} aria-hidden="true" className="effort-popup-icon" />
           <div className="effort-popup-titles">
             <div className="effort-popup-level" aria-live="polite">{label}</div>
             <div className="effort-popup-model" title={modelLabel}>{modelLabel}</div>

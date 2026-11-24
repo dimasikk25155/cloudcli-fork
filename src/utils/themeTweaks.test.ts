@@ -32,29 +32,29 @@ describe('themeTweaks', () => {
   });
 
   it('держит настройки отдельно по темам', () => {
-    const map = parseTweakMap(JSON.stringify({ kineticType: { radius: 2 }, claude: { radius: 14 } }));
+    const map = parseTweakMap(JSON.stringify({ neon: { radius: 2 }, codex: { radius: 14 } }));
 
-    applyTweaks('kineticType', map);
+    applyTweaks('neon', map);
     assert.equal(props.get('--radius'), '2px');
 
-    applyTweaks('claude', map);
+    applyTweaks('codex', map);
     assert.equal(props.get('--radius'), '14px');
   });
 
   it('снимает токены предыдущей темы при переключении', () => {
-    const map = parseTweakMap(JSON.stringify({ claude: { radius: 14, density: 1.2 } }));
-    applyTweaks('claude', map);
+    const map = parseTweakMap(JSON.stringify({ codex: { radius: 14, density: 1.2 } }));
+    applyTweaks('codex', map);
     assert.equal(props.get('--radius'), '14px');
     assert.equal(props.get('--density'), '1.2');
 
     // У этой темы ничего не подкручено — на документе не должно остаться следов.
-    applyTweaks('neonCity', map);
+    applyTweaks('bio', map);
     assert.equal(props.has('--radius'), false);
     assert.equal(props.has('--density'), false);
   });
 
   it('одна ручка скорости тянет всю тройку длительностей', () => {
-    applyTweaks('claude', { claude: { duration: 200 } });
+    applyTweaks('codex', { codex: { duration: 200 } });
 
     assert.equal(props.get('--duration-fast'), '120ms');
     assert.equal(props.get('--duration-base'), '200ms');
@@ -62,7 +62,7 @@ describe('themeTweaks', () => {
   });
 
   it('выключенные тени обнуляют все три токена', () => {
-    applyTweaks('claude', { claude: { shadows: false } });
+    applyTweaks('codex', { codex: { shadows: false } });
 
     assert.equal(props.get('--shadow-1'), 'none');
     assert.equal(props.get('--shadow-3'), 'none');
@@ -71,11 +71,11 @@ describe('themeTweaks', () => {
   it('размытие собирается целиком, а не одним радиусом', () => {
     // В теме без материала --panel-blur равен none: один радиус там ничего бы
     // не включил, поэтому ручка обязана задавать и саму функцию.
-    applyTweaks('claude', { claude: { blur: 18 } });
+    applyTweaks('codex', { codex: { blur: 18 } });
     assert.equal(props.get('--panel-blur-radius'), '18px');
     assert.equal(props.get('--panel-blur'), 'blur(var(--panel-blur-radius)) saturate(var(--panel-saturate))');
 
-    applyTweaks('claude', { claude: { blur: 0 } });
+    applyTweaks('codex', { codex: { blur: 0 } });
     assert.equal(props.get('--panel-blur'), 'none');
   });
 
@@ -88,8 +88,8 @@ describe('themeTweaks', () => {
   });
 
   it('раскладывает все пять шрифтовых слотов по своим токенам', () => {
-    applyTweaks('gt', {
-      gt: {
+    applyTweaks('ember', {
+      ember: {
         fontUi: 'barlow',
         fontDisplay: 'barlowCondensed',
         fontSidebar: 'encode',
@@ -106,16 +106,16 @@ describe('themeTweaks', () => {
   });
 
   it('отдаёт CSS, готовый к вклейке в тему', () => {
-    const css = tweaksToCss('kineticType', { radius: 2, density: 0.95 });
+    const css = tweaksToCss('neon', { radius: 2, density: 0.95 });
 
-    assert.equal(css.startsWith("[data-theme='kineticType'] {"), true);
+    assert.equal(css.startsWith("[data-theme='neon'] {"), true);
     assert.equal(css.includes('  --radius: 2px;'), true);
     assert.equal(css.includes('  --density: 0.95;'), true);
     assert.equal(css.trimEnd().endsWith('}'), true);
   });
 
   it('неизвестный шрифт не попадает в токены', () => {
-    applyTweaks('claude', { claude: { fontUi: 'no-such-stack' } as never });
+    applyTweaks('codex', { codex: { fontUi: 'no-such-stack' } as never });
 
     assert.equal(props.has('--font-ui'), false);
   });
@@ -129,6 +129,38 @@ describe('themeTweaks', () => {
     assert.deepEqual(map, { glass: { radius: 12 } });
     assert.deepEqual(parseTweakMap('не json'), {});
     assert.deepEqual(parseTweakMap(undefined), {});
+  });
+
+  it('записи убранных и чужих тем отбрасываются при чтении и не применяются', () => {
+    // Так лежит карта у человека, который подкручивал темы до пересборки:
+    // три убранные темы, одна живая и мусор.
+    const stored = JSON.stringify({
+      gt: { radius: 2, density: 0.9 },
+      editorial: { fontUi: 'workSans' },
+      neonCity: { blur: 20, shadows: false },
+      glass: { radius: 12 },
+      'no-such-theme': { radius: 6 },
+    });
+    const themes = ['ember', 'codex', 'bio', 'neon', 'glass', 'claudeLight'];
+
+    const map = parseTweakMap(stored, themes);
+    assert.deepEqual(map, { glass: { radius: 12 } });
+
+    // Убранная фото-тема стала «Неоном» — её старые поправки к нему не едут.
+    applyTweaks('neon', map);
+    assert.equal(props.size, 0, 'на документе не должно быть ни одного токена');
+    applyTweaks('ember', map);
+    assert.equal(props.size, 0);
+    applyTweaks('glass', map);
+    assert.equal(props.get('--radius'), '12px');
+  });
+
+  it('битая карта при списке тем не роняет разбор', () => {
+    const themes = ['ember', 'glass'];
+    assert.deepEqual(parseTweakMap('{"gt":', themes), {});
+    assert.deepEqual(parseTweakMap('[]', themes), {});
+    assert.deepEqual(parseTweakMap(JSON.stringify({ gt: null, ember: 'x', glass: [] }), themes), {});
+    assert.deepEqual(parseTweakMap(null, themes), {});
   });
 
   describe('значения самой темы', () => {

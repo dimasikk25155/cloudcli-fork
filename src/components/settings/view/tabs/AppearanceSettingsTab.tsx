@@ -5,8 +5,6 @@ import type { CodeEditorSettingsState, ProjectSortOrder } from '../../types/type
 import LanguageSelector from '../../../../shared/view/ui/LanguageSelector';
 import {
   useTheme,
-  THEMES,
-  THEME_LABELS,
   UI_SCALES,
   backgroundsForTheme,
   isVideoTheme,
@@ -20,6 +18,7 @@ import SettingsSection from '../SettingsSection';
 import SettingsToggle from '../SettingsToggle';
 
 import SettingsProfileSection from './profile/SettingsProfileSection';
+import ThemePicker from './ThemePicker';
 import ThemeTweakPanel from './ThemeTweakPanel';
 
 type AppearanceSettingsTabProps = {
@@ -47,6 +46,8 @@ export default function AppearanceSettingsTab({
     setShaderEnabled,
     theme,
     setTheme,
+    neonVariant,
+    setNeonVariant,
     uiScale,
     setUiScale,
     backgroundVariant,
@@ -82,22 +83,22 @@ export default function AppearanceSettingsTab({
     <div className="space-y-8">
       <SettingsSection title={t('appearanceSettings.theme.title')}>
         <SettingsCard divided>
-          <SettingsRow
-            label={t('appearanceSettings.theme.label')}
-            description={t('appearanceSettings.theme.description')}
-          >
-            <select
-              value={theme}
-              onChange={(event) => setTheme(event.target.value)}
-              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44"
-            >
-              {THEMES.map((themeKey) => (
-                <option key={themeKey} value={themeKey}>
-                  {(THEME_LABELS as Record<string, string>)[themeKey] || themeKey}
-                </option>
-              ))}
-            </select>
-          </SettingsRow>
+          <div className="space-y-3 px-4 py-3.5 md:py-4">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-foreground">
+                {t('appearanceSettings.theme.label')}
+              </div>
+              <div className="mt-0.5 text-sm text-muted-foreground">
+                {t('appearanceSettings.theme.description')}
+              </div>
+            </div>
+            <ThemePicker
+              theme={theme}
+              neonVariant={neonVariant}
+              onThemeChange={setTheme}
+              onNeonVariantChange={setNeonVariant}
+            />
+          </div>
 
           {liveWallpaperTheme ? (
             <SettingsRow
@@ -109,7 +110,7 @@ export default function AppearanceSettingsTab({
               <select
                 value={liveWallpaperValue}
                 onChange={(event) => setLiveWallpaper(event.target.value)}
-                className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44"
+                className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary md:w-44"
               >
                 <option value={LIVE_WALLPAPER_OFF}>
                   {t('appearanceSettings.liveWallpaper.off', { defaultValue: 'Off' })}
@@ -134,7 +135,7 @@ export default function AppearanceSettingsTab({
                   <select
                     value={backgroundVariant}
                     onChange={(event) => setThemeBackground(theme, event.target.value)}
-                    className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-44"
+                    className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary md:w-44"
                   >
                     {backgroundVariants.map((variant: { id: string; label: string }) => (
                       <option key={variant.id} value={variant.id}>
@@ -164,7 +165,7 @@ export default function AppearanceSettingsTab({
               defaultValue: 'A picture from your device, shared across all your devices. Replaces the theme backdrop.',
             })}
           >
-            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+            <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:items-end">
               <input
                 ref={backgroundInputRef}
                 type="file"
@@ -198,7 +199,7 @@ export default function AppearanceSettingsTab({
                 )}
               </div>
               {backgroundError && (
-                <span className="text-xs text-destructive sm:text-right">{backgroundError}</span>
+                <span className="text-xs text-destructive md:text-right">{backgroundError}</span>
               )}
             </div>
           </SettingsRow>
@@ -216,7 +217,7 @@ export default function AppearanceSettingsTab({
             <select
               value={uiScale}
               onChange={(event) => setUiScale(Number(event.target.value))}
-              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-28"
+              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary md:w-28"
             >
               {UI_SCALES.map((scale) => (
                 <option key={scale} value={scale}>
@@ -239,7 +240,7 @@ export default function AppearanceSettingsTab({
             <select
               value={projectSortOrder}
               onChange={(event) => onProjectSortOrderChange(event.target.value as ProjectSortOrder)}
-              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-36"
+              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary md:w-36"
             >
               <option value="recent">{t('appearanceSettings.projectSorting.recentActivity')}</option>
               <option value="name">{t('appearanceSettings.projectSorting.alphabetical')}</option>
@@ -290,7 +291,7 @@ export default function AppearanceSettingsTab({
             <select
               value={codeEditorSettings.fontSize}
               onChange={(event) => onCodeEditorFontSizeChange(event.target.value)}
-              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary sm:w-28"
+              className="w-full rounded-lg border border-input bg-card p-2.5 text-sm text-foreground touch-manipulation focus:border-primary focus:ring-1 focus:ring-primary md:w-28"
             >
               <option value="10">10px</option>
               <option value="11">11px</option>

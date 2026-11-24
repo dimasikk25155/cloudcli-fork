@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -17,6 +17,10 @@ import { api } from '../../utils/api';
 import { useTheme } from '../../contexts/ThemeContext';
 import ThemeBackground from '../branding/ThemeBackground';
 import LiveWallpaperCycleButton from '../branding/LiveWallpaperCycleButton';
+import BottomBar from '../bottom-bar/BottomBar';
+import { pickNewChatProject, settingsTabForAttention } from '../bottom-bar/bottomBarModel';
+import { usePlannerAttention } from '../consigliere/usePlannerAttention';
+import ToolPanelsHost from '../tools/ToolPanelsHost';
 import { computeKeyboardInsets } from './keyboard-insets';
 
 type RunningSessionApiItem = {
@@ -95,6 +99,45 @@ function AppContentInner() {
     isMobile,
     activeSessions: processingSessions,
   });
+
+  // Нижняя панель телефона. Строка её поиска одна на оба места: на «Домой»
+  // она фильтрует проекты, в шторке — список шторки.
+  const [navQuery, setNavQuery] = useState('');
+  const [navSearchOpen, setNavSearchOpen] = useState(false);
+  const { items: plannerAttention } = usePlannerAttention();
+  const isHome = selectedProject === null;
+  const onNavSurface = isMobile && (isHome || sidebarOpen);
+
+  // Ушли с «Домой» и из шторки (открыли чат, расширили окно) — поиск кончился:
+  // вернувшись, человек видит все проекты, а не остаток прошлого запроса.
+  useEffect(() => {
+    if (onNavSurface) return;
+    setNavQuery('');
+    setNavSearchOpen(false);
+  }, [onNavSurface]);
+
+  const handleBarHome = useCallback(() => {
+    setSidebarOpen(false);
+    goHome();
+  }, [goHome, setSidebarOpen]);
+
+  const handleBarProjects = useCallback(() => setSidebarOpen(true), [setSidebarOpen]);
+
+  const handleBarNewChat = useCallback(() => {
+    const project = pickNewChatProject(projects);
+    if (project) {
+      handleNewSession(project);
+    } else {
+      // Разговоров ещё не было — выбрать проект можно только в списке.
+      setSidebarOpen(true);
+    }
+  }, [handleNewSession, projects, setSidebarOpen]);
+
+  const handleBarSettings = useCallback(() => {
+    openSettings(settingsTabForAttention(plannerAttention.length));
+  }, [openSettings, plannerAttention.length]);
+
+  const openSettingsDefault = useCallback(() => openSettings(), [openSettings]);
 
   // «Ждут тебя»: server-side session statuses → sidebar dots, tab «(N)»,
   // app-icon badge; the session on screen is marked seen.
@@ -256,12 +299,11 @@ function AppContentInner() {
 
   return (
     <div className="app-shell fixed inset-0 flex">
-      {/* Темы "Claude" (тёмная) и "Светлая Claude" — как claude.ai: там фон
-          статичный, без анимации, поэтому для них фон-компонент не рендерим
-          вообще. Для остальных тем фон рендерится ВСЕГДА: тумблер "Живой фон"
-          выключает только движение, а не саму картинку — иначе тема
-          схлопывалась в пустую заливку и переставала быть собой. */}
-      {((theme !== 'claude' && theme !== 'claudeLight') || customBackgroundUrl) && (
+      {/* «Светлая Claude» — как claude.ai: там фон статичный, без картинки,
+          поэтому для неё фон-компонент не рендерим вообще (кроме своей
+          загруженной картинки). Какой фон у остальных тем — видео, фото
+          варианта или ничего — решает сам ThemeBackground. */}
+      {(theme !== 'claudeLight' || customBackgroundUrl) && (
         <ThemeBackground
           theme={theme}
           enabled={shaderEnabled}
@@ -279,8 +321,11 @@ function AppContentInner() {
           className={`fixed inset-0 z-50 flex transition-all duration-150 ease-out ${sidebarOpen ? 'visible opacity-100' : 'invisible opacity-0'
             }`}
         >
+          {/* Затемнение за шторкой — цвет затемнения темы, а не её фон: в
+              светлой теме фон осветлял экран под шторкой вместо того, чтобы
+              его затемнить. */}
           <button
-            className="fixed inset-0 bg-background/60 backdrop-blur-sm transition-opacity duration-150 ease-out"
+            className="glass-scrim fixed inset-0 transition-opacity duration-150 ease-out"
             onClick={(event) => {
               event.stopPropagation();
               setSidebarOpen(false);
@@ -292,19 +337,31 @@ function AppContentInner() {
             }}
             aria-label={t('versionUpdate.ariaLabels.closeSidebar')}
           />
+          {/* Шторка лежит поверх «Домой»: плотный лист (.glass-dense), чтобы
+              значки под ней не читались и там, где размытия нет. */}
           <div
-            className={`app-sidebar relative h-full w-[85vw] max-w-sm transform border-r border-border/40 bg-card transition-transform duration-150 ease-out sm:w-80 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+            className={`app-sidebar glass-sheet glass-dense relative h-full w-[85vw] max-w-sm transform border-y-0 border-l-0 transition-transform duration-150 ease-out motion-reduce:transition-none sm:w-80 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
               }`}
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
           >
-            <Sidebar {...sidebarSharedProps} onGoHome={goHome} drawerOpen={sidebarOpen} />
+            <Sidebar
+              {...sidebarSharedProps}
+              onGoHome={goHome}
+              searchFilter={navQuery}
+              onSearchFilterChange={setNavQuery}
+            />
           </div>
         </div>
       )}
 
       <div className="relative z-10 flex min-w-0 flex-1 flex-col">
-        <LiveWallpaperCycleButton />
+        {/* Кнопка смены обоев стоит на своих 96 px от низа — но от верха нижней
+            панели, а не от края экрана: нулевая опора поднимается на высоту
+            панели и сама нажатий не перехватывает. */}
+        <div className="absolute bottom-[var(--bottom-bar-space)] left-0 z-20 h-0 w-0">
+          <LiveWallpaperCycleButton />
+        </div>
         <MainContent
           selectedProject={selectedProject}
           selectedSession={selectedSession}
@@ -333,13 +390,34 @@ function AppContentInner() {
           externalMessageUpdate={externalMessageUpdate}
           newSessionTrigger={newSessionTrigger}
           onStartNewChat={handleNewSession}
+          navQuery={isMobile ? navQuery : undefined}
+          navSearchActive={isMobile && navSearchOpen}
         />
       </div>
+
+      <BottomBar
+        isMobile={isMobile}
+        isHome={isHome}
+        drawerOpen={sidebarOpen}
+        query={navQuery}
+        onQueryChange={setNavQuery}
+        searchOpen={navSearchOpen}
+        onSearchOpenChange={setNavSearchOpen}
+        attentionCount={plannerAttention.length}
+        onGoHome={handleBarHome}
+        onOpenProjects={handleBarProjects}
+        onNewChat={handleBarNewChat}
+        onOpenSettings={handleBarSettings}
+      />
+
+      {/* Экраны «Инструментов»: открываются ссылкой, уведомлением и кнопками
+          из любого места, в том числе при свёрнутой шторке. */}
+      <ToolPanelsHost onOpenSettings={openSettingsDefault} />
 
       <CommandPalette
         selectedProject={selectedProject}
         onStartNewChat={handleNewSession}
-        onOpenSettings={() => openSettings()}
+        onOpenSettings={openSettings}
         onShowTab={setActiveTab}
       />
     </div>

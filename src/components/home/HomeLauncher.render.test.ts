@@ -23,16 +23,24 @@ const project = (name: string, daysAgo: number | null, extras: Partial<Project> 
   ...extras,
 });
 
-const render = (projects: Project[], initialGridSize = { width: 342, height: 553 }, isMobile = true) =>
+const render = (
+  projects: Project[],
+  initialGridSize = { width: 342, height: 553 },
+  isMobile = true,
+  extras: Partial<React.ComponentProps<typeof HomeLauncher>> = {},
+) =>
   renderToStaticMarkup(React.createElement(HomeLauncher, {
     projects,
     isMobile,
-    onMenuClick: () => undefined,
     onProjectSelect: () => undefined,
     onShowSettings: () => undefined,
     onToggleStarProject: () => undefined,
     initialGridSize,
+    ...extras,
   }));
+
+/** More real projects than `SEARCH_MIN_PROJECTS` — the count that brings the search field. */
+const manyProjects = () => Array.from({ length: 12 }, (_, index) => project(`p${String(index).padStart(2, '0')}`, index + 1));
 
 const tileIds = (html: string) => [...html.matchAll(/data-home-project="([^"]+)"/g)].map((match) => match[1]);
 
@@ -51,8 +59,8 @@ test('Home on a 390 px phone: 4 × 4 cells, 15 projects and «All projects» las
   assert.ok(html.lastIndexOf('data-home-project=') < html.indexOf('data-home-more="all"'));
 });
 
-test('no dock tiles, no Канцелярия bell; settings is a round button next to the clock', () => {
-  const html = render([project('a', 1)]);
+test('no dock tiles, no Канцелярия bell; on a computer settings is a round button next to the clock', () => {
+  const html = render([project('a', 1)], { width: 1072, height: 560 }, false);
   for (const gone of ['Канцелярия', 'Мазда', 'Задачи', 'data-dock-tile']) {
     assert.ok(!html.includes(gone), gone);
   }
@@ -103,43 +111,50 @@ test('the «работают · ждут · готово» bar of the chat sits 
   }
 });
 
-test('phone: no ☰ strip on top; ☰ is a round neon button left of the clock digits, settings right', () => {
-  const html = render([project('a', 1)]);
+test('phone: the clock line is digits only — ☰, settings and search live in the bottom bar', () => {
+  const html = render(manyProjects());
   // The old strip with the plain ☰ (MobileMenuButton) is gone.
   assert.doesNotMatch(html, /pwa-menu-button/);
   assert.doesNotMatch(html, /pwa-header-safe/);
 
-  const row = html.slice(html.indexOf('data-home-clock'), html.indexOf('data-home-grid-area'));
-  const menu = row.indexOf('data-home-menu');
-  const digits = row.indexOf('data-home-time');
-  const settings = row.indexOf('data-home-settings');
-  assert.ok(menu > 0 && digits > 0 && settings > 0, 'menu, digits and settings share the clock line');
-  assert.ok(menu < digits && digits < settings, '☰ — digits — settings');
-
-  // Same look and size as the settings button: a 40 px neon circle.
-  const menuButton = row.slice(menu, row.indexOf('</button>', menu));
-  assert.match(menuButton, /data-neon-shape="circle"/);
-  assert.match(menuButton, /data-neon-glyph="menu"/);
-  assert.match(menuButton, /width="40"/);
-  assert.match(row.slice(settings), /width="40"/);
-  const label = html.match(/aria-label="([^"]+)"[^>]*data-home-menu|data-home-menu[^>]*aria-label="([^"]+)"/);
-  assert.ok(label && (label[1] || label[2]), 'the ☰ button has an aria-label');
-  // Pinned to the edges of the grid column (left / right), centred on the digits.
-  const openTag = (marker: string) => {
-    const at = row.indexOf(marker);
-    return row.slice(row.lastIndexOf('<button', at), row.indexOf('>', at));
-  };
-  const classes = (marker: string) => new Set(/class="([^"]+)"/.exec(openTag(marker))?.[1].split(/\s+/));
-  for (const [marker, edge] of [['data-home-menu', 'left-0'], ['data-home-settings', 'right-0']]) {
-    const tag = classes(marker);
-    for (const name of ['absolute', edge, 'top-1/2', '-translate-y-1/2', 'h-10', 'w-10', 'neo3-neon-round']) {
-      assert.ok(tag.has(name), `${marker}: ${name}`);
-    }
-  }
+  // The clock line itself, up to the status slot under the date.
+  const row = html.slice(html.indexOf('data-home-clock'), html.indexOf('data-home-status'));
+  assert.match(row, /data-home-time/);
+  // No duplicates of the bar's buttons next to the clock (story 26).
+  assert.doesNotMatch(html, /data-home-menu/);
+  assert.doesNotMatch(html, /data-home-settings/);
+  assert.doesNotMatch(row, /<button/);
+  // Home's own search field is gone on a phone even with many projects.
+  assert.doesNotMatch(html, /type="search"/);
 });
 
-test('desktop: no ☰ on Home, settings still on the clock line', () => {
-  const html = render([project('a', 1)], { width: 1072, height: 560 }, false);
+test('desktop: no ☰ on Home, settings on the clock line and the search field as before', () => {
+  const html = render(manyProjects(), { width: 1072, height: 560 }, false);
   assert.doesNotMatch(html, /data-home-menu/);
   assert.match(html.slice(html.indexOf('data-home-clock')), /data-home-settings/);
+  const search = /<input[^>]*type="search"[^>]*>/.exec(html)?.[0] ?? '';
+  assert.match(search, /placeholder="Find a project"/);
+  assert.ok(html.indexOf('type="search"') < html.indexOf('data-home-grid-area'), 'above the grid');
+  // The bar's query belongs to the phone: a computer keeps its own field.
+  assert.equal(tileIds(render(manyProjects(), { width: 1072, height: 560 }, false, { navQuery: 'p03' })).length, 12);
+});
+
+test('phone: the bottom bar\'s query filters the projects of Home', () => {
+  const html = render(manyProjects(), undefined, true, { navQuery: 'p03', navSearchActive: true });
+  assert.deepEqual(tileIds(html), ['p03']);
+  // While searching the «All projects» tile steps aside, as with the old field.
+  assert.doesNotMatch(html, /data-home-more="all"/);
+  const none = render(manyProjects(), undefined, true, { navQuery: 'нет-такого' });
+  assert.deepEqual(tileIds(none), []);
+  assert.match(none, /No matching projects/);
+});
+
+test('phone: the grid area leaves room for the bottom bar', () => {
+  const html = render([project('a', 1)]);
+  const area = /<div[^>]*data-home-grid-area[^>]*>/.exec(html)?.[0] ?? '';
+  const classes = new Set(/class="([^"]*)"/.exec(area)?.[1].split(/\s+/));
+  // The grid counts whole rows in the content box, so the padding is what
+  // keeps the last row above the bar (`--bottom-bar-space`, index.css).
+  assert.ok(classes.has('pb-[calc(var(--bottom-bar-space)+0.75rem)]'), [...classes].join(' '));
+  assert.ok(!classes.has('pb-3'));
 });

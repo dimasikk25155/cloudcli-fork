@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { LLMProvider } from '../../../types/app';
 import type { ProviderAuthStatus } from '../../provider-auth/types';
 
-export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' | 'browser' | 'notifications' | 'telegram' | 'plugins' | 'admin' | 'about';
+export type SettingsMainTab = 'agents' | 'instruments' | 'appearance' | 'git' | 'api' | 'voice' | 'browser' | 'notifications' | 'telegram' | 'plugins' | 'admin' | 'about';
 export type AgentProvider = LLMProvider;
 export type AgentCategory = 'account' | 'defaults' | 'permissions' | 'mcp' | 'skills';
 // One definition with the sidebar: Settings and the sidebar switch write the same device key.

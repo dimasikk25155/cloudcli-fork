@@ -1,7 +1,7 @@
 /**
- * Свой набор значков меню Neo3 (низ сайдбара, сетка на телефоне, док главной):
- * какой ключ какого цвета. Цвета — из палитры «Новой вкладки», у всех 13
- * плиток разные, чтобы пункт узнавался по цвету ещё до рисунка.
+ * Свой набор значков экранов Neo3 (вкладка настроек «Инструменты»): какой
+ * ключ какого цвета. Цвета — из палитры «Новой вкладки», у всех 13 плиток
+ * разные, чтобы экран узнавался по цвету ещё до рисунка.
  */
 import { LAUNCHER_GRADIENTS } from '../workbench/newTabModel';
 
@@ -36,7 +36,7 @@ const TILES: Record<MenuIconKey, keyof typeof LAUNCHER_GRADIENTS> = {
   settings: 'gray',
 };
 
-/** In the order the sidebar menu lists them. */
+/** In the order «Инструменты» lists them; `settings` is the gear of the old menu. */
 export const MENU_ICON_KEYS: readonly MenuIconKey[] = [
   'nightshift',
   'consigliere',

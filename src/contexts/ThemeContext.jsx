@@ -1,7 +1,18 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 
+import { useAuth } from '../components/auth/context/AuthContext';
 import { authenticatedFetch } from '../utils/api';
 import { applyTweaks, hslTripletToHex, parseTweakMap } from '../utils/themeTweaks';
+
+import { claimDeviceTheme, readDeviceTheme, takeAccountTheme, writeDeviceTheme } from './deviceTheme';
+import {
+  DEFAULT_NEON_VARIANT,
+  NEON_VARIANTS,
+  migrateThemeId,
+  resolveNeonVariant,
+} from './themeMigration';
+
+export { DEFAULT_NEON_VARIANT, NEON_VARIANTS };
 
 const ThemeContext = createContext();
 
@@ -14,64 +25,32 @@ export const useTheme = () => {
 };
 
 // Full app themes ("skins"): each one restyles the whole UI — colours, fonts,
-// panels and background — via a `data-theme` attribute on <html>. Added one at
-// a time as each is built out; `default` is the original warm-orange look.
-export const THEMES = [
-  'codex',
-  'glass',
-  'ember',
-  'gt',
-  'editorial',
-  'kineticType',
-  'claude',
-  'claudeLight',
-  'neonCity',
-  'synthwaveDrive',
-  'nebulaFlow',
-  'missionControl',
-  'bento3d',
-  'liquidChrome',
-  'zenParticles',
-  'bio',
-];
+// shape, shadows, density, material and glass — via a `data-theme` attribute on
+// <html>. Шесть тем, у каждой свой характер; порядок = порядок в выборе темы.
+// Убранные id (gt, editorial, claude и восемь фото-тем) подменяет
+// `migrateThemeId` из themeMigration.js — см. начальное состояние `theme`.
+export const THEMES = ['ember', 'codex', 'bio', 'neon', 'glass', 'claudeLight'];
 
-// Тема по умолчанию для новых установок. У существующих пользователей выбор
-// хранится в аккаунте и не трогается — см. начальное состояние `theme` ниже.
-// Там же лечится удалённая тема: ключа больше нет в THEMES, поэтому проверка
-// `THEMES.includes` сама откатывает такого пользователя на дефолт, а не
-// оставляет его с пустым оформлением.
+// Тема по умолчанию для новых установок и для всего неизвестного.
 export const DEFAULT_THEME = 'ember';
 
-// Human-readable labels for the theme picker in Settings → Appearance.
-// Названия по ЦВЕТУ АКЦЕНТА, а не по образу: «Стекло» и «Гонка» ничего не
-// говорили о том, как тема выглядит, и выбирать приходилось перебором. Теперь
-// подпись = цвет кнопок и ссылок, у двух светлых тем это помечено отдельно.
-// Ключи менять нельзя — они лежат в аккаунтах и в именах CSS-блоков и фонов.
+// Подписи в выборе темы. Ключи менять нельзя — они лежат на устройствах,
+// в аккаунтах и в именах CSS-блоков.
 export const THEME_LABELS = {
-  codex: 'Codex — графитовая',
-  glass: 'Бирюзовая светлая',
   ember: 'Оранжевая',
-  gt: 'Красная',
-  editorial: 'Бежевая светлая',
-  kineticType: 'Лаймовая',
-  claude: 'Терракотовая',
+  codex: 'Графит',
+  bio: 'Био',
+  neon: 'Неон',
+  glass: 'Бирюзовая',
   claudeLight: 'Светлая Claude',
-  neonCity: 'Голубая',
-  synthwaveDrive: 'Розовая',
-  nebulaFlow: 'Мятная',
-  missionControl: 'Синяя',
-  bento3d: 'Зелёная',
-  liquidChrome: 'Сиреневая',
-  zenParticles: 'Янтарная',
-  bio: 'Био — голубая',
 };
 
 // Themes that are light (bright) rather than dark. Each theme decides whether
 // the global `dark` class is applied — there is no separate user dark/light
-// toggle. `default` and anything not listed here is treated as dark.
+// toggle. Anything not listed here is treated as dark.
 // Копия списка живёт в inline-скрипте index.html (тема до первой отрисовки);
 // их совпадение сторожит theme-registry.test.ts.
-export const LIGHT_THEMES = ['editorial', 'glass', 'claudeLight'];
+export const LIGHT_THEMES = ['glass', 'claudeLight'];
 
 // Цвет хрома браузера и окна, пока тема не прочиталась из CSS.
 const FALLBACK_CHROME_COLOR = { dark: '#141414', light: '#eef2f9' };
@@ -89,11 +68,12 @@ const readThemeChromeColor = (dark) => {
   }
 };
 
-// Несколько картинок на одну тему: тема задаёт цвета/шрифты/панели, а фон
+// Несколько фонов на одну тему: тема задаёт цвета/шрифты/панели, а фон
 // внутри неё выбирается отдельно. Первый вариант в списке — дефолтный, его
-// файл называется просто `<тема>.jpg` (так же, как у тем с одним фоном),
-// остальные — `<тема>-<id>.jpg`. Тема без записи здесь = один фон, и селектор
-// картинки для неё не показывается.
+// файл называется просто `<тема>.<ext>`, остальные — `<тема>-<id>.<ext>`.
+// Тема без записи здесь = один фон, и селектор фона для неё не показывается.
+// Фото «Неона» сюда не входят: там фон выбирается вместе с цветом акцента —
+// это вариант темы (NEON_VARIANTS в themeMigration.js), а не отдельный список.
 export const THEME_BACKGROUNDS = {
   // Живые обои оранжевой темы: первый пункт = штатный ember.mp4.
   // `tall: true` — есть отдельный вертикальный файл `<тема>-<id>-tall.mp4`.
@@ -108,13 +88,6 @@ export const THEME_BACKGROUNDS = {
     { id: 'vortex', label: 'Вихрь', tall: true },
     { id: 'spark', label: 'Искра', tall: true },
     { id: 'lightning', label: 'Молния', tall: true },
-  ],
-  kineticType: [
-    { id: 'corridor', label: 'Коридор' },
-    { id: 'kinetic', label: 'Скорость' },
-    { id: 'wireframe', label: 'Чертёж' },
-    { id: 'chrome', label: 'Хром' },
-    { id: 'slab', label: 'Плита' },
   ],
 };
 
@@ -261,17 +234,32 @@ export const ThemeProvider = ({ children }) => {
   // Ручная подстройка тем: { [themeKey]: { radius, fontUi, blur, … } }. Живёт
   // рядом с themeBackgrounds и по тем же правилам — localStorage для мгновенной
   // отрисовки, аккаунт для переноса между устройствами.
+  // Записи убранных тем отбрасываются при чтении: у новых тем другие исходные
+  // значения, старые поправки к ним не подходят.
   const [themeTweaks, setThemeTweaksRaw] = useState(
-    () => parseTweakMap(localStorage.getItem('themeTweaks'))
+    () => parseTweakMap(localStorage.getItem('themeTweaks'), THEMES)
   );
   const [uiScale, setUiScaleRaw] = useState(() => {
     const saved = Number(localStorage.getItem('uiScale'));
     return UI_SCALES.includes(saved) ? saved : DEFAULT_UI_SCALE;
   });
-  const [theme, setThemeRaw] = useState(() => {
-    const saved = localStorage.getItem('appTheme') || localStorage.getItem('shaderVariant');
-    return THEMES.includes(saved) ? saved : DEFAULT_THEME;
+  // Тема и вариант «Неона» читаются одним куском: убранная фото-тема приносит
+  // с собой и тему (`neon`), и вариант. Обычно подмену уже сделал inline-скрипт
+  // index.html; здесь — та же таблица на случай, если он не отработал.
+  const [initialTheme] = useState(() => {
+    // Тема по умолчанию, которую в прошлый запуск записал сам код, своей не
+    // считается (deviceTheme.js): с ней устройство стартует так же, как пустое.
+    const saved = readDeviceTheme(localStorage);
+    const migrated = migrateThemeId(saved || DEFAULT_THEME);
+    return {
+      theme: migrated.theme,
+      neonVariant: migrated.neonVariant || resolveNeonVariant(localStorage.getItem('neonVariant')),
+    };
   });
+  const [theme, setThemeRaw] = useState(initialTheme.theme);
+  // Вариант «Неона» (цвет акцента + фото). Свой на каждом устройстве: живёт
+  // только в localStorage, в аккаунт не уходит.
+  const [neonVariant, setNeonVariantRaw] = useState(initialTheme.neonVariant);
   // Своя картинка фона: флаг «загружена» синкается через настройки аккаунта,
   // сам файл лежит на сервере. `customBackgroundVersion` растёт при каждой
   // перезаписи — иначе браузер показал бы старую картинку из кэша.
@@ -280,14 +268,19 @@ export const ThemeProvider = ({ children }) => {
   );
   const [customBackgroundVersion, setCustomBackgroundVersion] = useState(0);
   const [customBackgroundUrl, setCustomBackgroundUrl] = useState(null);
+  // Токен входа: его смена (вход через форму) — повод перечитать настройки аккаунта.
+  const { token } = useAuth();
 
   // The active theme decides whether the app is dark or light.
   const isDarkMode = !LIGHT_THEMES.includes(theme);
 
-  // Account-wide theme/shader defaults, loaded once on mount and applied on
-  // top of whatever localStorage had (server is the cross-device source of
-  // truth; localStorage is just this browser's instant-paint cache). Uses
-  // the raw setters so this doesn't itself trigger a sync-back PUT.
+  // Account-wide defaults, applied on top of whatever localStorage had.
+  // Исключение — тема: она своя на каждом устройстве, аккаунт даёт её только
+  // новому устройству (takeAccountTheme). Uses the raw setters so this doesn't
+  // itself trigger a sync-back PUT.
+  // Читаются при монтировании и ещё раз при смене токена: провайдер стоит выше
+  // экрана входа, на новом устройстве первый запрос уходит без токена и не
+  // проходит — настройки аккаунта (и его тема) приходят после входа через форму.
   useEffect(() => {
     let cancelled = false;
     authenticatedFetch('/api/settings/ui-preferences')
@@ -302,8 +295,16 @@ export const ThemeProvider = ({ children }) => {
           uiScale: savedUiScale,
           themeBackgrounds: savedBackgrounds,
         } = data.preferences;
-        if (typeof savedTheme === 'string' && THEMES.includes(savedTheme)) {
-          setThemeRaw(savedTheme);
+        // Тема своя на каждом устройстве: аккаунт даёт её один раз — устройству,
+        // где тему ещё не выбирал человек. Записанная кодом тема по умолчанию
+        // своей не считается.
+        const fromAccount = takeAccountTheme(localStorage, savedTheme);
+        if (fromAccount.apply) {
+          setThemeRaw(fromAccount.theme);
+          // Вариант диктует только убранная фото-тема.
+          if (fromAccount.neonVariant) {
+            setNeonVariantRaw(fromAccount.neonVariant);
+          }
         }
         if (typeof savedShaderEnabled === 'boolean') {
           setShaderEnabledRaw(savedShaderEnabled);
@@ -315,7 +316,7 @@ export const ThemeProvider = ({ children }) => {
         if (Object.keys(backgrounds).length > 0) {
           setThemeBackgroundsRaw(backgrounds);
         }
-        const tweaks = parseTweakMap(data.preferences.themeTweaks);
+        const tweaks = parseTweakMap(data.preferences.themeTweaks, THEMES);
         if (Object.keys(tweaks).length > 0) {
           setThemeTweaksRaw(tweaks);
         }
@@ -329,7 +330,7 @@ export const ThemeProvider = ({ children }) => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     localStorage.setItem('shaderBg', shaderEnabled ? 'on' : 'off');
@@ -383,7 +384,20 @@ export const ThemeProvider = ({ children }) => {
   useEffect(() => {
     const root = document.documentElement;
     root.setAttribute('data-theme', theme);
-    localStorage.setItem('appTheme', theme);
+    // Первая запись на пустое устройство помечается как сделанная кодом:
+    // тему по умолчанию человек не выбирал, аккаунт ещё может дать свою.
+    writeDeviceTheme(localStorage, theme);
+    // Атрибут варианта есть только у «Неона»: его читают блоки
+    // `[data-theme='neon'][data-theme-variant='…']` в index.css.
+    // Вариант записывается на устройство, только пока «Неон» активен: иначе
+    // значение по умолчанию легло бы в localStorage при первом же запуске, и
+    // новое устройство уже не взяло бы вариант убранной фото-темы из аккаунта.
+    if (theme === 'neon') {
+      root.setAttribute('data-theme-variant', neonVariant);
+      localStorage.setItem('neonVariant', neonVariant);
+    } else {
+      root.removeAttribute('data-theme-variant');
+    }
     // Ручная подстройка хранится по темам — снимаем чужую, накладываем свою.
     applyTweaks(theme, themeTweaks);
 
@@ -411,8 +425,9 @@ export const ThemeProvider = ({ children }) => {
       // Мост Electron есть только в настольном приложении; в браузере — тишина.
     }
     // themeTweaks в зависимостях: без него ползунок применялся бы только при
-    // следующей смене темы, то есть «ничего не происходит».
-  }, [theme, themeTweaks]);
+    // следующей смене темы, то есть «ничего не происходит». neonVariant — по той
+    // же причине: вариант меняет акцент, а с ним и цвет хрома окна.
+  }, [theme, themeTweaks, neonVariant]);
 
   // Fire-and-forget: push the new value to the account so every other
   // device (phone, another browser) picks it up on its next load. Local
@@ -430,6 +445,8 @@ export const ThemeProvider = ({ children }) => {
   };
 
   const setTheme = (next) => {
+    // Выбор человека: с этого момента тема устройства своя, аккаунт её не тронет.
+    claimDeviceTheme(localStorage);
     setThemeRaw(next);
     authenticatedFetch('/api/settings/ui-preferences', {
       method: 'PUT',
@@ -437,6 +454,15 @@ export const ThemeProvider = ({ children }) => {
     }).catch((error) => {
       console.warn('Failed to sync theme preference to account:', error);
     });
+  };
+
+  // Вариант «Неона» меняет атрибут, акцент и фото сразу, без перезагрузки.
+  // В аккаунт не пишется: тема и её вариант — свои на каждом устройстве.
+  const setNeonVariant = (next) => {
+    const variant = resolveNeonVariant(next);
+    setNeonVariantRaw(variant);
+    // Явный выбор запоминается сразу, даже если «Неон» сейчас не активен.
+    localStorage.setItem('neonVariant', variant);
   };
 
   // Подстройка одной темы. Пустой объект убирает тему из карты целиком, иначе
@@ -597,6 +623,9 @@ export const ThemeProvider = ({ children }) => {
     // Full app theme.
     theme,
     setTheme,
+    // Вариант «Неона»: цвет акцента + фото (id из NEON_VARIANTS).
+    neonVariant,
+    setNeonVariant,
     // Выбор картинки внутри темы.
     themeBackgrounds,
     setThemeBackground,

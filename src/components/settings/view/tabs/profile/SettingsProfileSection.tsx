@@ -91,7 +91,7 @@ export default function SettingsProfileSection() {
             <div className="space-y-2">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Применённое</h4>
               {snapshots.slice(0, 5).map((snapshot) => (
-                <div key={snapshot.id} className="flex items-start justify-between gap-3 text-sm" data-snapshot={snapshot.id}>
+                <div key={snapshot.id} className="flex flex-col items-start gap-2 text-sm md:flex-row md:justify-between md:gap-3" data-snapshot={snapshot.id}>
                   <div>
                     <div className="text-xs text-muted-foreground">{new Date(snapshot.createdAt).toLocaleString('ru-RU')}</div>
                     {snapshot.changes.map((change) => <div key={change.key}>{describeChange(change)}</div>)}

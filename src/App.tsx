@@ -103,8 +103,10 @@ export default function App() {
 
   return (
     <I18nextProvider i18n={i18n}>
-      <ThemeProvider>
-        <AuthProvider>
+      {/* AuthProvider выше ThemeProvider: тема перечитывает настройки аккаунта
+          после входа, а узнать о входе можно только изнутри AuthProvider. */}
+      <AuthProvider>
+        <ThemeProvider>
           <WebSocketProvider>
             <PluginsProvider>
               <ProtectedRoute>
@@ -117,8 +119,8 @@ export default function App() {
               </ProtectedRoute>
             </PluginsProvider>
           </WebSocketProvider>
-        </AuthProvider>
-      </ThemeProvider>
+        </ThemeProvider>
+      </AuthProvider>
     </I18nextProvider>
   );
 }

@@ -12,6 +12,8 @@ export default function MainContentStateView({
   onShowSettings,
   onToggleStarProject,
   onNavigateToSession,
+  navQuery,
+  navSearchActive,
 }: MainContentStateViewProps) {
   const { t } = useTranslation();
 
@@ -20,11 +22,12 @@ export default function MainContentStateView({
       <HomeLauncher
         projects={projects}
         isMobile={isMobile}
-        onMenuClick={onMenuClick}
         onProjectSelect={onProjectSelect ?? (() => undefined)}
         onShowSettings={() => onShowSettings?.()}
         onToggleStarProject={onToggleStarProject}
         onOpenSession={onNavigateToSession}
+        navQuery={navQuery}
+        navSearchActive={navSearchActive}
       />
     );
   }
@@ -32,7 +35,7 @@ export default function MainContentStateView({
   return (
     <div className="flex h-full flex-col">
       {isMobile && (
-        <div className="pwa-header-safe flex-shrink-0 border-b border-border/50 bg-background/80 p-2 backdrop-blur-sm sm:p-3">
+        <div className="pwa-header-safe glass-sheet flex-shrink-0 border-x-0 border-t-0 p-2 sm:p-3">
           <MobileMenuButton onMenuClick={onMenuClick} compact />
         </div>
       )}

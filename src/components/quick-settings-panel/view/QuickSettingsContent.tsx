@@ -3,14 +3,13 @@ import { useTranslation } from 'react-i18next';
 
 import {
   useTheme,
-  THEMES,
-  THEME_LABELS,
   backgroundsForTheme,
   isVideoTheme,
   LIVE_WALLPAPER_OFF,
   LIVE_WALLPAPER_AUTO,
   liveWallpaperSelectValue,
 } from '../../../contexts/ThemeContext';
+import ThemePicker from '../../settings/view/tabs/ThemePicker';
 import LanguageSelector from '../../../shared/view/ui/LanguageSelector';
 import {
   INPUT_SETTING_TOGGLES,
@@ -57,6 +56,8 @@ export default function QuickSettingsContent({
     setShaderEnabled,
     theme,
     setTheme,
+    neonVariant,
+    setNeonVariant,
     backgroundVariant,
     setThemeBackground,
     setLiveWallpaper,
@@ -85,22 +86,18 @@ export default function QuickSettingsContent({
   return (
     <div className="flex-1 space-y-6 overflow-y-auto overflow-x-hidden bg-background p-4">
       <QuickSettingsSection title={t('quickSettings.sections.appearance')}>
-        <div className={SETTING_ROW_CLASS}>
-          <span className="flex items-center gap-2 text-sm text-foreground">
+        <div className="space-y-2">
+          <span className="flex items-center gap-2 px-1 text-sm text-foreground">
             <Palette className="h-4 w-4 text-muted-foreground" />
             {t('quickSettings.theme')}
           </span>
-          <select
-            value={theme}
-            onChange={(event) => setTheme(event.target.value)}
-            className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            {THEMES.map((themeKey) => (
-              <option key={themeKey} value={themeKey}>
-                {(THEME_LABELS as Record<string, string>)[themeKey] || themeKey}
-              </option>
-            ))}
-          </select>
+          <ThemePicker
+            compact
+            theme={theme}
+            neonVariant={neonVariant}
+            onThemeChange={setTheme}
+            onNeonVariantChange={setNeonVariant}
+          />
         </div>
         {liveWallpaperTheme ? (
           <div className={SETTING_ROW_CLASS}>

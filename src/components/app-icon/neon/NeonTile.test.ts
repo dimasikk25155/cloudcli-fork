@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import React from 'react';
@@ -109,4 +110,38 @@ test('a round tile (the Home settings button) is a circle with a circular ring',
   const squircle = render();
   assert.match(squircle, /^<svg[^>]*data-neon-shape="squircle"/);
   assert.match(squircle, /<rect width="100" height="100" rx="22.5"/);
+});
+
+test('light themes repaint the tile from theme values; the markup keeps the bot-avatar colours', () => {
+  // Разбор H4: в светлых темах тёмная плитка #090C18 выглядела чужим чёрным
+  // квадратом. Разметка не меняется (тёмные темы рисуют её как есть) — части
+  // плитки помечены, и светлая тема перекрашивает их своими значениями.
+  const html = render({ accent: '#FFB547' });
+  assert.match(html, /style="--neon-accent:#FFB547"/);
+  assert.match(html, new RegExp(`<rect[^>]*fill="${NEON_BASE}"[^>]*data-neon-part="base"`));
+  assert.match(html, /<stop[^>]*data-neon-part="glow-core"/);
+  assert.match(html, /<stop[^>]*data-neon-part="glow-edge"/);
+  assert.match(html, new RegExp(`<g color="${NEON_WHITE}" data-neon-part="ink"`));
+  assert.match(html, /<g color="#FFB547" data-neon-part="accent"/);
+  assert.match(html, /<text[^>]*data-neon-part="mark"/);
+
+  const css = readFileSync(new URL('../../../index.css', import.meta.url), 'utf8');
+  const light = (part: string) =>
+    css.match(new RegExp(`html:not\\(\\.dark\\) \\.neo3-neon \\[data-neon-part='${part}'\\]\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+  assert.match(light('base'), /fill:\s*var\(--icon-tile-base\)/);
+  assert.match(light('glow-edge'), /stop-color:\s*var\(--icon-tile-base\)/);
+  assert.match(light('glow-core'), /stop-color:[^;]*var\(--neon-accent\)/);
+  assert.match(light('ink'), /color:\s*var\(--icon-tile-ink\)/);
+  assert.match(light('mark'), /fill:\s*var\(--icon-tile-ink\)/);
+  // Тёмные темы плитку не трогают: правил вне html:not(.dark) нет.
+  assert.doesNotMatch(css.replace(/html:not\(\.dark\)[^{]*\{[^}]*\}/g, ''), /data-neon-part/);
+
+  for (const theme of ['glass', 'claudeLight']) {
+    const start = css.indexOf(`[data-theme='${theme}'] {`);
+    const block = css.slice(start, css.indexOf('\n}', start));
+    const value = (name: string) => block.match(new RegExp(`^\\s*${name}:\\s*hsl\\(\\s*[\\d.]+\\s+[\\d.]+%\\s+([\\d.]+)%\\s*\\);`, 'm'))?.[1];
+    assert.ok(Number(value('--icon-tile-base')) >= 92, `${theme}: плитка значка не светлая`);
+    assert.ok(Number(value('--icon-tile-ink')) <= 24, `${theme}: символ значка не тёмный`);
+    assert.match(block, /^\s*--icon-tile-shadow:/m, `${theme}: нет тени значка`);
+  }
 });

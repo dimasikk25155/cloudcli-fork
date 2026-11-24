@@ -252,7 +252,7 @@ export default function ProviderSelectionEmptyState({
                     </div>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
                       {t("providerSelection.clickToChange", {
-                        defaultValue: "Click to change model",
+                        defaultValue: "Нажмите, чтобы сменить модель",
                       })}
                     </p>
                   </div>
@@ -367,7 +367,7 @@ export default function ProviderSelectionEmptyState({
             }
           </p>
 
-          <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground/60">
+          <p className="mt-3 hidden items-center justify-center gap-1.5 text-center text-xs text-muted-foreground/60 md:flex">
             <Trans
               ns="chat"
               i18nKey="providerSelection.pressToSearch"

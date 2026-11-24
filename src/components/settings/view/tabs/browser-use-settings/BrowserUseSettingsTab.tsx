@@ -118,6 +118,7 @@ export default function BrowserUseSettingsTab() {
       >
         <SettingsCard divided>
           <SettingsRow
+            layout="inline"
             label="Enable Browser"
             description="Registers Browser for supported agents. Agents can create browser sessions; you can watch, stop, and delete them."
           >

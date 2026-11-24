@@ -1,0 +1,251 @@
+# Границы и правила сборки neo3-glass
+
+Читается первым. Код как он есть — в `notes.md` (точные имена, строки, грабли). Здесь — что решено.
+
+## Правила проекта
+
+- **Рабочая копия** — `/Users/dimasik/Antigravity Project/claude agent/neo3-glass`, ветка `feat/neo3-glass-themes`.
+  Работать только в ней. Папку `../cloudcli-fork/` не читать на запись и не трогать: из неё работает боевой Neo3.
+- **Боевое не трогать никогда:** `~/.cloudcli/` (база, `local-server.json`, `maintenance/`), LaunchAgent
+  `com.dimasik.neo3-local`, порты 3001 и 3005. Не рестартить ничего, что не запущено тобой в этой сборке.
+- `node_modules` — ссылка на основную копию. **Никаких `npm install`, `npm ci`, новых пакетов.**
+  Не запускать `npm run build`, `npm run dev` (пишут в общий порядок запуска); клиент собирать только
+  `node_modules/.bin/vite build` — в `dist/` этой копии (он свой, в `.gitignore`) или `--outDir` во временную папку.
+- **Любой сервер из этой копии — только с временным `HOME`** (`HOME`, `USERPROFILE`, `DATABASE_PATH`,
+  `SERVER_PORT`, `HOST=127.0.0.1`): без `HOME` он перезапишет боевой `~/.cloudcli/local-server.json`. Для этого — стенд (ниже).
+- **Браузер** — только встроенный невидимый браузер Neo3: `workspace_action` `browser.*`; закончил со страницей —
+  сразу `browser.close`. Chrome, Chromium, Edge, Firefox, Safari, Playwright, `scripts/shoot-ui.mjs` — запрещены.
+  Вызов MCP падает «fetch failed» → тот же POST `curl --noproxy '*'` на `$NEO3_THREADS_API_URL/tools/workspace_action`
+  с заголовком `Authorization: Bearer $NEO3_THREADS_TOKEN`. Значение токена не печатать и никуда не записывать.
+- Язык интерфейса — русский. Новые строки через `t('ключ', 'русский текст по умолчанию')`; ключи добавлять в
+  `src/i18n/locales/ru/*.json` и `en/*.json`.
+- Слова из `CONTEXT.md`: «Холст», «Рабочий стол», «Конвейер» ≠ «Сценарии». Подписи экранов — как сейчас в `SidebarFooter.tsx`.
+- Новые компоненты — с явным `import React`. Тесты — `*.test.ts` рядом с кодом, `node:test`, импорты с `.js`.
+- Блок значений темы в `index.css` — плоский до первой `\n}`.
+- Коммит — только свои файлы таска, пути перечислены явно. Чужого в дереве не коммитить. Не пушить.
+
+### Команды
+
+```sh
+cd "/Users/dimasik/Antigravity Project/claude agent/neo3-glass"
+npm run typecheck                                    # типы клиента и сервера
+TMPDIR="$(node -p 'require("node:fs").realpathSync(require("node:os").tmpdir())')" npm test   # все тесты
+node_modules/.bin/tsx --tsconfig server/tsconfig.json --test <файл.test.ts> [ещё…]            # выборочно
+node_modules/.bin/vite build --outDir "$(mktemp -d /tmp/neo3-client-check.XXXXXX)"            # сборка клиента «вхолостую»
+```
+
+**Одна проверка таска** = `npm run typecheck` + весь `npm test` + сборка клиента вхолостую. Все три зелёные.
+
+### Договорились — не пересматривать (из прошлых сборок, дословно)
+
+- «Результаты» наполняются сами: HTML/SVG, записанные агентом в чате, появляются без ввода пути.
+- Второй чат справа = тот же `ChatInterface` с `embedded`, а не своя упрощённая лента.
+- Глобальное (звуки, `[Done]`, сторож соединения, быстрые настройки, бар всех проектов, материалы «Отправить агенту», выбор движка) делает только основной чат.
+- Рабочий стол переключаемый, обычный чат остаётся; мод выкл — прежний переключатель вкладок.
+- Браузер агентов — только Safari; Chrome/Playwright не использовать. *(С 05.11 в Neo3 — встроенный браузер, см. выше.)*
+- Тему `claudeLight` Диме НЕ включать. Motion — «уже есть».
+- Прод и рестарт — только с согласия Димы; строить в отдельном worktree, `cloudcli-fork/` не трогать.
+- Менять MCP-серверы и навыки может только админ.
+- Роль агента — скрытый блок `<agent_brief>` в первом сообщении (ADR 0030).
+
+Следствие для этой сборки: подмена убранной темы никогда не ведёт на `claudeLight`; `ChatComposer` правится так,
+чтобы режим `embedded` (второй чат) выглядел так же, как основной.
+
+## Границы, решённые в спецификации
+
+### 1. Стекло — `src/index.css` (владелец: таск 02)
+
+Значения темы, задаются в каждом из 6 блоков `[data-theme='…']`:
+
+| Переменная | Что это | Форма значения |
+|---|---|---|
+| `--glass-bg` | фон плавающего элемента | готовый цвет с альфой, напр. `hsl(0 0% 100% / 0.08)` |
+| `--glass-bg-strong` | фон там, где под стеклом текст (поле ввода, шапки) | цвет с альфой |
+| `--glass-blur` | радиус размытия | `px` |
+| `--glass-saturate` | насыщенность под стеклом | число |
+| `--glass-border` | кромка | цвет с альфой |
+| `--glass-highlight` | светлый блик по верхней кромке (inset) | цвет с альфой |
+| `--glass-shadow` | тень | значение `box-shadow` |
+| `--glass-fallback-bg` | плотный фон, когда размытия нет | непрозрачный цвет |
+
+Классы (никаких других способов сделать стекло в компонентах):
+
+| Класс | Для чего |
+|---|---|
+| `.glass-surface` | небольшая плавающая карточка: поле ввода, нижняя панель, меню, полосы. Размытие остаётся и под `has-live-wallpaper` |
+| `.glass-sheet` | крупная поверхность: шапка, шторка, шапка панели. Под `html.has-live-wallpaper` размытие снимается |
+| `.glass-pill` | пилюля (высота ≥ 36, зона нажатия ≥ 44 за счёт `::before`) |
+| `.glass-button` | круглая кнопка 44×44 |
+| `.glass-button-primary` | залитая акцентом круглая кнопка (отправить, новый чат) |
+| `.glass-active` | модификатор активного пункта |
+
+Отклик на нажатие, фокус, `prefers-reduced-motion`, `prefers-reduced-transparency`, `@supports not (backdrop-filter…)` —
+внутри этих классов. Компоненты `backdrop-blur-*` и `backdrop-filter` сами не пишут.
+
+Нижняя панель: `:root { --bottom-bar-space: 0px }`, `html.has-bottom-bar { --bottom-bar-space: calc(64px + var(--safe-bottom)) }`.
+Правило задаёт таск 02; класс `has-bottom-bar` на `<html>` ставит и снимает `BottomBar` (таск 04). Кто должен
+освободить место под панель — читает `--bottom-bar-space`.
+
+Удаляется: `.nav-glass`, `.mobile-nav-float`, `.nav-tab-active` и все их переопределения, `--nav-glass-*`,
+`--nav-tab-*`, `--nav-float-*`, `--mobile-nav-*`, `spacing['mobile-nav']` в `tailwind.config.js`.
+**Живые, не трогать:** `.nav-divider`, `.nav-search-input`, `--nav-divider-color`, `--nav-input-bg`,
+`--nav-input-focus-ring`, `--header-*`, `--panel-*`, `--shell-*` (ими управляет тонкая настройка).
+
+### 2. Реестр тем — `src/contexts/` (владелец: таск 02)
+
+- `THEMES = ['ember', 'codex', 'bio', 'neon', 'glass', 'claudeLight']`, `DEFAULT_THEME = 'ember'`,
+  `LIGHT_THEMES = ['glass', 'claudeLight']` (и копия в `index.html`).
+- `THEME_LABELS`: `ember 'Оранжевая'`, `codex 'Графит'`, `bio 'Био'`, `neon 'Неон'`, `glass 'Бирюзовая'`, `claudeLight 'Светлая Claude'`.
+- Новый чистый модуль `src/contexts/themeMigration.js` (без DOM и React):
+  - `NEON_VARIANTS`: `[{ id, label, legacyTheme, file }]` — `city` «Голубой» ← `neonCity`, `synthwave` «Розовый» ← `synthwaveDrive`,
+    `nebula` «Мятный» ← `nebulaFlow`, `mission` «Синий» ← `missionControl`, `bento` «Зелёный» ← `bento3d`,
+    `chrome` «Сиреневый» ← `liquidChrome`, `zen` «Янтарный» ← `zenParticles`, `kinetic` «Лаймовый» ← `kineticType`;
+    `file` — прежнее фото `<legacyTheme>.jpg` из `public/theme-bg/` (файлы не переименовывать и не удалять).
+  - `DEFAULT_NEON_VARIANT = 'city'`.
+  - `LEGACY_THEME_MAP` — убранный id → `{ theme, neonVariant? }`: 8 фото-тем → `neon` + вариант; `gt`, `claude` → `ember`; `editorial` → `glass`.
+  - `migrateThemeId(id)` → `{ theme, neonVariant, migrated }`; неизвестный id → `ember`.
+- `index.html` (скрипт до отрисовки) держит свою копию `LEGACY_THEME_MAP` и списка светлых тем; тест сверяет обе копии.
+- Вариант «Неона»: атрибут `data-theme-variant="<id>"` на `<html>` только при теме `neon`; ключ устройства
+  `localStorage.neonVariant`; в значении контекста `useTheme()` — `neonVariant`, `setNeonVariant(id)`.
+  В CSS: `[data-theme='neon']` — полный набор значений, `[data-theme='neon'][data-theme-variant='<id>']` — только акцент и то, что от него зависит.
+- Сохранённая тонкая настройка (`themeTweaks`) убранных тем не переносится: записи с чужими id отбрасываются при чтении.
+- `ThemeBackground.tsx`: `FLAT_THEMES = codex, glass, claudeLight, bio`; `PHOTO_THEMES = neon` (файл — по варианту); `ember` — видео, как было.
+- Условие фона в `AppContent.tsx:269` — без `'claude'`, `'claudeLight'` остаётся (его ищет тест).
+
+### 3. Тема на устройстве и выбор — `src/contexts/ThemeContext.jsx`, `src/components/settings/` (владелец: таск 03)
+
+- Истина — `localStorage.appTheme` (+ `neonVariant`). Ответ `GET /api/settings/ui-preferences` применяет `theme`
+  только если на устройстве темы ещё нет. `setTheme` по-прежнему шлёт `PUT {theme}` (стартовая тема аккаунта).
+- Остальные ключи (`shaderEnabled`, `uiScale`, `themeBackgrounds`, `themeTweaks`, `customBackground`, моды) — как было.
+- Предложение агента `settings.propose {theme}` меняет только стартовую тему аккаунта — это следствие, не чинить.
+- Один компонент `ThemePicker` (`src/components/settings/view/tabs/ThemePicker.tsx`) — карточки тем + ряд вариантов «Неона»;
+  его ставят и `AppearanceSettingsTab.tsx`, и `QuickSettingsContent.tsx` вместо своих `<select>`.
+
+### 4. Нижняя панель — `src/components/bottom-bar/` (владелец: таск 04)
+
+- `bottomBarModel.ts` (чистые функции, тест без браузера):
+  - `isBottomBarVisible({ isMobile, isHome, drawerOpen, keyboardOpen, searchActive })` → `boolean`
+    (`isMobile && (isHome || drawerOpen) && (!keyboardOpen || searchActive)`);
+  - `activeBottomBarItem({ isHome, drawerOpen })` → `'home' | 'projects' | null`;
+  - `pickNewChatProject(projects)` → проект с самым свежим чатом или `null`.
+- `BottomBar.tsx` — монтируется в `AppContentInner` ребёнком `div.app-shell`, **не внутри `<Sidebar>`**;
+  позиция `fixed inset-x-0 bottom-0 z-[60]` (без `inset-0` — его двигает `body.pwa-mode`). Пункты: `home`, `projects`, `search`, `new-chat`, `settings`.
+- Строка поиска панели — одно состояние в `AppContentInner` (`navQuery`, `setNavQuery`): на «Домой» его получает
+  `HomeLauncher` (вместо своего `HomeSearchField` на телефоне), в шторке — `Sidebar` как `searchFilter`.
+- Счётчик «Канцелярии» на кнопке настроек — из `usePlannerAttention()`.
+
+### 5. Экраны бывшего «Меню» — `src/components/tools/` (владелец: таск 04)
+
+- `toolPanels.ts`: `TOOL_PANELS: { key, label, purpose, iconKey, access: 'all' | 'owner', mod? }[]` — 12 записей
+  (`nightshift`, `consigliere`, `mazda`, `agent-workspace`, `schedules`, `pipelines`, `governance`, `server`, `duet`,
+  `agents`, `queue`, `krabik`); `visibleToolPanels({ isOwner, mods })`; `isToolPanelKey(key)`.
+  Права — те же, что сейчас в `SidebarFooter.tsx` (`isOwner`, `modDuet`, `modAgents`, `modAgentQueue` требует `modAgents`, `modKrabikAgent`).
+- `ToolPanelsHost.tsx` — смонтирован всегда (в `AppContentInner`): держит `openPanel`, слушает `?panel=`,
+  `notification:navigate`, `OPEN_HUB_PANEL_EVENT`, `neo3:workspace-close`, рисует те же `PanelModal` и `NightshiftModal`.
+  Все три входа принимают один набор ключей — `TOOL_PANELS`.
+- Открыть экран откуда угодно — `requestHubPanel(key)` из `hub/hubPanels.ts`; `HubPanelKey` расширяется до всех 12 ключей + `'settings'`.
+- Вкладка настроек — id **`instruments`** (не `tools`: он занят), подпись «Инструменты»; компонент
+  `InstrumentsSettingsTab.tsx`; добавить в `SettingsMainTab`, `BASE_NAV_ITEMS`, `KNOWN_MAIN_TABS`, `SETTINGS_MAIN_TABS`, `mainTabs.instruments` (ru, en).
+- `SidebarFooter.tsx` после таска: баннер перезапуска, разделитель, кнопка «Настройки» (на `md+`), строка версии. Ни списка, ни слушателей.
+
+### 6. Стенд — `scripts/preview-stand/` (владелец: таск 01)
+
+- Одна точка входа `scripts/preview-stand/stand.mjs` с командами `up`, `down`, `status`.
+  `up`: сборка клиента этой копии, сервер через `tsx server/index.js` с временным `HOME`/базой на свободном порту,
+  тестовый пользователь, печать адреса и готовой ссылки «рамка телефона».
+- Рамка телефона — страница с `<iframe>` шириной 390 или 430 на том же адресе; тема, вариант и вход задаются параметрами ссылки.
+- Точные команды и параметры после таска 01 — в разделе «Что построено» ниже.
+
+### Швы для тестов
+
+`migrateThemeId` и таблицы (`themeMigration.js`) · чтение значений тем из `index.css` (как в `theme-registry.test.ts`) ·
+`bottomBarModel.ts` · `toolPanels.ts` · рендер-тесты `renderToStaticMarkup` для `BottomBar`, `InstrumentsSettingsTab`, `ThemePicker`.
+
+## Что построено
+
+<!-- дописывается после каждого таска: что появилось и как этим пользоваться -->
+
+### Таск 01 — стенд и разбор (сдан)
+
+- Стенд: `node scripts/preview-stand/stand.mjs up [--port N] [--no-build] [--no-seed] | status | down | help`.
+  `up` собирает клиент этой копии, поднимает сервер с временным `HOME`/базой на `127.0.0.1` (по умолчанию порт 3917),
+  заводит тестового пользователя, проекты и чат с перепиской; `up` и `status` печатают адрес и ссылки рамки телефона.
+  После правок кода — `down` и снова `up`. Запускать только из рабочей копии, не из папки боевого Neo3.
+- Рамка телефона: `/stand/frame.html?w=390|430&theme=&variant=&themes=ember,glass,neon:city&path=…&zoom=…&key=<секрет из up>`.
+  Страница готова при `body[data-stand-ready]`; для `browser.eval` — `window.stand.info() / click(sel) / clickText(text) / each(fn)`.
+- Тест чистых частей стенда: `node --test scripts/preview-stand/lib.test.mjs` (в `npm test` не входит).
+- Встроенный браузер не рисует `backdrop-filter` в снимок; рамка не воспроизводит режим «с домашнего экрана», вырезы и клавиатуру.
+- Под нагрузкой машины по таймауту могут падать `threads-mcp`, `pipelines.service`, `safari-live.browser` — по отдельности зелёные.
+- Разбор экранов до сборки — `audit.md` рядом с этим файлом.
+
+### Таск 02 — стекло и шесть тем (сдан)
+
+- Реестр: `THEMES = ember, codex, bio, neon, glass, claudeLight`; `LIGHT_THEMES = glass, claudeLight`.
+- Значения стекла в каждой теме: `--glass-bg`, `--glass-bg-strong`, `--glass-blur`, `--glass-saturate`, `--glass-border`,
+  `--glass-highlight`, `--glass-shadow`, `--glass-fallback-bg`, а также `--glass-scrim` (цвет затемнения за листом).
+  Производные в `:root`: `--glass-ring`, `--glass-accent-bg`, `--glass-accent-fg`, `--glass-active-bg`, `--glass-active-fg`, `--glass-radius`.
+- Классы: `.glass-surface`, `.glass-sheet`, `.glass-pill`, `.glass-button`, `.glass-button-primary`, `.glass-active`,
+  `.glass-scrim` (затемнение и размытие ЗА листом — для оверлея шторки и подобных). Раздел в `src/index.css`
+  между `/* glass:start` и `/* glass:end */`. В экранах классы ещё не расставлены — это таски 03–05.
+- `--bottom-bar-space` (`0px`) и `html.has-bottom-bar` заданы.
+- `src/contexts/themeMigration.js`: `NEON_VARIANTS`, `DEFAULT_NEON_VARIANT`, `LEGACY_THEME_MAP`, `migrateThemeId(id)`,
+  `isNeonVariant(id)`, `resolveNeonVariant(id)`, `neonVariantFile(id)`. `ThemeContext` реэкспортирует `NEON_VARIANTS`, `DEFAULT_NEON_VARIANT`.
+- `useTheme()` += `neonVariant`, `setNeonVariant(id)`; id вариантов: `city, synthwave, nebula, mission, bento, chrome, zen, kinetic`.
+- `parseTweakMap(json, themeIds?)` отбрасывает записи чужих тем.
+- `ShaderBackground.tsx` удалён (не импортировался).
+- `useAuth` в коде, который грузится тестами под node, брать из `auth/context/AuthContext`, а не из бочки `../auth`
+  (бочка тянет терминал и `xterm.css`) — так починен D01.
+- Характер тем: Оранжевая — Geologica, 10px, тёплое дымчатое стекло; Графит — системный шрифт, 8px, матовый, без теней;
+  Био — General Sans + IBM Plex Mono в чипах, 12px, чёрный с волосяными линиями; Неон — JetBrains Mono, 6px, свечение акцента;
+  Бирюзовая — Outfit, 16px, белый иней; Светлая Claude — системный + засечные заголовки, 10px, бумага и калька.
+
+### Таск 03 — тема на устройстве, карточки тем, строки настроек (сдан)
+
+- `src/contexts/deviceTheme.js`: `readDeviceTheme(storage)` → `string | null`;
+  `resolveAccountTheme({ deviceTheme, accountTheme })` → `{ apply: false } | { apply: true, theme, neonVariant }`.
+  Тема из ответа сервера применяется только при пустом устройстве; убранный id подменяется, незнакомый не применяется.
+- `<ThemePicker theme neonVariant onThemeChange onNeonVariantChange compact? />` (`settings/view/tabs/ThemePicker.tsx`);
+  карточки `data-theme-card` + `data-theme` + `aria-pressed`; ряд вариантов `data-neon-variants`, кнопки `data-neon-variant`.
+- `<SettingsRow layout?: 'stacked' | 'inline' />`: на ширине < `md` элемент управления уходит под текст,
+  `SettingsToggle` остаётся в ряду с текстом. Новые строки настроек делать через `SettingsRow`.
+- Язычок и оверлей быстрых настроек — на `.glass-surface` и `.glass-scrim`.
+
+### Таск 04 — нижняя панель, «Домой», шторка, «Инструменты» (сдан)
+
+- `src/components/bottom-bar/`: `bottomBarModel.ts` — `isBottomBarVisible(input)`, `activeBottomBarItem({isHome, drawerOpen})`,
+  `pickNewChatProject(projects)`, `settingsTabForAttention(count)`, `BOTTOM_BAR_ITEMS`;
+  `<BottomBar isMobile isHome drawerOpen query onQueryChange searchOpen onSearchOpenChange attentionCount onGoHome onOpenProjects onNewChat onOpenSettings />`;
+  метки `data-bottom-bar`, `data-bottom-bar-item`. Низ панели — `bottom-[var(--keyboard-height,0px)]`.
+  Под настройками и экранами-панелями панель остаётся в разметке — её закрывают слои z-9999/10000.
+- `src/components/tools/`: `TOOL_PANELS`, `ToolPanelKey`, `ToolPanelAccess {isOwner, mods}`, `visibleToolPanels(access)`,
+  `canOpenToolPanel(key, access)`, `isToolPanelKey`, `toolPanelFor`, `toolPanelFromQuery(search)`,
+  `toolPanelFromNavigateMessage(data)`, `useToolPanelAccess()`, `<ToolPanelsHost onOpenSettings />`, `<AttentionCount count />`;
+  `HubPanelKey = ToolPanelKey | 'settings'`.
+- Настройки: вкладка `instruments` — `<InstrumentsSettingsTab access attentionCount onOpenPanel />`; `KNOWN_MAIN_TABS` и
+  `normalizeMainTab` теперь в `settings/constants/constants.ts`; «Настройки» со счётчиком открываются сразу на «Инструментах».
+- `SidebarProps`: `onShowSettings(tab?)`, `searchFilter?`, `onSearchFilterChange?`; `drawerOpen` убран.
+  `HomeLauncher`: `navQuery?`, `navSearchActive?`; `onMenuClick` убран. В шапке шторки на телефоне нет своего поиска и «Домой» — они в панели.
+- Удалены `SidebarMenuItems.tsx`, `sidebarMenuState.ts` и их тесты.
+- Разбор экранов бывшего «Меню» для Димы — `menu-review.md` рядом с этим файлом.
+- Осталось таску 05 (его зона `src/index.css`): плотность шторки на телефоне задают правила `[data-theme=…] .app-sidebar`
+  (0,9 в `glass`, 0,92 в `ember`) — они сильнее `.glass-sheet`, сквозь шторку видны силуэты значков «Домой».
+
+### Таск 05 — чат и панели в стекле, общий проход, DESIGN.md (сдан)
+
+- CSS: `.glass-dense` (плотный лист — шторка телефона), `.theme-surface`, `.composer-footer/-tools/-meters/-actions`,
+  `.composer-chip` (`-label`, `-iconic`, `-model`, `-chevron`), `.composer-meter`, `.composer-submit`, `.chat-code-short`;
+  в светлых темах `--icon-tile-base/-ink/-shadow`; `@container composer (max-width: 599px)` — узкая колонка поля ввода.
+  Производные стекла пересчитываются в любом элементе с `data-theme`.
+- `chat/view/subcomponents/composerChips.tsx`: `CHIP_ROUND`, `CHIP_PILL`, `CHIP_ICONIC`, `CHIP_METER`, `CHIP_METER_ICON`,
+  `CHIP_MENU`, `chipMenuItem(selected)`, `WORK_MODE_ICON`, `PERMISSION_MODE_TONE`, `permissionModeTone(mode)`, `<ChipLabel>`, `<WorkModeFace mode label>`.
+- `<MobileCanvasButton onClick>` (`main-content`); `NeonTile`: `data-neon-part`, стиль `--neon-accent`.
+- `DESIGN.md` в корне; итоги общего прохода, снимки, остаток палитры, список для айфона — `final-pass.md` рядом с этим файлом.
+
+### Таск F1 — ремонт по ревью ветки (сдан)
+
+- `deviceTheme.js`: `DEVICE_THEME_ORIGIN_KEY = 'appThemeOrigin'`, `writeDeviceTheme(storage, theme)`, `claimDeviceTheme(storage)`,
+  `takeAccountTheme(storage, accountTheme)`; `readDeviceTheme` отдаёт `null`, пока тему записал сам код, а не человек.
+  Настройки аккаунта перечитываются при смене токена; `<AuthProvider>` теперь выше `<ThemeProvider>` (`src/App.tsx`).
+- CSS: зона нажатия 44 px задана в px в `.glass-button::before`, `.glass-button-primary::before`; новый `.glass-handle` (язычок).
+- Окно «Где мой код» рисуется порталом в `body`.
+- Стенд: файл сессии несёт случайный секрет, новый на каждый `up` (`sessionFileName(key)`, параметр ссылки `key`).
