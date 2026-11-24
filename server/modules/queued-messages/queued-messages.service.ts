@@ -121,6 +121,9 @@ export type QueuedMessagesDependencies = {
   log?: (event: ChatEventName, fields: ChatEventFields) => void;
 };
 
+/** `deferSent` refused: the cell holds another user's message. The error text is for the sender, in plain words. */
+export const QUEUED_MESSAGE_FOREIGN = 'QUEUED_MESSAGE_FOREIGN';
+
 /** Longest text the queue takes (the composer's own messages are far below it). */
 export const QUEUED_CONTENT_MAX = 1_000_000;
 export const QUEUED_IMAGES_MAX = 50;
@@ -394,13 +397,24 @@ export function createQueuedMessagesService(dependencies: QueuedMessagesDependen
      * chat «ждёт тебя». Nothing is sent from here: the gateway has just
      * refused it. Synchronous, like the `chat.send` it stands in for.
      *
-     * The cell already holds a message → nothing is replaced: both texts stay,
-     * the queued one first, with the settings of the newer one. A hold only
-     * the user lifts stays, and the user sends them.
+     * The cell already holds a message of the SAME user → nothing is
+     * replaced: both texts stay, the queued one first, with the settings of
+     * the newer one. A hold only the user lifts stays, and the user sends them.
+     *
+     * The cell holds someone else's message (or one whose owner is unknown) →
+     * refused, `QUEUED_MESSAGE_FOREIGN`, the cell untouched: a queued message
+     * is sent as the user who queued it, with their rights and their sandbox —
+     * glued to the sender's it would leave under the sender's name.
      */
     deferSent(sessionId: string, userId: number | null, input: QueuedPutInput): QueuedMessage {
       const message = readPut(input);
       const existing = db.get(sessionId);
+      if (existing && (existing.userId === null || existing.userId !== userId)) {
+        throw new AppError(
+          'В чате идёт ход, а в очереди уже лежит сообщение другого участника — твоё сообщение не отправлено. Отправь его ещё раз, когда ход закончится.',
+          { statusCode: 409, code: QUEUED_MESSAGE_FOREIGN },
+        );
+      }
       let cell = message;
       if (existing) {
         const images = [...(parseArray(existing.imagesJson) ?? []), ...(parseArray(message.imagesJson) ?? [])];

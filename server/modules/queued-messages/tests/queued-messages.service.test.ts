@@ -631,3 +631,40 @@ test('a limit that lets the run through is not asked a second time by the runtim
     assert.equal((await service.put('chat-2', DIMA, { content: 'проверка упала' })).sent, true);
   }, { withLimit: true });
 });
+
+// Повторное ревью F1: the cell is one per chat, but its message belongs to
+// whoever queued it — it is sent on their behalf, in their sandbox.
+test('a sent message is never glued to another user\'s queued one: the cell stays as it was and leaves as its own user, the sender is refused in plain words', async () => {
+  await withWorld(async (world) => {
+    const SLAVIK = 8;
+    const queued = { content: 'Собери отчёт', options: { permissionMode: 'default' }, images: [{ path: 'slavik.png' }] };
+    await world.service.put('chat-1', SLAVIK, queued);
+    const before = world.service.get('chat-1');
+    const frames = world.changed.length;
+
+    world.live = false;
+    world.phase = 'parked';
+    assert.throws(
+      () => world.service.deferSent('chat-1', DIMA, { content: 'Выкати на прод', options: { permissionMode: 'bypassPermissions' } }),
+      (error: { statusCode?: number; code?: string; message?: string }) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, 'QUEUED_MESSAGE_FOREIGN');
+        assert.match(String(error.message), /сообщение другого участника/);
+        assert.match(String(error.message), /не отправлено/);
+        return true;
+      },
+    );
+    assert.deepEqual(world.service.get('chat-1'), before, 'not a byte of the cell changed');
+    assert.equal(world.changed.length, frames, 'nothing to re-read');
+
+    // The run ends: the teammate's text goes alone, as the teammate, with the teammate's mode.
+    world.phase = null;
+    await world.turn({ state: 'done' });
+    assert.deepEqual(world.sent, [{ sessionId: 'chat-1', userId: SLAVIK, content: queued.content, options: queued.options, images: queued.images }]);
+
+    // A message whose owner is unknown is nobody's to glue to either.
+    queuedMessagesDb.put({ sessionId: 'chat-1', userId: null, content: 'ничьё', optionsJson: null, imagesJson: null, at: '2026-11-23T16:05:00.000Z' });
+    assert.throws(() => world.service.deferSent('chat-1', null, { content: 'тоже ничьё' }), { code: 'QUEUED_MESSAGE_FOREIGN' });
+    assert.equal(world.service.get('chat-1')?.content, 'ничьё');
+  });
+});

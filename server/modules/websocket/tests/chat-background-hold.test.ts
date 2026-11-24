@@ -655,3 +655,37 @@ test('a fenced teammate\'s message is never written into an admin\'s process: th
     assert.equal(queuedMessagesService.get(CHAT), null);
   });
 });
+
+test('an admin\'s sent message is not glued to a teammate\'s queued one: the admin is refused in Russian, the teammate\'s text leaves alone in his own fenced run', async () => {
+  await withWorld(async (fixture) => {
+    const { dima, slavik, dependencies, spawns, runtime, jails } = fixture;
+    jails.set(slavik, { root: '/workspace/hold-run' });
+    const tab = connect(dima, 'admin', dependencies);
+    await tab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Запусти сборку', options: { permissionMode: 'bypassPermissions' } });
+    await queuedMessagesService.put(CHAT, slavik, { content: 'От Славика', options: { permissionMode: 'default' } });
+
+    // The turn parks: the teammate's message may not go into the admin's process, so it waits for its end.
+    endTurnHeld(fixture, 'Сборка идёт в фоне.', [BASH]);
+    await settle();
+    assert.equal(queuedMessagesService.get(CHAT)?.content, 'От Славика');
+    assert.equal(runtime.taken.length, 0);
+
+    // The admin's `chat.send` falls into the same window (the input is already released).
+    runtime.accepting = false;
+    tab.frames.length = 0;
+    await tab.deliver({ type: 'chat.send', sessionId: CHAT, content: 'Выкати на прод', options: { permissionMode: 'bypassPermissions' } });
+    const refusal = tab.frames.find((frame) => frame.kind === 'protocol_error')!;
+    assert.equal(refusal.code, 'RUN_IN_PROGRESS');
+    assert.match(String(refusal.error), /сообщение другого участника/);
+    assert.match(String(refusal.error), /не отправлено/);
+    assert.equal(queuedMessagesService.get(CHAT)?.content, 'От Славика', 'the cell is still his, and only his');
+
+    endRun(fixture);
+    await settle();
+    assert.equal(spawns.length, 2);
+    assert.equal(spawns[1].command.startsWith('От Славика'), true);
+    assert.equal(spawns[1].command.includes('Выкати на прод'), false, 'the admin\'s text did not ride along');
+    assert.deepEqual((spawns[1].options.jail as { root: string }).root, '/workspace/hold-run', 'his sandbox');
+    assert.equal(spawns[1].options.permissionMode, 'default', 'his mode, not the admin\'s full access');
+  });
+});

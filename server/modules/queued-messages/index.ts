@@ -2,6 +2,7 @@ export {
   createQueuedMessagesService,
   QUEUED_CONTENT_MAX,
   QUEUED_IMAGES_MAX,
+  QUEUED_MESSAGE_FOREIGN,
 } from '@/modules/queued-messages/queued-messages.service.js';
 export type {
   QueueAttention,

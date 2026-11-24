@@ -24,7 +24,7 @@ import { beginServiceTurn } from '@/shared/service-turns.js';
 import { isRelayRequestText } from '../../../../shared/relay-rules.js';
 import type { ThreadRunControl } from '@/modules/threads/index.js';
 import type { AgentRunControl } from '@/modules/agents/index.js';
-import { queuedMessagesService, type QueuedSendControl } from '@/modules/queued-messages/index.js';
+import { QUEUED_MESSAGE_FOREIGN, queuedMessagesService, type QueuedSendControl } from '@/modules/queued-messages/index.js';
 import { backgroundConsoleOn, chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { clientIdentities, readSocketUserId } from '@/modules/websocket/services/project-access.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -542,6 +542,12 @@ function startChatSend(
         chatRunRegistry.attachConnection(sessionId, ws);
         return { started: false, code: 'MESSAGE_QUEUED', error: 'Сообщение уйдёт, когда закончится ход.' };
       } catch (error) {
+        // The cell holds another user's message: gluing the two would send
+        // that text under this sender's name and rights. The chat is busy for
+        // him — said in his language, his tab shows the text as it is.
+        if ((error as { code?: unknown } | null)?.code === QUEUED_MESSAGE_FOREIGN && error instanceof Error) {
+          return refuse('RUN_IN_PROGRESS', error.message, sessionId);
+        }
         // Not kept (an empty message, a full cell): the old refusal is the honest answer.
         console.error('[Chat] A sent message could not be kept in the queue', {
           sessionId,
