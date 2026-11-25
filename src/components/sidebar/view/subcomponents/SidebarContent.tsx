@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Activity, Archive, Folder, History, RotateCcw, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -12,6 +12,7 @@ import { getAllSessions } from '../../utils/utils';
 
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
+import SidebarResizeHandle, { useSidebarWidth } from './SidebarResizeHandle';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
 
 type ArchivedSessionGroup = {
@@ -164,12 +165,23 @@ export default function SidebarContent({
   t,
 }: SidebarContentProps) {
   const groupedArchivedSessions = groupArchivedSessionsByProject(archivedSessions);
+  // Ширина на компьютере — тянется за правый край (SidebarResizeHandle);
+  // на телефоне панель — шторка своей ширины, ручки нет.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { width: sidebarWidth, commitWidth } = useSidebarWidth();
 
   return (
     // Размытие даёт обёртка (`.app-sidebar`, на телефоне ещё и лист стекла),
     // здесь его нет. Заливка `bg-background/80` — фон шторки в темах со
     // сплошной панелью («Био»); темы с материалом гасят её сами (index.css).
-    <div className="sidebar-root flex h-full flex-col bg-background/80 md:w-72 md:select-none">
+    <div
+      ref={rootRef}
+      className="sidebar-root relative flex h-full flex-col bg-background/80 md:w-72 md:select-none"
+      style={isMobile ? undefined : { width: sidebarWidth }}
+    >
+      {!isMobile && (
+        <SidebarResizeHandle targetRef={rootRef} width={sidebarWidth} onCommit={commitWidth} />
+      )}
       <SidebarHeader
         isPWA={isPWA}
         isMobile={isMobile}
