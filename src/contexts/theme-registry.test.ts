@@ -175,6 +175,7 @@ describe('реестр тем', () => {
     assert.match(contextSource, /id: 'vortex',\s*label: 'Вихрь'/);
     assert.match(contextSource, /id: 'spark',\s*label: 'Искра'/);
     assert.match(contextSource, /id: 'lightning',\s*label: 'Молния'/);
+    assert.match(contextSource, /id: 'show',\s*label: 'Биткоин-шоу',\s*tall: true/);
     assert.match(contextSource, /VIDEO_THEMES = \['ember'\]/);
     assert.match(contextSource, /LIVE_WALLPAPER_AUTO = 'auto'/);
   });
@@ -507,7 +508,7 @@ describe('стекло: классы и запасные ветки', () => {
   // живёт только в ней. Объявление с var() при разборе валидно всегда, поэтому
   // «запасная строка выше» в одном правиле не работает: побеждает вторая
   // строка, а без color-mix она сбрасывает свойство целиком.
-  const colorMixBranch = glassCss.match(/@supports \(color: color-mix\(in srgb, red, blue\)\)\s*\{([\s\S]*?)\n  \}/);
+  const colorMixBranch = glassCss.match(/@supports \(color: color-mix\(in srgb, red, blue\)\)\s*\{([\s\S]*?)\n {2}\}/);
   /** Раздел стекла без этой ветки: то, что получает браузер без color-mix. */
   const glassBase = colorMixBranch ? glassCss.replace(colorMixBranch[0], '') : glassCss;
   const rulesIn = (css: string) => [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
@@ -693,15 +694,15 @@ describe('стекло: классы и запасные ветки', () => {
 
   it('запасные ветки: «уменьшить прозрачность», нет backdrop-filter, «уменьшить движение»', () => {
     const opaque = /background-color:\s*var\(--glass-fallback-bg\)[^}]*backdrop-filter:\s*none/;
-    const reducedTransparency = glassCss.match(/@media \(prefers-reduced-transparency: reduce\)\s*\{([\s\S]*?)\n  \}/);
+    const reducedTransparency = glassCss.match(/@media \(prefers-reduced-transparency: reduce\)\s*\{([\s\S]*?)\n {2}\}/);
     assert.ok(reducedTransparency, 'нет ветки prefers-reduced-transparency');
     assert.match(reducedTransparency[1], opaque);
     const noBackdrop = glassCss.match(
-      /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)\s*\{([\s\S]*?)\n  \}/
+      /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)\s*\{([\s\S]*?)\n {2}\}/
     );
     assert.ok(noBackdrop, 'нет ветки @supports not (backdrop-filter…)');
     assert.match(noBackdrop[1], /background-color:\s*var\(--glass-fallback-bg\)/);
-    const reducedMotion = glassCss.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n  \}/);
+    const reducedMotion = glassCss.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n {2}\}/);
     assert.ok(reducedMotion, 'нет ветки prefers-reduced-motion');
     assert.match(reducedMotion[1], /transition:\s*none/);
     assert.match(reducedMotion[1], /transform:\s*none/);
@@ -743,7 +744,7 @@ describe('стекло: классы и запасные ветки', () => {
   it('без прозрачности и без backdrop-filter от затемнения остаётся только затемнение', () => {
     const rulesOf = (css: string) => [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
       .map((entry) => ({ selector: entry[1].replace(/\/\*[\s\S]*?\*\//g, '').trim(), body: entry[2] }));
-    const reducedTransparency = glassCss.match(/@media \(prefers-reduced-transparency: reduce\)\s*\{([\s\S]*?)\n  \}/);
+    const reducedTransparency = glassCss.match(/@media \(prefers-reduced-transparency: reduce\)\s*\{([\s\S]*?)\n {2}\}/);
     assert.ok(reducedTransparency, 'нет ветки prefers-reduced-transparency');
     const reduced = rulesOf(reducedTransparency[1]).filter((entry) => /\.glass-scrim(?![a-z-])/.test(entry.selector));
     assert.equal(reduced.length, 1, 'в ветке «уменьшить прозрачность» нет своего правила затемнения');
@@ -753,7 +754,7 @@ describe('стекло: классы и запасные ветки', () => {
     // Браузер без backdrop-filter объявление размытия просто не понимает —
     // остаётся цвет --glass-scrim. Плотный фон листа затемнению не назначается.
     const noBackdrop = glassCss.match(
-      /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)\s*\{([\s\S]*?)\n  \}/
+      /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)\s*\{([\s\S]*?)\n {2}\}/
     );
     assert.ok(noBackdrop, 'нет ветки @supports not (backdrop-filter…)');
     for (const entry of rulesOf(noBackdrop[1])) {
