@@ -222,7 +222,7 @@
     },
     "liveWallpaper": {
       "label": "Background",
-      "description": "Off removes the picture. Auto rotate plays the clips in a loop. Any other item stays as picked",
+      "description": "Off removes the picture. Auto rotate plays the clips in a loop. Any other item stays as picked. The choice is per device: turn it off on the phone, keep it on the computer",
       "off": "Off",
       "auto": "Auto rotate",
       "next": "Next background"

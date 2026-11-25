@@ -5,6 +5,7 @@ import { authenticatedFetch } from '../utils/api';
 import { applyTweaks, hslTripletToHex, parseTweakMap } from '../utils/themeTweaks';
 
 import { claimDeviceTheme, readDeviceTheme, takeAccountTheme, writeDeviceTheme } from './deviceTheme';
+import { deviceOwnsWallpaper, takeAccountWallpaper } from './deviceWallpaper';
 import {
   DEFAULT_NEON_VARIANT,
   NEON_VARIANTS,
@@ -217,6 +218,12 @@ const parseBackgroundMap = (raw) => {
 };
 
 export const ThemeProvider = ({ children }) => {
+  // Фон (вкл/выкл и ролик) свой на каждом устройстве — deviceWallpaper.js.
+  // Решается по localStorage ДО первого рендера: потом провайдер сам пишет `shaderBg`.
+  const wallpaperOwned = useRef(null);
+  if (wallpaperOwned.current === null) {
+    wallpaperOwned.current = deviceOwnsWallpaper(localStorage);
+  }
   // Показывать ли фон вообще (opt-out). Историческое имя ключа `shaderBg`
   // осталось с тех пор, когда фон был только WebGL-шейдером — не переименовано,
   // чтобы у существующих пользователей не сбросился их выбор.
@@ -309,15 +316,25 @@ export const ThemeProvider = ({ children }) => {
             setNeonVariantRaw(fromAccount.neonVariant);
           }
         }
-        if (typeof savedShaderEnabled === 'boolean') {
+        // Фон аккаунта — только новому устройству: выключатель на айфоне
+        // не гасит фон на Windows и наоборот.
+        const backgrounds = parseBackgroundMap(savedBackgrounds);
+        const wallpaper = takeAccountWallpaper({
+          deviceOwned: wallpaperOwned.current,
+          accountEnabled: savedShaderEnabled,
+          accountBackgrounds: backgrounds,
+        });
+        if (wallpaper.applyEnabled) {
           setShaderEnabledRaw(savedShaderEnabled);
+        }
+        if (wallpaper.applyBackgrounds) {
+          setThemeBackgroundsRaw(backgrounds);
+        }
+        if (wallpaper.applyEnabled || wallpaper.applyBackgrounds) {
+          wallpaperOwned.current = true;
         }
         if (UI_SCALES.includes(Number(savedUiScale))) {
           setUiScaleRaw(Number(savedUiScale));
-        }
-        const backgrounds = parseBackgroundMap(savedBackgrounds);
-        if (Object.keys(backgrounds).length > 0) {
-          setThemeBackgroundsRaw(backgrounds);
         }
         const tweaks = parseTweakMap(data.preferences.themeTweaks, THEMES);
         if (Object.keys(tweaks).length > 0) {
@@ -432,12 +449,10 @@ export const ThemeProvider = ({ children }) => {
     // же причине: вариант меняет акцент, а с ним и цвет хрома окна.
   }, [theme, themeTweaks, neonVariant]);
 
-  // Fire-and-forget: push the new value to the account so every other
-  // device (phone, another browser) picks it up on its next load. Local
-  // state/localStorage already made the change feel instant on this device;
-  // a failed sync just means other devices stay on the old value until it
-  // succeeds again, never blocks or reverts this one.
+  // Выбор фона — этого устройства. В аккаунт он уходит только как стартовое
+  // значение для нового устройства; другие устройства его не перечитывают.
   const setShaderEnabled = (next) => {
+    wallpaperOwned.current = true;
     setShaderEnabledRaw(next);
     authenticatedFetch('/api/settings/ui-preferences', {
       method: 'PUT',
@@ -525,6 +540,7 @@ export const ThemeProvider = ({ children }) => {
   };
 
   const setThemeBackground = (themeKey, variantId) => {
+    wallpaperOwned.current = true;
     const next = { ...themeBackgrounds, [themeKey]: variantId };
     setThemeBackgroundsRaw(next);
     persistBackgrounds(next);
