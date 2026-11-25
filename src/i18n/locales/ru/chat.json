@@ -122,12 +122,12 @@
     "send": "Отправить",
     "stop": "Остановить",
     "hintText": {
-      "ctrlEnter": "Ctrl+Enter для отправки • Shift+Enter для новой строки • Tab для смены режима • / для команд",
-      "enter": "Enter для отправки • Shift+Enter для новой строки • Tab для смены режима • / для команд",
+      "ctrlEnter": "Ctrl+Enter для отправки • Shift+Enter для новой строки • Shift+Tab для смены режима • / для команд",
+      "enter": "Enter для отправки • Shift+Enter для новой строки • Shift+Tab для смены режима • / для команд",
       "queue": "Enter — поставить следующее сообщение в очередь",
       "updateQueued": "Enter — обновить сообщение в очереди"
     },
-    "clickToChangeMode": "Нажмите для смены режима разрешений (или нажмите Tab в поле ввода)",
+    "clickToChangeMode": "Нажмите для смены режима разрешений (или нажмите Shift+Tab в поле ввода)",
     "showAllCommands": "Показать все команды",
     "clearInput": "Очистить ввод",
     "scrollToBottom": "Прокрутить вниз",

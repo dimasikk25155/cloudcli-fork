@@ -1580,9 +1580,14 @@ export function useChatComposerState({
         return;
       }
 
+      // Режим разрешений — только Shift+Tab, как в Claude Code CLI. Голый Tab
+      // менял режим случайно (Дима, 25.11); теперь он просто ничего не делает
+      // и не уводит фокус из поля ввода.
       if (event.key === 'Tab' && !showFileDropdown && !showCommandMenu) {
         event.preventDefault();
-        cyclePermissionMode();
+        if (event.shiftKey) {
+          cyclePermissionMode();
+        }
         return;
       }
 
