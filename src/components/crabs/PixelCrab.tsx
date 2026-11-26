@@ -4,12 +4,23 @@ import { cn } from '../../lib/utils';
 
 import { CRAB_TINT_COLOR, type CrabState, type CrabTint } from './crabModel';
 
-// 16×12 sprite: claws, eye stalks, shell; two leg frames swap while it runs.
+// 16×12 sprite: claws, eye stalks, shell; two leg frames swap while it runs,
+// and the claws snap open/shut in turn — it scuttles sideways, clacking.
+const CLAW_OPEN_L = ['.XX.', 'X..X', 'X.XX', '.XX.'];
+const CLAW_SHUT_L = ['....', '.XX.', 'XXXX', '.XX.'];
+const CLAW_OPEN_R = CLAW_OPEN_L.map((row) => [...row].reverse().join(''));
+const CLAW_SHUT_R = CLAW_SHUT_L.map((row) => [...row].reverse().join(''));
+
+/** Claws in a full-width 16-column grid: left claw at x 0–3, right at x 12–15. */
+function claws(left: string[], right: string[]): string[] {
+  return left.map((row, y) => `${row}........${right[y]}`);
+}
+
 const BODY = [
-  '.XX..........XX.',
-  'X..X........X..X',
-  'X.XX........XX.X',
-  '.XX..........XX.',
+  '................',
+  '................',
+  '................',
+  '................',
   '..X..X....X..X..',
   '...XXXXXXXXXX...',
   '..XXXXXXXXXXXX..',
@@ -34,6 +45,10 @@ function pixels(rows: string[], top = 0): string {
 const BODY_PATH = pixels(BODY);
 const LEGS_A_PATH = pixels(LEGS_A, BODY.length);
 const LEGS_B_PATH = pixels(LEGS_B, BODY.length);
+const CLAWS_OPEN_PATH = pixels(claws(CLAW_OPEN_L, CLAW_OPEN_R));
+// Snap frames: one claw open while the other is shut, then the other way round.
+const CLAWS_SNAP_A_PATH = pixels(claws(CLAW_OPEN_L, CLAW_SHUT_R));
+const CLAWS_SNAP_B_PATH = pixels(claws(CLAW_SHUT_L, CLAW_OPEN_R));
 
 const BADGE: Record<Exclude<CrabState, 'running'>, string> = {
   done: '✓',
@@ -51,7 +66,7 @@ type PixelCrabProps = {
   className?: string;
 };
 
-/** A pixel crab: scuttles while working, comes back with a tick. */
+/** A pixel crab: scuttles sideways clacking its claws while working, comes back with a tick. */
 export default function PixelCrab({ tint, state, holding, scale = 2, className }: PixelCrabProps) {
   const width = 16 * scale;
   const height = 12 * scale;
@@ -70,6 +85,14 @@ export default function PixelCrab({ tint, state, holding, scale = 2, className }
         shapeRendering="crispEdges"
       >
         <path d={BODY_PATH} fill="currentColor" />
+        {running ? (
+          <>
+            <path className="crab-claws-a" d={CLAWS_SNAP_A_PATH} fill="currentColor" />
+            <path className="crab-claws-b" d={CLAWS_SNAP_B_PATH} fill="currentColor" />
+          </>
+        ) : (
+          <path d={CLAWS_OPEN_PATH} fill="currentColor" />
+        )}
         <path className={running ? 'crab-legs-a' : undefined} d={LEGS_A_PATH} fill="currentColor" />
         {running && <path className="crab-legs-b" d={LEGS_B_PATH} fill="currentColor" />}
         {EYES.map(([x, y]) => (

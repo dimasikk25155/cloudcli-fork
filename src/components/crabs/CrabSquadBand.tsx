@@ -83,7 +83,7 @@ function CrabSquad({ chatMessages, sessionId, isRunActive }: CrabSquadBandProps)
         <ul className="flex flex-wrap gap-x-3 gap-y-2 pb-1 pt-2">
           {squad.map((crab) => (
             <li key={crab.id} className="flex w-[84px] flex-shrink-0 flex-col items-center gap-1 text-center">
-              <span className={crab.state === 'running' ? 'crab-wander inline-flex pt-2' : 'inline-flex pt-2'}>
+              <span className={crab.state === 'running' ? 'crab-wander inline-flex pt-2 [--crab-dash:14px]' : 'inline-flex pt-2'}>
                 <PixelCrab tint={crab.tint} state={crab.state} holding={crab.activity?.icon} scale={3} />
               </span>
               <span className="line-clamp-2 w-full break-words text-[11px] font-medium leading-tight text-foreground">{crab.title}</span>
