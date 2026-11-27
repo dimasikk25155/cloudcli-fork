@@ -89,7 +89,7 @@ export const THEME_BACKGROUNDS = {
     { id: 'vortex', label: 'Вихрь', tall: true },
     { id: 'spark', label: 'Искра', tall: true },
     { id: 'lightning', label: 'Молния', tall: true },
-    // 2 минуты: неподвижная монета, вокруг сменяются 9 эффектов, склейка без шва.
+    // ~2 минуты: неподвижный знак ₿ без круга, вокруг сменяются 10 эффектов, склейка без шва.
     // Генератор — scripts/theme-bg/btc_show.py.
     { id: 'show', label: 'Биткоин-шоу', tall: true },
   ],

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Живые обои «Биткоин-шоу» для темы «Оранжевая».
 
-Монета ₿ в центре — один неподвижный слой, одинаковый во всех кадрах. Вокруг неё
-по очереди сменяются эффекты (вихрь, салют, молнии, пульс, протуберанцы,
-гиперпрыжок, орбиты, блокчейн-сеть, пламя), соседние сцены плавно перетекают.
+Знак ₿ в центре — один неподвижный слой, одинаковый во всех кадрах: литой
+металлический знак без круга-монеты (Дима 27.11: «не нравится, что она в круге»).
+Вокруг по очереди сменяются эффекты (вихрь, салют, молнии, график, пульс,
+протуберанцы, монетный дождь, блокчейн-сеть, хэш-дождь, пламя), соседние сцены
+плавно перетекают. Гиперпрыжок и орбиты убраны 27.11 — не понравились.
 
 Кадр — чистая функция времени: рендер идёт параллельно, а длина ролика кратна
 периоду фона, поэтому последний кадр стыкуется с первым без шва.
@@ -11,6 +13,7 @@
   python3 btc_show.py --size 1920x1080 --out ember-show.mp4
   python3 btc_show.py --size 1080x1920 --out ember-show-tall.mp4
   python3 btc_show.py --size 1920x1080 --sheet 3,16,29 --out sheet.jpg   # контрольные кадры
+  --font <путь к ttf с ₿> — на Windows (по умолчанию SF Pro мака)
 """
 import argparse
 import math
@@ -26,13 +29,14 @@ from PIL import Image, ImageDraw, ImageFont
 FPS = 24
 SLOT = 13.0  # длительность сцены без перехода, с
 XF = 2.5  # перекрытие соседних сцен, с
-FONT = "/System/Library/Fonts/SFNS.ttf"
+FONT = os.environ.get("BTC_SHOW_FONT", "/System/Library/Fonts/SFNS.ttf")
 
 ORANGE = np.array([1.0, 0.42, 0.08], np.float32)
 GOLD = np.array([1.0, 0.62, 0.20], np.float32)
 HOT = np.array([1.0, 0.80, 0.52], np.float32)
 RED = np.array([1.0, 0.24, 0.04], np.float32)
 EMBER = np.array([0.85, 0.16, 0.02], np.float32)
+WHITE = np.array([1.0, 0.94, 0.84], np.float32)
 
 
 def smooth(e0, e1, x):
@@ -55,6 +59,49 @@ class Ctx:
         # растяжка вдоль длинной стороны кадра: сеть и орбиты занимают весь экран
         self.ex = math.sqrt(W / m)
         self.ey = math.sqrt(H / m)
+
+
+def glyph_mask(ctx):
+    """Маска знака ₿ (0..1) во весь кадр; считается один раз на процесс."""
+    if getattr(ctx, "_glyph", None) is not None:
+        return ctx._glyph
+    W, H, R = ctx.W, ctx.H, ctx.R
+    ss = 4
+    font = ImageFont.truetype(FONT, int(R * 1.95 * ss))
+    try:
+        font.set_variation_by_name(b"Bold")
+    except Exception:
+        pass  # шрифт без осей (Segoe UI Bold на Windows) — уже жирный
+    box = font.getbbox("₿")
+    gw, gh = box[2] - box[0], box[3] - box[1]
+    img = Image.new("L", (W * ss, H * ss), 0)
+    ImageDraw.Draw(img).text((ctx.cx * ss - gw / 2 - box[0], ctx.cy * ss - gh / 2 - box[1]), "₿", font=font, fill=255)
+    img = img.rotate(-12, resample=Image.BICUBIC, center=(ctx.cx * ss, ctx.cy * ss))
+    ctx._glyph = np.asarray(img.resize((W, H), Image.LANCZOS), np.float32) / 255.0
+    return ctx._glyph
+
+
+def glyph_contours(ctx):
+    """Контуры знака: список (точки Nx2, наружные нормали Nx2) — по ним бегут разряды."""
+    if getattr(ctx, "_contours", None) is not None:
+        return ctx._contours
+    m8 = (glyph_mask(ctx) > 0.5).astype(np.uint8)
+    cs, _ = cv2.findContours(m8, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    out = []
+    for c in cs:
+        P = c[:, 0, :].astype(np.float64)
+        if len(P) < 60:
+            continue
+        d = np.roll(P, -3, 0) - np.roll(P, 3, 0)
+        n = np.stack([d[:, 1], -d[:, 0]], 1)
+        n /= np.linalg.norm(n, axis=1, keepdims=True) + 1e-9
+        # нормаль должна смотреть из знака наружу: проверяем по маске
+        probe = np.clip(np.round(P + n * 4), 0, [ctx.W - 1, ctx.H - 1]).astype(np.int64)
+        if m8[probe[:, 1], probe[:, 0]].mean() > 0.5:
+            n = -n
+        out.append((P, n))
+    ctx._contours = out
+    return out
 
 
 class Canvas:
@@ -363,82 +410,148 @@ def bolt_path(rng, p0, p1, levels, rough):
 
 
 class Lightning(Scene):
-    gain = 2.0
+    """Гроза: разряды из ауры знака во все стороны, удары с краёв экрана прямо
+    в знак со вспышкой на весь кадр, ток бегает по контуру ₿.
+    27.11 усилено по просьбе Димы («молнии можно посильнее»)."""
+
+    gain = 2.4
     name = "lightning"
 
     def __init__(self, ctx, seed):
         super().__init__(ctx, seed)
         r = self.rng
         c = ctx
+        self.contours = glyph_contours(ctx)
         self.bolts = []
         t = 0.2
         while t < self.dur() - 0.6:
-            group = 3 if r.random() < 0.12 else 1
+            group = int(r.choice([1, 2, 3], p=[0.7, 0.18, 0.12]))
             for _ in range(group):
                 a = r.uniform(0, 2 * np.pi)
-                p0 = (c.cx + np.cos(a) * c.R * 1.02, c.cy + np.sin(a) * c.R * 1.02)
+                p0 = (c.cx + np.cos(a) * c.R * 1.0, c.cy + np.sin(a) * c.R * 1.0)
                 a2 = a + r.normal(0, 0.35)
-                dist = r.uniform(0.75, 1.15) * c.Rmax
+                dist = r.uniform(0.9, 1.4) * c.Rmax
                 p1 = (c.cx + np.cos(a2) * dist, c.cy + np.sin(a2) * dist)
-                main = bolt_path(r, p0, p1, 8, 0.16)
-                segs = [(main, 1.0)]
-                for _ in range(int(r.integers(2, 6))):
-                    i0 = int(r.integers(len(main) // 6, len(main) * 3 // 4))
-                    q0 = main[i0]
-                    d = main[min(i0 + 8, len(main) - 1)] - q0
-                    ang = math.atan2(d[1], d[0]) + r.choice([-1, 1]) * r.uniform(0.35, 0.9)
-                    ln = r.uniform(0.15, 0.4) * dist
-                    br = bolt_path(r, q0, (q0[0] + math.cos(ang) * ln, q0[1] + math.sin(ang) * ln), 6, 0.18)
-                    segs.append((br, 0.45))
-                    if r.random() < 0.5:
-                        j0 = int(r.integers(len(br) // 4, len(br) * 3 // 4))
-                        ang2 = ang + r.choice([-1, 1]) * r.uniform(0.3, 0.8)
-                        ln2 = ln * r.uniform(0.3, 0.55)
-                        q1 = br[j0]
-                        segs.append((bolt_path(r, q1, (q1[0] + math.cos(ang2) * ln2, q1[1] + math.sin(ang2) * ln2), 5, 0.2), 0.25))
-                restr = [(0.0, 1.0)] + [(r.uniform(0.07, 0.3), r.uniform(0.5, 0.9)) for _ in range(int(r.integers(1, 3)))]
-                self.bolts.append((t + r.uniform(0, 0.05), segs, restr, p0))
-            t += r.uniform(0.1, 0.28) * (2.0 if group > 1 else 1.0)
+                self.bolts.append((t + r.uniform(0, 0.05), self._tree(r, p0, p1, dist), self._restrikes(r), p0, 1.0))
+            t += r.uniform(0.12, 0.3) * (1.8 if group > 1 else 1.0)
+        # удары с края экрана в знак: редкие, толстые, со вспышкой
+        self.strikes = []
+        t = 0.9
+        while t < self.dur() - 0.8:
+            side = r.choice(4, p=[0.55, 0.15, 0.15, 0.15])
+            if side == 0:
+                p0 = (r.uniform(0.1, 0.9) * c.W, -20.0)
+            elif side == 1:
+                p0 = (r.uniform(0.1, 0.9) * c.W, c.H + 20.0)
+            elif side == 2:
+                p0 = (-20.0, r.uniform(0.1, 0.9) * c.H)
+            else:
+                p0 = (c.W + 20.0, r.uniform(0.1, 0.9) * c.H)
+            # точка удара — на контуре знака, на стороне, смотрящей к источнику
+            best = None
+            for P, n in self.contours:
+                d = np.hypot(P[:, 0] - p0[0], P[:, 1] - p0[1])
+                i = int(np.argmin(d))
+                if best is None or d[i] < best[0]:
+                    best = (d[i], P[i] + n[i] * 2.0)
+            p1 = tuple(best[1])
+            dist = float(best[0])
+            self.strikes.append((t, self._tree(r, p0, p1, dist, main_k=1.6, branches=(4, 8)), self._restrikes(r, 3), p1, p0))
+            t += r.uniform(0.9, 1.7)
+
+    @staticmethod
+    def _restrikes(r, n_max=2):
+        return [(0.0, 1.0)] + [(r.uniform(0.07, 0.32), r.uniform(0.5, 0.95)) for _ in range(int(r.integers(1, n_max + 1)))]
+
+    @staticmethod
+    def _tree(r, p0, p1, dist, main_k=1.0, branches=(3, 7)):
+        main = bolt_path(r, p0, p1, 8, 0.15)
+        segs = [(main, main_k)]
+        for _ in range(int(r.integers(*branches))):
+            i0 = int(r.integers(len(main) // 8, len(main) * 3 // 4))
+            q0 = main[i0]
+            d = main[min(i0 + 8, len(main) - 1)] - q0
+            ang = math.atan2(d[1], d[0]) + r.choice([-1, 1]) * r.uniform(0.3, 0.9)
+            ln = r.uniform(0.15, 0.45) * dist
+            br = bolt_path(r, q0, (q0[0] + math.cos(ang) * ln, q0[1] + math.sin(ang) * ln), 6, 0.18)
+            segs.append((br, 0.45 * main_k))
+            for _ in range(int(r.integers(0, 3))):
+                j0 = int(r.integers(len(br) // 4, len(br) * 3 // 4))
+                ang2 = ang + r.choice([-1, 1]) * r.uniform(0.3, 0.8)
+                ln2 = ln * r.uniform(0.3, 0.6)
+                q1 = br[j0]
+                segs.append((bolt_path(r, q1, (q1[0] + math.cos(ang2) * ln2, q1[1] + math.sin(ang2) * ln2), 5, 0.2), 0.22 * main_k))
+        return segs
 
     @staticmethod
     def _intensity(tau, restr):
-        if tau < 0 or tau > 0.6:
+        if tau < 0 or tau > 0.7:
             return 0.0
         return sum(k * math.exp(-(tau - t0) / 0.07) for t0, k in restr if tau >= t0)
 
+    def _draw(self, cv, segs, I, amp):
+        for P, k in segs:
+            w = amp * I * k
+            cv.poly(P, w * 3.2, WHITE, step=0.6)
+            cv.glow(P[::3, 0], P[::3, 1], w * 9.0, ORANGE)
+            if k >= 1.0:
+                for off, kk, col in ((1.3, 1.8, HOT), (2.6, 0.9, GOLD)):
+                    cv.poly(P + off, w * kk, col, step=0.8)
+                    cv.poly(P - off, w * kk, col, step=0.8)
+
     def render(self, cv, t, amp):
         c = self.ctx
-        for t0, segs, restr, p0 in self.bolts:
+        for t0, segs, restr, p0, _ in self.bolts:
             I = self._intensity(t - t0, restr)
             if I < 0.02:
                 continue
-            for P, k in segs:
-                cv.poly(P, amp * I * k * 3.0, HOT, step=0.6)
-                cv.glow(P[::3, 0], P[::3, 1], amp * I * k * 6.0, ORANGE)
-                if k == 1.0:
-                    cv.poly(P + 1.2, amp * I * 1.4, GOLD, step=0.8)
-                    cv.poly(P - 1.2, amp * I * 1.4, GOLD, step=0.8)
+            self._draw(cv, segs, I, amp)
             cv.glow(p0[0], p0[1], amp * I * 30, GOLD)
-            cv.glow(c.cx, c.cy, amp * I * 25, ORANGE)
-        # потрескивание по кромке монеты
-        win = math.floor(t / 0.07)
+        flash = 0.0
+        for t0, segs, restr, p1, p0 in self.strikes:
+            I = self._intensity(t - t0, restr)
+            if I < 0.02:
+                continue
+            self._draw(cv, segs, I, amp)
+            cv.glow(p0[0], p0[1], amp * I * 60, HOT)
+            flash += I
+        if flash > 0:
+            # вспышка на весь кадр: небо озаряется, ярче у источника
+            h, w = 18, 32
+            F = np.full((h, w, 3), 1.0, np.float32) * (0.10 * min(flash, 2.0) * amp / self.gain)
+            cv.field(F * HOT[None, None, :])
+
+    def render_front(self, cv, t, amp):
+        """Поверх знака: ток бежит по контуру ₿, удар зажигает точку касания."""
+        c = self.ctx
+        win = math.floor(t / 0.06)
         rr = np.random.default_rng(10_000 + win)
-        for _ in range(6):
-            a = rr.uniform(0, 2 * np.pi)
-            da = rr.uniform(0.25, 0.6)
-            angs = np.linspace(a, a + da, 9)
-            rad = c.R * (1.03 + 0.08 * np.sin(np.linspace(0, np.pi, 9)) * rr.uniform(0.5, 1.5))
-            pts = np.stack([c.cx + rad * np.cos(angs), c.cy + rad * np.sin(angs)], 1)
-            P = bolt_path(rr, pts[0], pts[-1], 4, 0.12)
-            bend = np.interp(np.linspace(0, 1, len(P)), np.linspace(0, 1, 9), rad / c.R - 1.0)
-            dirs = P - [c.cx, c.cy]
-            dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
-            P = P + dirs * bend[:, None] * c.R
-            cv.poly(P, amp * 0.9, GOLD, step=0.7)
+        charge = 0.0
+        for t0, segs, restr, p1, p0 in self.strikes:
+            tau = t - t0
+            if -0.5 < tau < 0:
+                charge = max(charge, 1 + tau / 0.5)
+            I = self._intensity(tau, restr)
+            if I > 0.02:
+                charge = max(charge, 1.0)
+                cv.glow(p1[0], p1[1], amp * I * 90, WHITE)
+                cv.glow(p1[0], p1[1], amp * I * 160, GOLD)
+        n_arcs = 4 + int(6 * charge)
+        for _ in range(n_arcs):
+            P, nrm = self.contours[int(rr.integers(0, len(self.contours)))]
+            L = int(rr.integers(30, min(160, len(P))))
+            i0 = int(rr.integers(0, len(P)))
+            idx = (i0 + np.arange(0, L, 3)) % len(P)
+            prof = np.sin(np.linspace(0, np.pi, len(idx)))
+            off = (2.0 + 9.0 * prof * rr.uniform(0.4, 1.3)) * c.s + rr.normal(0, 1.6 * c.s, len(idx))
+            Q = P[idx] + nrm[idx] * off[:, None]
+            cv.poly(Q, amp * (0.7 + 0.6 * charge), HOT, step=0.6)
+            cv.glow(Q[::4, 0], Q[::4, 1], amp * (1.2 + charge), GOLD)
 
     def halo(self, t):
-        I = sum(self._intensity(t - t0, restr) for t0, _, restr, _ in self.bolts)
-        return 1.0 + 0.35 * min(I, 2.0)
+        I = sum(self._intensity(t - t0, restr) for t0, _, restr, _, _ in self.bolts)
+        I += 2 * sum(self._intensity(t - t0, restr) for t0, _, restr, _, _ in self.strikes)
+        return 1.0 + 0.4 * min(I, 2.5)
 
 
 class Heartbeat(Scene):
@@ -581,104 +694,6 @@ class Plasma(Scene):
 
     def halo(self, t):
         return 1.12
-
-
-class Warp(Scene):
-    gain = 1.5
-    name = "warp"
-
-    def __init__(self, ctx, seed):
-        super().__init__(ctx, seed)
-        r = self.rng
-        self.N = 1900
-        self.phi = r.uniform(0, 2 * np.pi, self.N)
-        self.z0 = r.random(self.N)
-        self.br = r.uniform(0.4, 1.0, self.N)
-        self.hot = r.random(self.N) < 0.25
-        dt = 1 / 480
-        self.grid = np.arange(0, self.dur() + 1, dt)
-        v = 0.10 + 0.55 * np.sin(np.pi * np.clip(self.grid / self.dur(), 0, 1)) ** 2
-        self.P = np.cumsum(v) * dt
-        self.v = v
-
-    def _r(self, p):
-        c = self.ctx
-        zmin = 0.035
-        z = 1 - (p % 1.0) * (1 - zmin)
-        F = (c.Rmax * 1.25 - c.R) / (1 / zmin - 1)
-        return c.R * 1.05 + F * (1 / z - 1)
-
-    def render(self, cv, t, amp):
-        c = self.ctx
-        P = np.interp(t, self.grid, self.P)
-        v = np.interp(t, self.grid, self.v)
-        pb = self.z0 + P
-        pa = pb - v * 0.045
-        ok = np.floor(pa) == np.floor(pb)
-        ra, rb = self._r(pa), self._r(pb)
-        cos, sin = np.cos(self.phi), np.sin(self.phi)
-        prog = pb % 1.0
-        w = amp * self.br * (0.15 + 1.1 * prog ** 2) * ok
-        col = np.where(self.hot[:, None], HOT, ORANGE)
-        cv.segs(c.cx + ra * cos, c.cy + ra * sin, c.cx + rb * cos, c.cy + rb * sin, w * 0.8, col, step=1.0)
-        cv.pts(c.cx + rb * cos, c.cy + rb * sin, w * 0.8, HOT)
-        # тоннель: кольца уходят от монеты наружу
-        for k in range(6):
-            p = (k / 6 + P * 0.7) % 1.0
-            rr = self._r(p * 0.93)
-            n = int(2 * np.pi * rr / 2.0)
-            th = np.linspace(0, 2 * np.pi, n, endpoint=False)
-            cv.pts(c.cx + rr * np.cos(th), c.cy + rr * np.sin(th), amp * 0.5 * p * (1 - p) * v, ORANGE)
-
-    def halo(self, t):
-        return 1.0 + 0.4 * float(np.interp(t, self.grid, self.v))
-
-
-class Orbits(Scene):
-    gain = 2.8
-    name = "orbits"
-
-    def __init__(self, ctx, seed):
-        super().__init__(ctx, seed)
-        r = self.rng
-        c = ctx
-        self.orbits = []
-        for i, k in enumerate((1.55, 2.05, 2.65, 3.3)):
-            a = c.R * k * c.ex
-            self.orbits.append(dict(a=a, b=a * r.uniform(0.26, 0.42), psi=r.uniform(0, np.pi), w=1.5 * (1.55 / k) ** 1.5 * r.choice([-1, 1]),
-                                    th0=r.uniform(0, 2 * np.pi), col=HOT if i % 2 else GOLD))
-        self.dust = r.normal(0, 1, (2, 400))
-
-    def _pos(self, O, th):
-        c = self.ctx
-        x, y = O["a"] * np.cos(th), O["b"] * np.sin(th)
-        cp, sp = math.cos(O["psi"]), math.sin(O["psi"])
-        return c.cx + x * cp - y * sp, c.cy + x * sp + y * cp, np.sin(th)
-
-    def render(self, cv, t, amp):
-        th_all = np.linspace(0, 2 * np.pi, 900)
-        for O in self.orbits:
-            x, y, z = self._pos(O, th_all)
-            shimmer = 0.5 + 0.5 * np.cos(th_all * 3 - t * 1.3)
-            cv.poly(np.stack([x, y], 1), amp * 0.06 * (0.6 + 0.4 * z) * shimmer, ORANGE)
-            for k in (0, 2 * np.pi / 3, 4 * np.pi / 3):
-                lags = np.linspace(0, 1.5, 110)
-                th = O["th0"] + k + O["w"] * (t - lags)
-                x, y, z = self._pos(O, th)
-                depth = 0.6 + 0.4 * (z[0] > 0)
-                wt = amp * depth * (1 - lags / 1.5) ** 1.6 * 1.4
-                cv.poly(np.stack([x, y], 1), wt, O["col"])
-                cv.glow(x[0], y[0], amp * depth * 12, O["col"])
-                cv.pts(x[0], y[0], amp * depth * 6, HOT)
-                # пыль, которую комета роняет за собой
-                ages = np.arange(0, 1.2, 0.006)
-                te = np.floor((t - ages) / 0.006) * 0.006
-                age = t - te
-                idx = (np.floor(te / 0.006).astype(np.int64) * 7 + int(k * 3)) % 400
-                xe, ye, _ = self._pos(O, O["th0"] + k + O["w"] * te)
-                xe = xe + self.dust[0, idx] * 30 * age * self.ctx.s
-                ye = ye + self.dust[1, idx] * 30 * age * self.ctx.s + 12 * age ** 2 * self.ctx.s
-                cv.pts(xe, ye, amp * 0.45 * (1 - age / 1.2) ** 2, GOLD)
 
 
 class Network(Scene):
@@ -869,59 +884,312 @@ class Flame(Scene):
         return 1.15 + 0.08 * math.sin(t * 7.0) * math.sin(t * 2.3)
 
 
-SCENES = [Vortex, Fireworks, Lightning, Heartbeat, Plasma, Warp, Orbits, Network, Flame]
+class Candles(Scene):
+    """График: свечи бегут справа налево и ползут вверх, «к луне»."""
+
+    gain = 3.2
+    name = "candles"
+
+    def __init__(self, ctx, seed):
+        super().__init__(ctx, seed)
+        r = self.rng
+        c = ctx
+        self.sp = 40 * c.s
+        self.speed = 1.4  # свечей в секунду
+        self.pre = int(c.W / self.sp) + 6
+        n = self.pre + int(self.dur() * self.speed) + 6
+        steps = r.normal(0.34, 1.0, n)
+        # редкие «пампы» — длинная бычья свеча
+        pump = r.random(n) < 0.06
+        steps[pump] += r.uniform(2.0, 3.5, pump.sum())
+        close = np.cumsum(steps)
+        opn = np.concatenate([[0.0], close[:-1]])
+        self.o, self.c = opn, close
+        self.hi = np.maximum(opn, close) + np.abs(r.normal(0, 0.55, n))
+        self.lo = np.minimum(opn, close) - np.abs(r.normal(0, 0.55, n))
+        k = 14
+        pad = np.concatenate([np.full(k, close[0]), close])
+        self.ref = np.convolve(pad, np.ones(k) / k, mode="valid")[:n]
+        self.unit = 26 * c.s
+        self.xh = c.W * 0.86
+        self.base = c.cy - 0.02 * c.H
+        self.wig = r.uniform(0, 6.28, n)
+
+    def render(self, cv, t, amp):
+        c = self.ctx
+        h = self.pre + t * self.speed
+        hi_i = int(math.floor(h))
+        f = h - hi_i
+        yref = float(np.interp(h - 4, np.arange(len(self.ref)), self.ref))
+
+        def Y(p):
+            return self.base - (np.asarray(p) - yref) * self.unit
+
+        # сетка: горизонтали уезжают вниз — значит, цена растёт
+        g0 = math.floor((yref - 30) / 4) * 4
+        for g in np.arange(g0, g0 + 64, 4):
+            y = float(Y(g))
+            if -10 < y < c.H + 10:
+                cv.segs([0.0], [y], [c.W], [y], amp * 0.035, ORANGE, step=2.0)
+        for k in range(hi_i - 80, hi_i + 2):
+            if k % 6 == 0:
+                x = self.xh - (h - k) * self.sp
+                if 0 < x < c.W:
+                    cv.segs([x], [0.0], [x], [c.H], amp * 0.03, ORANGE, step=2.0)
+        lo_i = max(0, int(h - c.W / self.sp) - 2)
+        idx = np.arange(lo_i, hi_i + 1)
+        o = self.o[idx].copy()
+        cl = self.c[idx].copy()
+        hh = self.hi[idx].copy()
+        ll = self.lo[idx].copy()
+        # текущая свеча ещё формируется
+        live = o[-1] + (cl[-1] - o[-1]) * f + 0.5 * math.sin(9 * t + self.wig[hi_i]) * (1 - f)
+        cl[-1] = live
+        hh[-1] = max(o[-1], live) + (hh[-1] - max(o[-1], self.c[hi_i])) * f
+        ll[-1] = min(o[-1], live) - (min(o[-1], self.c[hi_i]) - ll[-1]) * f
+        x = self.xh - (h - idx - 0.5) * self.sp
+        x[-1] = self.xh - 0.5 * self.sp * (1 - f) + 0.5 * self.sp * f - 0.5 * self.sp
+        fade = smooth(0, c.W * 0.3, x) * amp
+        bull = cl >= o
+        col = np.where(bull[:, None], GOLD, RED)
+        kb = np.where(bull, 1.0, 0.55)
+        yo, yc, yh, yl = Y(o), Y(cl), Y(hh), Y(ll)
+        cv.segs(x, yh, x, yl, fade * kb * 0.45, col, step=0.8)
+        bw = 0.3 * self.sp
+        top, bot = np.minimum(yo, yc), np.maximum(yo, yc) + 1.0
+        for dx in np.linspace(-bw, bw, 7):
+            cv.segs(x + dx, top, x + dx, bot, fade * kb * 0.22, col, step=0.8)
+        for x0, y0, x1, y1 in ((x - bw, top, x + bw, top), (x + bw, top, x + bw, bot),
+                               (x + bw, bot, x - bw, bot), (x - bw, bot, x - bw, top)):
+            cv.segs(x0, y0, x1, y1, fade * kb * 0.8, np.where(bull[:, None], HOT, RED), step=0.7)
+        # линия цены и раскалённая «голова»
+        cv.poly(np.stack([x, yc], 1), fade * 0.5, HOT, step=0.8)
+        hx, hy = float(x[-1]), float(yc[-1])
+        cv.glow(hx, hy, amp * 26, GOLD)
+        cv.pts(hx, hy, amp * 8, WHITE)
+        xs = np.arange(0, c.W, 14 * c.s)
+        dash = (np.floor((xs + t * 60 * c.s) / (14 * c.s)) % 2) == 0
+        cv.segs(xs[dash], np.full(dash.sum(), hy), xs[dash] + 7 * c.s, np.full(dash.sum(), hy), amp * 0.18, GOLD, step=1.0)
+        # искры над «пампами»
+        big = np.nonzero((cl - o) > 2.0)[0]
+        for j in big:
+            cv.glow(x[j], top[j], fade[j] * 10, HOT)
+
+    def halo(self, t):
+        return 1.05
+
+
+class CoinRain(Scene):
+    """Монетный дождь: золотые монетки кувыркаются и падают, между ними искры."""
+
+    gain = 2.4
+    name = "coinrain"
+
+    def __init__(self, ctx, seed):
+        super().__init__(ctx, seed)
+        r = self.rng
+        c = ctx
+        n = int(70 * c.W * c.H / (1920 * 1080))
+        self.n = n
+        self.z = r.uniform(0.35, 1.0, n)
+        self.rad = (7 + 17 * self.z ** 1.5) * c.s
+        self.x0 = r.uniform(-0.05, 1.05, n) * c.W
+        self.y0 = r.uniform(0, 1, n)
+        self.vy = (110 + 260 * self.z) * c.s
+        self.spin = r.uniform(2.0, 6.0, n) * r.choice([-1, 1], n)
+        self.sph = r.uniform(0, 6.28, n)
+        self.tilt = r.uniform(-0.5, 0.5, n)
+        self.sw = r.uniform(0.4, 1.2, n)
+        self.swp = r.uniform(0, 6.28, n)
+        m = int(700 * c.W * c.H / (1920 * 1080))
+        self.sx = r.uniform(0, 1, m) * c.W
+        self.sy = r.uniform(0, 1, m)
+        self.svy = r.uniform(380, 760, m) * c.s
+        self.sbr = r.uniform(0.2, 1.0, m)
+        self.stw = r.uniform(0, 1000, m)
+
+    def render(self, cv, t, amp):
+        c = self.ctx
+        span = c.H + 80 * c.s
+        y = (self.y0 * span + self.vy * t) % span - 40 * c.s
+        x = self.x0 + 26 * c.s * np.sin(self.sw * t + self.swp) + 18 * c.s * t
+        x = (x + 40) % (c.W + 80) - 40
+        th = np.linspace(0, 2 * np.pi, 30)
+        sp = self.spin * t + self.sph
+        ex = self.rad * (0.12 + 0.88 * np.abs(np.cos(sp)))
+        ca, sa = np.cos(self.tilt), np.sin(self.tilt)
+        ux = ex[:, None] * np.cos(th)[None, :]
+        uy = self.rad[:, None] * np.sin(th)[None, :]
+        X = x[:, None] + ux * ca[:, None] - uy * sa[:, None]
+        Yy = y[:, None] + ux * sa[:, None] + uy * ca[:, None]
+        w = amp * (0.3 + 0.5 * self.z)
+        ww = np.repeat(w, th.size - 1)
+        cv.segs(X[:, :-1], Yy[:, :-1], X[:, 1:], Yy[:, 1:], ww * 0.7, HOT, step=0.7)
+        # заливка поперечными хордами — монета читается сплошной, а не кольцом
+        face = 0.4 + 0.6 * np.abs(np.cos(sp))
+        for j in np.linspace(-0.9, 0.9, 15):
+            hw = ex * 0.86 * math.sqrt(1 - j * j)
+            cy_ = self.rad * 0.86 * j
+            xa, ya = x - hw * ca - cy_ * sa, y - hw * sa + cy_ * ca
+            xb, yb = x + hw * ca - cy_ * sa, y + hw * sa + cy_ * ca
+            shade = 0.55 + 0.45 * (-j)  # сверху светлее
+            cv.segs(xa, ya, xb, yb, w * 0.42 * face * shade, ORANGE * 0.5 + GOLD * 0.5, step=0.8)
+        # ребро монеты, когда она встаёт боком, — яркий штрих
+        edge = (1 - np.abs(np.cos(sp))) ** 3
+        cv.segs(x + sa * self.rad, y - ca * self.rad, x - sa * self.rad, y + ca * self.rad,
+                amp * edge * 0.9 * self.z, HOT, step=0.7)
+        # блик, когда монета повернулась лицом
+        glint = np.abs(np.cos(sp)) ** 24
+        cv.glow(x, y, amp * glint * 14 * self.z, HOT)
+        cv.pts(x, y, amp * (0.6 + 2.5 * glint) * self.z, GOLD)
+        # искры дождя
+        span2 = c.H + 60
+        sy = (self.sy * span2 + self.svy * t) % span2 - 30
+        sx = self.sx + 18 * c.s * t
+        sx = sx % c.W
+        tw = 0.4 + 0.6 * (hash01(self.stw + np.floor(t * 12)) > 0.3)
+        cv.segs(sx, sy - self.svy * 0.035, sx, sy, amp * 0.18 * self.sbr * tw, ORANGE, step=1.0)
+        cv.pts(sx, sy, amp * 0.5 * self.sbr * tw, GOLD)
+
+    def halo(self, t):
+        return 1.08
+
+
+class HashRain(Scene):
+    """Хэш-дождь: столбцы шестнадцатеричных символов блоков стекают вниз,
+    голова столбца раскалена добела, хвост остывает в уголь."""
+
+    gain = 2.0
+    name = "hashrain"
+
+    def __init__(self, ctx, seed):
+        super().__init__(ctx, seed)
+        r = self.rng
+        c = ctx
+        cell = max(12, int(round(22 * c.s)))
+        self.cell = cell
+        self.cols = c.W // cell
+        self.rows = c.H // cell + 1
+        self.x0 = (c.W - self.cols * cell) // 2
+        chars = "0123456789abcdef"
+        font = ImageFont.truetype(FONT, int(cell * 0.82))
+        try:
+            font.set_variation_by_name(b"Medium")
+        except Exception:
+            pass
+        atlas = []
+        for ch in chars:
+            img = Image.new("L", (cell, cell), 0)
+            box = font.getbbox(ch)
+            ImageDraw.Draw(img).text(((cell - (box[2] - box[0])) / 2 - box[0], (cell - (box[3] - box[1])) / 2 - box[1]), ch, font=font, fill=255)
+            atlas.append(np.asarray(img, np.float32) / 255.0)
+        self.atlas = np.stack(atlas)
+        n = self.cols
+        self.on = r.random(n) < 0.55
+        self.speed = r.uniform(5, 14, n)
+        self.trail = r.integers(8, 26, n)
+        self.off = r.uniform(0, 60, n)
+        self.seed = r.integers(0, 1 << 30, n)
+        yy, xx = np.mgrid[0:c.H, 0:c.W].astype(np.float32)
+        rr = np.hypot(xx - c.cx, yy - c.cy)
+        # у самого знака дождь тише — центр остаётся за ₿
+        self.calm = (0.35 + 0.65 * smooth(c.R * 0.9, c.R * 2.4, rr)).astype(np.float32)
+
+    def render(self, cv, t, amp):
+        c = self.ctx
+        cell = self.cell
+        Fh = np.zeros((self.rows * cell, self.cols * cell), np.float32)
+        Ft = np.zeros_like(Fh)
+        for j in np.nonzero(self.on)[0]:
+            span = self.rows + self.trail[j] + 4
+            head = (self.off[j] + self.speed[j] * t) % span
+            hi = int(head)
+            for k in range(int(self.trail[j])):
+                row = hi - k
+                if row < 0 or row >= self.rows:
+                    continue
+                # символ в клетке иногда перещёлкивается
+                g = int(hash01(self.seed[j] * 0.001 + row * 7.31 + math.floor(t * 3 + row * 0.37)) * 16) % 16
+                m = self.atlas[g]
+                ys, xs = row * cell, j * cell
+                if k == 0:
+                    Fh[ys:ys + cell, xs:xs + cell] += m * 2.2
+                else:
+                    Ft[ys:ys + cell, xs:xs + cell] += m * (1 - k / self.trail[j]) ** 1.4
+        E = np.zeros((c.H, c.W, 3), np.float32)
+        h = min(c.H, Fh.shape[0])
+        sl = (slice(0, h), slice(self.x0, self.x0 + Fh.shape[1]))
+        k = amp / self.gain
+        calm = self.calm[sl]
+        E[sl] += (Fh[:h] * calm * k)[..., None] * WHITE + (Ft[:h] * calm * k * 1.1)[..., None] * ORANGE
+        cv.field(E)
+
+    def halo(self, t):
+        return 1.05
+
+
+SCENES = [Vortex, Fireworks, Lightning, Candles, Heartbeat, Plasma, CoinRain, Network, HashRain, Flame]
 TOTAL = SLOT * len(SCENES)
 
 
 # ---------------------------------------------------------------- монета и фон
 
 def coin_layers(ctx):
+    """Знак ₿ без круга: литой металл с фаской, свет сверху-слева, раскалённая
+    кромка и мягкое свечение. Возвращает слои, неизменные во всех кадрах."""
     W, H, s, R = ctx.W, ctx.H, ctx.s, ctx.R
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     rr = np.hypot(xx + 0.5 - ctx.cx, yy + 0.5 - ctx.cy)
 
-    ss = 4
-    size = int(R * 1.55 * ss)
-    font = ImageFont.truetype(FONT, size)
-    font.set_variation_by_name(b"Bold")
-    box = font.getbbox("₿")
-    gw, gh = box[2] - box[0], box[3] - box[1]
-    img = Image.new("L", (W * ss, H * ss), 0)
-    ImageDraw.Draw(img).text((ctx.cx * ss - gw / 2 - box[0], ctx.cy * ss - gh / 2 - box[1]), "₿", font=font, fill=255)
-    img = img.rotate(-12, resample=Image.BICUBIC, center=(ctx.cx * ss, ctx.cy * ss))
-    mask = np.asarray(img.resize((W, H), Image.LANCZOS), np.float32) / 255.0
-    inside = cv2.distanceTransform((mask > 0.5).astype(np.uint8), cv2.DIST_L2, 5)
-    bevel = np.clip(inside / (7 * s), 0, 1)
-
-    core = np.zeros((H, W, 3), np.float32)
-    core += (mask * (2.6 + 9.0 * bevel))[..., None] * np.array([1.0, 0.55, 0.2], np.float32)
-    g1 = cv2.GaussianBlur(mask, (0, 0), 5 * s)
-    core += (g1 * 2.2)[..., None] * ORANGE
-    # кольцо монеты: тонкая раскалённая кромка + мягкая полоса
-    ring = np.exp(-((rr - R) / (2.6 * s)) ** 2) * 4.2 + np.exp(-((rr - R) / (11 * s)) ** 2) * 0.9
-    ang = np.arctan2(yy - ctx.cy, xx - ctx.cx)
-    tex = 0.8 + 0.12 * np.sin(5 * ang + 1.3) + 0.08 * np.sin(13 * ang + 0.4) + 0.05 * np.sin(29 * ang + 2.0)
-    core += (ring * tex)[..., None] * GOLD
-    inner = np.exp(-((rr - R * 0.86) / (2.0 * s)) ** 2) * 0.9
-    core += inner[..., None] * ORANGE
-    body = smooth(R * 0.99, R * 0.9, rr) * (0.18 + 0.35 * (rr / R) ** 3)
-    core += body[..., None] * ORANGE
+    mask = glyph_mask(ctx)
+    m8 = (mask > 0.5).astype(np.uint8)
+    inside = cv2.distanceTransform(m8, cv2.DIST_L2, 5)
+    bw = 13 * s  # ширина фаски
+    hgt = np.clip(inside / bw, 0, 1)
+    hgt = hgt * hgt * (3 - 2 * hgt)
+    hgt = cv2.GaussianBlur(hgt.astype(np.float32), (0, 0), 1.8 * s)
+    gx = cv2.Sobel(hgt, cv2.CV_32F, 1, 0, ksize=3) / 8.0 * bw * 1.1
+    gy = cv2.Sobel(hgt, cv2.CV_32F, 0, 1, ksize=3) / 8.0 * bw * 1.1
+    nrm = np.stack([-gx, -gy, np.ones_like(gx)], -1)
+    nrm /= np.linalg.norm(nrm, axis=-1, keepdims=True)
+    L = np.array([-0.45, -0.62, 0.64], np.float32)
+    L /= np.linalg.norm(L)
+    Hv = L + np.array([0, 0, 1], np.float32)
+    Hv /= np.linalg.norm(Hv)
+    diff = np.clip(nrm @ L, 0, 1)
+    spec = np.clip(nrm @ Hv, 0, 1) ** 36
+    # металл: сверху светлое золото, снизу густой оранжевый
+    gy01 = np.clip((yy - (ctx.cy - 0.95 * R)) / (1.9 * R), 0, 1)[..., None]
+    top = np.array([1.75, 0.98, 0.30], np.float32)
+    bot = np.array([1.55, 0.52, 0.10], np.float32)
+    metal = top * (1 - gy01) + bot * gy01
+    # лёгкий «полированный» отлив по диагонали — неподвижный
+    sheen = 1.0 + 0.18 * np.sin((xx - yy) / (0.55 * R) + 0.8)[..., None]
+    core = mask[..., None] * metal * sheen * (0.22 + 1.55 * diff[..., None])
+    core += (mask * spec * 7.0)[..., None] * WHITE
+    # кромка: тонкая раскалённая обводка снаружи знака
+    out1 = np.clip(cv2.GaussianBlur(mask, (0, 0), 1.6 * s) - mask, 0, 1)
+    core += (out1 * 6.0)[..., None] * GOLD
+    out2 = np.clip(cv2.GaussianBlur(mask, (0, 0), 5 * s) - mask, 0, 1)
+    core += (out2 * 2.2)[..., None] * ORANGE
 
     halo = np.zeros((H, W, 3), np.float32)
-    halo += (np.exp(-np.maximum(rr - R, 0) / (0.28 * R)) * smooth(R * 0.9, R * 1.02, rr) * 1.1)[..., None] * ORANGE
-    halo += (np.exp(-(rr / (2.2 * R)) ** 2) * 0.2)[..., None] * ORANGE
-    halo += (cv2.GaussianBlur(mask, (0, 0), 22 * s) * 1.4)[..., None] * ORANGE
+    halo += (cv2.GaussianBlur(mask, (0, 0), 14 * s) * 1.1)[..., None] * ORANGE
+    halo += (cv2.GaussianBlur(mask, (0, 0), 40 * s) * 1.3)[..., None] * ORANGE
+    halo += (np.exp(-(rr / (2.0 * R)) ** 2) * 0.22)[..., None] * ORANGE
+    halo *= (1.0 - 0.85 * mask)[..., None]  # свечение вокруг знака, а не поверх металла
 
-    disk = smooth(R * 1.0, R * 0.9, rr).astype(np.float32)
+    # эффекты проходят ЗА знаком: под ним их гасим
+    occ = cv2.GaussianBlur(cv2.dilate(m8, np.ones((3, 3), np.uint8), iterations=max(1, round(2 * s))).astype(np.float32), (0, 0), 1.5 * s)
     # туманность вокруг: статичная низкочастотная дымка
     rng = np.random.default_rng(77)
-    gy, gx = max(4, round(7 * H / min(W, H))), max(4, round(7 * W / min(W, H)))
-    neb = cv2.resize(rng.random((gy, gx)).astype(np.float32), (W, H), interpolation=cv2.INTER_CUBIC)
-    neb2 = cv2.resize(rng.random((gy * 2, gx * 2)).astype(np.float32), (W, H), interpolation=cv2.INTER_CUBIC)
+    gy_, gx_ = max(4, round(7 * H / min(W, H))), max(4, round(7 * W / min(W, H)))
+    neb = cv2.resize(rng.random((gy_, gx_)).astype(np.float32), (W, H), interpolation=cv2.INTER_CUBIC)
+    neb2 = cv2.resize(rng.random((gy_ * 2, gx_ * 2)).astype(np.float32), (W, H), interpolation=cv2.INTER_CUBIC)
     nebula = np.clip(neb * 0.7 + neb2 * 0.3, 0, 1) ** 2 * np.exp(-(rr / (0.9 * ctx.Rmax)) ** 2) * 0.16
     ambient = nebula[..., None] * EMBER
     vign = np.clip(1 - 0.45 * (rr / ctx.Rmax) ** 2.2, 0, 1).astype(np.float32)
-    return core, halo, disk[..., None], ambient, vign[..., None]
+    return core.astype(np.float32), halo, occ[..., None], ambient, vign[..., None]
 
 
 class Dust:
@@ -977,15 +1245,20 @@ def frame(t):
     ctx = _G["ctx"]
     core, halo, disk, ambient, vign = _G["coin"]
     cv = Canvas(ctx)
+    front = Canvas(ctx)
     h = 1.0
     for i, tl, amp in active(t):
         sc = _G["scenes"][i]
         sc.render(cv, tl, amp * sc.gain)
+        if hasattr(sc, "render_front"):
+            sc.render_front(front, tl, amp * sc.gain)
         h += amp * (sc.halo(tl) - 1.0)
     _G["dust"].render(cv, t)
     E = cv.render()
-    E *= 1.0 - 0.9 * disk
+    E *= 1.0 - 0.95 * disk
     E += ambient + core + halo * h
+    if front.px or front.gx or front.fields:
+        E += front.render()
     out = (1.0 - np.exp(-E * 1.05)) * vign
     return np.clip(out * 255 + 0.5, 0, 255).astype(np.uint8)
 
