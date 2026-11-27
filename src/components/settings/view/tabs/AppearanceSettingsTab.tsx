@@ -9,7 +9,6 @@ import {
   backgroundsForTheme,
   isVideoTheme,
   LIVE_WALLPAPER_OFF,
-  LIVE_WALLPAPER_AUTO,
   liveWallpaperSelectValue,
 } from '../../../../contexts/ThemeContext';
 import SettingsCard from '../SettingsCard';
@@ -104,7 +103,7 @@ export default function AppearanceSettingsTab({
             <SettingsRow
               label={t('appearanceSettings.liveWallpaper.label', { defaultValue: 'Background' })}
               description={t('appearanceSettings.liveWallpaper.description', {
-                defaultValue: 'Off removes the picture. Auto rotates the clips. Any other item stays as picked.',
+                defaultValue: 'Off removes the picture. Any other item stays as picked.',
               })}
             >
               <select
@@ -114,9 +113,6 @@ export default function AppearanceSettingsTab({
               >
                 <option value={LIVE_WALLPAPER_OFF}>
                   {t('appearanceSettings.liveWallpaper.off', { defaultValue: 'Off' })}
-                </option>
-                <option value={LIVE_WALLPAPER_AUTO}>
-                  {t('appearanceSettings.liveWallpaper.auto', { defaultValue: 'Auto rotate' })}
                 </option>
                 {backgroundsForTheme(theme).map((variant: { id: string; label: string }) => (
                   <option key={variant.id} value={variant.id}>

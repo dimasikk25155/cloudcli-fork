@@ -70,29 +70,24 @@ const readThemeChromeColor = (dark) => {
 };
 
 // Несколько фонов на одну тему: тема задаёт цвета/шрифты/панели, а фон
-// внутри неё выбирается отдельно. Первый вариант в списке — дефолтный, его
-// файл называется просто `<тема>.<ext>`, остальные — `<тема>-<id>.<ext>`.
-// Тема без записи здесь = один фон, и селектор фона для неё не показывается.
+// внутри неё выбирается отдельно. Первый вариант в списке — дефолтный.
+// Файл варианта — `<тема>-<id>.<ext>`; тема без записи здесь = один фон
+// `<тема>.<ext>`, и селектор фона для неё не показывается.
 // Фото «Неона» сюда не входят: там фон выбирается вместе с цветом акцента —
 // это вариант темы (NEON_VARIANTS в themeMigration.js), а не отдельный список.
 export const THEME_BACKGROUNDS = {
-  // Живые обои оранжевой темы: первый пункт = штатный ember.mp4.
+  // Живые обои оранжевой темы. С 27.11 только «Биткоин-шоу» в двух версиях
+  // (Дима: «оставь тут только откл и 2 версии биткойн шоу, старую и новую»).
+  // Прежние клипы (угольки, город, …) и «Автосмена» из списка убраны; сохранённый
+  // на устройстве убранный id откатывается на первый пункт (activeBackground).
   // `tall: true` — есть отдельный вертикальный файл `<тема>-<id>-tall.mp4`.
   ember: [
-    { id: 'current', label: 'Текущий' },
-    { id: 'coals', label: 'Угольки', tall: true },
-    { id: 'bitcoin', label: 'Биткоин', tall: true },
-    { id: 'city', label: 'Город', tall: true },
-    { id: 'salute', label: 'Салют', tall: true },
-    { id: 'coin', label: 'Монета', tall: true },
-    { id: 'car', label: 'Машина', tall: true },
-    { id: 'vortex', label: 'Вихрь', tall: true },
-    { id: 'spark', label: 'Искра', tall: true },
-    { id: 'lightning', label: 'Молния', tall: true },
     // ~2 минуты: неподвижный знак ₿ без круга, вокруг сменяются 10 эффектов, склейка без шва.
     // Генератор — scripts/theme-bg/btc_show.py. `rev` — метка версии в адресе:
     // сервер отдаёт /theme-bg с max-age 4 ч, без новой метки браузер крутит старый ролик.
     { id: 'show', label: 'Биткоин-шоу', tall: true, rev: '20261127b' },
+    // Первая версия 25.11 (`01aaa71a`): монета в круге, 9 эффектов.
+    { id: 'show-old', label: 'Биткоин-шоу (старое)', tall: true },
   ],
 };
 
@@ -113,21 +108,18 @@ export const activeBackground = (themeKey, variantId) => {
 
 /** Файл фона: дефолтный вариант живёт под именем самой темы. */
 export const backgroundFile = (themeKey, variantId) => {
-  const variants = backgroundsForTheme(themeKey);
-  const fallback = variants[0]?.id;
   const active = activeBackground(themeKey, variantId);
-  return !active || active === fallback
+  return !active
     ? `/theme-bg/${themeKey}.jpg`
     : `/theme-bg/${themeKey}-${active}.jpg`;
 };
 
 const themedMediaPath = (themeKey, variantId, ext, suffix = '') => {
   const variants = backgroundsForTheme(themeKey);
-  const fallback = variants[0]?.id;
   const active = activeBackground(themeKey, variantId);
   const rev = variants.find((variant) => variant.id === active)?.rev;
   const tail = `${suffix}.${ext}${rev ? `?v=${rev}` : ''}`;
-  return !active || active === fallback
+  return !active
     ? `/theme-bg/${themeKey}${tail}`
     : `/theme-bg/${themeKey}-${active}${tail}`;
 };
@@ -208,10 +200,9 @@ const parseBackgroundMap = (raw) => {
     return Object.fromEntries(
       Object.entries(parsed).filter(([themeKey, variantId]) =>
         typeof variantId === 'string'
-        && (
-          variantId === LIVE_WALLPAPER_AUTO
-          || backgroundsForTheme(themeKey).some((variant) => variant.id === variantId)
-        )
+        // «Автосмены» в списке больше нет: сохранённый `auto` отбрасываем,
+        // и устройство встаёт на первый ролик.
+        && backgroundsForTheme(themeKey).some((variant) => variant.id === variantId)
       )
     );
   } catch {

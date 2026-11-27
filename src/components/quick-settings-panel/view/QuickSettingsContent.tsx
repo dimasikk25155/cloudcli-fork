@@ -6,7 +6,6 @@ import {
   backgroundsForTheme,
   isVideoTheme,
   LIVE_WALLPAPER_OFF,
-  LIVE_WALLPAPER_AUTO,
   liveWallpaperSelectValue,
 } from '../../../contexts/ThemeContext';
 import ThemePicker from '../../settings/view/tabs/ThemePicker';
@@ -112,9 +111,6 @@ export default function QuickSettingsContent({
             >
               <option value={LIVE_WALLPAPER_OFF}>
                 {t('appearanceSettings.liveWallpaper.off', { defaultValue: 'Off' })}
-              </option>
-              <option value={LIVE_WALLPAPER_AUTO}>
-                {t('appearanceSettings.liveWallpaper.auto', { defaultValue: 'Auto rotate' })}
               </option>
               {backgroundsForTheme(theme).map((variant: { id: string; label: string }) => (
                 <option key={variant.id} value={variant.id}>

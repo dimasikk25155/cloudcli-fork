@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
@@ -165,19 +165,29 @@ describe('реестр тем', () => {
     assert.doesNotMatch(gate[1], /'claude'/);
   });
 
-  it('у оранжевой темы в списке живых обоев есть угольки, биткоин и город', () => {
-    assert.match(contextSource, /id: 'coals',\s*label: 'Угольки'/);
-    assert.match(contextSource, /id: 'bitcoin',\s*label: 'Биткоин'/);
-    assert.match(contextSource, /id: 'city',\s*label: 'Город'/);
-    assert.match(contextSource, /id: 'salute',\s*label: 'Салют'/);
-    assert.match(contextSource, /id: 'coin',\s*label: 'Монета'/);
-    assert.match(contextSource, /id: 'car',\s*label: 'Машина'/);
-    assert.match(contextSource, /id: 'vortex',\s*label: 'Вихрь'/);
-    assert.match(contextSource, /id: 'spark',\s*label: 'Искра'/);
-    assert.match(contextSource, /id: 'lightning',\s*label: 'Молния'/);
-    assert.match(contextSource, /id: 'show',\s*label: 'Биткоин-шоу',\s*tall: true/);
+  it('у оранжевой темы в живых обоях только две версии «Биткоин-шоу»: новая первой, затем старая', () => {
+    const block = contextSource.match(/ember: \[([\s\S]*?)\n {2}\],/);
+    assert.ok(block, 'не нашёл список живых обоев ember');
+    const ids = [...block[1].matchAll(/\{ id: '([^']+)'/g)].map((m) => m[1]);
+    assert.deepEqual(ids, ['show', 'show-old']);
+    assert.match(block[1], /id: 'show',\s*label: 'Биткоин-шоу',\s*tall: true/);
+    assert.match(block[1], /id: 'show-old',\s*label: 'Биткоин-шоу \(старое\)',\s*tall: true/);
     assert.match(contextSource, /VIDEO_THEMES = \['ember'\]/);
-    assert.match(contextSource, /LIVE_WALLPAPER_AUTO = 'auto'/);
+    for (const name of ['ember-show', 'ember-show-old']) {
+      for (const tail of ['.mp4', '.jpg', '-tall.mp4', '-tall.jpg']) {
+        assert.ok(existsSync(path.join(here, '..', '..', 'public', 'theme-bg', `${name}${tail}`)), `нет файла ${name}${tail}`);
+      }
+    }
+  });
+
+  it('в выпадашке «Фон» нет «Автосмены», сохранённый auto откатывается на первый ролик', () => {
+    for (const file of ['settings/view/tabs/AppearanceSettingsTab.tsx', 'quick-settings-panel/view/QuickSettingsContent.tsx']) {
+      const source = readFileSync(path.join(here, '..', 'components', file), 'utf8');
+      assert.doesNotMatch(source, /LIVE_WALLPAPER_AUTO/, file);
+    }
+    const parse = contextSource.match(/const parseBackgroundMap = [\s\S]*?\n\};\n/);
+    assert.ok(parse, 'не нашёл parseBackgroundMap');
+    assert.doesNotMatch(parse[0], /LIVE_WALLPAPER_AUTO/);
   });
 
   it('круг живых обоев прыгает с последнего на первый и не включает выкл и автосмену', () => {
