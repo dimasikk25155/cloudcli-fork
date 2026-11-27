@@ -4,8 +4,8 @@
 Знак ₿ в центре — один неподвижный слой, одинаковый во всех кадрах: литой
 металлический знак без круга-монеты (Дима 27.11: «не нравится, что она в круге»).
 Вокруг по очереди сменяются эффекты (вихрь, салют, молнии, график, пульс,
-протуберанцы, монетный дождь, блокчейн-сеть, хэш-дождь, пламя), соседние сцены
-плавно перетекают. Гиперпрыжок и орбиты убраны 27.11 — не понравились.
+звездопад, монетный дождь, блокчейн-сеть, хэш-дождь, пламя), соседние сцены
+плавно перетекают. Гиперпрыжок, орбиты и протуберанцы убраны 27.11 — не понравились.
 
 Кадр — чистая функция времени: рендер идёт параллельно, а длина ролика кратна
 периоду фона, поэтому последний кадр стыкуется с первым без шва.
@@ -625,75 +625,84 @@ class Heartbeat(Scene):
         return 1.0 + 0.7 * min(v, 1.5)
 
 
-class Plasma(Scene):
-    gain = 3.2
-    name = "plasma"
+class Meteors(Scene):
+    """Звездопад: золотые метеоры чертят ночное небо по диагонали за знаком,
+    время от времени — крупный болид со вспышкой и осыпью искр. Заменил
+    протуберанцы 27.11 (Дима: «этот отрезок… не нравится»)."""
+
+    gain = 2.6
+    name = "meteors"
 
     def __init__(self, ctx, seed):
         super().__init__(ctx, seed)
         r = self.rng
-        self.loops = []
-        t = -3.0
+        c = ctx
+        self.dx, self.dy = -math.cos(0.52), math.sin(0.52)
+        self.m = []
+        t = -2.5
         while t < self.dur():
-            a1 = r.uniform(0, 2 * np.pi)
-            self.loops.append(dict(t0=t, life=r.uniform(3.8, 5.5), a1=a1, a2=a1 + r.choice([-1, 1]) * r.uniform(0.3, 0.75),
-                                   hmax=r.uniform(0.5, 1.15) * ctx.R, s0=r.random(280), lj=r.normal(0, 1, 280), tw=r.uniform(0.6, 1.4),
-                                   ph=r.uniform(0, 6.28)))
-            t += r.uniform(0.45, 0.8)
-        self.cme = []
-        for tc in (r.uniform(2, 5), r.uniform(8, 11)):
-            a = r.uniform(0, 2 * np.pi)
-            m = 700
-            self.cme.append(dict(tc=tc, a=a, da=r.normal(0, 0.28, m), sp=r.uniform(0.6, 1.0, m), rj=r.normal(0, 1, m)))
-        self.sp_a = r.uniform(0, 2 * np.pi, 110)
-        self.sp_w = r.uniform(2, 6, 110)
-        self.sp_p = r.uniform(0, 6.28, 110)
-        self.sp_l = r.uniform(8, 34, 110) * ctx.s
-
-    def _loop(self, L, tau, s, hk=1.0):
-        c = self.ctx
-        h = L["hmax"] * math.sin(math.pi * min(max(tau / L["life"], 0), 1)) ** 0.7 * hk
-        ang = L["a1"] + (L["a2"] - L["a1"]) * s + 0.035 * np.sin(2 * np.pi * s) * h / c.R * L["tw"]
-        rad = c.R * 1.01 + h * np.sin(np.pi * s) * (1 + 0.12 * np.sin(3 * np.pi * s + L["ph"] + tau))
-        return c.cx + rad * np.cos(ang), c.cy + rad * np.sin(ang)
+            big = r.random() < 0.14
+            v = (r.uniform(650, 850) if big else r.uniform(1000, 1900)) * c.s
+            life = r.uniform(1.9, 2.4) if big else r.uniform(0.55, 1.25)
+            # точка середины пути — по всему кадру, старт и финиш вдоль направления
+            mx, my = r.uniform(-0.1, 1.1) * c.W, r.uniform(-0.05, 1.0) * c.H
+            M = dict(t0=t, life=life, v=v, big=big, z=r.uniform(0.45, 1.0) if not big else 1.0,
+                     x0=mx - self.dx * v * life / 2, y0=my - self.dy * v * life / 2,
+                     tail=v * (0.55 if big else r.uniform(0.28, 0.45)), wob=r.uniform(0, 6.28))
+            if big:
+                k = 140
+                M["sp_t"] = r.uniform(0.05, 0.95, k) * life
+                M["sp_vx"] = r.normal(0, 70, k) * c.s - self.dx * 120 * c.s
+                M["sp_vy"] = r.normal(0, 70, k) * c.s - self.dy * 120 * c.s
+                M["sp_b"] = r.uniform(0.3, 1.0, k)
+            self.m.append(M)
+            t += r.uniform(0.3, 0.6) if big else r.uniform(0.05, 0.14)
+        n = int(260 * c.W * c.H / (1920 * 1080))
+        self.sx = r.uniform(0, 1, n) * c.W
+        self.sy = r.uniform(0, 1, n) * c.H
+        self.sb = r.uniform(0.15, 1.0, n) ** 2
+        self.sw = r.uniform(0.6, 2.2, n)
+        self.sp = r.uniform(0, 6.28, n)
 
     def render(self, cv, t, amp):
         c = self.ctx
-        s = np.linspace(0, 1, 90)
-        for L in self.loops:
-            tau = t - L["t0"]
-            if tau < 0 or tau > L["life"]:
+        # неподвижные звёзды мерцают
+        tw = 0.55 + 0.45 * np.sin(self.sw * t + self.sp)
+        cv.pts(self.sx, self.sy, amp * 0.9 * self.sb * tw, WHITE * 0.6 + GOLD * 0.4)
+        u = np.linspace(0.0, 1.0, 64)
+        for M in self.m:
+            tau = t - M["t0"]
+            if tau < 0 or tau > M["life"] + 1.2:
                 continue
-            f = math.sin(math.pi * tau / L["life"]) ** 0.6
-            for hk, k in ((1.0, 0.22), (0.93, 0.12), (1.07, 0.1)):
-                x, y = self._loop(L, tau, s, hk)
-                cv.poly(np.stack([x, y], 1), amp * f * k, GOLD)
-            cv.glow(x[::2], y[::2], amp * f * 2.2 * np.sin(np.pi * s[::2]) ** 0.5, ORANGE)
-            sj = (L["s0"] + 0.55 * tau) % 1.0
-            hk = 1.0 + 0.06 * L["lj"]
-            x, y = self._loop(L, tau, sj, hk)
-            cv.pts(x, y, amp * f * 0.9 * np.sin(np.pi * sj) ** 0.5, HOT)
-            x2, y2 = self._loop(L, tau, (sj - 0.015) % 1.0, hk)
-            cv.segs(x2, y2, x, y, amp * f * 0.5, GOLD)
-        for C in self.cme:
-            a = t - C["tc"]
-            if a < 0 or a > 3.0:
-                continue
-            rc = c.R * 1.1 + c.Rmax * 0.45 * a * C["sp"]
-            ang = C["a"] + C["da"] * (1 + a)
-            rr = rc + C["rj"] * 14 * c.s * (1 + 2 * a)
-            w = amp * 0.6 * (1 - a / 3.0) ** 1.5
-            cv.pts(c.cx + rr * np.cos(ang), c.cy + rr * np.sin(ang), w, GOLD)
-            if a < 0.4:
-                cv.glow(c.cx + c.R * 1.1 * math.cos(C["a"]), c.cy + c.R * 1.1 * math.sin(C["a"]), amp * 30 * (1 - a / 0.4), HOT)
-        ln = self.sp_l * (0.45 + 0.55 * np.sin(self.sp_w * t + self.sp_p) ** 2)
-        r0 = c.R * 1.02
-        r1 = r0 + ln
-        cv.segs(c.cx + r0 * np.cos(self.sp_a), c.cy + r0 * np.sin(self.sp_a),
-                c.cx + r1 * np.cos(self.sp_a), c.cy + r1 * np.sin(self.sp_a), amp * 0.55, ORANGE)
+            if tau <= M["life"]:
+                f = math.sin(math.pi * tau / M["life"]) ** 0.55
+                hx = M["x0"] + self.dx * M["v"] * tau
+                hy = M["y0"] + self.dy * M["v"] * tau
+                tl = M["tail"] * (0.35 + 0.65 * min(1.0, tau / (0.25 * M["life"])))
+                X = hx - self.dx * tl * u
+                Y = hy - self.dy * tl * u
+                w = amp * f * M["z"] * (1 - u) ** 1.8
+                core = 1.6 if M["big"] else 0.9
+                cv.poly(np.stack([X, Y], 1), w * core, HOT)
+                cv.poly(np.stack([X, Y], 1), w * core * 0.8, ORANGE, step=1.5)
+                cv.glow(X, Y, w * (3.5 if M["big"] else 1.0), ORANGE)
+                flick = 1.0 + 0.25 * math.sin(37 * tau + M["wob"])
+                cv.glow(hx, hy, amp * f * M["z"] * (60 if M["big"] else 12) * flick, HOT)
+                cv.pts(hx, hy, amp * f * M["z"] * (3.0 if M["big"] else 1.2), WHITE)
+            if M["big"]:
+                # осыпь: искра отрывается от головы и гаснет, медленно падая
+                a = tau - M["sp_t"]
+                ok = (a > 0) & (a < 1.1)
+                if ok.any():
+                    a = a[ok]
+                    bx = M["x0"] + self.dx * M["v"] * M["sp_t"][ok]
+                    by = M["y0"] + self.dy * M["v"] * M["sp_t"][ok]
+                    sx = bx + M["sp_vx"][ok] * a
+                    sy = by + M["sp_vy"][ok] * a + 0.5 * 160 * c.s * a * a
+                    cv.pts(sx, sy, amp * 1.6 * M["sp_b"][ok] * (1 - a / 1.1) ** 1.5, GOLD)
 
     def halo(self, t):
-        return 1.12
+        return 1.06
 
 
 class Network(Scene):
@@ -1128,7 +1137,7 @@ class HashRain(Scene):
         return 1.05
 
 
-SCENES = [Vortex, Fireworks, Lightning, Candles, Heartbeat, Plasma, CoinRain, Network, HashRain, Flame]
+SCENES = [Vortex, Fireworks, Lightning, Candles, Heartbeat, Meteors, CoinRain, Network, HashRain, Flame]
 TOTAL = SLOT * len(SCENES)
 
 

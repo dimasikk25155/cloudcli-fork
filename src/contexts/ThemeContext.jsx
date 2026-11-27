@@ -90,8 +90,9 @@ export const THEME_BACKGROUNDS = {
     { id: 'spark', label: 'Искра', tall: true },
     { id: 'lightning', label: 'Молния', tall: true },
     // ~2 минуты: неподвижный знак ₿ без круга, вокруг сменяются 10 эффектов, склейка без шва.
-    // Генератор — scripts/theme-bg/btc_show.py.
-    { id: 'show', label: 'Биткоин-шоу', tall: true },
+    // Генератор — scripts/theme-bg/btc_show.py. `rev` — метка версии в адресе:
+    // сервер отдаёт /theme-bg с max-age 4 ч, без новой метки браузер крутит старый ролик.
+    { id: 'show', label: 'Биткоин-шоу', tall: true, rev: '20261127b' },
   ],
 };
 
@@ -124,7 +125,8 @@ const themedMediaPath = (themeKey, variantId, ext, suffix = '') => {
   const variants = backgroundsForTheme(themeKey);
   const fallback = variants[0]?.id;
   const active = activeBackground(themeKey, variantId);
-  const tail = `${suffix}.${ext}`;
+  const rev = variants.find((variant) => variant.id === active)?.rev;
+  const tail = `${suffix}.${ext}${rev ? `?v=${rev}` : ''}`;
   return !active || active === fallback
     ? `/theme-bg/${themeKey}${tail}`
     : `/theme-bg/${themeKey}-${active}${tail}`;
