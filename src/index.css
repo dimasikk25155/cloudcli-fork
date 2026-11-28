@@ -1266,9 +1266,16 @@
     }
   }
 
-  /* Subagent crabs: scuttle while working, hop once on return */
+  /* Subagent crabs: scuttle sideways while working, claws clacking; hop once on return */
   .crab--running .crab-sprite {
-    animation: crab-scuttle 0.45s steps(2, jump-none) infinite;
+    transform-origin: 50% 100%;
+    animation: crab-scuttle 0.3s steps(2, jump-none) infinite;
+  }
+  .crab--running .crab-claws-a {
+    animation: crab-legs-a 0.22s steps(1, end) infinite;
+  }
+  .crab--running .crab-claws-b {
+    animation: crab-legs-b 0.22s steps(1, end) infinite;
   }
   .crab--running .crab-legs-a {
     animation: crab-legs-a 0.3s steps(1, end) infinite;
@@ -1280,7 +1287,7 @@
     animation: crab-scuttle 0.45s steps(2, jump-none) infinite;
   }
   .crab-wander {
-    animation: crab-wander 3.2s ease-in-out infinite alternate;
+    animation: crab-wander 2.4s infinite;
   }
   .crab--done .crab-sprite,
   .crab--failed .crab-sprite {
@@ -1301,9 +1308,10 @@
     75% { transform: rotate(8deg); }
   }
 
+  /* Bob and rock from leg to leg — a sideways shuffle, not a march */
   @keyframes crab-scuttle {
-    0% { transform: translateY(0); }
-    100% { transform: translateY(-1.5px); }
+    0% { transform: translateY(0) rotate(-4deg); }
+    100% { transform: translateY(-1.5px) rotate(4deg); }
   }
 
   @keyframes crab-legs-a {
@@ -1316,9 +1324,14 @@
     50%, 100% { opacity: 1; }
   }
 
+  /* Jerky sideways dash one way, a pause, a dash back, another pause.
+     Dash length: --crab-dash (wide in the squad band, short next to text). */
   @keyframes crab-wander {
-    0% { transform: translateX(-3px); }
-    100% { transform: translateX(3px); }
+    0% { transform: translateX(calc(-1 * var(--crab-dash, 4px))); animation-timing-function: steps(6, end); }
+    35% { transform: translateX(var(--crab-dash, 4px)); }
+    50% { transform: translateX(var(--crab-dash, 4px)); animation-timing-function: steps(6, end); }
+    85% { transform: translateX(calc(-1 * var(--crab-dash, 4px))); }
+    100% { transform: translateX(calc(-1 * var(--crab-dash, 4px))); }
   }
 
   @keyframes crab-return {
@@ -1331,11 +1344,14 @@
     .crab-sprite,
     .crab-legs-a,
     .crab-legs-b,
+    .crab-claws-a,
+    .crab-claws-b,
     .crab-holding,
     .crab-wander {
       animation: none !important;
     }
-    .crab-legs-b {
+    .crab-legs-b,
+    .crab-claws-b {
       opacity: 0;
     }
   }
